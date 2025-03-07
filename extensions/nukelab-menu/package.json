@@ -1,0 +1,42 @@
+{
+  "name": "nukelab-menu",
+  "version": "0.1.0",
+  "description": "A NukeLab extension for NukeIDE, providing an enhanced menu system for seamless workflow navigation.",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nuclear",
+    "nukelab",
+    "nukeide",
+    "simulation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub-dev/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub-dev/nuke-ide/issues"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.59.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/menu-frontend-module"
+    }
+  ]
+}

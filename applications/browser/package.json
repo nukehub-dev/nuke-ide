@@ -1,0 +1,108 @@
+{
+  "private": true,
+  "name": "nuke-ide",
+  "productName": "NukeIDE",
+  "version": "0.1.0",
+  "description": "NukeIDE is an open-source IDE for nuclear simulation and engineering, built on Theia. It offers advanced tools for computational physics, reactor design, and radiation transport modeling, integrating high-performance libraries for seamless simulation workflows.",
+  "license": "BSD-2-Clause",
+  "author": {
+    "name": "NukeHub Team",
+    "email": "info@nukehub.org",
+    "url": "https://nukehub.org"
+  },
+  "homepage": "https://nukehub.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub-dev/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub-dev/nuke-ide/issues",
+    "email": "admin@nukehub.org"
+  },
+  "keywords": [
+    "NukeIDE",
+    "nuclear",
+    "simulation",
+    "reactor design",
+    "open-source",
+    "theia",
+    "nuclear engineering",
+    "computational physics",
+    "fusion energy",
+    "radiation transport"
+  ],
+  "dependencies": {
+    "@theia/core": "1.59.0",
+    "@theia/editor": "1.59.0",
+    "@theia/filesystem": "1.59.0",
+    "@theia/markers": "1.59.0",
+    "@theia/messages": "1.59.0",
+    "@theia/monaco": "1.59.0",
+    "@theia/navigator": "1.59.0",
+    "@theia/preferences": "1.59.0",
+    "@theia/process": "1.59.0",
+    "@theia/terminal": "1.59.0",
+    "@theia/workspace": "1.59.0",
+    "@theia/git": "1.59.0",
+    "@theia/file-search": "1.59.0",
+    "@theia/collaboration": "1.59.0",
+    "@theia/notebook": "1.59.0",
+    "@theia/keymaps": "1.59.0",
+    "@theia/outline-view": "1.59.0",
+    "@theia/output": "1.59.0",
+    "@theia/plugin-dev": "1.59.0",
+    "@theia/plugin": "1.59.0",
+    "@theia/preview": "1.59.0",
+    "@theia/property-view": "1.59.0",
+    "@theia/remote": "1.59.0",
+    "@theia/search-in-workspace": "1.59.0",
+    "@theia/secondary-window": "1.59.0",
+    "@theia/task": "1.59.0",
+    "@theia/timeline": "1.59.0",
+    "@theia/toolbar": "1.59.0",
+    "@theia/typehierarchy": "1.59.0",
+    "@theia/userstorage": "1.59.0",
+    "@theia/vsx-registry": "1.59.0",
+    "@theia/variable-resolver": "1.59.0",
+    "@theia/mini-browser": "1.59.0",
+    "@theia/console": "1.59.0",
+    "@theia/bulk-edit": "1.59.0",
+    "nukelab-menu": "0.1.0"
+  },
+  "devDependencies": {
+    "@theia/cli": "1.59.0"
+  },
+  "scripts": {
+    "bundle": "yarn rebuild && theia build --mode development",
+    "rebuild": "theia rebuild:browser --cacheRoot ..",
+    "start": "theia start",
+    "watch": "yarn rebuild && theia build --watch --mode development"
+  },
+  "theia": {
+    "target": "browser",
+    "frontend": {
+      "config": {
+        "applicationName": "NukeIDE",
+        "warnOnPotentiallyInsecureHostPattern": false,
+        "defaultIconTheme": "theia-file-icons",
+        "preferences": {
+          "toolbar.showToolbar": true,
+          "files.enableTrash": false
+        }
+      }
+    },
+    "backend": {
+      "config": {
+        "warnOnPotentiallyInsecureHostPattern": false,
+        "startupTimeout": -1,
+        "resolveSystemPlugins": false,
+        "configurationFolder": ".nuke-ide"
+      }
+    },
+    "generator": {
+      "config": {
+        "preloadTemplate": "./../resources/preload.html"
+      }
+    }
+  }
+}

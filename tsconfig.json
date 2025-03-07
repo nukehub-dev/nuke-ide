@@ -1,0 +1,16 @@
+{
+  "extends": "./configs/base.tsconfig",
+  "include": [],
+  "compilerOptions": {
+    "composite": true,
+    "allowJs": true
+  },
+  "references": [
+    {
+      "path": "applications/browser"
+    },
+    {
+      "path": "extensions/nukelab-menu"
+    }
+  ]
+}
