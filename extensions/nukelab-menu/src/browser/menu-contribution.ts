@@ -25,7 +25,7 @@ export class LabMenu {
     commands.registerCommand(LabCommands.OPEN_LAB_HOME, {
       execute: () => {
         const baseUrl = window.location.origin;
-        const uri = new URI(`${baseUrl}/lab/home`);
+        const uri = new URI(`${baseUrl}/home`);
         window.open(uri.toString(), "_blank");
       },
     });
