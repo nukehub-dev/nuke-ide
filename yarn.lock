@@ -1515,6 +1515,19 @@
     tslib "^2.6.2"
     vscode-languageserver-textdocument "^1.0.1"
 
+"@theia/getting-started@1.59.0":
+  version "1.59.0"
+  resolved "https://registry.yarnpkg.com/@theia/getting-started/-/getting-started-1.59.0.tgz#4fa207525fe85df76972623d0debfdff43867fef"
+  integrity sha512-eRcYQwzufGe1+T5EnJkne6TxWBAa+CujqKEF0U4GIM1eKbtU5tLy6Fr4kKil658CYxq+X+1abTOQ6k24/ye/ZQ==
+  dependencies:
+    "@theia/core" "1.59.0"
+    "@theia/editor" "1.59.0"
+    "@theia/filesystem" "1.59.0"
+    "@theia/keymaps" "1.59.0"
+    "@theia/preview" "1.59.0"
+    "@theia/workspace" "1.59.0"
+    tslib "^2.6.2"
+
 "@theia/git@1.59.0":
   version "1.59.0"
   resolved "https://registry.yarnpkg.com/@theia/git/-/git-1.59.0.tgz#d044b4af3d8a52b6d227a04032151577386b4c4f"

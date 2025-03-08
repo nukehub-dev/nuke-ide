@@ -33,6 +33,7 @@
   ],
   "dependencies": {
     "@theia/core": "1.59.0",
+    "@theia/getting-started": "1.59.0",
     "@theia/editor": "1.59.0",
     "@theia/filesystem": "1.59.0",
     "@theia/markers": "1.59.0",
@@ -67,7 +68,9 @@
     "@theia/mini-browser": "1.59.0",
     "@theia/console": "1.59.0",
     "@theia/bulk-edit": "1.59.0",
-    "nukelab-menu": "0.1.0"
+    "nuke-essentials": "0.1.0",
+    "nukelab-menu": "0.1.0",
+    "nukelab-pwa": "0.1.0"
   },
   "devDependencies": {
     "@theia/cli": "1.59.0"
@@ -101,7 +104,7 @@
     },
     "generator": {
       "config": {
-        "preloadTemplate": "./../resources/preload.html"
+        "preloadTemplate": "./../../resources/preload.html"
       }
     }
   }

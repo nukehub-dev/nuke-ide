@@ -1,0 +1,39 @@
+.theia-aboutDialog {
+    line-height: 1.4;
+    max-width: 520px;
+}
+
+.theia-aboutDialog h1 {
+    margin: 5px 0 15px;
+}
+
+.about-logo {
+    background-image: url('../../../../resources/logo.svg');
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    width: 128px;
+    height: 128px;
+}
+
+.about-flex-grid {
+    display: flex;
+}
+
+.about-flex-grid>.about-flex-grid-column:first-child {
+    margin-right: 15px;
+}
+
+.about-hr {
+    opacity: 0.2;
+}
+
+.about-sub-header {
+    color: var(--theia-descriptionForeground);
+    text-transform: capitalize;
+    font-weight: 400;
+}
+
+.about-paragraph {
+    margin: 15px 0;
+}

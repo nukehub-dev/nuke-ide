@@ -1,0 +1,48 @@
+{
+  "name": "nukelab-pwa",
+  "version": "0.1.0",
+  "description": "A Theia extension to enable PWA features for NukeIDE.",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nuclear",
+    "nukelab",
+    "nukeide",
+    "simulation",
+    "pwa"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub-dev/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub-dev/nuke-ide/issues"
+  },
+  "files": [
+    "lib",
+    "src",
+    "manifest.json",
+    "service-worker.js"
+  ],
+  "dependencies": {
+    "@theia/core": "1.59.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/pwa-frontend-module"
+    },
+    {
+      "backend": "lib/node/pwa-backend-module"
+    }
+  ]
+}

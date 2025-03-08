@@ -11,6 +11,9 @@
     },
     {
       "path": "extensions/nukelab-menu"
+    },
+    {
+      "path": "extensions/nuke-essentials"
     }
   ]
 }

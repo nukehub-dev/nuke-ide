@@ -1,0 +1,11 @@
+{
+  "extends": "./../../configs/base.tsconfig",
+
+  "compilerOptions": {
+    "strict": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "moduleResolution": "Node"
+  },
+  "include": ["src", "../../public/service-worker.js"]
+}

@@ -1,0 +1,47 @@
+{
+  "private": true,
+  "name": "nuke-essentials",
+  "version": "0.1.0",
+  "description": "NukeIDE essential extensions",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nuclear",
+    "nukelab",
+    "nukeide",
+    "simulation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub-dev/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub-dev/nuke-ide/issues"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.59.0",
+    "@theia/plugin-ext-vscode": "1.59.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib *.tsbuildinfo",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/about/browser/about-frontend-module"
+    }
+  ]
+}
