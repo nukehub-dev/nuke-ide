@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <style>
-      html, body {
+      html,
+      body {
         background-color: black;
         color: white;
         font-family: sans-serif;
@@ -55,20 +56,42 @@
       }
 
       @keyframes nuke-ide-spinner {
-        0% { transform: rotate(0deg); }
-        20% { transform: rotate(120deg); }
-        25% { transform: rotate(90deg); }
-        45% { transform: rotate(210deg); }
-        50% { transform: rotate(180deg); }
-        70% { transform: rotate(300deg); }
-        75% { transform: rotate(270deg); }
-        95% { transform: rotate(390deg); }
-        100% { transform: rotate(360deg); }
+        0% {
+          transform: rotate(0deg);
+        }
+        20% {
+          transform: rotate(120deg);
+        }
+        25% {
+          transform: rotate(90deg);
+        }
+        45% {
+          transform: rotate(210deg);
+        }
+        50% {
+          transform: rotate(180deg);
+        }
+        70% {
+          transform: rotate(300deg);
+        }
+        75% {
+          transform: rotate(270deg);
+        }
+        95% {
+          transform: rotate(390deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
       }
 
       @keyframes fade-in {
-        0% { opacity: 0.4; }
-        100% { opacity: 1; }
+        0% {
+          opacity: 0.4;
+        }
+        100% {
+          opacity: 1;
+        }
       }
     </style>
   </head>
@@ -80,7 +103,7 @@
       </div>
       <div class="loading-text">Loading...</div>
     </div>
-    
+
     <div class="tip-container" id="tip-box"></div>
 
     <script>
@@ -97,7 +120,26 @@
         "Tip: Save your work frequently to avoid losing progress.",
         "Tip: Dark mode can help reduce eye strain during long coding sessions.",
         "Tip: Break complex problems into smaller, manageable tasks.",
-        "Tip: Keep your code clean and well-commented for better readability."
+        "Tip: Keep your code clean and well-commented for better readability.",
+        "Tip: Use version control to track changes and collaborate with others.",
+        "Tip: Test your code before committing to ensure it works as intended.",
+        "Tip: Use debugging tools to find and fix issues in your code.",
+        "Tip: Document your code to make it easier to understand and maintain.",
+        "Tip: OpenMC can be used for Monte Carlo neutron transport simulations.",
+        "Tip: DAGMC allows detailed geometry modeling for nuclear simulations.",
+        "Tip: PyNE provides essential nuclear data manipulation tools.",
+        "Tip: MOOSE framework is powerful for multiphysics simulations.",
+        "Tip: Proper meshing is crucial for accurate reactor simulations.",
+        "Tip: Validate your nuclear models against experimental data.",
+        "Tip: Parallel computing can significantly speed up simulations.",
+        "Tip: Use nuclear data libraries like ENDF for accurate calculations.",
+        "Tip: Automate your workflows using Python scripts for efficiency.",
+        "Tip: Cardinal integrates high-res thermal-hydraulics and radiation feedback into MOOSE.",
+        "Tip: Cardinal allows geometry-agnostic CFD and radiation coupling.",
+        "Tip: Cardinal couples NekRS and OpenMC to MOOSE for multiphysics.",
+        "Tip: Use Cardinal's parallel meshes to scale simulations on heterogeneous systems.",
+        "Tip: Cardinal uses MOOSE's postprocessing for enhanced data analysis.",
+        "Tip: Utilize in-memory coupling in Cardinal for efficient data exchange.",
       ];
 
       function updateTip() {
@@ -105,7 +147,7 @@
         const randomIndex = Math.floor(Math.random() * tips.length);
         tipBox.textContent = tips[randomIndex];
       }
-      
+
       document.addEventListener("DOMContentLoaded", updateTip);
     </script>
   </body>
