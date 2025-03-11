@@ -8,6 +8,7 @@
     "node-abi": "3.74.0"
   },
   "scripts": {
+    "get:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
     "build:browser": "yarn --cwd applications/browser bundle",
     "build:electron": "yarn --cwd applications/electron bundle",
     "prepare": "lerna run prepare",
@@ -20,6 +21,28 @@
   "devDependencies": {
     "lerna": "2.4.0"
   },
+  "theiaPluginsDir": "plugins",
+  "theiaPlugins": {
+    "builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix"
+  },
+  "theiaPluginsExcludeIds": [
+    "ms-vscode.js-debug",
+    "ms-vscode.js-debug-companion",
+    "VisualStudioExptTeam.vscodeintellicode",
+    "vscode.extension-editing",
+    "vscode.microsoft-authentication",
+    "vscode.theme-abyss",
+    "vscode.theme-defaults",
+    "vscode.theme-kimbie-dark",
+    "vscode.theme-monokai-dimmed",
+    "vscode.theme-monokai",
+    "vscode.theme-quietlight",
+    "vscode.theme-red",
+    "vscode.theme-solarized-dark",
+    "vscode.theme-solarized-light",
+    "vscode.theme-tomorrow-night-blue",
+    "vscode.vscode-theme-seti"
+  ],
   "workspaces": [
     "extensions/*",
     "applications/*"
