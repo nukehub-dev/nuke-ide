@@ -40,9 +40,6 @@
   "theiaExtensions": [
     {
       "frontend": "lib/browser/pwa-frontend-module"
-    },
-    {
-      "backend": "lib/node/pwa-backend-module"
     }
   ]
 }
