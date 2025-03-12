@@ -8,7 +8,7 @@
     "node-abi": "3.74.0"
   },
   "scripts": {
-    "get:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
+    "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
     "build:browser": "yarn --cwd applications/browser bundle",
     "build:electron": "yarn --cwd applications/electron bundle",
     "prepare": "lerna run prepare",
@@ -23,14 +23,17 @@
   },
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
-    "builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix"
+    "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix",
+    "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2024.10.0/file/ms-toolsai.jupyter-2024.10.0.vsix",
+    "ms-python.python": "https://open-vsx.org/api/ms-python/python/2025.2.0/file/ms-python.python-2025.2.0.vsix"
   },
   "theiaPluginsExcludeIds": [
-    "ms-vscode.js-debug",
-    "ms-vscode.js-debug-companion",
-    "VisualStudioExptTeam.vscodeintellicode",
-    "vscode.extension-editing",
+    "vscode.github",
+    "vscode.github-authentication",
     "vscode.microsoft-authentication",
+    "ms-vscode.js-debug-companion",
+    "vscode.extension-editing",
+    "VisualStudioExptTeam.vscodeintellicode",
     "vscode.theme-abyss",
     "vscode.theme-defaults",
     "vscode.theme-kimbie-dark",

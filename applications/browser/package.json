@@ -32,47 +32,61 @@
     "radiation transport"
   ],
   "dependencies": {
+    "@theia/bulk-edit": "1.59.0",
+    "@theia/callhierarchy": "1.59.0",
+    "@theia/collaboration": "1.59.0",
+    "@theia/console": "1.59.0",
     "@theia/core": "1.59.0",
-    "@theia/getting-started": "1.59.0",
+    "@theia/debug": "1.59.0",
+    "@theia/dev-container": "1.59.0",
     "@theia/editor": "1.59.0",
+    "@theia/editor-preview": "1.59.0",
+    "@theia/file-search": "1.59.0",
     "@theia/filesystem": "1.59.0",
+    "@theia/getting-started": "1.59.0",
+    "@theia/keymaps": "1.59.0",
     "@theia/markers": "1.59.0",
     "@theia/messages": "1.59.0",
+    "@theia/metrics": "1.59.0",
+    "@theia/mini-browser": "1.59.0",
     "@theia/monaco": "1.59.0",
     "@theia/navigator": "1.59.0",
-    "@theia/preferences": "1.59.0",
-    "@theia/process": "1.59.0",
-    "@theia/terminal": "1.59.0",
-    "@theia/workspace": "1.59.0",
-    "@theia/file-search": "1.59.0",
-    "@theia/collaboration": "1.59.0",
     "@theia/notebook": "1.59.0",
-    "@theia/keymaps": "1.59.0",
     "@theia/outline-view": "1.59.0",
     "@theia/output": "1.59.0",
     "@theia/plugin-dev": "1.59.0",
-    "@theia/plugin": "1.59.0",
+    "@theia/plugin-ext": "1.59.0",
+    "@theia/plugin-ext-headless": "1.59.0",
+    "@theia/plugin-ext-vscode": "1.59.0",
+    "@theia/plugin-metrics": "1.59.0",
+    "@theia/preferences": "1.59.0",
     "@theia/preview": "1.59.0",
+    "@theia/process": "1.59.0",
     "@theia/property-view": "1.59.0",
     "@theia/remote": "1.59.0",
+    "@theia/scanoss": "1.59.0",
+    "@theia/scm": "1.59.0",
+    "@theia/scm-extra": "1.59.0",
     "@theia/search-in-workspace": "1.59.0",
     "@theia/secondary-window": "1.59.0",
     "@theia/task": "1.59.0",
+    "@theia/terminal": "1.59.0",
+    "@theia/test": "1.59.0",
     "@theia/timeline": "1.59.0",
     "@theia/toolbar": "1.59.0",
     "@theia/typehierarchy": "1.59.0",
     "@theia/userstorage": "1.59.0",
-    "@theia/vsx-registry": "1.59.0",
     "@theia/variable-resolver": "1.59.0",
-    "@theia/mini-browser": "1.59.0",
-    "@theia/console": "1.59.0",
-    "@theia/bulk-edit": "1.59.0",
-    "nuke-essentials": "0.1.0",
-    "nukelab-menu": "0.1.0",
-    "nukelab-pwa": "0.1.0"
+    "@theia/vsx-registry": "1.59.0",
+    "@theia/workspace": "1.59.0"
   },
   "devDependencies": {
     "@theia/cli": "1.59.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "markdown-it": "^8.4.1"
   },
   "scripts": {
     "bundle": "yarn rebuild && theia build --mode development",
@@ -85,19 +99,17 @@
     "frontend": {
       "config": {
         "applicationName": "NukeIDE",
-        "warnOnPotentiallyInsecureHostPattern": false,
         "defaultIconTheme": "theia-file-icons",
         "preferences": {
           "toolbar.showToolbar": true,
-          "files.enableTrash": false
+          "files.enableTrash": false,
+          "security.workspace.trust.enabled": false
         }
       }
     },
     "backend": {
       "config": {
-        "warnOnPotentiallyInsecureHostPattern": false,
         "startupTimeout": -1,
-        "resolveSystemPlugins": false,
         "configurationFolder": ".nuke-ide"
       }
     },
