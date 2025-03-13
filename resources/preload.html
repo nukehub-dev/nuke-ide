@@ -34,8 +34,8 @@
       }
 
       .loading-text {
-        margin-top: 20px;
-        font-size: 1.8em;
+        margin-top: 5vh;
+        font-size: clamp(1.2em, 4vw, 1.8em); /* Adjusts based on screen size */
         font-weight: bold;
         text-align: center;
         animation: fade-in 2s infinite alternate ease-in-out;
@@ -46,7 +46,19 @@
         bottom: 5%;
         width: 100%;
         text-align: center;
-        font-size: 1.2em;
+        font-size: clamp(1em, 3vw, 1.2em);
+        padding: 10px; 
+      }
+
+      /* Extra adjustments for small screens */
+      @media (max-width: 600px) {
+        .loading-text {
+          font-size: 1.4em;
+        }
+
+        .tip-container {
+          font-size: 1em;
+        }
       }
 
       .custom-spinner img {
