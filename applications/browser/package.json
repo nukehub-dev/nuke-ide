@@ -106,7 +106,8 @@
         "preferences": {
           "toolbar.showToolbar": true,
           "files.enableTrash": false,
-          "security.workspace.trust.enabled": false
+          "security.workspace.trust.enabled": false,
+          "warnOnPotentiallyInsecureHostPattern": false
         }
       }
     },
