@@ -24,8 +24,7 @@
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
     "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix",
-    "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2024.10.0/file/ms-toolsai.jupyter-2024.10.0.vsix",
-    "ms-python.python": "https://open-vsx.org/api/ms-python/python/2025.2.0/file/ms-python.python-2025.2.0.vsix"
+    "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2024.10.0/file/ms-toolsai.jupyter-2024.10.0.vsix"
   },
   "theiaPluginsExcludeIds": [
     "vscode.github",
