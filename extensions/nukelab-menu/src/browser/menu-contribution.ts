@@ -9,10 +9,6 @@ export const LabCommands = {
     id: "lab.openHome",
     label: "Lab Home",
   },
-  JUPYTER_LAB: {
-    id: "lab.jupyterlab",
-    label: "JupyterLab (Deprecated)",
-  },
   LOGOUT: {
     id: "lab.logout",
     label: "Log Out",
@@ -33,17 +29,6 @@ export class LabMenu {
         window.open(uri.toString(), "_blank");
       },
     });
-
-    // Register JUPYTER_LAB command
-    commands.registerCommand(LabCommands.JUPYTER_LAB, {
-      execute: () => {
-        const baseUrl = window.location.origin;
-        const userPath = window.location.pathname.split('/').slice(0, 3).join('/'); // Extract `/user/{username}`
-        const uri = new URI(`${baseUrl}${userPath}/lab`);
-        window.open(uri.toString(), "_blank");
-      },
-    });
-
     // Register LOGOUT command
     commands.registerCommand(LabCommands.LOGOUT, {
       execute: () => {
@@ -59,10 +44,6 @@ export class LabMenu {
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.LOGOUT.id,
       label: LabCommands.LOGOUT.label,
-    });
-    menus.registerMenuAction(CommonMenus.FILE, {
-      commandId: LabCommands.JUPYTER_LAB.id,
-      label: LabCommands.JUPYTER_LAB.label,
     });
     // Add to Theia's Settings Menu (FILE_SETTINGS_SUBMENU)
     menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU, {
