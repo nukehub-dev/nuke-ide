@@ -19,7 +19,7 @@ export class PWAFrontendService implements FrontendApplicationContribution {
 
     private registerServiceWorker(): void {
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js')
+            navigator.serviceWorker.register('/hub/static/service-worker.js')
                 .then(reg => console.log('Service Worker registered:', reg))
                 .catch(err => console.error('Service Worker registration failed:', err));
         }
