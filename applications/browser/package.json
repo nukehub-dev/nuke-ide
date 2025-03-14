@@ -103,11 +103,11 @@
       "config": {
         "applicationName": "NukeIDE",
         "defaultIconTheme": "theia-file-icons",
+        "warnOnPotentiallyInsecureHostPattern": false,
         "preferences": {
           "toolbar.showToolbar": true,
           "files.enableTrash": false,
-          "security.workspace.trust.enabled": false,
-          "warnOnPotentiallyInsecureHostPattern": false
+          "security.workspace.trust.enabled": false
         }
       }
     },
