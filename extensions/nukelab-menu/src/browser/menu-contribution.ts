@@ -11,11 +11,11 @@ export const LabCommands = {
   },
   JUPYTER_LAB: {
     id: "lab.jupyterlab",
-    label: "JupyterLab",
+    label: "JupyterLab (Deprecated)",
   },
   LOGOUT: {
     id: "lab.logout",
-    label: "Logout",
+    label: "Log Out",
   },
 };
 
@@ -67,7 +67,7 @@ export class LabMenu {
     // Add to Theia's Settings Menu (FILE_SETTINGS_SUBMENU)
     menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU, {
       commandId: LabCommands.OPEN_LAB_HOME.id,
-      label: "NukeLab Home",
+      label: LabCommands.OPEN_LAB_HOME.label,
     });
   }
 }
