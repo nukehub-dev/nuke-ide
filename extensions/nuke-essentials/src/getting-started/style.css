@@ -1,0 +1,185 @@
+/********************************************************************************
+ * Copyright (C) 2018 Ericsson and others.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
+ ********************************************************************************/
+
+html,
+body {
+  font-family: var(--theia-ui-font-family);
+}
+
+
+.gs-body-container {
+    width: 80%;
+    margin: 0 auto;
+}
+
+.col {
+  flex: 1;
+  padding: 0 10px;
+}
+
+.flex-grid {
+  display: flex;
+}
+
+.gs-action-container {
+  line-height: 20px;
+}
+
+.gs-action-details {
+  padding-left: 5px;
+  color: var(--theia-descriptionForeground);
+}
+
+.gs-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.gs-content-container {
+    display: flex;
+    flex-direction: row;
+    padding: 20px;
+    flex-grow: 1;
+}
+
+.gs-left-column {
+    flex: 1;
+    padding-right: 20px;
+}
+
+.gs-right-column {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+}
+
+.gs-right-column-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.gs-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.gs-header h1 {
+  font-weight: 600;
+}
+
+.gs-right-column svg {
+    width: 50%;
+    opacity: 0.25;
+}
+
+.gs-right-column svg g {
+    fill: var(--theia-foreground);
+    stroke: var(--theia-foreground);
+}
+
+
+.gs-hr {
+  background-color: var(--theia-contrastBorder);
+  height: 1px;
+  border: 0;
+  margin: 0px;
+}
+
+.gs-no-recent {
+  color: var(--theia-descriptionForeground);
+}
+
+.gs-section a {
+  border: none;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.gs-section a:hover {
+  text-decoration: underline;
+}
+
+.gs-section-header {
+  font-size: var(--theia-ui-font-size2);
+  font-weight: 600;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+}
+
+.gs-section-header i {
+  padding-right: 5px;
+}
+
+.gs-sub-header {
+  color: var(--theia-descriptionForeground);
+  text-transform: capitalize;
+  font-weight: 400;
+}
+
+.gs-preference-container {
+  display: flex;
+  justify-content: center;
+}
+
+.gs-preference {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.gs-float {
+  float: right;
+  width: 50%;
+  margin-top: 100px;
+}
+
+.gs-container.gs-aifeature-container {
+  border: 1px solid var(--theia-focusBorder);
+  padding: 15px;
+}
+
+.shadow-pulse {
+  animation: shadowPulse 2s infinite ease-in-out;
+}
+
+@keyframes shadowPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.gs-quote {
+    font-style: italic;
+    text-align: center;
+    width: 80%;
+    opacity: 0.75;
+}
+
+.gs-quote-author {
+    text-align: right;
+}

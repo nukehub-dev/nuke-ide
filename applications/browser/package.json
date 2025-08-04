@@ -43,7 +43,6 @@
     "@theia/editor-preview": "1.64.0",
     "@theia/file-search": "1.64.0",
     "@theia/filesystem": "1.64.0",
-    "@theia/getting-started": "1.64.0",
     "@theia/keymaps": "1.64.0",
     "@theia/markers": "1.64.0",
     "@theia/messages": "1.64.0",
