@@ -23,7 +23,7 @@
   },
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
-    "ocp-cad": "https://github.com/bernhard-42/vscode-ocp-cad-viewer/releases/download/v2.8.9/ocp-cad-viewer-2.8.9.vsix",
+    "vscode-stats-bar": "https://open-vsx.org/api/njzy/stats-bar/0.5.2/file/njzy.stats-bar-0.5.2.vsix",
     "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix",
     "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2024.10.0/file/ms-toolsai.jupyter-2024.10.0.vsix"
   },
