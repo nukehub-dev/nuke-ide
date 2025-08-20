@@ -57,12 +57,12 @@ export class LabMenu {
   registerMenus(menus: MenuModelRegistry): void {
     // Add to File menu
     menus.registerMenuAction(CommonMenus.FILE, {
-      commandId: LabCommands.LOGOUT.id,
-      label: LabCommands.LOGOUT.label,
-    });
-    menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.JUPYTER_LAB.id,
       label: LabCommands.JUPYTER_LAB.label,
+    });
+    menus.registerMenuAction(CommonMenus.FILE, {
+      commandId: LabCommands.LOGOUT.id,
+      label: LabCommands.LOGOUT.label,
     });
     // Add to Theia's Settings Menu (FILE_SETTINGS_SUBMENU)
     menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU, {
