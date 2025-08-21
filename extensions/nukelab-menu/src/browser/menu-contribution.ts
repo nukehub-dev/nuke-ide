@@ -59,10 +59,12 @@ export class LabMenu {
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.JUPYTER_LAB.id,
       label: LabCommands.JUPYTER_LAB.label,
+      order: '1'
     });
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.LOGOUT.id,
       label: LabCommands.LOGOUT.label,
+      order: '2'
     });
     // Add to Theia's Settings Menu (FILE_SETTINGS_SUBMENU)
     menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU, {
