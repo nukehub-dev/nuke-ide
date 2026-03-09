@@ -21,12 +21,11 @@ import {
     PreferenceService,
     PreferenceSchema,
     PreferenceContribution
-} from '@theia/core/lib/browser/preferences';
+} from '@theia/core/lib/common/preferences';
 import { FrontendApplicationConfigProvider } from '@theia/core/lib/browser/frontend-application-config-provider';
 import { nls } from '@theia/core/lib/common/nls';
 
 export const GettingStartedPreferenceSchema: PreferenceSchema = {
-    'type': 'object',
     properties: {
         'workbench.startupEditor': {
             type: 'string',

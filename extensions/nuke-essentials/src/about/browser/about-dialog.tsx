@@ -70,7 +70,7 @@ export class NukeAboutDialog extends AboutDialog {
     protected renderCopyright(): React.ReactNode {
         return <>
             <div className="about-paragraph">
-                © 2023-2025 <a href={'mailto:info@nukehub.org'}>
+                © 2023-2026 <a href={'mailto:info@nukehub.org'}>
                     NukeHub
                 </a>
             </div>

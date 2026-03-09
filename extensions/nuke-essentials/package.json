@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "nuke-essentials",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "NukeIDE essential extensions",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -23,20 +23,24 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.64.0",
-    "@theia/editor": "1.64.0",
-    "@theia/filesystem": "1.64.0",
-    "@theia/keymaps": "1.64.0",
-    "@theia/preview": "1.64.0",
-    "@theia/workspace": "1.64.0",
-    "@theia/plugin-ext-vscode": "1.64.0"
+    "@theia/core": "1.69.0",
+    "@theia/editor": "1.69.0",
+    "@theia/filesystem": "1.69.0",
+    "@theia/keymaps": "1.69.0",
+    "@theia/preview": "1.69.0",
+    "@theia/workspace": "1.69.0",
+    "@theia/plugin-ext-vscode": "1.69.0",
+    "@theia/ai-chat": "1.69.0",
+    "@theia/ai-chat-ui": "1.69.0",
+    "@theia/ai-core": "1.69.0",
+    "@theia/ai-ide": "1.69.0"
   },
   "devDependencies": {
     "rimraf": "^5.0.0",
     "typescript": "~5.4.5"
   },
   "peerDependencies": {
-    "react": "^16.8.0"
+    "react": "^18.0.0"
   },
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
@@ -50,6 +54,9 @@
     },
     {
       "frontend": "lib/getting-started/browser/getting-started-frontend-module"
+    },
+    {
+      "frontend": "lib/ai-chat/browser/nuke-ai-chat-frontend-module"
     }
   ]
 }

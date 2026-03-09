@@ -5,7 +5,8 @@
     "node": ">=18"
   },
   "resolutions": {
-    "node-abi": "3.74.0"
+    "node-abi": "3.74.0",
+    "@theia/monaco-editor-core": "1.96.302"
   },
   "scripts": {
     "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
@@ -24,10 +25,9 @@
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
     "vscode-stats-bar": "https://open-vsx.org/api/njzy/stats-bar/0.5.2/file/njzy.stats-bar-0.5.2.vsix",
-    "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.95.3/file/eclipse-theia.builtin-extension-pack-1.95.3.vsix",
-    "ms-python.python": "https://open-vsx.org/api/ms-python/python/2025.4.0/file/ms-python.python-2025.4.0.vsix",
-    "ms-python.debugpy": "https://open-vsx.org/api/ms-python/debugpy/linux-x64/2025.4.1/file/ms-python.debugpy-2025.4.1@linux-x64.vsix",
-    "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2024.10.0/file/ms-toolsai.jupyter-2024.10.0.vsix"
+    "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.104.0/file/eclipse-theia.builtin-extension-pack-1.104.0.vsix",
+    "ms-python.python": "https://open-vsx.org/api/ms-python/python/2026.2.0/file/ms-python.python-2026.2.0.vsix",
+    "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2025.9.1/file/ms-toolsai.jupyter-2025.9.1.vsix"
   },
   "theiaPluginsExcludeIds": [
     "vscode.github",
