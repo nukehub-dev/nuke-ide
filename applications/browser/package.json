@@ -99,7 +99,8 @@
     "@theia/workspace": "1.69.0",
     "nuke-essentials": "0.1.2",
     "nukelab-menu": "0.1.2",
-    "nukelab-pwa": "0.1.2"
+    "nukelab-pwa": "0.1.2",
+    "nuke-visualizer": "0.1.2"
   },
   "devDependencies": {
     "@theia/cli": "1.69.0"
@@ -110,10 +111,11 @@
     "markdown-it": "^8.4.1"
   },
   "scripts": {
-    "bundle": "yarn rebuild && theia build --mode development",
+    "bundle": "yarn rebuild && yarn copy-visualizer-python && theia build --mode development",
     "rebuild": "theia rebuild:browser --cacheRoot ..",
+    "copy-visualizer-python": "mkdir -p python && cp -r ../../extensions/nuke-visualizer/python/* python/ 2>/dev/null || true",
     "start": "theia start --plugins=local-dir:../../plugins",
-    "watch": "yarn rebuild && theia build --watch --mode development"
+    "watch": "yarn rebuild && yarn copy-visualizer-python && theia build --watch --mode development"
   },
   "theia": {
     "target": "browser",
