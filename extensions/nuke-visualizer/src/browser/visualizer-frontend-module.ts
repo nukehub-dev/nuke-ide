@@ -19,18 +19,37 @@ import { VisualizerWidget } from './visualizer-widget';
 import { VisualizerContribution } from './visualizer-contribution';
 import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewContribution } from '@theia/core/lib/browser';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
-import { VisualizerBackendService, VISUALIZER_BACKEND_PATH } from '../common/visualizer-protocol';
+import { VisualizerBackendService, VISUALIZER_BACKEND_PATH, VisualizerClient } from '../common/visualizer-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { bindVisualizerPreferences } from './visualizer-preferences';
+import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
+import URI from '@theia/core/lib/common/uri';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind preferences
     bindVisualizerPreferences(bind);
 
-    // Bind backend service proxy
+    // Bind backend service proxy with client implementation for logging
     bind(VisualizerBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        return connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH);
+        const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
+        
+        const client: VisualizerClient = {
+            log: (message: string) => {
+                const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                channel.appendLine(message);
+            },
+            error: (message: string) => {
+                const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                channel.appendLine(`ERROR: ${message}`);
+            },
+            onServerStop: (port: number) => {
+                VisualizerWidget.onServerStop(port);
+            }
+        };
+        
+        const proxy = connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, client);
+        return proxy;
     }).inSingletonScope();
 
     // Bind contributions
@@ -42,7 +61,13 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(VisualizerWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(context => ({
         id: VisualizerWidget.ID,
-        createWidget: () => context.container.get<VisualizerWidget>(VisualizerWidget),
+        createWidget: (options?: { uri: string }) => {
+            const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
+            if (options?.uri) {
+                widget.setUri(new URI(options.uri));
+            }
+            return widget;
+        },
     })).inSingletonScope();
     
     // Optional: bind status bar contribution (noop if not needed)

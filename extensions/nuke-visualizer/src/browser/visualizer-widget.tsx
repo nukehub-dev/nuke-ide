@@ -26,6 +26,14 @@ export class VisualizerWidget extends ReactWidget {
     static readonly ID = 'nuke-visualizer.widget';
     static readonly LABEL = 'Nuke Visualizer';
 
+    private static instances: Set<VisualizerWidget> = new Set();
+
+    public static onServerStop(port: number): void {
+        for (const instance of VisualizerWidget.instances) {
+            instance.handleServerStop(port);
+        }
+    }
+
     private serverUrl: string | null = null;
     private serverPort: number | null = null;
     private statusMessage: string = 'No file loaded';
@@ -43,12 +51,40 @@ export class VisualizerWidget extends ReactWidget {
 
     @postConstruct()
     protected init(): void {
-        console.log(`[VisualizerWidget] Initializing widget instance (id: ${this.id})`);
+        console.log(`[VisualizerWidget] Initializing widget instance`);
         this.id = VisualizerWidget.ID;
         this.title.label = VisualizerWidget.LABEL;
         this.title.caption = VisualizerWidget.LABEL;
         this.title.closable = true;
-        this.ensureClosable();
+        VisualizerWidget.instances.add(this);
+        this.update();
+    }
+
+    private handleServerStop(port: number): void {
+        if (this.serverPort === port) {
+            console.log(`[Visualizer] Server on port ${port} stopped, updating widget state`);
+            this.serverUrl = null;
+            this.serverPort = null;
+            this.statusMessage = 'Visualizer server stopped unexpectedly. Check logs for details.';
+            if (this.checkInterval) {
+                clearInterval(this.checkInterval);
+                this.checkInterval = null;
+            }
+            this.update();
+        }
+    }
+
+    /**
+     * Set the file URI and update the widget ID to be unique.
+     * This should be called by the factory or contribution to differentiate widgets.
+     */
+    public setUri(uri: URI): void {
+        this.currentFileUri = uri;
+        this.currentFile = uri.path.toString();
+        // Use a unique ID based on the file path so Theia can manage multiple instances
+        this.id = `${VisualizerWidget.ID}:${this.currentFile}`;
+        this.title.label = `Visualizer: ${uri.path.base}`;
+        this.title.caption = `Visualizer: ${this.currentFile}`;
         this.update();
     }
 
@@ -184,23 +220,19 @@ export class VisualizerWidget extends ReactWidget {
         
         // If already showing this file, just activate
         if (this.currentFile === filePath && this.serverUrl) {
+            console.log(`[Visualizer] File ${filePath} already loaded, skipping reload`);
+            this.ensureClosable();
+            this.update();
             return;
         }
         
         console.log(`[Visualizer] Loading file: ${filePath} (loadId: ${loadId})`);
         
-        // Stop existing server before starting new one
-        await this.cleanupServer();
-        
-        // Check if we were cancelled during cleanup
-        if (loadId !== this.currentLoadId) {
-            console.log(`[Visualizer] Load ${loadId} cancelled during cleanup`);
-            return;
+        // Ensure URI and ID are set correctly
+        if (!this.currentFileUri || this.currentFileUri.toString() !== fileUri.toString()) {
+            this.setUri(fileUri);
         }
 
-        this.currentFile = filePath;
-        this.currentFileUri = fileUri;
-        this.title.label = `Visualizer: ${fileUri.path.base}`;
         this.ensureClosable();
         this.update();
         
@@ -244,7 +276,6 @@ export class VisualizerWidget extends ReactWidget {
 
     private ensureClosable(): void {
         if (!this.title.closable) {
-            console.log('[Visualizer] Setting title.closable = true');
             this.title.closable = true;
         }
     }
@@ -272,17 +303,25 @@ export class VisualizerWidget extends ReactWidget {
         this.update();
         
         try {
-            console.warn(`[Visualizer] DAGMC conversion not yet implemented for: ${h5mPath}`);
-            this.statusMessage = `DAGMC files require conversion. Please convert ${h5mPath} to VTK format using mbconvert.`;
+            // Use backend service to convert DAGMC to VTK
+            const vtkPath = await this.visualizerBackend.convertDagmc(h5mPath);
+            
+            // Check if still the active load
+            if (loadId !== this.currentLoadId) return;
+            
+            console.log(`[Visualizer] DAGMC conversion successful: ${vtkPath}`);
+            this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
-            this.ensureClosable();
-            await this.startVisualizerServer(undefined, loadId);
+            
+            // Start visualizer server with the converted VTK file
+            await this.startVisualizerServer(vtkPath, loadId);
         } catch (error) {
             console.error('[Visualizer] DAGMC conversion failed:', error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = `Conversion failed: ${errorMsg}`;
+            this.statusMessage = `DAGMC conversion failed: ${errorMsg}`;
             this.update();
             this.ensureClosable();
+            // Still try to start server with default visualization
             await this.startVisualizerServer(undefined, loadId);
         }
     }
@@ -358,31 +397,38 @@ export class VisualizerWidget extends ReactWidget {
                     const setReady = () => {
                         if (currentId !== this.currentLoadId) return;
                         
-                        console.log(`[Visualizer] Server at ${result.url} is ready (attempt ${attempts})`);
-                        this.serverUrl = result.url;
-                        this.statusMessage = `Server ready at ${result.url}`;
-                        this.update();
-                        this.ensureClosable();
-                        
-                        if (this.checkInterval) {
-                            clearInterval(this.checkInterval);
-                            this.checkInterval = null;
+                        if (!this.serverUrl) {
+                            console.log(`[Visualizer] Server at ${result.url} is ready (attempt ${attempts})`);
+                            this.serverUrl = result.url;
+                            this.statusMessage = `Server ready at ${result.url}`;
+                            this.update();
+                            this.ensureClosable();
+
+                            // Once ready, we can stop the probing interval as we now rely on 
+                            // the backend to notify us of process exit via onServerStop
+                            if (this.checkInterval) {
+                                clearInterval(this.checkInterval);
+                                this.checkInterval = null;
+                            }
                         }
                     };
 
                     testImg.onload = setReady;
                     
-                    // If we get an error but it's not a connection error (like 403), 
-                    // the server is at least responding at the application level
                     testImg.onerror = () => {
-                        console.log(`[Visualizer] Image probe got error/403 from ${result.url}, considering server started`);
-                        setReady();
+                        if (currentId !== this.currentLoadId) return;
+                        
+                        // If we haven't reached serverUrl yet, any error (including 404/403) 
+                        // means the server is at least responding at the network level
+                        if (!this.serverUrl) {
+                            console.log(`[Visualizer] Image probe got response (error/success) from ${result.url}, considering server started`);
+                            setReady();
+                        }
                     };
 
                     testImg.src = `${result.url}/favicon.ico?${Date.now()}`;
                     
-                } catch (e) {
-                    if (attempts >= maxAttempts) {
+                    if (!this.serverUrl && attempts >= maxAttempts) {
                         if (this.checkInterval) {
                             clearInterval(this.checkInterval);
                             this.checkInterval = null;
@@ -391,15 +437,18 @@ export class VisualizerWidget extends ReactWidget {
                         this.update();
                         this.ensureClosable();
                     }
+                    
+                } catch (e) {
+                    // Handle unexpected errors in polling
                 }
-            }, 1000);
+            }, 2000); // Check every 2 seconds
             
         } catch (error) {
             if (currentId !== this.currentLoadId) return;
             
             console.error('[Visualizer] Failed to start server:', error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = `Failed to start server: ${errorMsg}. Check Preferences → NukeVisualizer.`;
+            this.statusMessage = `Failed to start server: ${errorMsg}`;
             this.update();
             this.ensureClosable();
         }
@@ -407,6 +456,7 @@ export class VisualizerWidget extends ReactWidget {
 
     protected override onCloseRequest(msg: Message): void {
         console.log('[VisualizerWidget] Close requested, cleaning up server...');
+        VisualizerWidget.instances.delete(this);
         this.cleanupServer();
         super.onCloseRequest(msg);
     }

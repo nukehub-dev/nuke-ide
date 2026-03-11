@@ -16,16 +16,19 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
+import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
 import { VisualizerBackendService, VISUALIZER_BACKEND_PATH } from '../common/visualizer-protocol';
 import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
     bind(VisualizerBackendServiceImpl).toSelf().inSingletonScope();
     bind(VisualizerBackendService).toService(VisualizerBackendServiceImpl);
+    bind(BackendApplicationContribution).toService(VisualizerBackendServiceImpl);
     
     bind(ConnectionHandler).toDynamicValue(ctx =>
         new JsonRpcConnectionHandler<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, () => {
-            return ctx.container.get<VisualizerBackendService>(VisualizerBackendService);
+            const service = ctx.container.get<VisualizerBackendService>(VisualizerBackendService);
+            return service;
         })
     ).inSingletonScope();
 });

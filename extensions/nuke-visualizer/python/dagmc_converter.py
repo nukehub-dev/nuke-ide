@@ -16,10 +16,23 @@ import subprocess
 from pathlib import Path
 
 
+def is_placeholder(path: Path) -> bool:
+    """Check if the VTK file is just a placeholder."""
+    if not path.exists():
+        return False
+    try:
+        with open(path, 'r') as f:
+            first_lines = "".join([f.readline() for _ in range(3)])
+            return "Placeholder for DAGMC visualization" in first_lines
+    except Exception:
+        return False
+
+
 def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     """
     Convert .h5m file to VTK format using MOAB/pymoab.
     Returns path to converted VTK file.
+    Includes caching logic to skip conversion if VTK is up-to-date.
     """
     h5m_path = Path(h5m_path)
     
@@ -34,6 +47,19 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     
     output_path = output_dir / f"{h5m_path.stem}.vtk"
     
+    # Caching check: if VTK exists, is newer than H5M, and is NOT a placeholder, skip conversion
+    if output_path.exists():
+        if is_placeholder(output_path):
+            print(f"Existing VTK is a placeholder, attempting real conversion...")
+        else:
+            h5m_mtime = h5m_path.stat().st_mtime
+            vtk_mtime = output_path.stat().st_mtime
+            if vtk_mtime > h5m_mtime:
+                print(f"VTK file is up-to-date: {output_path}")
+                return str(output_path)
+            else:
+                print(f"DAGMC file changed, re-converting...")
+
     # Try conversion methods in order of preference
     
     # Method 1: Using pymoab (Python API for MOAB)
@@ -47,27 +73,59 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
         print(f"Converted successfully: {output_path}")
         return str(output_path)
         
-    except ImportError:
-        print("pymoab not available, trying mbconvert...")
+    except ImportError as e:
+        print(f"pymoab not available (ImportError: {e})")
+        print(f"Search path was: {sys.path}")
+    except Exception as e:
+        print(f"pymoab conversion failed: {e}")
     
     # Method 2: Using mbconvert CLI (requires MOAB installation)
     try:
-        result = subprocess.run(
-            ['mbconvert', str(h5m_path), str(output_path)],
-            check=True, 
-            capture_output=True,
-            text=True
-        )
-        print(f"Converted using mbconvert: {output_path}")
-        return str(output_path)
+        # Try to find mbconvert in the same directory as Python (common in conda envs)
+        python_bin_dir = Path(sys.executable).parent
+        mbconvert_path = python_bin_dir / "mbconvert"
         
-    except FileNotFoundError:
-        print("mbconvert not found in PATH")
+        if not mbconvert_path.exists():
+            # Try to find it in PATH
+            import shutil
+            mbconvert_in_path = shutil.which("mbconvert")
+            if mbconvert_in_path:
+                mbconvert_path = Path(mbconvert_in_path)
+            else:
+                mbconvert_path = None
+
+        if mbconvert_path:
+            print(f"Attempting conversion using mbconvert at {mbconvert_path}...")
+            # Use errors='replace' to avoid UnicodeDecodeError if output contains non-UTF8
+            result = subprocess.run(
+                [str(mbconvert_path), str(h5m_path), str(output_path)],
+                check=True, 
+                capture_output=True,
+                text=True,
+                errors='replace'
+            )
+            print(f"Converted successfully using mbconvert: {output_path}")
+            if result.stdout:
+                print(f"STDOUT: {result.stdout.strip()}")
+            return str(output_path)
+        else:
+            print("mbconvert CLI not found in environment bin/ or PATH")
+        
     except subprocess.CalledProcessError as e:
-        print(f"mbconvert failed: {e.stderr}")
+        print(f"mbconvert failed (exit code {e.returncode}):")
+        print(f"STDOUT: {e.stdout}")
+        print(f"STDERR: {e.stderr}")
+    except Exception as e:
+        print(f"mbconvert unexpected failure: {e}")
     
     # Method 3: Create placeholder VTK file
-    print(f"Warning: No DAGMC converter available. Creating placeholder VTK.")
+    print("-" * 60)
+    print(f"ERROR: All DAGMC conversion methods failed.")
+    print(f"Python: {sys.executable}")
+    print("Please ensure MOAB is installed in your Python environment:")
+    print("  conda install -c conda-forge moab")
+    print("-" * 60)
+    print(f"Creating placeholder VTK for now.")
     create_placeholder_vtk(output_path)
     return str(output_path)
 

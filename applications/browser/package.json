@@ -111,11 +111,10 @@
     "markdown-it": "^8.4.1"
   },
   "scripts": {
-    "bundle": "yarn rebuild && yarn copy-visualizer-python && theia build --mode development",
+    "bundle": "yarn rebuild && theia build --mode development",
     "rebuild": "theia rebuild:browser --cacheRoot ..",
-    "copy-visualizer-python": "mkdir -p python && cp -r ../../extensions/nuke-visualizer/python/* python/ 2>/dev/null || true",
     "start": "theia start --plugins=local-dir:../../plugins",
-    "watch": "yarn rebuild && yarn copy-visualizer-python && theia build --watch --mode development"
+    "watch": "yarn rebuild && theia build --watch --mode development"
   },
   "theia": {
     "target": "browser",

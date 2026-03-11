@@ -21,9 +21,30 @@ export interface PythonConfig {
     condaEnv?: string;
 }
 
+export interface EnvironmentInfo {
+    pythonPath: string;
+    pythonVersion: string;
+    paraviewInstalled: boolean;
+    paraviewVersion?: string;
+    trameInstalled: boolean;
+    trameVersion?: string;
+    moabInstalled: boolean;
+    moabVersion?: string;
+    warning?: string;
+}
+
 export interface VisualizerBackendService {
     startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number, url: string, warning?: string }>;
     stopServer(port: number): Promise<void>;
+    convertDagmc(filePath: string): Promise<string>;
+    checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
+    setClient(client: VisualizerClient): void;
+}
+
+export interface VisualizerClient {
+    log(message: string): void;
+    error(message: string): void;
+    onServerStop(port: number): void;
 }
 
 export const VISUALIZER_BACKEND_PATH = '/services/visualizer';

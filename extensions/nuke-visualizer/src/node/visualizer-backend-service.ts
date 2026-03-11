@@ -16,178 +16,264 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process/lib/node/raw-process';
+import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
-import { VisualizerBackendService, PythonConfig } from '../common/visualizer-protocol';
+import { VisualizerBackendService, PythonConfig, EnvironmentInfo, VisualizerClient } from '../common/visualizer-protocol';
 
 @injectable()
-export class VisualizerBackendServiceImpl implements VisualizerBackendService {
+export class VisualizerBackendServiceImpl implements VisualizerBackendService, BackendApplicationContribution {
     private processes: Map<number, RawProcess> = new Map();
+    private reservedPorts: Set<number> = new Set();
+    private client: VisualizerClient | undefined;
 
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
 
-    async startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number; url: string; warning?: string }> {
-        // Kill any existing processes first to prevent accumulation
-        await this.killAllProcesses();
-        
-        const port = await this.findFreePort(8080);
-        
-        // Find the Python script
-        const pythonScript = this.findPythonScript();
-        
-        // Detect Python command with both visualizer AND ParaView
-        const pythonInfo = await this.detectPythonCommand(config);
-        const warning = pythonInfo.warning;
-        if (warning) {
-            console.log(`[VisualizerBackend] Warning: ${warning}`);
-        }
-        
-        const args: string[] = [pythonScript, '--port', port.toString()];
-        if (filePath) {
-            args.push('--file', filePath);
-        }
-
-        const processOptions: RawProcessOptions = {
-            command: pythonInfo.command,
-            args,
-        };
-
-        console.log(`[VisualizerBackend] Starting server: ${pythonInfo.command} ${args.join(' ')}`);
-        if (pythonInfo.description) {
-            console.log(`[VisualizerBackend] Using: ${pythonInfo.description}`);
-        }
-
-        const process = this.rawProcessFactory(processOptions);
-        
-        // Collect stdout and stderr for error reporting
-        const stdoutLines: string[] = [];
-        const stderrLines: string[] = [];
-        
-        process.outputStream.on('data', (data: Buffer) => {
-            const line = data.toString().trim();
-            stdoutLines.push(line);
-            console.log(`[Visualizer ${port}] ${line}`);
-        });
-
-        process.errorStream.on('data', (data: Buffer) => {
-            const line = data.toString().trim();
-            stderrLines.push(line);
-            console.error(`[Visualizer ${port}] ERROR: ${line}`);
-        });
-
-        process.onExit((event: { code?: number; signal?: string }) => {
-            console.log(`[Visualizer ${port}] Process exited with code ${event.code}, signal: ${event.signal}`);
-            this.processes.delete(port);
-        });
-
-        this.processes.set(port, process);
-
-        // Wait for server to be ready or process to exit
-        const serverReady = new Promise<{ port: number; url: string; warning?: string }>((resolve, reject) => {
-            // Timeout after 30 seconds
-            const timeout = setTimeout(() => {
-                clearInterval(portCheckInterval);
-                process.outputStream.removeListener('data', successListener);
-                exitListenerDisposable.dispose();
-                reject(new Error(`Server startup timeout after 30 seconds.\n\nStdout:\n${stdoutLines.slice(-20).join('\n')}\n\nStderr:\n${stderrLines.slice(-20).join('\n')}`));
-            }, 30000);
-
-            // Check for success message in stdout
-            const successListener = (data: Buffer) => {
-                const line = data.toString().trim();
-                console.log(`[VisualizerBackend ${port}] stdout: ${line}`);
-                if (line.includes('Starting visualizer server on')) {
-                    console.log(`[VisualizerBackend ${port}] Detected success message, resolving promise`);
-                    clearTimeout(timeout);
-                    process.outputStream.removeListener('data', successListener);
-                    resolve({ port, url: `http://127.0.0.1:${port}`, warning });
-                }
-            };
-            process.outputStream.on('data', successListener);
-
-            // Monitor process exit
-            const exitListener = (event: { code?: number; signal?: string }) => {
-                clearTimeout(timeout);
-                process.outputStream.removeListener('data', successListener);
-                clearInterval(portCheckInterval);
-                exitListenerDisposable.dispose();
-                if (event.code !== 0) {
-                    reject(new Error(`Process exited with code ${event.code}.\n\nStdout:\n${stdoutLines.slice(-20).join('\n')}\n\nStderr:\n${stderrLines.slice(-20).join('\n')}`));
-                } else {
-                    // Process exited cleanly but before success message? Should not happen.
-                    reject(new Error(`Process exited unexpectedly with code 0.\n\nStdout:\n${stdoutLines.slice(-20).join('\n')}\n\nStderr:\n${stderrLines.slice(-20).join('\n')}`));
-                }
-            };
-            const exitListenerDisposable = process.onExit(exitListener);
-
-            // Also periodically check if port is listening as a fallback
-            const portCheckInterval = setInterval(() => {
-                console.log(`[VisualizerBackend ${port}] Port check attempt`);
-                const socket = new net.Socket();
-                socket.on('error', () => {
-                    socket.destroy();
-                });
-                socket.on('connect', () => {
-                    console.log(`[VisualizerBackend ${port}] Port connect successful, server is listening`);
-                    socket.destroy();
-                    clearTimeout(timeout);
-                    clearInterval(portCheckInterval);
-                    process.outputStream.removeListener('data', successListener);
-                    exitListenerDisposable.dispose();
-                    resolve({ port, url: `http://127.0.0.1:${port}`, warning });
-                });
-                socket.connect(port, '127.0.0.1');
-            }, 1000);
-
-        });
-
-        try {
-            const result = await serverReady;
-            console.log(`[VisualizerBackend ${port}] Server ready, returning result`);
-            return result;
-        } catch (error) {
-            console.error(`[VisualizerBackend ${port}] Server ready promise rejected:`, error);
-            // Ensure process is killed on error
-            process.kill();
-            this.processes.delete(port);
-            throw error;
-        }
+    setClient(client: VisualizerClient): void {
+        this.client = client;
     }
 
-    async stopServer(port: number): Promise<void> {
-        console.log(`[VisualizerBackend] Stopping server on port ${port}`);
-        const process = this.processes.get(port);
-        if (process) {
-            // Try graceful kill first
-            process.kill();
-            
-            // Force kill after 2 seconds if still running
-            setTimeout(() => {
-                try {
-                    if (process.pid) {
-                        process.kill();
-                        console.log(`[VisualizerBackend] Force killed process ${process.pid}`);
-                    }
-                } catch (e) {
-                    // Process already dead
-                }
-            }, 2000);
-            
-            this.processes.delete(port);
-        }
+    private log(message: string): void {
+        console.log(`[VisualizerBackend] ${message}`);
+        this.client?.log(message);
     }
 
-    private async killAllProcesses(): Promise<void> {
-        console.log(`[VisualizerBackend] Cleaning up ${this.processes.size} existing processes`);
+    private errorLog(message: string): void {
+        console.error(`[VisualizerBackend] ${message}`);
+        this.client?.error(message);
+    }
+
+    async onStop?(): Promise<void> {
+        console.log('[VisualizerBackend] Shutting down, cleaning up all processes...');
         const ports = Array.from(this.processes.keys());
         for (const port of ports) {
             await this.stopServer(port);
         }
-        // Wait a moment for processes to die
-        await this.delay(500);
+    }
+
+    async startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number; url: string; warning?: string }> {
+        const port = await this.findFreePort(8080);
+        this.reservedPorts.add(port);
+        
+        try {
+            // Find the Python script
+            const pythonScript = this.findPythonScript();
+            
+            // Detect Python command
+            const pythonInfo = await this.detectPythonCommand(config);
+            const warning = pythonInfo.warning;
+            
+            const args: string[] = [pythonScript, '--port', port.toString()];
+            if (filePath) {
+                args.push('--file', filePath);
+            }
+
+            const processOptions: RawProcessOptions = {
+                command: pythonInfo.command,
+                args,
+            };
+
+            this.log(`Starting server on port ${port} for ${filePath || 'default'}`);
+            const process = this.rawProcessFactory(processOptions);
+            
+            // Track the process
+            this.processes.set(port, process);
+            
+            this.log(`[Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
+
+            // Collect output for logging/debugging
+            process.outputStream.on('data', (data: Buffer) => {
+                const line = data.toString().trim();
+                this.log(`[Server ${port}] ${line}`);
+            });
+
+            process.errorStream.on('data', (data: Buffer) => {
+                const line = data.toString().trim();
+                this.errorLog(`[Server ${port}] ERROR: ${line}`);
+            });
+
+            process.onExit((event: { code?: number; signal?: string }) => {
+                this.log(`[Server ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+                this.client?.onServerStop(port);
+            });
+
+            // Wait for server to be ready
+            try {
+                await this.waitForServer(port, process);
+                return { port, url: `http://127.0.0.1:${port}`, warning };
+            } catch (error) {
+                process.kill();
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+                throw error;
+            }
+        } finally {
+            // If it succeeded, it's in this.processes now. If it failed, it's removed.
+            // But we keep it in reservedPorts until it's actually running or cleaned up.
+        }
+    }
+
+    private async waitForServer(port: number, process: RawProcess): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                cleanup();
+                reject(new Error(`Server startup timeout on port ${port}`));
+            }, 30000);
+
+            const successListener = (data: Buffer) => {
+                if (data.toString().includes('Starting visualizer server on')) {
+                    cleanup();
+                    resolve();
+                }
+            };
+
+            const portCheckInterval = setInterval(() => {
+                const socket = new net.Socket();
+                socket.on('error', () => socket.destroy());
+                socket.on('connect', () => {
+                    socket.destroy();
+                    cleanup();
+                    resolve();
+                });
+                socket.connect(port, '127.0.0.1');
+            }, 1000);
+
+            const exitListener = (event: { code?: number; signal?: string }) => {
+                cleanup();
+                reject(new Error(`Process exited with code ${event.code} before server started`));
+            };
+            const exitDisposable = process.onExit(exitListener);
+
+            process.outputStream.on('data', successListener);
+
+            const cleanup = () => {
+                clearTimeout(timeout);
+                clearInterval(portCheckInterval);
+                process.outputStream.removeListener('data', successListener);
+                exitDisposable.dispose();
+            };
+        });
+    }
+
+    async stopServer(port: number): Promise<void> {
+        const process = this.processes.get(port);
+        if (process) {
+            this.log(`Stopping server on port ${port}`);
+            process.kill();
+            this.processes.delete(port);
+            this.reservedPorts.delete(port);
+        }
+    }
+
+    async convertDagmc(filePath: string): Promise<string> {
+        this.log(`Starting DAGMC conversion: ${filePath}`);
+        
+        // Find the dagmc converter script
+        const converterScript = this.findDagmcConverterScript();
+        
+        // Find Python command
+        const pythonInfo = await this.detectPythonCommand();
+        this.log(`[Converter] Using Python: ${pythonInfo.command}`);
+        
+        const { execSync } = require('child_process');
+        
+        try {
+            this.log(`[Converter] Command: "${pythonInfo.command}" "${converterScript}" "${filePath}"`);
+            // Run the converter script
+            const stdout = execSync(
+                `"${pythonInfo.command}" "${converterScript}" "${filePath}"`,
+                { encoding: 'utf8', stdio: 'pipe' }
+            );
+            
+            this.log(`[Converter] Output: ${stdout}`);
+            
+            // Parse output to find converted file path
+            const match = stdout.match(/Conversion complete: (.+)/);
+            if (match) {
+                const vtkPath = match[1].trim();
+                if (fs.existsSync(vtkPath)) {
+                    this.log(`[Converter] Success: ${vtkPath}`);
+                    return vtkPath;
+                }
+            }
+            
+            // Fallback: try to infer VTK path (replace .h5m with .vtk)
+            const vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
+            if (fs.existsSync(vtkPath)) {
+                this.log(`[Converter] Success (inferred): ${vtkPath}`);
+                return vtkPath;
+            }
+            
+            this.errorLog(`[Converter] FAILED. Output: ${stdout}`);
+            throw new Error(`Conversion failed. Output: ${stdout}`);
+            
+        } catch (error) {
+            this.errorLog(`[Converter] ERROR: ${error instanceof Error ? error.message : String(error)}`);
+            throw new Error(`Failed to convert DAGMC file: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
+        this.log('Checking environment...');
+        const pythonInfo = await this.detectPythonCommand(config);
+        const { execSync } = require('child_process');
+        
+        const info: EnvironmentInfo = {
+            pythonPath: pythonInfo.command,
+            pythonVersion: 'unknown',
+            paraviewInstalled: false,
+            trameInstalled: false,
+            moabInstalled: false,
+            warning: pythonInfo.warning
+        };
+
+        try {
+            info.pythonVersion = execSync(`"${pythonInfo.command}" --version`, { encoding: 'utf8' }).trim();
+        } catch (e) {
+            this.errorLog('Failed to get python version');
+        }
+
+        // Check paraview
+        try {
+            const pvOutput = execSync(`"${pythonInfo.command}" -c "import paraview; print(paraview.__version__)"`, { encoding: 'utf8' }).trim();
+            info.paraviewInstalled = true;
+            info.paraviewVersion = pvOutput;
+        } catch (e) {
+            info.paraviewInstalled = false;
+        }
+
+        // Check trame
+        try {
+            const trameOutput = execSync(`"${pythonInfo.command}" -c "import trame; print(trame.__version__)"`, { encoding: 'utf8' }).trim();
+            info.trameInstalled = true;
+            info.trameVersion = trameOutput;
+        } catch (e) {
+            info.trameInstalled = false;
+        }
+
+        // Check moab (pymoab)
+        try {
+            execSync(`"${pythonInfo.command}" -c "from pymoab import core"`, { stdio: 'ignore' });
+            info.moabInstalled = true;
+            // pymoab doesn't have a direct __version__ in some versions, but we can check if it works
+            info.moabVersion = 'Available (pymoab)';
+        } catch (e) {
+            // Check mbconvert as fallback
+            try {
+                execSync('mbconvert --version', { stdio: 'ignore' });
+                info.moabInstalled = true;
+                info.moabVersion = 'Available (mbconvert CLI)';
+            } catch (e2) {
+                info.moabInstalled = false;
+            }
+        }
+
+        return info;
     }
 
     private async detectPythonCommand(config?: PythonConfig): Promise<{ command: string; env?: NodeJS.ProcessEnv; description?: string; warning?: string }> {
@@ -369,29 +455,44 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService {
         return { success: missing.length === 0, missing };
     }
 
-    private findPythonScript(): string {
-        const possiblePaths = [
-            path.join(__dirname, '..', '..', 'python', 'visualizer_app.py'),
-            path.join(__dirname, '..', '..', '..', 'nuke-visualizer', 'python', 'visualizer_app.py'),
-            path.join(__dirname, '..', '..', '..', 'python', 'visualizer_app.py'),
-            path.join(__dirname, '..', '..', '..', '..', 'python', 'visualizer_app.py'),
-            path.join(__dirname, '..', '..', '..', '..', '..', 'python', 'visualizer_app.py'),
-        ];
+    private getExtensionPath(): string {
+        try {
+            return path.dirname(require.resolve('nuke-visualizer/package.json'));
+        } catch (e) {
+            // Fallback to __dirname if require.resolve fails (e.g. during development/testing)
+            return path.normalize(path.join(__dirname, '../..'));
+        }
+    }
 
-        for (const scriptPath of possiblePaths) {
-            const normalizedPath = path.normalize(scriptPath);
-            if (fs.existsSync(normalizedPath)) {
-                console.log(`[VisualizerBackend] Found Python script at: ${normalizedPath}`);
-                return normalizedPath;
-            }
+    private findPythonScript(): string {
+        const extensionPath = this.getExtensionPath();
+        const scriptPath = path.normalize(path.join(extensionPath, 'python/visualizer_app.py'));
+        if (fs.existsSync(scriptPath)) {
+            console.log(`[VisualizerBackend] Found Python script at: ${scriptPath}`);
+            return scriptPath;
         }
 
-        console.error(`[VisualizerBackend] Could not find visualizer_app.py`);
-        return path.join(process.cwd(), 'python', 'visualizer_app.py');
+        console.error(`[VisualizerBackend] Could not find visualizer_app.py at ${scriptPath}`);
+        return scriptPath;
+    }
+
+    private findDagmcConverterScript(): string {
+        const extensionPath = this.getExtensionPath();
+        const scriptPath = path.normalize(path.join(extensionPath, 'python/dagmc_converter.py'));
+        if (fs.existsSync(scriptPath)) {
+            console.log(`[VisualizerBackend] Found DAGMC converter script at: ${scriptPath}`);
+            return scriptPath;
+        }
+
+        console.error(`[VisualizerBackend] Could not find dagmc_converter.py at ${scriptPath}`);
+        return scriptPath;
     }
 
     private async findFreePort(startPort: number): Promise<number> {
         for (let port = startPort; port < startPort + 1000; port++) {
+            if (this.reservedPorts.has(port)) {
+                continue;
+            }
             try {
                 await new Promise<void>((resolve, reject) => {
                     const server = net.createServer();
@@ -413,9 +514,5 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService {
             }
         }
         throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
-    }
-
-    private delay(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
