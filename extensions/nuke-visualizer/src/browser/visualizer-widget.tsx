@@ -158,9 +158,12 @@ export class VisualizerWidget extends ReactWidget {
                             <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Error</div>
                             <div style={{ fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' }}>{this.statusMessage}</div>
                         </div>
-                    )}
-                        <p style={isError ? { color: 'var(--theia-errorForeground)' } : {}}>{this.statusMessage}</p>
+                        )}
+                        {!isError && (
+                        <p>{this.statusMessage}</p>
+                        )}
                         {this.currentFile && (
+
                             <p style={{ fontSize: '12px', marginTop: '10px' }}>File: {this.currentFile}</p>
                         )}
                         <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
@@ -318,7 +321,7 @@ export class VisualizerWidget extends ReactWidget {
         } catch (error) {
             console.error('[Visualizer] DAGMC conversion failed:', error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = `DAGMC conversion failed: ${errorMsg}`;
+            this.statusMessage = errorMsg;
             this.update();
             this.ensureClosable();
             // Still try to start server with default visualization
@@ -333,13 +336,21 @@ export class VisualizerWidget extends ReactWidget {
             return;
         }
 
-        this.statusMessage = filePath ? 'Starting visualizer server...' : 'No file loaded';
-        this.warningMessage = null;
-        this.update();
-
         if (!filePath) {
+            // If no filePath provided and we don't already have an error message, set it
+            const statusLower = this.statusMessage.toLowerCase();
+            const alreadyHasError = statusLower.includes('failed') || statusLower.includes('error');
+            if (!alreadyHasError) {
+                this.statusMessage = 'No file loaded';
+            }
+            this.warningMessage = null;
+            this.update();
             return;
         }
+
+        this.statusMessage = 'Starting visualizer server...';
+        this.warningMessage = null;
+        this.update();
 
         try {
             // Build config from preferences

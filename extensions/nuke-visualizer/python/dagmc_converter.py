@@ -4,7 +4,6 @@ DAGMC to VTK converter for NukeIDE visualizer integration.
 
 REQUIREMENTS:
     - MOAB (Mesh-Oriented datABase) with Python bindings: pymoab
-      Install: conda install -c conda-forge moab
 
 NOTE: cad-to-dagmc is for CREATING DAGMC files, not reading them.
 For reading/converting .h5m files, we need MOAB/pymoab.
@@ -118,38 +117,15 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     except Exception as e:
         print(f"mbconvert unexpected failure: {e}")
     
-    # Method 3: Create placeholder VTK file
-    print("-" * 60)
-    print(f"ERROR: All DAGMC conversion methods failed.")
-    print(f"Python: {sys.executable}")
-    print("Please ensure MOAB is installed in your Python environment:")
-    print("  conda install -c conda-forge moab")
-    print("-" * 60)
-    print(f"Creating placeholder VTK for now.")
-    create_placeholder_vtk(output_path)
-    return str(output_path)
-
-
-def create_placeholder_vtk(output_path: Path):
-    """Create a simple VTK file when conversion tools are unavailable."""
-    vtk_content = """# vtk DataFile Version 3.0
-Placeholder for DAGMC visualization - Conversion tools not available
-ASCII
-DATASET POLYDATA
-POINTS 8 float
-0 0 0  1 0 0  1 1 0  0 1 0
-0 0 1  1 0 1  1 1 1  0 1 1
-POLYGONS 6 30
-4 0 1 2 3
-4 4 5 6 7
-4 0 1 5 4
-4 2 3 7 6
-4 0 3 7 4
-4 1 2 6 5
-"""
-    with open(output_path, 'w') as f:
-        f.write(vtk_content)
-    print(f"Placeholder VTK created: {output_path}")
+    # Method 3: Fail with informative error
+    error_msg = (
+        "No DAGMC conversion tools found.\n\n"
+        "To visualize .h5m files, you must have MOAB installed with Python bindings (pymoab).\n"
+        "Please install it in your environment using:\n"
+        "  conda install -c conda-forge moab\n\n"
+        f"(Python used: {sys.executable})"
+    )
+    raise RuntimeError(error_msg)
 
 
 def check_converter_available() -> tuple[bool, str]:
@@ -169,7 +145,7 @@ def check_converter_available() -> tuple[bool, str]:
     except FileNotFoundError:
         pass
     
-    return False, "No DAGMC converter found. Install MOAB: conda install -c conda-forge moab"
+    return False, "No DAGMC converter found. Install MOAB"
 
 
 if __name__ == "__main__":
@@ -187,5 +163,5 @@ if __name__ == "__main__":
         vtk_file = convert_h5m_to_vtk(h5m_file, output_dir)
         print(f"\nConversion complete: {vtk_file}")
     except Exception as e:
-        print(f"\nConversion failed: {e}")
+        print(f"\n{e}")
         sys.exit(1)

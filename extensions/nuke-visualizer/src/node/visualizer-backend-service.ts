@@ -21,6 +21,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
+import { spawnSync, execSync } from 'child_process';
 import { VisualizerBackendService, PythonConfig, EnvironmentInfo, VisualizerClient } from '../common/visualizer-protocol';
 
 @injectable()
@@ -180,20 +181,26 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const pythonInfo = await this.detectPythonCommand();
         this.log(`[Converter] Using Python: ${pythonInfo.command}`);
         
-        const { execSync } = require('child_process');
-        
         try {
             this.log(`[Converter] Command: "${pythonInfo.command}" "${converterScript}" "${filePath}"`);
             // Run the converter script
-            const stdout = execSync(
-                `"${pythonInfo.command}" "${converterScript}" "${filePath}"`,
-                { encoding: 'utf8', stdio: 'pipe' }
+            // Using spawnSync to better handle stdout/stderr on failure
+            const result = spawnSync(
+                pythonInfo.command,
+                [converterScript, filePath],
+                { encoding: 'utf8' }
             );
             
-            this.log(`[Converter] Output: ${stdout}`);
+            if (result.status !== 0) {
+                const errorOutput = (result.stdout || '') + (result.stderr || '');
+                this.errorLog(`[Converter] FAILED with status ${result.status}. Output: ${errorOutput}`);
+                throw new Error(errorOutput || `Conversion failed with status ${result.status}`);
+            }
+            
+            this.log(`[Converter] Output: ${result.stdout}`);
             
             // Parse output to find converted file path
-            const match = stdout.match(/Conversion complete: (.+)/);
+            const match = result.stdout.match(/Conversion complete: (.+)/);
             if (match) {
                 const vtkPath = match[1].trim();
                 if (fs.existsSync(vtkPath)) {
@@ -209,19 +216,17 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 return vtkPath;
             }
             
-            this.errorLog(`[Converter] FAILED. Output: ${stdout}`);
-            throw new Error(`Conversion failed. Output: ${stdout}`);
+            throw new Error(`Conversion completed but could not find output VTK file. Output: ${result.stdout}`);
             
         } catch (error) {
             this.errorLog(`[Converter] ERROR: ${error instanceof Error ? error.message : String(error)}`);
-            throw new Error(`Failed to convert DAGMC file: ${error instanceof Error ? error.message : String(error)}`);
+            throw new Error(error instanceof Error ? error.message : String(error));
         }
     }
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
         this.log('Checking environment...');
         const pythonInfo = await this.detectPythonCommand(config);
-        const { execSync } = require('child_process');
         
         const info: EnvironmentInfo = {
             pythonPath: pythonInfo.command,
@@ -392,7 +397,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
         
         // 6. Try python3/python from system PATH
-        const { execSync } = require('child_process');
         for (const cmd of ['python3', 'python']) {
             try {
                 const cmdPath = execSync(`which ${cmd}`, { encoding: 'utf8' }).trim();
@@ -440,7 +444,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
     }
 
     private testPythonWithDetails(pythonPath: string): { success: boolean; missing: string[] } {
-        const { execSync } = require('child_process');
         const missing: string[] = [];
         try {
             execSync(`"${pythonPath}" -c "import trame"`, { stdio: 'ignore' });
