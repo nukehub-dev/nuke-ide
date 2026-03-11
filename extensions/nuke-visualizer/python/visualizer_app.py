@@ -166,6 +166,7 @@ def create_app(file_path=None, port=None):
     state.show_scalar_bar = True
     state.show_controls = True
     state.background_color = [0.1, 0.1, 0.15]  # Dark background
+    state.camera_update_counter = 0  # Used to trigger client-side camera updates
     
     # Clipping state
     state.clip_enabled = False
@@ -249,20 +250,30 @@ def create_app(file_path=None, port=None):
     simple.ResetCamera()
     
     # Define view update function
-    def update_view():
-        """Update the view after state changes."""
+    def update_view(push_camera=False):
+        """Update the view after state changes.
+        
+        Args:
+            push_camera: If True, also push camera state to client.
+                        This should be True after programmatic camera changes.
+        """
         try:
             view = pipeline.get('view')
+            view_widget = pipeline.get('view_widget')
+            
             if view:
                 # Render the view
                 simple.Render(view)
-                # Trigger re-render via widget
-                view_widget = pipeline.get('view_widget')
-                if view_widget:
+                
+            if view_widget:
+                # For camera changes, increment counter to trigger state change
+                # This forces the VtkRemoteView to refresh with new camera state
+                if push_camera:
+                    state.camera_update_counter += 1
+                else:
+                    # Just update widget for non-camera changes
                     view_widget.update()
-                    # Also push camera if available to sync server-side camera changes
-                    if hasattr(view_widget, 'push_camera'):
-                        view_widget.push_camera()
+                        
         except Exception as e:
             print(f"Error updating view: {e}")
     
@@ -491,11 +502,12 @@ def create_app(file_path=None, port=None):
     def reset_camera():
         """Reset camera to default position."""
         try:
-            simple.ResetCamera()
             view = pipeline.get('view')
             if view:
+                simple.ResetCamera(view)
                 simple.Render(view)
-            update_view()
+            # Pass push_camera=True to sync the new camera position to client
+            update_view(push_camera=True)
             return True
         except Exception as e:
             print(f"Error resetting camera: {e}")
@@ -520,12 +532,11 @@ def create_app(file_path=None, port=None):
             view.CameraFocalPoint = focal_point
             view.CameraViewUp = view_up
             
-            # Reset clipping range to ensure the data is visible
-            view.ResetCameraClippingRange()
-            
             # Render to apply changes
             simple.Render(view)
-            update_view()
+            
+            # Pass push_camera=True to sync the new camera position to client
+            update_view(push_camera=True)
             
             return True
         except Exception as e:
@@ -772,6 +783,17 @@ def create_app(file_path=None, port=None):
             @server.controller.add("view_update")
             def view_update():
                 view_widget.update()
+            
+            # Watch for camera update counter changes to force view refresh
+            @state.change("camera_update_counter")
+            def on_camera_update(camera_update_counter, **kwargs):
+                try:
+                    # Render the view to ensure camera changes are applied
+                    simple.Render(view)
+                    # Update the widget to refresh the view
+                    view_widget.update()
+                except Exception as e:
+                    print(f"Warning: camera update failed: {e}")
     
     return server, port
 
