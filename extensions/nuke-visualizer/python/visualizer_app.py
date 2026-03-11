@@ -60,7 +60,6 @@ def create_app(file_path=None, port=None):
     # Import trame modules
     try:
         from trame.app import get_server
-        from trame.ui.vuetify2 import SinglePageLayout
     except ImportError as e:
         print(f"Error: trame not installed. Run: pip install trame trame-vuetify")
         sys.exit(1)
@@ -122,13 +121,11 @@ def create_app(file_path=None, port=None):
     simple.ResetCamera()
     
     # UI setup
-    with SinglePageLayout(server) as layout:
-        layout.title.set_text(f"NukeIDE - {title}")
-        
-        # Hide the default footer (Powered by trame)
-        layout.footer.hide()
-        
-        with layout.content:
+    from trame.ui.vuetify2 import VAppLayout
+    from trame.widgets import vuetify2 as vuetify
+    
+    with VAppLayout(server) as layout:
+        with vuetify.VMain():
             # Main visualization view - uses remote rendering
             view_widget = pv_widgets.VtkRemoteView(
                 view,
