@@ -16,16 +16,16 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
-import { TrameBackendService, TRAME_BACKEND_PATH } from '../common/trame-protocol';
-import { TrameBackendServiceImpl } from './trame-backend-service';
+import { VisualizerBackendService, VISUALIZER_BACKEND_PATH } from '../common/visualizer-protocol';
+import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
-    bind(TrameBackendServiceImpl).toSelf().inSingletonScope();
-    bind(TrameBackendService).toService(TrameBackendServiceImpl);
+    bind(VisualizerBackendServiceImpl).toSelf().inSingletonScope();
+    bind(VisualizerBackendService).toService(VisualizerBackendServiceImpl);
     
     bind(ConnectionHandler).toDynamicValue(ctx =>
-        new JsonRpcConnectionHandler<TrameBackendService>(TRAME_BACKEND_PATH, () => {
-            return ctx.container.get<TrameBackendService>(TrameBackendService);
+        new JsonRpcConnectionHandler<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, () => {
+            return ctx.container.get<VisualizerBackendService>(VisualizerBackendService);
         })
     ).inSingletonScope();
 });

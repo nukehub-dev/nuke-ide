@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Trame visualization server for NukeIDE.
+Visualizer visualization server for NukeIDE.
 """
 
 import sys
@@ -140,10 +140,10 @@ def create_app(file_path=None, port=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Trame visualization server for NukeIDE')
+    parser = argparse.ArgumentParser(description='Visualizer visualization server for NukeIDE')
     parser.add_argument('--port', type=int, default=None, help='Port to run server on (auto-detect if not specified)')
     parser.add_argument('--file', type=str, help='File to load (supports VTK formats, STL, PLY, OBJ)')
-    parser.add_argument('--host', type=str, default='localhost', help='Host to bind to')
+    parser.add_argument('--host', type=str, default='127.0.0.1', help='Host to report in URL')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -168,15 +168,18 @@ def main():
         sys.exit(1)
     
     # Print startup message for widget to capture
+    # Use 127.0.0.1 by default as it is more robust than localhost in browsers
     url = f"http://{args.host}:{port}"
     print("=" * 60)
-    print(f"Starting trame server on {url}")
+    print(f"Starting visualizer server on {url}")
     print("=" * 60)
     print(f"Press Ctrl+C to stop")
     print("=" * 60)
     
     try:
-        server.start(port=args.port, host=args.host, open_browser=False, show_connection_info=False)
+        # Bind to 0.0.0.0 to avoid potential host-matching issues in aiohttp/wslink
+        # while using args.host for reported URL
+        server.start(port=port, host='0.0.0.0', open_browser=False, show_connection_info=False)
     except KeyboardInterrupt:
         print("\nServer stopped by user")
     except Exception as e:

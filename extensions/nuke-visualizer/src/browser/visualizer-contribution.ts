@@ -16,19 +16,19 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
-import { AbstractViewContribution, OpenHandler } from '@theia/core/lib/browser';
+import { AbstractViewContribution, OpenHandler, FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { TrameWidget } from './trame-widget';
+import { VisualizerWidget } from './visualizer-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { CommonMenus } from '@theia/core/lib/browser';
 
 export const VisualizerCommand = {
-    id: TrameWidget.ID,
+    id: VisualizerWidget.ID,
     label: 'Open Nuke Visualizer'
 };
 
 @injectable()
-export class TrameContribution extends AbstractViewContribution<TrameWidget> implements OpenHandler {
+export class VisualizerContribution extends AbstractViewContribution<VisualizerWidget> implements OpenHandler, FrontendApplicationContribution {
     readonly id = 'nuke-visualizer.opener';
     readonly label = 'Open in Nuke Visualizer';
 
@@ -37,12 +37,22 @@ export class TrameContribution extends AbstractViewContribution<TrameWidget> imp
 
     constructor() {
         super({
-            widgetId: TrameWidget.ID,
-            widgetName: TrameWidget.LABEL,
+            widgetId: VisualizerWidget.ID,
+            widgetName: VisualizerWidget.LABEL,
             defaultWidgetOptions: {
                 area: 'main',
             }
         });
+    }
+
+    async onStart(app: FrontendApplication): Promise<void> {
+        // Force closing the widget on refresh to prevent potential restoration hangs
+        // This is a safety measure suggested by the user
+        const widget = app.shell.getWidgets('main').find(w => w.id === VisualizerWidget.ID);
+        if (widget) {
+            console.log('[Visualizer] Closing Nuke Visualizer widget on startup to avoid hangs');
+            widget.close();
+        }
     }
 
     override registerCommands(commands: CommandRegistry): void {
@@ -74,8 +84,8 @@ export class TrameContribution extends AbstractViewContribution<TrameWidget> imp
         return 0;
     }
 
-    async open(uri: URI): Promise<TrameWidget> {
-        // Open or activate trame widget using AbstractViewContribution's openView
+    async open(uri: URI): Promise<VisualizerWidget> {
+        // Open or activate visualizer widget using AbstractViewContribution's openView
         const widget = await this.openView({ activate: true });
         
         // Load the file into the visualization

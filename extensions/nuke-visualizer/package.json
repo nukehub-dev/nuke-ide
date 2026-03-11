@@ -2,7 +2,7 @@
   "private": true,
   "name": "nuke-visualizer",
   "version": "0.1.2",
-  "description": "Advanced 3D visualization for nuclear computational data in NukeIDE, powered by ParaView and trame",
+  "description": "Advanced 3D visualization for nuclear computational data in NukeIDE",
   "license": "BSD-2-Clause",
   "keywords": [
     "theia-extension",
@@ -48,8 +48,8 @@
   },
   "theiaExtensions": [
     {
-      "frontend": "lib/browser/trame-frontend-module",
-      "backend": "lib/node/trame-backend-module"
+      "frontend": "lib/browser/visualizer-frontend-module",
+      "backend": "lib/node/visualizer-backend-module"
     }
   ]
 }

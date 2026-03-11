@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DAGMC to VTK converter for NukeIDE trame integration.
+DAGMC to VTK converter for NukeIDE visualizer integration.
 
 REQUIREMENTS:
     - MOAB (Mesh-Oriented datABase) with Python bindings: pymoab

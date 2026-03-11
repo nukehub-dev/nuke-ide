@@ -14,16 +14,16 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-export const TrameBackendService = Symbol('TrameBackendService');
+export const VisualizerBackendService = Symbol('VisualizerBackendService');
 
 export interface PythonConfig {
     pythonPath?: string;
     condaEnv?: string;
 }
 
-export interface TrameBackendService {
-    startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number; url: string }>;
+export interface VisualizerBackendService {
+    startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number, url: string, warning?: string }>;
     stopServer(port: number): Promise<void>;
 }
 
-export const TRAME_BACKEND_PATH = '/services/trame';
+export const VISUALIZER_BACKEND_PATH = '/services/visualizer';

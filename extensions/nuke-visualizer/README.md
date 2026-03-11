@@ -1,6 +1,6 @@
 # Nuke Visualizer Extension
 
-Advanced 3D visualization for nuclear computational data in NukeIDE, powered by ParaView and trame.
+Advanced 3D visualization for nuclear computational data in NukeIDE.
 
 ## Features
 
@@ -26,8 +26,8 @@ Advanced 3D visualization for nuclear computational data in NukeIDE, powered by 
 ### Conda Environment (Recommended)
 
 ```bash
-conda create -n trame python=3.13
-conda activate trame
+conda create -n visualizer python=3.13
+conda activate visualizer
 conda install -c conda-forge paraview
 pip install trame trame-vuetify
 ```
@@ -38,7 +38,7 @@ Open **Preferences → Nuke Visualizer** and set:
 
 ```json
 {
-  "nuke.visualizer.pythonPath": "/home/username/.conda/envs/trame/bin/python"
+  "nukeVisualizer.pythonPath": "/home/username/.conda/envs/visualizer/bin/python"
 }
 ```
 
@@ -46,7 +46,7 @@ Or specify a conda environment name:
 
 ```json
 {
-  "nuke.visualizer.condaEnv": "trame"
+  "nukeVisualizer.condaEnv": "visualizer"
 }
 ```
 
@@ -59,7 +59,7 @@ Or specify a conda environment name:
 ## Development
 
 ```bash
-cd extensions/nuke-trame
+cd extensions/nuke-visualizer
 yarn install
 yarn build
 yarn watch  # For development
@@ -67,10 +67,10 @@ yarn watch  # For development
 
 ## Architecture
 
-- `src/browser/trame-widget.tsx` - Theia widget embedding visualization iframe
-- `src/browser/trame-contribution.ts` - Commands, menus, and file open handler
-- `src/browser/trame-frontend-module.ts` - Dependency injection bindings
-- `src/browser/trame-preferences.ts` - Preference schema and bindings
-- `src/node/trame-backend-service.ts` - Backend service for spawning Python
-- `python/trame_app.py` - Python trame/ParaView server
+- `src/browser/visualizer-widget.tsx` - Theia widget embedding visualization iframe
+- `src/browser/visualizer-contribution.ts` - Commands, menus, and file open handler
+- `src/browser/visualizer-frontend-module.ts` - Dependency injection bindings
+- `src/browser/visualizer-preferences.ts` - Preference schema and bindings
+- `src/node/visualizer-backend-service.ts` - Backend service for spawning Python
+- `python/visualizer_app.py` - Python visualizer/ParaView server
 - `python/dagmc_converter.py` - DAGMC .h5m to VTK converter

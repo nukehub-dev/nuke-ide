@@ -25,17 +25,17 @@ import {
 
 export const VisualizerPreferenceSchema: PreferenceSchema = {
     properties: {
-        'nuke.visualizer.pythonPath': {
+        'nukeVisualizer.pythonPath': {
             type: 'string',
             default: '',
-            description: 'Path to Python executable with both trame and ParaView installed (e.g., /home/user/anaconda3/envs/trame/bin/python). Leave empty for auto-detection.'
+            description: 'Path to Python executable with both visualizer and ParaView installed (e.g., /home/user/anaconda3/envs/visualizer/bin/python). Leave empty for auto-detection.'
         },
-        'nuke.visualizer.condaEnv': {
+        'nukeVisualizer.condaEnv': {
             type: 'string',
             default: '',
-            description: 'Conda environment name containing trame and ParaView (e.g., trame). Leave empty for auto-detection.'
+            description: 'Conda environment name containing visualizer and ParaView (e.g., visualizer). Leave empty for auto-detection.'
         },
-        'nuke.visualizer.serverTimeout': {
+        'nukeVisualizer.serverTimeout': {
             type: 'number',
             default: 30,
             description: 'Timeout in seconds to wait for visualizer server to start.'
@@ -44,9 +44,9 @@ export const VisualizerPreferenceSchema: PreferenceSchema = {
 };
 
 export interface VisualizerConfiguration {
-    'nuke.visualizer.pythonPath': string;
-    'nuke.visualizer.condaEnv': string;
-    'nuke.visualizer.serverTimeout': number;
+    'nukeVisualizer.pythonPath': string;
+    'nukeVisualizer.condaEnv': string;
+    'nukeVisualizer.serverTimeout': number;
 }
 
 export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceContribution');

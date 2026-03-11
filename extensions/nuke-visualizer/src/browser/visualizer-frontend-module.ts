@@ -15,36 +15,36 @@
 // *****************************************************************************
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
-import { TrameWidget } from './trame-widget';
-import { TrameContribution } from './trame-contribution';
+import { VisualizerWidget } from './visualizer-widget';
+import { VisualizerContribution } from './visualizer-contribution';
 import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewContribution } from '@theia/core/lib/browser';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
-import { TrameBackendService, TRAME_BACKEND_PATH } from '../common/trame-protocol';
+import { VisualizerBackendService, VISUALIZER_BACKEND_PATH } from '../common/visualizer-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
-import { bindVisualizerPreferences } from './trame-preferences';
+import { bindVisualizerPreferences } from './visualizer-preferences';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind preferences
     bindVisualizerPreferences(bind);
 
     // Bind backend service proxy
-    bind(TrameBackendService).toDynamicValue(ctx => {
+    bind(VisualizerBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        return connectionProvider.createProxy<TrameBackendService>(TRAME_BACKEND_PATH);
+        return connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH);
     }).inSingletonScope();
 
     // Bind contributions
-    bindViewContribution(bind, TrameContribution);
-    bind(FrontendApplicationContribution).toService(TrameContribution);
-    bind(OpenHandler).toService(TrameContribution);
+    bindViewContribution(bind, VisualizerContribution);
+    bind(FrontendApplicationContribution).toService(VisualizerContribution);
+    bind(OpenHandler).toService(VisualizerContribution);
     
-    // Bind widget as singleton so it's reused
-    bind(TrameWidget).toSelf().inSingletonScope();
+    // Bind widget - NOT as singleton so fresh instances are created when reopened
+    bind(VisualizerWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(context => ({
-        id: TrameWidget.ID,
-        createWidget: () => context.container.get<TrameWidget>(TrameWidget),
+        id: VisualizerWidget.ID,
+        createWidget: () => context.container.get<VisualizerWidget>(VisualizerWidget),
     })).inSingletonScope();
     
     // Optional: bind status bar contribution (noop if not needed)
-    bind(WidgetStatusBarContribution).toConstantValue(noopWidgetStatusBarContribution(TrameWidget));
+    bind(WidgetStatusBarContribution).toConstantValue(noopWidgetStatusBarContribution(VisualizerWidget));
 });

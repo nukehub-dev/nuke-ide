@@ -396,7 +396,19 @@
         tipBox.textContent = tips[randomIndex];
       }
 
-      document.addEventListener("DOMContentLoaded", updateTip);
+      document.addEventListener("DOMContentLoaded", () => {
+        updateTip();
+        
+        // Hide the preload screen after a maximum of 15 seconds to prevent hanging
+        setTimeout(() => {
+          const preloadContainer = document.querySelector('.theia-preload') || 
+                                   document.getElementById('theia-preload') ||
+                                   document.querySelector('.spinner-container')?.parentElement;
+          if (preloadContainer) {
+            preloadContainer.style.display = 'none';
+          }
+        }, 15000);
+      });
     </script>
   </body>
 </html>
