@@ -169,6 +169,125 @@ export interface VisualizerClient {
 
 export const VISUALIZER_BACKEND_PATH = '/services/visualizer';
 
+// === OpenMC Integration Types ===
+
+/** OpenMC filter metadata */
+export interface OpenMCFilter {
+    /** Filter type (mesh, energy, material, etc.) */
+    type: string;
+    /** Number of bins */
+    bins: number;
+    /** Mesh dimensions if mesh filter */
+    meshDimensions?: number[];
+    /** Mesh bounds if mesh filter */
+    meshBounds?: {
+        lowerLeft: number[];
+        upperRight: number[];
+    };
+    /** Mesh type if mesh filter (regular or cylindrical) */
+    meshType?: 'regular' | 'cylindrical';
+    /** Mesh cell size/width if mesh filter */
+    meshWidth?: number[];
+}
+
+/** OpenMC tally metadata */
+export interface OpenMCTallyInfo {
+    /** Tally ID */
+    id: number;
+    /** Tally name */
+    name: string;
+    /** Scores (flux, heating, etc.) */
+    scores: string[];
+    /** Nuclides (U235, total, etc.) */
+    nuclides: string[];
+    /** Filters applied */
+    filters: OpenMCFilter[];
+    /** Whether this is a mesh tally */
+    hasMesh: boolean;
+}
+
+/** OpenMC statepoint summary */
+export interface OpenMCStatepointInfo {
+    /** Path to statepoint file */
+    file: string;
+    /** Number of batches */
+    batches: number;
+    /** Generations per batch */
+    generationsPerBatch: number;
+    /** k-effective value */
+    kEff?: number;
+    /** k-effective standard deviation */
+    kEffStd?: number;
+    /** Number of tallies */
+    nTallies: number;
+    /** Tally IDs */
+    tallyIds: number[];
+}
+
+/** OpenMC source particle data */
+export interface OpenMCSourceInfo {
+    /** Number of particles */
+    nParticles: number;
+    /** Has position data */
+    hasPositions: boolean;
+    /** Has energy data */
+    hasEnergy: boolean;
+    /** Has weight data */
+    hasWeight: boolean;
+}
+
+/** Result of loading OpenMC geometry with tally overlay */
+export interface OpenMCVisualizationResult {
+    /** Whether loading was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Server port for visualization */
+    port?: number;
+    /** URL for visualization */
+    url?: string;
+    /** Tally info that was loaded */
+    tallyInfo?: OpenMCTallyInfo;
+}
+
+// === OpenMC Backend Service ===
+
+export const OpenMCBackendService = Symbol('OpenMCBackendService');
+export const OPENMC_BACKEND_PATH = '/services/openmc';
+
+export interface OpenMCBackendService {
+    /** Load OpenMC statepoint and return summary information */
+    loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
+    
+    /** List all tallies in a statepoint file */
+    listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
+    
+    /** Visualize a mesh tally from statepoint file */
+    visualizeMeshTally(
+        statepointPath: string, 
+        tallyId: number, 
+        score?: string,
+        nuclide?: string
+    ): Promise<OpenMCVisualizationResult>;
+    
+    /** Visualize source distribution from source.h5 */
+    visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
+    
+    /** Overlay tally on geometry (geometry + statepoint) */
+    visualizeTallyOnGeometry(
+        geometryPath: string,
+        statepointPath: string,
+        tallyId: number,
+        score?: string
+    ): Promise<OpenMCVisualizationResult>;
+    
+    /** Stop a running visualization server */
+    stopServer(port: number): Promise<void>;
+    
+    /** Check if OpenMC integration is available (h5py installed) */
+    checkOpenMCAvailable(): Promise<{ available: boolean; message: string }>;
+}
+
 // === Color Map Presets ===
 
 /** Available color map presets matching ParaView presets */

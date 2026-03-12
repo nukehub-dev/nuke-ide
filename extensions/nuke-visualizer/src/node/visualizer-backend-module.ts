@@ -17,8 +17,14 @@
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
 import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
-import { VisualizerBackendService, VISUALIZER_BACKEND_PATH } from '../common/visualizer-protocol';
+import { 
+    VisualizerBackendService, 
+    VISUALIZER_BACKEND_PATH,
+    OpenMCBackendService,
+    OPENMC_BACKEND_PATH
+} from '../common/visualizer-protocol';
 import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
+import { OpenMCBackendServiceImpl } from './openmc-backend-service';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
     bind(VisualizerBackendServiceImpl).toSelf().inSingletonScope();
@@ -28,6 +34,17 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(ConnectionHandler).toDynamicValue(ctx =>
         new JsonRpcConnectionHandler<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, () => {
             const service = ctx.container.get<VisualizerBackendService>(VisualizerBackendService);
+            return service;
+        })
+    ).inSingletonScope();
+    
+    // === OpenMC Integration ===
+    bind(OpenMCBackendServiceImpl).toSelf().inSingletonScope();
+    bind(OpenMCBackendService).toService(OpenMCBackendServiceImpl);
+    
+    bind(ConnectionHandler).toDynamicValue(ctx =>
+        new JsonRpcConnectionHandler<OpenMCBackendService>(OPENMC_BACKEND_PATH, () => {
+            const service = ctx.container.get<OpenMCBackendService>(OpenMCBackendService);
             return service;
         })
     ).inSingletonScope();

@@ -19,11 +19,21 @@ import { VisualizerWidget } from './visualizer-widget';
 import { VisualizerContribution } from './visualizer-contribution';
 import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewContribution } from '@theia/core/lib/browser';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
-import { VisualizerBackendService, VISUALIZER_BACKEND_PATH, VisualizerClient } from '../common/visualizer-protocol';
+import { 
+    VisualizerBackendService, 
+    VISUALIZER_BACKEND_PATH, 
+    VisualizerClient,
+    OpenMCBackendService,
+    OPENMC_BACKEND_PATH
+} from '../common/visualizer-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { bindVisualizerPreferences } from './visualizer-preferences';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
 import URI from '@theia/core/lib/common/uri';
+import { OpenMCService } from './openmc/openmc-service';
+import { OpenMCContribution } from './openmc/openmc-contribution';
+import { OpenMCTallySelector } from './openmc/tally-selector';
+import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind preferences
@@ -61,10 +71,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(VisualizerWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(context => ({
         id: VisualizerWidget.ID,
-        createWidget: (options?: { uri: string }) => {
+        createWidget: (options?: { uri: string; id?: string }) => {
             const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
             if (options?.uri) {
                 widget.setUri(new URI(options.uri));
+            }
+            // Allow setting a custom widget ID for multiple instances
+            if (options?.id) {
+                widget.id = options.id;
             }
             return widget;
         },
@@ -72,4 +86,30 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     
     // Optional: bind status bar contribution (noop if not needed)
     bind(WidgetStatusBarContribution).toConstantValue(noopWidgetStatusBarContribution(VisualizerWidget));
+
+    // === OpenMC Integration ===
+    
+    // Bind OpenMC backend service proxy
+    bind(OpenMCBackendService).toDynamicValue(ctx => {
+        const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
+        return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH);
+    }).inSingletonScope();
+    
+    // Bind OpenMC frontend service
+    bind(OpenMCService).toSelf().inSingletonScope();
+    
+    // Bind OpenMC contribution
+    bind(OpenMCContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(OpenMCContribution);
+    bind(OpenHandler).toService(OpenMCContribution);
+    
+    // Bind tally selector
+    bind(OpenMCTallySelector).toSelf().inSingletonScope();
+    
+    // Bind tally tree widget (transient scope so it can be recreated)
+    bind(OpenMCTallyTreeWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCTallyTreeWidget.ID,
+        createWidget: () => context.container.get<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget),
+    })).inSingletonScope();
 });

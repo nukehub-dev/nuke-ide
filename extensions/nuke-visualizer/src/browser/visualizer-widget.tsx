@@ -88,6 +88,24 @@ export class VisualizerWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Set the server URL directly (for when server is already running, e.g., OpenMC).
+     */
+    public setServerUrl(url: string, port: number): void {
+        console.log(`[VisualizerWidget] Setting server URL: ${url}, port: ${port}`);
+        this.serverUrl = url;
+        this.serverPort = port;
+        this.statusMessage = `Server ready at ${url}`;
+        this.update();
+    }
+
+    /**
+     * Get the current server port.
+     */
+    public getServerPort(): number | null {
+        return this.serverPort;
+    }
+
     protected override onActivateRequest(msg: Message): void {
         super.onActivateRequest(msg);
         const iframe = this.node.querySelector('iframe');

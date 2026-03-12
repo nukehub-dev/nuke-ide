@@ -25,7 +25,8 @@
     "lib",
     "src",
     "python",
-    "resources"
+    "resources",
+    "css"
   ],
   "dependencies": {
     "@theia/core": "1.69.0",
@@ -43,7 +44,8 @@
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
     "clean": "rimraf lib *.tsbuildinfo",
-    "build": "tsc",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "mkdir -p lib/browser/openmc && cp src/browser/openmc/*.css lib/browser/openmc/",
     "watch": "tsc -w"
   },
   "theiaExtensions": [
