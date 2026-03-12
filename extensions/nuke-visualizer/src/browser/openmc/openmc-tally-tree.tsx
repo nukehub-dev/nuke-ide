@@ -29,6 +29,7 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
+    action?: 'visualize' | 'spectrum' | 'spatial';
 }
 
 @injectable()
@@ -55,13 +56,20 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.title.caption = OpenMCTallyTreeWidget.LABEL;
         this.title.iconClass = codicon('list-tree');
         this.title.closable = true;
+        
+        // Ensure the widget can be focused
+        this.node.tabIndex = 0;
         this.update();
+    }
+
+    focus(): void {
+        this.node.focus();
     }
 
     setStatepoint(uri: URI, info: OpenMCStatepointInfo, tallies: OpenMCTallyInfo[]): void {
         this.statepointUri = uri;
         this.statepointInfo = info;
-        this.tallies = tallies.filter(t => t.hasMesh); // Only show mesh tallies
+        this.tallies = tallies; // Show all tallies now
         this.update();
     }
 
@@ -101,7 +109,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                         </div>
                     )}
                     <div className="batches-info">
-                        {this.statepointInfo.batches} batches, {this.tallies.length} mesh tallies
+                        {this.statepointInfo.batches} batches, {this.tallies.length} tallies
                     </div>
                 </div>
                 
@@ -115,6 +123,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     private renderTally(tally: OpenMCTallyInfo): React.ReactNode {
         const isExpanded = this.expandedTallies.has(tally.id);
         const meshFilter = tally.filters.find(f => f.type === 'mesh');
+        const energyFilter = tally.filters.find(f => f.type === 'energy');
         
         // Detect mesh type label
         const meshTypeLabel = meshFilter?.meshType === 'cylindrical' ? 'Cylindrical' : 'Regular (Cartesian)';
@@ -143,14 +152,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                 <div className="detail-label">Scores:</div>
                                 <div className="detail-items">
                                     {tally.scores.map(score => (
-                                        <button
-                                            key={score}
-                                            className="detail-item score"
-                                            onClick={() => this.selectTally(tally.id, score, tally.nuclides[0] || 'total')}
-                                            title={`Visualize ${score}`}
-                                        >
-                                            {score}
-                                        </button>
+                                        <span key={score} className="detail-item score">{score}</span>
                                     ))}
                                 </div>
                             </div>
@@ -197,42 +199,44 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                             <span className="mesh-value">{meshFilter.meshDimensions.join(' × ')} cells</span>
                                         </div>
                                     )}
-                                    {meshFilter.meshWidth && (
-                                        <div className="mesh-row">
-                                            <span className="mesh-label">Cell Size:</span>
-                                            <span className="mesh-value">
-                                                {meshFilter.meshWidth.map((w: number) => w.toFixed(4)).join(' × ')} cm
-                                            </span>
-                                        </div>
-                                    )}
-                                    {meshFilter.meshBounds && (
-                                        <>
-                                            <div className="mesh-row">
-                                                <span className="mesh-label">Lower Left:</span>
-                                                <span className="mesh-value">
-                                                    ({meshFilter.meshBounds.lowerLeft.map((v: number) => v.toFixed(2)).join(', ')}) cm
-                                                </span>
-                                            </div>
-                                            <div className="mesh-row">
-                                                <span className="mesh-label">Upper Right:</span>
-                                                <span className="mesh-value">
-                                                    ({meshFilter.meshBounds.upperRight.map((v: number) => v.toFixed(2)).join(', ')}) cm
-                                                </span>
-                                            </div>
-                                        </>
-                                    )}
                                 </div>
                             </div>
                         )}
                         
-                        {/* Visualize Button */}
-                        <button 
-                            className="visualize-all-btn"
-                            onClick={() => this.selectTally(tally.id, tally.scores[0] || 'flux', tally.nuclides[0] || 'total')}
-                        >
-                            <i className="fa fa-play"></i>
-                            Visualize
-                        </button>
+                        {/* Action Buttons */}
+                        <div className="tally-actions">
+                            {tally.hasMesh && (
+                                <>
+                                    <button 
+                                        className="tally-action-btn visualize"
+                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
+                                        title="Visualize 3D Mesh Tally"
+                                    >
+                                        <i className="fa fa-cube"></i>
+                                        3D View
+                                    </button>
+                                    <button 
+                                        className="tally-action-btn spatial"
+                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
+                                        title="Plot 1D Spatial Distribution"
+                                    >
+                                        <i className="fa fa-line-chart"></i>
+                                        Spatial Plot
+                                    </button>
+                                </>
+                            )}
+                            
+                            {energyFilter && (
+                                <button 
+                                    className="tally-action-btn spectrum"
+                                    onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
+                                    title="Plot Energy Spectrum"
+                                >
+                                    <i className="fa fa-area-chart"></i>
+                                    Spectrum
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -248,8 +252,8 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.update();
     }
 
-    private selectTally(tallyId: number, score: string, nuclide: string): void {
-        this.selectedTally = { tallyId, score, nuclide };
+    private selectTally(tallyId: number, score: string, nuclide: string, action: 'visualize' | 'spectrum' | 'spatial'): void {
+        this.selectedTally = { tallyId, score, nuclide, action };
         this._onTallySelected.fire(this.selectedTally);
     }
 

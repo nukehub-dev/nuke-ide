@@ -236,6 +236,22 @@ export interface OpenMCSourceInfo {
     hasWeight: boolean;
 }
 
+/** OpenMC spectrum data */
+export interface OpenMCSpectrumData {
+    energy_bins: number[];
+    values: number[];
+    std_dev: number[];
+    error?: string;
+}
+
+/** OpenMC spatial plot data */
+export interface OpenMCSpatialPlotData {
+    positions: number[];
+    values: number[];
+    axis: string;
+    error?: string;
+}
+
 /** Result of loading OpenMC geometry with tally overlay */
 export interface OpenMCVisualizationResult {
     /** Whether loading was successful */
@@ -280,6 +296,23 @@ export interface OpenMCBackendService {
         tallyId: number,
         score?: string
     ): Promise<OpenMCVisualizationResult>;
+    
+    /** Get energy spectrum data for a tally */
+    getEnergySpectrum(
+        statepointPath: string,
+        tallyId: number,
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCSpectrumData>;
+    
+    /** Get spatial plot data for a mesh tally */
+    getSpatialPlot(
+        statepointPath: string,
+        tallyId: number,
+        axis: 'x' | 'y' | 'z',
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCSpatialPlotData>;
     
     /** Stop a running visualization server */
     stopServer(port: number): Promise<void>;

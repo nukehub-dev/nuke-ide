@@ -246,6 +246,86 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    async getEnergySpectrum(
+        statepointPath: string,
+        tallyId: number,
+        scoreIndex: number = 0,
+        nuclideIndex: number = 0
+    ): Promise<any> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'spectrum', statepointPath, tallyId.toString(),
+            '--score-index', scoreIndex.toString(),
+            '--nuclide-index', nuclideIndex.toString()
+        ];
+
+        console.log(`[OpenMC] Running spectrum command: ${pythonCommand} ${args.join(' ')}`);
+
+        // Increased maxBuffer to 10MB for large spectra
+        const result = spawnSync(pythonCommand, args, { 
+            encoding: 'utf8',
+            maxBuffer: 10 * 1024 * 1024 
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Spectrum command failed with status ${result.status}`);
+            console.error(`[OpenMC] stderr: ${result.stderr}`);
+            throw new Error(result.stderr || `Command failed with status ${result.status}`);
+        }
+
+        try {
+            console.log(`[OpenMC] Spectrum output length: ${result.stdout?.length || 0} characters`);
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse spectrum JSON: ${e}`);
+            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
+            throw e;
+        }
+    }
+
+    async getSpatialPlot(
+        statepointPath: string,
+        tallyId: number,
+        axis: 'x' | 'y' | 'z',
+        scoreIndex: number = 0,
+        nuclideIndex: number = 0
+    ): Promise<any> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'spatial', statepointPath, tallyId.toString(), 
+            '--axis', axis,
+            '--score-index', scoreIndex.toString(),
+            '--nuclide-index', nuclideIndex.toString()
+        ];
+
+        console.log(`[OpenMC] Running spatial plot command: ${pythonCommand} ${args.join(' ')}`);
+
+        // Increased maxBuffer to 10MB for large mesh data
+        const result = spawnSync(pythonCommand, args, { 
+            encoding: 'utf8',
+            maxBuffer: 10 * 1024 * 1024 
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Spatial plot command failed with status ${result.status}`);
+            console.error(`[OpenMC] stderr: ${result.stderr}`);
+            throw new Error(result.stderr || `Command failed with status ${result.status}`);
+        }
+
+        try {
+            console.log(`[OpenMC] Spatial output length: ${result.stdout?.length || 0} characters`);
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse spatial plot JSON: ${e}`);
+            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
+            throw e;
+        }
+    }
+
     async stopServer(port: number): Promise<void> {
         const proc = this.processes.get(port);
         if (proc) {

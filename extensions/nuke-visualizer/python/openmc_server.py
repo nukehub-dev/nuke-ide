@@ -10,6 +10,7 @@ import sys
 import os
 import tempfile
 import socket
+import numpy as np
 
 # Force headless/offscreen rendering BEFORE importing vtk or paraview
 os.environ['DISPLAY'] = ''  # Disable X11 display
@@ -356,15 +357,26 @@ def cmd_visualize_mesh(args):
         @state.change("show_bounding_box")
         def on_bounding_box_change(show_bounding_box, **kwargs):
             try:
-                view.CenterAxesVisibility = 1 if show_bounding_box else 0
+                # CenterAxesVisibility is often a display property
+                display.CenterAxesVisibility = 1 if show_bounding_box else 0
                 update_view()
             except Exception as e:
-                print(f"Error updating bounding box: {e}", file=sys.stderr)
+                try:
+                    view.CenterAxesVisibility = 1 if show_bounding_box else 0
+                    update_view()
+                except:
+                    print(f"Error updating bounding box: {e}", file=sys.stderr)
         
         @state.change("show_cube_axes")
         def on_cube_axes_change(show_cube_axes, **kwargs):
             try:
-                view.CubeAxesVisibility = 1 if show_cube_axes else 0
+                if hasattr(view, 'CubeAxesVisibility'):
+                    view.CubeAxesVisibility = 1 if show_cube_axes else 0
+                elif hasattr(view, 'AxesGrid'):
+                    view.AxesGrid.Visibility = 1 if show_cube_axes else 0
+                else:
+                    # Try on display
+                    display.CubeAxesVisibility = 1 if show_cube_axes else 0
                 update_view()
             except Exception as e:
                 print(f"Error updating cube axes: {e}", file=sys.stderr)
@@ -698,10 +710,10 @@ def cmd_visualize_mesh(args):
                         
                         result = capture_screenshot(filename=filepath)
                         if result.get('success'):
-                            print(f"Screenshot saved: {filepath}")
+                            print(f"Screenshot saved: {filepath}", file=sys.stderr)
                             state.screenshot_status = f"Saved: {filename}"
                         else:
-                            print(f"Screenshot failed: {result.get('error')}")
+                            print(f"Screenshot failed: {result.get('error')}", file=sys.stderr)
                             state.screenshot_status = f"Error: {result.get('error')}"
                     
                     vuetify.VBtn(
@@ -773,7 +785,7 @@ def cmd_visualize_mesh(args):
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
         
-        print(f"Starting OpenMC mesh tally server on port {port}")
+        print(f"Starting OpenMC mesh tally server on port {port}", file=sys.stderr)
         server.start(port=port, debug=False, open_browser=False)
         return 0
         
@@ -961,7 +973,13 @@ def cmd_visualize_source(args):
         @state.change("show_cube_axes")
         def on_cube_axes_change(show_cube_axes, **kwargs):
             try:
-                view.CubeAxesVisibility = 1 if show_cube_axes else 0
+                if hasattr(view, 'CubeAxesVisibility'):
+                    view.CubeAxesVisibility = 1 if show_cube_axes else 0
+                elif hasattr(view, 'AxesGrid'):
+                    view.AxesGrid.Visibility = 1 if show_cube_axes else 0
+                else:
+                    # Try on display
+                    display.CubeAxesVisibility = 1 if show_cube_axes else 0
                 update_view()
             except Exception as e:
                 print(f"Error updating cube axes: {e}", file=sys.stderr)
@@ -1201,10 +1219,10 @@ def cmd_visualize_source(args):
                         
                         result = capture_screenshot(filename=filepath)
                         if result.get('success'):
-                            print(f"Screenshot saved: {filepath}")
+                            print(f"Screenshot saved: {filepath}", file=sys.stderr)
                             state.screenshot_status = f"Saved: {filename}"
                         else:
-                            print(f"Screenshot failed: {result.get('error')}")
+                            print(f"Screenshot failed: {result.get('error')}", file=sys.stderr)
                             state.screenshot_status = f"Error: {result.get('error')}"
                     
                     vuetify.VBtn(
@@ -1272,7 +1290,7 @@ def cmd_visualize_source(args):
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
         
-        print(f"Starting OpenMC source server on port {port}")
+        print(f"Starting OpenMC source server on port {port}", file=sys.stderr)
         server.start(port=port, debug=False, open_browser=False)
         return 0
         
@@ -1282,6 +1300,141 @@ def cmd_visualize_source(args):
         traceback.print_exc()
         return 1
 
+
+def cmd_visualize_overlay(args):
+    """Overlay tally on geometry."""
+    try:
+        from trame.app import get_server
+        from trame.widgets import paraview as pv_widgets
+        from trame.widgets import vuetify2 as vuetify
+        from trame.ui.vuetify2 import VAppLayout
+        from paraview import simple
+    except ImportError as e:
+        print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
+        return 1
+
+    port = args.port or find_free_port(8090)
+    
+    reader = OpenMCReader()
+    
+    try:
+        # Load tally and geometry
+        viz_data = reader.visualize_tally_on_geometry(
+            args.geometry, args.statepoint, args.tally_id, args.score
+        )
+        
+        tally = viz_data['tally']
+        
+        # Create trame application
+        server = get_server(client_type="vue2", port=port)
+        state = server.state
+        
+        # Initialize state variables
+        state.opacity = 0.6  # Default lower opacity for overlay
+        state.representation = 'Surface'
+        state.color_by = 'Cell: tally_mean' if tally.has_mesh else 'Solid Color'
+        state.color_map = args.colormap or 'Cool to Warm'
+        state.show_scalar_bar = True
+        state.background_color_hex = '#1a1a26'
+        state.show_edges = False
+        state.show_orientation_axes = True
+        state.show_bounding_box = False
+        state.show_cube_axes = False
+        state.camera_update_counter = 0
+        
+        # State change handlers
+        def update_view(push_camera=False):
+            try:
+                view = simple.GetActiveViewOrCreate('RenderView')
+                simple.Render(view)
+                vw = state.view_widget
+                if vw:
+                    if push_camera:
+                        state.camera_update_counter = state.camera_update_counter + 1
+                    else:
+                        vw.update()
+            except Exception as e:
+                print(f"Error updating view: {e}", file=sys.stderr)
+
+        def hex_to_rgb(hex_color):
+            hex_color = hex_color.lstrip('#')
+            return [int(hex_color[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+
+        @state.change("opacity")
+        def on_opacity_change(opacity, **kwargs):
+            if 'tally_display' in viz_data:
+                viz_data['tally_display'].Opacity = float(opacity)
+                update_view()
+
+        @state.change("background_color_hex")
+        def on_background_change(background_color_hex, **kwargs):
+            view = simple.GetActiveViewOrCreate('RenderView')
+            view.Background = hex_to_rgb(background_color_hex)
+            update_view()
+
+        # UI setup (Simplified for overlay)
+        with VAppLayout(server) as layout:
+            with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
+                with vuetify.VContainer():
+                    vuetify.VSubheader(f"Overlay: Tally {tally.id}")
+                    vuetify.VDivider(classes="mb-4")
+                    
+                    vuetify.VSlider(label="Tally Opacity", v_model=("opacity", 0.6), min=0, max=1, step=0.05, dense=True)
+                    
+                    vuetify.VBtn("Reset Camera", click=lambda: (simple.ResetCamera(), update_view(True)), block=True, outlined=True)
+            
+            with vuetify.VMain():
+                state.view_widget = pv_widgets.VtkRemoteView(simple.GetActiveViewOrCreate('RenderView'))
+
+        print(f"Starting OpenMC overlay server on port {port}", file=sys.stderr)
+        server.start(port=port, debug=False, open_browser=False)
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+def cmd_spectrum(args):
+    """Get energy spectrum data."""
+    try:
+        from openmc_integration import OpenMCPlotter
+        plotter = OpenMCPlotter()
+        data = plotter.create_energy_spectrum(
+            args.statepoint, 
+            args.tally_id,
+            int(args.score_index or 0),
+            int(args.nuclide_index or 0)
+        )
+        
+        # Convert numpy arrays to lists for JSON
+        serializable_data = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in data.items()}
+        print(json.dumps(serializable_data))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return 1
+
+def cmd_spatial(args):
+    """Get spatial plot data."""
+    try:
+        from openmc_integration import OpenMCPlotter
+        plotter = OpenMCPlotter()
+        data = plotter.create_spatial_plot(
+            args.statepoint, 
+            args.tally_id, 
+            args.axis,
+            int(args.score_index or 0),
+            int(args.nuclide_index or 0)
+        )
+        
+        # Convert numpy arrays to lists for JSON
+        serializable_data = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in data.items()}
+        print(json.dumps(serializable_data))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return 1
 
 def cmd_check(args):
     """Check if OpenMC integration is available."""
@@ -1324,6 +1477,30 @@ def main():
     source_parser = subparsers.add_parser('visualize-source', help='Visualize source')
     source_parser.add_argument('source', help='Path to source.h5')
     source_parser.add_argument('--port', type=int, help='Server port')
+
+    # Visualize overlay command
+    overlay_parser = subparsers.add_parser('visualize-overlay', help='Overlay tally on geometry')
+    overlay_parser.add_argument('geometry', help='Path to geometry file')
+    overlay_parser.add_argument('statepoint', help='Path to statepoint.h5')
+    overlay_parser.add_argument('tally_id', type=int, help='Tally ID')
+    overlay_parser.add_argument('--port', type=int, help='Server port')
+    overlay_parser.add_argument('--score', help='Score name')
+    overlay_parser.add_argument('--colormap', default='Cool to Warm', help='Color map')
+
+    # Spectrum command
+    spectrum_parser = subparsers.add_parser('spectrum', help='Get energy spectrum')
+    spectrum_parser.add_argument('statepoint', help='Path to statepoint.h5')
+    spectrum_parser.add_argument('tally_id', type=int, help='Tally ID')
+    spectrum_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
+    spectrum_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
+
+    # Spatial plot command
+    spatial_parser = subparsers.add_parser('spatial', help='Get spatial plot')
+    spatial_parser.add_argument('statepoint', help='Path to statepoint.h5')
+    spatial_parser.add_argument('tally_id', type=int, help='Tally ID')
+    spatial_parser.add_argument('--axis', default='z', choices=['x', 'y', 'z'], help='Plot axis')
+    spatial_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
+    spatial_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
     
     # Check command
     check_parser = subparsers.add_parser('check', help='Check availability')
@@ -1339,6 +1516,9 @@ def main():
         'list': cmd_list,
         'visualize-mesh': cmd_visualize_mesh,
         'visualize-source': cmd_visualize_source,
+        'visualize-overlay': cmd_visualize_overlay,
+        'spectrum': cmd_spectrum,
+        'spatial': cmd_spatial,
         'check': cmd_check,
     }
     

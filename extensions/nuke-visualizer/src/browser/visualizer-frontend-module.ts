@@ -14,6 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';
 import { VisualizerContribution } from './visualizer-contribution';
@@ -34,6 +35,7 @@ import { OpenMCService } from './openmc/openmc-service';
 import { OpenMCContribution } from './openmc/openmc-contribution';
 import { OpenMCTallySelector } from './openmc/tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
+import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind preferences
@@ -101,15 +103,30 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind OpenMC contribution
     bind(OpenMCContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(OpenMCContribution);
+    bind(CommandContribution).toService(OpenMCContribution);
+    bind(MenuContribution).toService(OpenMCContribution);
     bind(OpenHandler).toService(OpenMCContribution);
     
     // Bind tally selector
     bind(OpenMCTallySelector).toSelf().inSingletonScope();
     
-    // Bind tally tree widget (transient scope so it can be recreated)
+    // Bind tally tree widget
     bind(OpenMCTallyTreeWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(context => ({
         id: OpenMCTallyTreeWidget.ID,
         createWidget: () => context.container.get<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget),
+    })).inSingletonScope();
+
+    // Bind plot widget
+    bind(OpenMCPlotWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCPlotWidget.ID,
+        createWidget: (options?: { id?: string }) => {
+            const widget = context.container.get<OpenMCPlotWidget>(OpenMCPlotWidget);
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
     })).inSingletonScope();
 });

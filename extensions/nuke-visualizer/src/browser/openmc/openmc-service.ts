@@ -370,6 +370,20 @@ export class OpenMCService {
     }
 
     /**
+     * Get energy spectrum data for a tally.
+     */
+    async getEnergySpectrum(statepointUri: URI, tallyId: number, scoreIndex?: number, nuclideIndex?: number) {
+        return this.openmcBackend.getEnergySpectrum(statepointUri.path.toString(), tallyId, scoreIndex, nuclideIndex);
+    }
+
+    /**
+     * Get spatial plot data for a mesh tally.
+     */
+    async getSpatialPlot(statepointUri: URI, tallyId: number, axis: 'x' | 'y' | 'z', scoreIndex?: number, nuclideIndex?: number) {
+        return this.openmcBackend.getSpatialPlot(statepointUri.path.toString(), tallyId, axis, scoreIndex, nuclideIndex);
+    }
+
+    /**
      * Discover OpenMC-related files in a directory.
      */
     async discoverFilesInDirectory(directoryUri: URI): Promise<OpenMCFileSet> {

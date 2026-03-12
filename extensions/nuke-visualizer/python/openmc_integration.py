@@ -268,7 +268,7 @@ class OpenMCReader:
         if isinstance(filter_type, str) and filter_type.startswith("b'") and filter_type.endswith("'"):
             filter_type = filter_type[2:-1]
             
-        print(f"[OpenMC Debug] _parse_filter_full: type={filter_type}", file=sys.stderr)
+        # # print(f"[OpenMC Debug] _parse_filter_full: type={filter_type}", file=sys.stderr)
         
         n_bins = 0
         if 'n_bins' in filter_obj:
@@ -295,19 +295,20 @@ class OpenMCReader:
                     mesh_id = int(bins_data.flat[0])
                 else:
                     mesh_id = int(bins_data)
-                print(f"[OpenMC Debug] Found mesh_id: {mesh_id}", file=sys.stderr)
+                # print(f"[OpenMC Debug] Found mesh_id: {mesh_id}", file=sys.stderr)
             else:
-                print(f"[OpenMC Debug] No 'bins' in filter_obj, keys: {list(filter_obj.keys())}", file=sys.stderr)
+                pass
+                # print(f"[OpenMC Debug] No 'bins' in filter_obj, keys: {list(filter_obj.keys())}", file=sys.stderr)
                     
             if mesh_id is not None and f is not None and 'tallies' in f and 'meshes' in f['tallies']:
                 mesh_key = f'mesh {mesh_id}'
-                print(f"[OpenMC Debug] Looking for mesh: {mesh_key}", file=sys.stderr)
+                # print(f"[OpenMC Debug] Looking for mesh: {mesh_key}", file=sys.stderr)
                 if mesh_key in f['tallies']['meshes']:
                     mesh_obj = f['tallies']['meshes'][mesh_key]
                     mesh_info = {}
                     
                     # Debug: show available keys
-                    print(f"[OpenMC Debug] Mesh object keys: {list(mesh_obj.keys())}", file=sys.stderr)
+                    # print(f"[OpenMC Debug] Mesh object keys: {list(mesh_obj.keys())}", file=sys.stderr)
                     
                     # RegularMesh has dimension, lower_left, upper_right
                     if 'dimension' in mesh_obj:
@@ -340,15 +341,18 @@ class OpenMCReader:
                         mesh_info['dimensions'] = [nr, nphi, nz]
                         
                     filter_info['mesh_info'] = mesh_info
-                    print(f"[OpenMC Debug] Mesh info: type={mesh_info.get('mesh_type')}, dims={mesh_info.get('dimensions')}", file=sys.stderr)
+                    # print(f"[OpenMC Debug] Mesh info: type={mesh_info.get('mesh_type')}, dims={mesh_info.get('dimensions')}", file=sys.stderr)
                 else:
+                    pass
                     available_meshes = list(f['tallies']['meshes'].keys())
-                    print(f"[OpenMC Debug] WARNING: mesh {mesh_id} not found in meshes group", file=sys.stderr)
-                    print(f"[OpenMC Debug] Available meshes: {available_meshes}", file=sys.stderr)
+                    # print(f"[OpenMC Debug] WARNING: mesh {mesh_id} not found in meshes group", file=sys.stderr)
+                    # print(f"[OpenMC Debug] Available meshes: {available_meshes}", file=sys.stderr)
             else:
-                print(f"[OpenMC Debug] WARNING: mesh_id={mesh_id}, f is None: {f is None}", file=sys.stderr)
+                pass
+                # print(f"[OpenMC Debug] WARNING: mesh_id={mesh_id}, f is None: {f is None}", file=sys.stderr)
                 if f is not None:
-                    print(f"[OpenMC Debug] 'tallies' in f: {'tallies' in f}, 'meshes' in f.get('tallies', {{}}): {'meshes' in f.get('tallies', {})}", file=sys.stderr)
+                    pass
+                    # print(f"[OpenMC Debug] 'tallies' in f: {'tallies' in f}, 'meshes' in f.get('tallies', {{}}): {'meshes' in f.get('tallies', {})}", file=sys.stderr)
                 
         return filter_info, has_mesh, mesh_info
     
@@ -554,7 +558,7 @@ class OpenMCReader:
         nphi = len(phi_grid) - 1
         nz = len(z_grid) - 1
         
-        print(f"[OpenMC] Creating cylindrical mesh: {nr} radial x {nphi} azimuthal x {nz} axial cells", file=sys.stderr)
+        # print(f"[OpenMC] Creating cylindrical mesh: {nr} radial x {nphi} azimuthal x {nz} axial cells", file=sys.stderr)
         
         # Create points (convert cylindrical to Cartesian)
         points = vtk.vtkPoints()
@@ -779,14 +783,15 @@ class OpenMCPlotter:
     
     @staticmethod
     def create_energy_spectrum(statepoint_file: str, tally_id: int, 
-                                score: str = 'flux') -> Dict[str, np.ndarray]:
+                                score_index: int = 0, nuclide_index: int = 0) -> Dict[str, np.ndarray]:
         """
         Extract energy spectrum from an energy-filtered tally.
         
         Args:
             statepoint_file: Path to statepoint.h5
             tally_id: Tally ID
-            score: Score to extract (default 'flux')
+            score_index: Index of score to extract
+            nuclide_index: Index of nuclide to extract
             
         Returns:
             Dictionary with 'energy_bins' and 'values' arrays
@@ -803,17 +808,40 @@ class OpenMCPlotter:
             if 'filters' not in tally:
                 raise ValueError("Tally has no filters")
             
+            # Tally results shape: (bins, ..., n_scores, n_nuclides, 3) where 3 is (sum, sum_sq, n)
+            # or just (bins, n_scores, n_nuclides, 2) where 2 is (mean, std_dev)
+            
             filters_group = tally['filters']
             energy_filter = None
+            filter_idx = -1
             
-            for filter_key in filters_group.keys():
-                filter_obj = filters_group[filter_key]
-                filter_type = filter_obj.attrs.get('type', '')
-                if isinstance(filter_type, bytes):
-                    filter_type = filter_type.decode('utf-8')
+            # Find which filter is the energy filter
+            all_filters = []
+            if isinstance(filters_group, h5py.Dataset):
+                # Older format or reference format
+                filter_ids = filters_group[...]
+                global_filters = f['filters'] if 'filters' in f else f['tallies']['filters']
+                for fid in filter_ids.flat:
+                    all_filters.append(global_filters[f'filter {int(fid)}'])
+            else:
+                for k in sorted(filters_group.keys()):
+                    all_filters.append(filters_group[k])
+
+            for i, filter_obj in enumerate(all_filters):
+                filter_type = 'unknown'
+                if 'type' in filter_obj:
+                    val = filter_obj['type'][()]
+                    filter_type = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
+                elif 'type' in filter_obj.attrs:
+                    val = filter_obj.attrs['type']
+                    filter_type = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
                 
-                if filter_type == 'energy':
+                if isinstance(filter_type, str) and filter_type.startswith("b'") and filter_type.endswith("'"):
+                    filter_type = filter_type[2:-1]
+
+                if filter_type in ('energy', 'energyout'):
                     energy_filter = filter_obj
+                    filter_idx = i
                     break
             
             if energy_filter is None:
@@ -825,16 +853,39 @@ class OpenMCPlotter:
             # Get results
             results = tally['results'][...]
             mean = results[..., 0]
+            std_dev = results[..., 1]
+            
+            # The mean array has shape (filter1_bins, filter2_bins, ..., n_scores, n_nuclides)
+            # We need to isolate the energy filter axis and the requested score/nuclide
+            n_filters = len(all_filters)
+            n_scores = results.shape[-3] if results.ndim > 2 else 1
+            n_nuclides = results.shape[-2] if results.ndim > 2 else 1
+            
+            # Reshape to 1D for easier indexing if needed, but ParaView/OpenMC 
+            # usually has (f1, f2, ..., scores, nuclides)
+            # For simplicity, if it's not already 1D + scores + nuclides, we flatten others
+            # but usually a spectrum tally only has ONE filter (energy).
+            
+            if mean.ndim == 3: # (energy_bins, n_scores, n_nuclides)
+                values = mean[:, score_index, nuclide_index]
+                errors = std_dev[:, score_index, nuclide_index]
+            else:
+                # Flatten everything except scores and nuclides
+                flat_mean = mean.reshape(-1, n_scores, n_nuclides)
+                flat_std = std_dev.reshape(-1, n_scores, n_nuclides)
+                values = flat_mean[:, score_index, nuclide_index]
+                errors = flat_std[:, score_index, nuclide_index]
             
             return {
                 'energy_bins': bins,
-                'values': mean.flatten(),
-                'std_dev': results[..., 1].flatten()
+                'values': values,
+                'std_dev': errors
             }
     
     @staticmethod
     def create_spatial_plot(statepoint_file: str, tally_id: int,
-                            axis: str = 'z') -> Dict[str, np.ndarray]:
+                            axis: str = 'z', score_index: int = 0,
+                            nuclide_index: int = 0) -> Dict[str, np.ndarray]:
         """
         Create 1D spatial plot from a mesh tally.
         
@@ -842,6 +893,8 @@ class OpenMCPlotter:
             statepoint_file: Path to statepoint.h5
             tally_id: Tally ID
             axis: Axis to plot along ('x', 'y', or 'z')
+            score_index: Index of score to plot
+            nuclide_index: Index of nuclide to plot
             
         Returns:
             Dictionary with axis positions and values
@@ -849,54 +902,50 @@ class OpenMCPlotter:
         reader = OpenMCReader()
         tally = reader.load_tally(statepoint_file, tally_id)
         
-        if not tally.has_mesh:
+        if not tally.has_mesh or not tally.mesh_info:
             raise ValueError("Tally is not a mesh tally")
         
         mesh = tally.mesh_info
         nx, ny, nz = mesh['dimensions']
-        dx, dy, dz = mesh['width']
         
-        # Calculate cell centers
-        x_centers = np.linspace(
-            mesh['lower_left'][0] + dx/2,
-            mesh['upper_right'][0] - dx/2,
-            nx
-        )
-        y_centers = np.linspace(
-            mesh['lower_left'][1] + dy/2,
-            mesh['upper_right'][1] - dy/2,
-            ny
-        )
-        z_centers = np.linspace(
-            mesh['lower_left'][2] + dz/2,
-            mesh['upper_right'][2] - dz/2,
-            nz
-        )
+        # Calculate cell centers for RegularMesh
+        if mesh.get('mesh_type') == 'regular':
+            dx, dy, dz = mesh['width']
+            x_centers = np.linspace(mesh['lower_left'][0] + dx/2, mesh['upper_right'][0] - dx/2, nx)
+            y_centers = np.linspace(mesh['lower_left'][1] + dy/2, mesh['upper_right'][1] - dy/2, ny)
+            z_centers = np.linspace(mesh['lower_left'][2] + dz/2, mesh['upper_right'][2] - dz/2, nz)
+        else:
+            # For CylindricalMesh, use grids
+            r_grid = np.array(mesh['r_grid'])
+            phi_grid = np.array(mesh['phi_grid'])
+            z_grid = np.array(mesh['z_grid'])
+            x_centers = (r_grid[:-1] + r_grid[1:]) / 2 # Actually R centers
+            y_centers = (phi_grid[:-1] + phi_grid[1:]) / 2 # Actually Phi centers
+            z_centers = (z_grid[:-1] + z_grid[1:]) / 2
         
         # Isolate Single Score/Nuclide
-        mean_flat = tally.mean.flatten()
         n_scores = len(tally.scores) if tally.scores else 1
         n_nuclides = len(tally.nuclides) if tally.nuclides else 1
         
-        if len(mean_flat) == nx * ny * nz * n_scores * n_nuclides:
-            data = mean_flat[0::n_scores]
-            if n_nuclides > 1:
-                data = data[0::n_nuclides]
+        mean_flat = tally.mean.flatten()
+        expected_size = nx * ny * nz * n_scores * n_nuclides
+        
+        if len(mean_flat) == expected_size:
+            reshaped = mean_flat.reshape(nz, ny, nx, n_scores, n_nuclides)
+            data_3d = reshaped[:, :, :, score_index, nuclide_index]
         else:
-            data = mean_flat[:nx * ny * nz]
+            # Fallback for unexpected shapes
+            data_3d = mean_flat[:nx*ny*nz].reshape(nz, ny, nx)
         
-        # Reshape mean array
-        mean_3d = data.reshape((nz, ny, nx))
-        
-        # Sum over other axes
+        # Sum over other axes to get 1D distribution
         if axis == 'x':
-            values = mean_3d.sum(axis=(0, 1))  # Sum over y and z
+            values = data_3d.sum(axis=(0, 1))  # Sum over z and y
             positions = x_centers
         elif axis == 'y':
-            values = mean_3d.sum(axis=(0, 2))  # Sum over x and z
+            values = data_3d.sum(axis=(0, 2))  # Sum over z and x
             positions = y_centers
         else:  # z
-            values = mean_3d.sum(axis=(1, 2))  # Sum over x and y
+            values = data_3d.sum(axis=(1, 2))  # Sum over y and x
             positions = z_centers
         
         return {

@@ -35,6 +35,7 @@ import { WidgetManager } from '@theia/core/lib/browser';
 import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
+import { OpenMCPlotWidget } from './openmc-plot-widget';
 
 export namespace OpenMCCommands {
     export const OPENMC_CATEGORY = 'OpenMC';
@@ -110,6 +111,13 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     protected readonly messageService: MessageService;
     
     private tallyTreeWidget: OpenMCTallyTreeWidget | undefined;
+
+    private async getPlotWidget(tallyId: number, type: string): Promise<OpenMCPlotWidget> {
+        const widgetId = `${OpenMCPlotWidget.ID}:${tallyId}:${type}`;
+        return this.widgetManager.getOrCreateWidget<OpenMCPlotWidget>(OpenMCPlotWidget.ID, {
+            id: widgetId
+        } as any);
+    }
 
     canHandle(uri: URI, options?: WidgetOpenerOptions): number {
         const name = uri.path.base.toLowerCase();
@@ -417,13 +425,82 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         if (!(widget as any)._selectionHandlerSet) {
             (widget as any)._selectionHandlerSet = true;
             widget.onTallySelected(async selection => {
+                console.log(`[OpenMC] Tally selected: id=${selection.tallyId}, action=${selection.action}`);
                 const options: TallyVisualizationOptions = {
                     tallyId: selection.tallyId,
                     score: selection.score,
                     nuclide: selection.nuclide
                 };
-                // visualizeMeshTally handles activation internally
-                await this.openmcService.visualizeMeshTally(statepointUri, options);
+                
+                try {
+                    const currentTallies = this.openmcService.getCurrentTallies();
+                    const tallyInfo = currentTallies.find(t => t.id === selection.tallyId);
+                    
+                    if (selection.action === 'visualize') {
+                        console.log(`[OpenMC] Visualizing mesh tally ${selection.tallyId}`);
+                        await this.openmcService.visualizeMeshTally(statepointUri, options);
+                    } else if (selection.action === 'spectrum') {
+                        console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
+                        
+                        // Resolve indices for spectrum plot
+                        let scoreIdx = 0;
+                        let nuclideIdx = 0;
+                        if (tallyInfo) {
+                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                            }
+                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                            }
+                        }
+
+                        const data = await this.openmcService.getEnergySpectrum(
+                            statepointUri, 
+                            selection.tallyId, 
+                            scoreIdx,
+                            nuclideIdx
+                        );
+                        console.log(`[OpenMC] Spectrum data received:`, data);
+                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum');
+                        plotWidget.setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
+                        if (!plotWidget.isAttached) {
+                            this.shell.addWidget(plotWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(plotWidget.id);
+                    } else if (selection.action === 'spatial') {
+                        console.log(`[OpenMC] Plotting spatial distribution for tally ${selection.tallyId}`);
+                        
+                        // Resolve indices for spatial plot
+                        let scoreIdx = 0;
+                        let nuclideIdx = 0;
+                        if (tallyInfo) {
+                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                            }
+                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                            }
+                        }
+
+                        const data = await this.openmcService.getSpatialPlot(
+                            statepointUri, 
+                            selection.tallyId, 
+                            'z',
+                            scoreIdx,
+                            nuclideIdx
+                        );
+                        console.log(`[OpenMC] Spatial data received:`, data);
+                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
+                        plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
+                        if (!plotWidget.isAttached) {
+                            this.shell.addWidget(plotWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(plotWidget.id);
+                    }
+                } catch (error) {
+                    console.error(`[OpenMC] Action ${selection.action} failed:`, error);
+                    this.messageService.error(`Failed to perform action ${selection.action}: ${error}`);
+                }
             });
         }
     }
