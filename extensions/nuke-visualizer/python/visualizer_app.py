@@ -135,8 +135,14 @@ def get_available_arrays(source):
     return available
 
 
-def create_app(file_path=None, port=None):
-    """Create trame application with interactive control panel."""
+def create_app(file_path=None, port=None, theme='dark'):
+    """Create trame application with interactive control panel.
+    
+    Args:
+        file_path: Path to file to visualize
+        port: Port to run server on
+        theme: UI theme - 'dark' or 'light'
+    """
     
     # Import trame modules
     try:
@@ -163,10 +169,23 @@ def create_app(file_path=None, port=None):
     state.color_by = 'Solid Color'
     state.available_arrays = ['Solid Color']
     state.color_map = 'Cool to Warm'
-    state.show_scalar_bar = True
+    state.show_scalar_bar = False
     state.show_controls = True
-    state.background_color = [0.1, 0.1, 0.15]  # Dark background
+    state.background_color = [0.1, 0.1, 0.15]  # Dark background (RGB 0-1)
+    state.background_color_hex = '#1a1a26'  # Hex for UI (Dark Blue)
     state.camera_update_counter = 0  # Used to trigger client-side camera updates
+    state.appearance_update = 0  # Used to trigger appearance-related updates
+    state.ui_theme = theme  # 'dark' or 'light'
+    state.sidebar_color = '#1e1e1e' if theme == 'dark' else '#f5f5f5'
+    state.sidebar_dark = theme == 'dark'
+    print(f"UI Theme: {theme}, sidebar_color: {state.sidebar_color}, sidebar_dark: {state.sidebar_dark}")
+    
+    # Visibility toggles
+    state.show_edges = False
+    state.show_axes = True
+    state.show_orientation_axes = True
+    state.show_bounding_box = False  # Show data bounds outline
+    state.show_cube_axes = False     # Show grid cube axes
     
     # Clipping state
     state.clip_enabled = False
@@ -177,6 +196,14 @@ def create_app(file_path=None, port=None):
     state.clip_normal_y = 0.0
     state.clip_normal_z = 0.0
     state.clip_invert = False
+    
+    # Time step state (for transient simulations like Cardinal/Exodus)
+    state.timestep_values = []  # List of available timesteps
+    state.current_timestep = 0  # Current timestep index
+    state.has_timesteps = False  # Whether file has timesteps
+    
+    # Screenshot status
+    state.screenshot_status = ""  # Status message for screenshot
     
     # Store non-serializable VTK objects in a separate dictionary (not in state)
     pipeline = {
@@ -234,10 +261,40 @@ def create_app(file_path=None, port=None):
     state.available_arrays = get_available_arrays(reader)
     print(f"Available arrays: {state.available_arrays}")
     
+    # Check for timesteps (for transient data like Exodus/Cardinal)
+    try:
+        if hasattr(reader, 'TimestepValues') and reader.TimestepValues:
+            timesteps = list(reader.TimestepValues)
+            if len(timesteps) > 1:
+                state.timestep_values = timesteps
+                state.has_timesteps = True
+                state.current_timestep = 0
+                print(f"Detected {len(timesteps)} timesteps")
+            else:
+                state.has_timesteps = False
+        else:
+            state.has_timesteps = False
+    except Exception as e:
+        print(f"Could not detect timesteps: {e}")
+        state.has_timesteps = False
+    
+    # Helper function to convert hex to RGB
+    def hex_to_rgb(hex_color):
+        hex_color = hex_color.lstrip('#')
+        return [
+            int(hex_color[0:2], 16) / 255.0,
+            int(hex_color[2:4], 16) / 255.0,
+            int(hex_color[4:6], 16) / 255.0
+        ]
+    
     # Create visualization pipeline
     display = simple.Show(reader)
     view = simple.GetActiveViewOrCreate('RenderView')
-    view.Background = state.background_color
+    
+    # Set initial background color from hex
+    initial_bg = hex_to_rgb(state.background_color_hex)
+    print(f"Setting initial background color: {initial_bg} (from {state.background_color_hex})")
+    view.Background = initial_bg
     
     # Store references (not in state!)
     pipeline['display'] = display
@@ -247,6 +304,8 @@ def create_app(file_path=None, port=None):
     display.Representation = state.representation
     display.Opacity = state.opacity
     
+    # Render to apply initial settings
+    simple.Render(view)
     simple.ResetCamera()
     
     # Define view update function
@@ -304,7 +363,8 @@ def create_app(file_path=None, port=None):
                 }
                 vtk_rep = rep_map.get(representation, 'Surface')
                 display.Representation = vtk_rep
-                update_view()
+                print(f"Representation changed to: {vtk_rep}")
+                state.appearance_update += 1
         except Exception as e:
             print(f"Error updating representation: {e}")
     
@@ -394,6 +454,160 @@ def create_app(file_path=None, port=None):
                 update_view()
         except Exception as e:
             print(f"Error updating background: {e}")
+    
+    def hex_to_rgb(hex_color):
+        """Convert hex color to RGB list [r, g, b] with values 0-1 safely."""
+        try:
+            hex_color = str(hex_color).lstrip('#')
+            if len(hex_color) == 6:
+                return [
+                    int(hex_color[0:2], 16) / 255.0,
+                    int(hex_color[2:4], 16) / 255.0,
+                    int(hex_color[4:6], 16) / 255.0
+                ]
+        except Exception:
+            pass
+        return None  # Return None if the user is halfway through typing
+    
+    @state.change("background_color_hex")
+    def on_background_color_hex_change(background_color_hex, **kwargs):
+        """Handle background color change from hex input."""
+        try:
+            view = pipeline.get('view')
+            if view:
+                # Convert hex to RGB safely
+                rgb = hex_to_rgb(background_color_hex)
+                if rgb:  # Only update if we have a complete, valid color
+                    try:
+                        # Force ParaView to use our color instead of the default theme palette
+                        view.UseColorPaletteForBackground = 0
+                    except:
+                        pass
+                    
+                    view.Background = rgb
+                    print(f"Background changed to: {background_color_hex} -> {rgb}")
+                    # Use update_view helper to force the widget to refresh
+                    update_view()
+            else:
+                print("Warning: No view available to change background")
+        except Exception as e:
+            print(f"Error updating background color: {e}")
+    
+    @state.change("show_edges")
+    def on_show_edges_change(show_edges, **kwargs):
+        """Handle edge visibility toggle."""
+        try:
+            display = pipeline.get('display')
+            if display:
+                # Get current representation from actual display
+                current_rep = str(display.Representation)
+                print(f"Current representation: {current_rep}, show_edges: {show_edges}")
+                
+                # Toggle edges by changing representation
+                if show_edges:
+                    # Switch to surface with edges
+                    if 'Surface' in current_rep and 'Edges' not in current_rep:
+                        display.Representation = 'Surface With Edges'
+                        print("Switched to Surface With Edges")
+                    elif current_rep == 'Points':
+                        display.Representation = 'Surface With Edges'
+                        print("Switched to Surface With Edges")
+                else:
+                    # Switch back to surface without edges
+                    if 'Edges' in current_rep:
+                        display.Representation = 'Surface'
+                        print("Switched to Surface")
+                
+                # Trigger appearance update to refresh view
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating edge visibility: {e}")
+    
+    @state.change("show_axes")
+    def on_show_axes_change(show_axes, **kwargs):
+        """Handle axes visibility toggle."""
+        try:
+            view = pipeline.get('view')
+            if view:
+                # Try to toggle axes grid
+                try:
+                    view.AxesGrid.Visibility = bool(show_axes)
+                except:
+                    pass  # Axes grid might not be available
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating axes visibility: {e}")
+    
+    @state.change("show_orientation_axes")
+    def on_show_orientation_axes_change(show_orientation_axes, **kwargs):
+        """Handle orientation axes (3D axis indicator) visibility."""
+        try:
+            view = pipeline.get('view')
+            if view:
+                view.OrientationAxesVisibility = bool(show_orientation_axes)
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating orientation axes: {e}")
+    
+    @state.change("show_bounding_box")
+    def on_show_bounding_box_change(show_bounding_box, **kwargs):
+        """Handle bounding box (outline around data) visibility."""
+        try:
+            view = pipeline.get('view')
+            display = pipeline.get('display')
+            if view:
+                # Try to toggle center axes visibility (outline around data)
+                try:
+                    if hasattr(view, 'CenterAxesVisibility'):
+                        view.CenterAxesVisibility = bool(show_bounding_box)
+                except:
+                    pass
+                # Also try to toggle the bounds outline on the display
+                if display:
+                    try:
+                        if hasattr(display, 'UseOutline'):
+                            display.UseOutline = bool(show_bounding_box)
+                    except:
+                        pass
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating bounding box: {e}")
+    
+    @state.change("show_cube_axes")
+    def on_show_cube_axes_change(show_cube_axes, **kwargs):
+        """Handle cube axes (grid with labels) visibility."""
+        try:
+            view = pipeline.get('view')
+            if view:
+                # Try to toggle cube axes visibility
+                try:
+                    view.CubeAxesVisibility = bool(show_cube_axes)
+                except:
+                    # Cube axes might not be available, try AxesGrid
+                    try:
+                        if hasattr(view, 'AxesGrid'):
+                            view.AxesGrid.Visibility = bool(show_cube_axes)
+                    except:
+                        pass
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating cube axes: {e}")
+    
+    @state.change("current_timestep")
+    def on_timestep_change(current_timestep, **kwargs):
+        """Handle timestep change for transient data."""
+        try:
+            source = pipeline.get('source')
+            if source and state.has_timesteps and hasattr(source, 'TimestepValues'):
+                timesteps = source.TimestepValues
+                if timesteps and 0 <= current_timestep < len(timesteps):
+                    # Get the view and set the timestep
+                    view = pipeline.get('view')
+                    if view:
+                        view.ViewTime = timesteps[current_timestep]
+                        update_view()
+        except Exception as e:
+            print(f"Error updating timestep: {e}")
     
     @state.change("clip_enabled", "clip_origin_x", "clip_origin_y", "clip_origin_z",
                   "clip_normal_x", "clip_normal_y", "clip_normal_z", "clip_invert")
@@ -543,6 +757,79 @@ def create_app(file_path=None, port=None):
             print(f"Error setting camera view: {e}")
             return False
     
+    @server.controller.add("capture_screenshot")
+    def capture_screenshot(filename=None, width=None, height=None, transparent=False):
+        """Capture screenshot of current view.
+        
+        Args:
+            filename: Optional filename to save screenshot. If None, returns base64.
+            width: Optional width in pixels
+            height: Optional height in pixels
+            transparent: Whether to use transparent background
+            
+        Returns:
+            dict with 'success', 'data' (base64 or path), 'format'
+        """
+        try:
+            view = pipeline.get('view')
+            if not view:
+                return {'success': False, 'error': 'No view available'}
+            
+            # Store original settings
+            original_bg = view.Background[:]
+            original_size = view.ViewSize[:]
+            
+            try:
+                # Set transparent background if requested
+                if transparent:
+                    view.Background = [0, 0, 0]
+                
+                # Set custom resolution if provided
+                if width and height:
+                    view.ViewSize = [int(width), int(height)]
+                
+                # Render the view
+                simple.Render(view)
+                
+                # Generate filename if not provided
+                if not filename:
+                    import tempfile
+                    import os
+                    fd, filename = tempfile.mkstemp(suffix='.png')
+                    os.close(fd)
+                
+                # Save screenshot
+                simple.SaveScreenshot(filename, view, 
+                    ImageResolution=view.ViewSize,
+                    TransparentBackground=transparent)
+                
+                # Read file and convert to base64
+                import base64
+                with open(filename, 'rb') as f:
+                    image_data = base64.b64encode(f.read()).decode('utf-8')
+                
+                return {
+                    'success': True,
+                    'data': image_data,
+                    'format': 'png',
+                    'filename': filename
+                }
+                
+            finally:
+                # Restore original settings
+                view.Background = original_bg
+                if width and height:
+                    view.ViewSize = original_size
+                
+        except Exception as e:
+            print(f"Error capturing screenshot: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    @server.controller.add("set_bg_color_from_btn")
+    def set_bg_color_from_btn(hex_color):
+        """Dedicated controller to update color state from UI buttons."""
+        state.background_color_hex = hex_color
+    
     @server.controller.add("toggle_controls")
     def toggle_controls():
         """Toggle control panel visibility."""
@@ -552,14 +839,17 @@ def create_app(file_path=None, port=None):
     # UI setup
     from trame.ui.vuetify2 import VAppLayout
     from trame.widgets import vuetify2 as vuetify
+    from trame.widgets import html
     
     with VAppLayout(server) as layout:
-        # Control panel drawer
+        # Control panel drawer - styled based on theme
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
             app=True,
             width=320,
-            clipped=True
+            clipped=True,
+            color=("sidebar_color",),  # Use state variable for theme-aware color
+            dark=("sidebar_dark",),  # Use state variable for dark mode
         ):
             with vuetify.VContainer(classes="pa-4"):
                 # Title
@@ -610,7 +900,7 @@ def create_app(file_path=None, port=None):
                     )
                     
                     vuetify.VCheckbox(
-                        v_model=("show_scalar_bar", True),
+                        v_model=("show_scalar_bar", False),
                         label="Show Color Legend",
                         dense=True,
                         classes="mb-4"
@@ -743,6 +1033,172 @@ def create_app(file_path=None, port=None):
                 
                 vuetify.VDivider(classes="my-4")
                 
+                # Appearance Section
+                vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
+                
+                # Background Color Picker - using native HTML5 color input
+                with vuetify.VRow(dense=True, align="center", classes="mb-2"):
+                    with vuetify.VCol(cols=8):
+                        vuetify.VSubheader(
+                            "Background Color",
+                            classes="pa-0 text-body-2"
+                        )
+                    with vuetify.VCol(cols=4, classes="text-right"):
+                        # Native HTML5 color picker with styled wrapper
+                        with html.Div(
+                            style="display: inline-block; padding: 3px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px;"
+                        ):
+                            html.Input(
+                                type="color",
+                                value=("background_color_hex",),
+                                input="background_color_hex = $event.target.value;",
+                                style="width: 36px; height: 24px; border: 2px solid rgba(255,255,255,0.9); border-radius: 4px; cursor: pointer; padding: 0; display: block;",
+                            )
+                
+                # Quick color presets
+                with vuetify.VRow(dense=True, classes="mb-2"):
+                    colors = [
+                        ("#000000", "black"),
+                        ("#1a1a26", "dark blue"),
+                        ("#2d3748", "navy"),
+                        ("#4a5568", "slate"),
+                        ("#1a202c", "dark"),
+                        ("#ffffff", "white"),
+                    ]
+                    for hex_color, tooltip in colors:
+                        with vuetify.VCol(cols=2):
+                            vuetify.VBtn(
+                                "",
+                                # Use Trame's native method binding syntax to pass parameters
+                                click=(server.controller.set_bg_color_from_btn, f"['{hex_color}']"),
+                                small=True,
+                                depressed=True,  # Remove shadow
+                                style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
+                                classes="mx-auto d-block"
+                            )
+                
+                # Edge Visibility Toggle
+                vuetify.VCheckbox(
+                    v_model=("show_edges", False),
+                    label="Show Edges",
+                    dense=True,
+                    classes="mb-2"
+                )
+                
+                # Orientation Axes Toggle (small XYZ in corner)
+                vuetify.VCheckbox(
+                    v_model=("show_orientation_axes", True),
+                    label="Show 3D Axis Indicator",
+                    dense=True,
+                    classes="mb-2"
+                )
+                
+                # Bounding Box Toggle (outline around data)
+                vuetify.VCheckbox(
+                    v_model=("show_bounding_box", False),
+                    label="Show Data Bounds Outline",
+                    dense=True,
+                    classes="mb-2"
+                )
+                
+                # Cube Axes Toggle (grid with labels)
+                vuetify.VCheckbox(
+                    v_model=("show_cube_axes", False),
+                    label="Show Coordinate Grid",
+                    dense=True,
+                    classes="mb-4"
+                )
+                
+                vuetify.VDivider(classes="my-4")
+                
+                # Time Navigation Section (for transient data like Cardinal/Exodus)
+                with vuetify.VContainer(v_if=("has_timesteps",)):
+                    vuetify.VSubheader("Time Navigation", classes="text-subtitle-1 mb-2")
+                    
+                    with vuetify.VRow(dense=True, align="center"):
+                        with vuetify.VCol(cols=3):
+                            vuetify.VBtn(
+                                "|<<",
+                                click=lambda: setattr(state, 'current_timestep', 0),
+                                small=True,
+                                text=True
+                            )
+                        with vuetify.VCol(cols=3):
+                            vuetify.VBtn(
+                                "<",
+                                click=lambda: setattr(state, 'current_timestep', max(0, state.current_timestep - 1)),
+                                small=True,
+                                text=True
+                            )
+                        with vuetify.VCol(cols=3):
+                            vuetify.VBtn(
+                                ">",
+                                click=lambda: setattr(state, 'current_timestep', min(len(state.timestep_values) - 1, state.current_timestep + 1)),
+                                small=True,
+                                text=True
+                            )
+                        with vuetify.VCol(cols=3):
+                            vuetify.VBtn(
+                                ">>|",
+                                click=lambda: setattr(state, 'current_timestep', len(state.timestep_values) - 1),
+                                small=True,
+                                text=True
+                            )
+                    
+                    vuetify.VSlider(
+                        v_model=("current_timestep", 0),
+                        min=0,
+                        max=("len(timestep_values) - 1",),
+                        step=1,
+                        thumb_label=True,
+                        dense=True,
+                        classes="mt-2"
+                    )
+                    
+                    vuetify.VDivider(classes="my-4")
+                
+                # Screenshot Section
+                vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                
+                def save_screenshot():
+                    """Capture and save screenshot to file."""
+                    from datetime import datetime
+                    import os
+                    
+                    # Generate filename with timestamp
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"screenshot_{timestamp}.png"
+                    filepath = os.path.join(os.getcwd(), filename)
+                    
+                    result = capture_screenshot(filename=filepath)
+                    if result.get('success'):
+                        print(f"Screenshot saved: {filepath}")
+                        state.screenshot_status = f"Saved: {filename}"
+                    else:
+                        print(f"Screenshot failed: {result.get('error')}")
+                        state.screenshot_status = f"Error: {result.get('error')}"
+                
+                # Screenshot status message
+                state.screenshot_status = ""
+                
+                vuetify.VBtn(
+                    "Save Screenshot",
+                    click=save_screenshot,
+                    block=True,
+                    small=True,
+                    color="primary",
+                    classes="mb-2"
+                )
+                
+                # Screenshot status display
+                with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
+                    vuetify.VSubheader(
+                        ("screenshot_status",),
+                        classes="text-caption justify-center"
+                    )
+                
+                vuetify.VDivider(classes="my-4")
+                
                 # Toggle controls visibility button (small, at bottom)
                 vuetify.VBtn(
                     "Hide Controls <<",
@@ -794,6 +1250,18 @@ def create_app(file_path=None, port=None):
                     view_widget.update()
                 except Exception as e:
                     print(f"Warning: camera update failed: {e}")
+            
+            # Watch for appearance update to force view refresh (background color, etc.)
+            @state.change("appearance_update")
+            def on_appearance_update(appearance_update, **kwargs):
+                try:
+                    # Render the view to ensure appearance changes are applied
+                    simple.Render(view)
+                    # Update the widget to refresh the view
+                    view_widget.update()
+                    print(f"Appearance update triggered")
+                except Exception as e:
+                    print(f"Warning: appearance update failed: {e}")
     
     return server, port
 
@@ -803,6 +1271,7 @@ def main():
     parser.add_argument('--port', type=int, default=None, help='Port to run server on (auto-detect if not specified)')
     parser.add_argument('--file', type=str, help='File to load (supports VTK formats, STL, PLY, OBJ)')
     parser.add_argument('--host', type=str, default='127.0.0.1', help='Host to report in URL')
+    parser.add_argument('--theme', type=str, default='dark', choices=['dark', 'light'], help='UI theme (dark or light)')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -819,7 +1288,7 @@ def main():
         port = find_free_port()
     
     try:
-        server, actual_port = create_app(args.file, port)
+        server, actual_port = create_app(args.file, port, theme=args.theme)
     except Exception as e:
         print(f"Failed to create application: {e}")
         import traceback

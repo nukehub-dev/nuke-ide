@@ -65,7 +65,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
-    async startServer(filePath?: string, config?: PythonConfig): Promise<{ port: number; url: string; warning?: string }> {
+    async startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
         const port = await this.findFreePort(8080);
         this.reservedPorts.add(port);
         
@@ -80,6 +80,12 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             const args: string[] = [pythonScript, '--port', port.toString()];
             if (filePath) {
                 args.push('--file', filePath);
+            }
+            // Pass theme if provided (dark or light)
+            this.log(`Theme received: ${theme}`);
+            if (theme) {
+                args.push('--theme', theme);
+                this.log(`Added --theme ${theme} to args`);
             }
 
             const processOptions: RawProcessOptions = {

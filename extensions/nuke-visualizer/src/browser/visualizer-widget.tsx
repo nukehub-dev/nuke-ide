@@ -359,8 +359,43 @@ export class VisualizerWidget extends ReactWidget {
                 condaEnv: this.preferences['nukeVisualizer.condaEnv'] || undefined,
             };
             
+            // Detect current theme using multiple methods
+            let theme = 'dark'; // default
+            try {
+                // Method 1: Check CSS classes
+                const body = document.body;
+                const classes = body?.className || '';
+                
+                // Method 2: Check computed background color
+                const computedStyle = window.getComputedStyle(body);
+                const bgColor = computedStyle.backgroundColor;
+                
+                // Method 3: Check matchMedia for system preference
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                
+                console.log(`[Visualizer] Theme detection - classes: "${classes}", bg: ${bgColor}, prefersDark: ${prefersDark}`);
+                
+                // Determine theme based on evidence
+                if (classes.includes('theia-light') || classes.includes('light-theia')) {
+                    theme = 'light';
+                } else if (classes.includes('theia-dark') || classes.includes('dark-theia') || classes.includes('vs-dark')) {
+                    theme = 'dark';
+                } else if (bgColor && (bgColor.includes('255') || bgColor.includes('rgb(255'))) {
+                    // Light background (rgb(255, 255, 255) or similar)
+                    theme = 'light';
+                } else if (bgColor && (bgColor.includes('0, 0, 0') || bgColor.includes('30') || bgColor.includes('37'))) {
+                    // Dark background
+                    theme = 'dark';
+                } else if (prefersDark) {
+                    theme = 'dark';
+                }
+            } catch (e) {
+                console.log(`[Visualizer] Theme detection failed: ${e}, using default`);
+            }
+            console.log(`[Visualizer] Using theme: ${theme}`);
+            
             console.log('[Visualizer] Requesting server start from backend...');
-            const result = await this.visualizerBackend.startServer(filePath, config);
+            const result = await this.visualizerBackend.startServer(filePath, config, theme);
             
             // Check again after async call
             if (currentId !== this.currentLoadId) {
@@ -410,7 +445,8 @@ export class VisualizerWidget extends ReactWidget {
                         
                         if (!this.serverUrl) {
                             console.log(`[Visualizer] Server at ${result.url} is ready (attempt ${attempts})`);
-                            this.serverUrl = result.url;
+                            // Append theme to URL so trame knows which theme to use
+                            this.serverUrl = `${result.url}?theme=${theme}`;
                             this.statusMessage = `Server ready at ${result.url}`;
                             this.update();
                             this.ensureClosable();

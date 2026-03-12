@@ -122,8 +122,12 @@ export interface ServerInfo {
 export interface VisualizerBackendService {
     // === Server Management ===
     
-    /** Start a new visualizer server for the given file */
-    startServer(filePath?: string, config?: PythonConfig): Promise<ServerInfo>;
+    /** Start a new visualizer server for the given file
+     * @param filePath Path to file to visualize
+     * @param config Python configuration
+     * @param theme UI theme ('dark' or 'light')
+     */
+    startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
     
     /** Stop the visualizer server on the given port */
     stopServer(port: number): Promise<void>;
