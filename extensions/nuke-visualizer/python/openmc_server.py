@@ -392,6 +392,11 @@ def cmd_visualize_mesh(args):
                 print(f"Error setting camera view: {e}", file=sys.stderr)
                 return False
         
+        def toggle_controls():
+            """Toggle control panel visibility."""
+            state.show_controls = not state.show_controls
+            return state.show_controls
+        
         def capture_screenshot(filename=None, width=None, height=None, transparent=False):
             """Capture screenshot of current view."""
             try:
@@ -451,79 +456,59 @@ def cmd_visualize_mesh(args):
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True),
                 app=True,
-                width=320,
+                width=300,
                 clipped=True,
                 color="#1e1e1e",
                 dark=True
             ):
-                with vuetify.VContainer(classes="pa-4"):
-                    vuetify.VSubheader("OpenMC Mesh Tally", classes="text-h6 mb-2")
-                    vuetify.VDivider(classes="mb-4")
+                with vuetify.VContainer(classes="pa-3"):
+                    # Compact Header with Hide Button
+                    with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
+                        html.Div(f"Tally {tally.id}: {tally.name}", 
+                                classes="text-subtitle-1 font-weight-medium white--text")
+                        with vuetify.VBtn(
+                            click=toggle_controls,
+                            small=True,
+                            icon=True
+                        ):
+                            vuetify.VIcon("mdi-chevron-left")
+                    vuetify.VDivider(classes="mb-2")
                     
-                    # Current Tally Info
-                    vuetify.VTextField(
-                        label="Current Tally",
-                        value=f"Tally {tally.id}: {tally.name}",
-                        readonly=True,
-                        dense=True,
-                        outlined=True,
-                        classes="mb-2"
-                    )
+                    # Score and Nuclide - styled as info chips
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        with vuetify.VCol(cols=6, classes="pa-0 pr-1"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Score", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                                html.Div("{{current_score}}", style="font-size: 13px; color: #fff; font-weight: 500;")
+                        with vuetify.VCol(cols=6, classes="pa-0 pl-1"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Nuclide", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                                html.Div("{{current_nuclide}}", style="font-size: 13px; color: #fff; font-weight: 500;")
                     
-                    # Score and Nuclide info (read-only display of current selection)
-                    vuetify.VTextField(
-                        label="Score",
-                        value=("current_score",),
-                        readonly=True,
-                        dense=True,
-                        outlined=True,
-                        classes="mb-2"
-                    )
-                    vuetify.VTextField(
-                        label="Nuclide",
-                        value=("current_nuclide",),
-                        readonly=True,
-                        dense=True,
-                        outlined=True,
-                        classes="mb-4"
-                    )
+                    # Compact Mesh Info Section
+                    html.Div("Mesh Info", style="font-size: 11px; color: #888; text-transform: uppercase; margin: 8px 0 4px 0;")
                     
-                    # Mesh info section
-                    with vuetify.VContainer(classes="mb-4 pa-0"):
-                        vuetify.VSubheader("Mesh Info", classes="text-subtitle-2 pa-0 mb-2")
-                        
-                        vuetify.VTextField(
-                            label="Mesh Type",
-                            value=("mesh_type",),
-                            readonly=True,
-                            dense=True,
-                            outlined=True,
-                            classes="mb-2"
-                        )
-                        vuetify.VTextField(
-                            label="Dimensions (cells)",
-                            value=("mesh_dimensions",),
-                            readonly=True,
-                            dense=True,
-                            outlined=True,
-                            classes="mb-2"
-                        )
-                        vuetify.VTextField(
-                            label="Cell Size / Spacing",
-                            value=("mesh_width",),
-                            readonly=True,
-                            dense=True,
-                            outlined=True,
-                            classes="mb-2"
-                        )
-                        vuetify.VTextField(
-                            label="Bounds",
-                            value=("mesh_bounds",),
-                            readonly=True,
-                            dense=True,
-                            outlined=True,
-                            classes="mb-0"
-                        )
+                    # Type and dimensions
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-1"):
+                        with vuetify.VCol(cols=6, classes="pa-0 pr-1"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Type", style="font-size: 10px; color: #888;")
+                                html.Div("{{mesh_type}}", style="font-size: 12px; color: #fff;")
+                        with vuetify.VCol(cols=6, classes="pa-0 pl-1"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Dimensions", style="font-size: 10px; color: #888;")
+                                html.Div("{{mesh_dimensions}}", style="font-size: 12px; color: #fff;")
+                    # Bounds and cell size on separate lines
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-1"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Bounds (cm)", style="font-size: 10px; color: #888;")
+                                html.Div("{{mesh_bounds}}", style="font-size: 11px; color: #fff;")
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-3"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Cell Size", style="font-size: 10px; color: #888;")
+                                html.Div("{{mesh_width}}", style="font-size: 12px; color: #fff;")
                     
                     vuetify.VDivider(classes="mb-4")
                     
@@ -540,7 +525,7 @@ def cmd_visualize_mesh(args):
                     # Representation Selector
                     vuetify.VSelect(
                         v_model=("representation", "Surface"),
-                        items=(['Surface', 'Surface With Edges', 'Wireframe', 'Points'],),
+                        items=(['Surface', 'Wireframe', 'Points'],),
                         label="Representation",
                         dense=True,
                         outlined=True,
@@ -735,6 +720,20 @@ def cmd_visualize_mesh(args):
                         )
             
             with vuetify.VMain():
+                # Toggle button when controls are hidden
+                with vuetify.VContainer(
+                    v_if=("!show_controls",),
+                    classes="ma-2 pa-0",
+                    style="position: absolute; top: 0; left: 0; z-index: 100;"
+                ):
+                    with vuetify.VBtn(
+                        click=toggle_controls,
+                        small=True,
+                        fab=True,
+                        color="primary"
+                    ):
+                        vuetify.VIcon("mdi-chevron-right")
+                
                 view_widget = pv_widgets.VtkRemoteView(
                     view,
                     interactive_ratio=1,
@@ -747,6 +746,10 @@ def cmd_visualize_mesh(args):
         def ctrl_view_update():
             update_view()
         
+        @server.controller.add("toggle_controls")
+        def ctrl_toggle_controls():
+            return toggle_controls()
+        
         @server.controller.add("reset_camera")
         def ctrl_reset_camera():
             return reset_camera()
@@ -754,6 +757,10 @@ def cmd_visualize_mesh(args):
         @server.controller.add("set_camera_view")
         def ctrl_set_camera_view(view_type):
             return set_camera_view(view_type)
+        
+        @server.controller.add("toggle_controls")
+        def ctrl_toggle_controls():
+            return toggle_controls()
         
         # Watch for camera update counter changes to force view refresh
         @state.change("camera_update_counter")
@@ -1036,6 +1043,11 @@ def cmd_visualize_source(args):
                 print(f"Error capturing screenshot: {e}", file=sys.stderr)
                 return {'success': False, 'error': str(e)}
         
+        def toggle_controls():
+            """Toggle control panel visibility."""
+            state.show_controls = not state.show_controls
+            return state.show_controls
+        
         # UI setup
         with VAppLayout(server) as layout:
             with vuetify.VNavigationDrawer(
@@ -1047,17 +1059,21 @@ def cmd_visualize_source(args):
                 dark=True
             ):
                 with vuetify.VContainer(classes="pa-4"):
-                    vuetify.VSubheader("OpenMC Source", classes="text-h6 mb-2")
+                    # Header with Hide Button
+                    with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
+                        vuetify.VSubheader("OpenMC Source", classes="text-h6 pa-0")
+                        with vuetify.VBtn(
+                            click=toggle_controls,
+                            small=True,
+                            icon=True
+                        ):
+                            vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
                     
-                    vuetify.VTextField(
-                        label="Particles",
-                        value=str(source_poly.GetNumberOfPoints()),
-                        readonly=True,
-                        dense=True,
-                        outlined=True,
-                        classes="mb-4"
-                    )
+                    # Particles count as styled info card
+                    with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px; margin-bottom: 16px;"):
+                        html.Div("Particles", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                        html.Div(str(source_poly.GetNumberOfPoints()), style="font-size: 14px; color: #fff; font-weight: 500;")
                     
                     vuetify.VSlider(
                         label="Point Size",
@@ -1207,6 +1223,20 @@ def cmd_visualize_source(args):
                         )
             
             with vuetify.VMain():
+                # Toggle button when controls are hidden
+                with vuetify.VContainer(
+                    v_if=("!show_controls",),
+                    classes="ma-2 pa-0",
+                    style="position: absolute; top: 0; left: 0; z-index: 100;"
+                ):
+                    with vuetify.VBtn(
+                        click=toggle_controls,
+                        small=True,
+                        fab=True,
+                        color="primary"
+                    ):
+                        vuetify.VIcon("mdi-chevron-right")
+                
                 view_widget = pv_widgets.VtkRemoteView(
                     view,
                     interactive_ratio=1,
@@ -1218,6 +1248,10 @@ def cmd_visualize_source(args):
         @server.controller.add("view_update")
         def ctrl_view_update():
             update_view()
+        
+        @server.controller.add("toggle_controls")
+        def ctrl_toggle_controls():
+            return toggle_controls()
         
         @server.controller.add("reset_camera")
         def ctrl_reset_camera():

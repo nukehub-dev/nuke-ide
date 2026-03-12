@@ -357,7 +357,6 @@ def create_app(file_path=None, port=None, theme='dark'):
                 # Map representation names to valid VTK representations
                 rep_map = {
                     'Surface': 'Surface',
-                    'Surface With Edges': 'Surface With Edges',
                     'Wireframe': 'Wireframe',
                     'Points': 'Points'
                 }
@@ -503,20 +502,8 @@ def create_app(file_path=None, port=None, theme='dark'):
                 current_rep = str(display.Representation)
                 print(f"Current representation: {current_rep}, show_edges: {show_edges}")
                 
-                # Toggle edges by changing representation
-                if show_edges:
-                    # Switch to surface with edges
-                    if 'Surface' in current_rep and 'Edges' not in current_rep:
-                        display.Representation = 'Surface With Edges'
-                        print("Switched to Surface With Edges")
-                    elif current_rep == 'Points':
-                        display.Representation = 'Surface With Edges'
-                        print("Switched to Surface With Edges")
-                else:
-                    # Switch back to surface without edges
-                    if 'Edges' in current_rep:
-                        display.Representation = 'Surface'
-                        print("Switched to Surface")
+                # Note: Edges are controlled separately via show_edges property
+                # No need to change representation
                 
                 # Trigger appearance update to refresh view
                 state.appearance_update += 1
@@ -852,8 +839,15 @@ def create_app(file_path=None, port=None, theme='dark'):
             dark=("sidebar_dark",),  # Use state variable for dark mode
         ):
             with vuetify.VContainer(classes="pa-4"):
-                # Title
-                vuetify.VSubheader("Display Controls", classes="text-h6 mb-2")
+                # Header with Hide Button
+                with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
+                    vuetify.VSubheader("Display Controls", classes="text-h6 pa-0")
+                    with vuetify.VBtn(
+                        click=toggle_controls,
+                        small=True,
+                        icon=True
+                    ):
+                        vuetify.VIcon("mdi-chevron-left")
                 vuetify.VDivider(classes="mb-4")
                 
                 # Opacity Slider
@@ -871,7 +865,7 @@ def create_app(file_path=None, port=None, theme='dark'):
                 # Representation Selector
                 vuetify.VSelect(
                     v_model=("representation", "Surface"),
-                    items=(['Surface', 'Surface With Edges', 'Wireframe', 'Points'],),
+                    items=(['Surface', 'Wireframe', 'Points'],),
                     label="Representation",
                     dense=True,
                     outlined=True,
@@ -1196,18 +1190,6 @@ def create_app(file_path=None, port=None, theme='dark'):
                         ("screenshot_status",),
                         classes="text-caption justify-center"
                     )
-                
-                vuetify.VDivider(classes="my-4")
-                
-                # Toggle controls visibility button (small, at bottom)
-                vuetify.VBtn(
-                    "Hide Controls <<",
-                    click=toggle_controls,
-                    block=True,
-                    small=True,
-                    text=True,
-                    classes="mt-2"
-                )
         
         # Main content area
         with vuetify.VMain():
@@ -1217,13 +1199,13 @@ def create_app(file_path=None, port=None, theme='dark'):
                 classes="ma-2 pa-0",
                 style="position: absolute; top: 0; left: 0; z-index: 100;"
             ):
-                vuetify.VBtn(
-                    ">>",
+                with vuetify.VBtn(
                     click=toggle_controls,
                     small=True,
                     fab=True,
                     color="primary"
-                )
+                ):
+                    vuetify.VIcon("mdi-chevron-right")
             
             # Main visualization view
             view_widget = pv_widgets.VtkRemoteView(
