@@ -17,6 +17,7 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import './openmc-tally-tree.css';
 import { Emitter, Event } from '@theia/core';
@@ -52,6 +53,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.id = OpenMCTallyTreeWidget.ID;
         this.title.label = OpenMCTallyTreeWidget.LABEL;
         this.title.caption = OpenMCTallyTreeWidget.LABEL;
+        this.title.iconClass = codicon('list-tree');
         this.title.closable = true;
         this.update();
     }
