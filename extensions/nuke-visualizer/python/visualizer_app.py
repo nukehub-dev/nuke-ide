@@ -182,7 +182,7 @@ def create_app(file_path=None, port=None, theme='dark'):
     
     # Visibility toggles
     state.show_edges = False
-    state.show_axes = True
+    state.show_axes = False
     state.show_orientation_axes = True
     state.show_bounding_box = False  # Show data bounds outline
     state.show_cube_axes = False     # Show grid cube axes

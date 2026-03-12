@@ -127,7 +127,30 @@ export class VisualizerWidget extends ReactWidget {
                         height: '100%'
                     }}>
                         {isLoading && (
-                        <div className='theia-loading-spinner' style={{ marginBottom: '20px' }}></div>
+                        <div style={{ marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            {/* Inline spinner with all necessary styles */}
+                            <div style={{ 
+                                width: '50px', 
+                                height: '50px', 
+                                border: '4px solid var(--theia-scrollbarSlider-background, rgba(100,100,100,0.3))',
+                                borderTop: '4px solid var(--theia-focusBorder, #007fd4)',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite',
+                                marginBottom: '15px'
+                            }}></div>
+                            <style>{`
+                                @keyframes spin {
+                                    0% { transform: rotate(0deg); }
+                                    100% { transform: rotate(360deg); }
+                                }
+                            `}</style>
+                            <div style={{ 
+                                fontSize: '14px', 
+                                color: 'var(--theia-descriptionForeground)'
+                            }}>
+                                Starting visualization server...
+                            </div>
+                        </div>
                     )}
                     {hasWarning && (
                         <div style={{ 
