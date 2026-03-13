@@ -152,7 +152,6 @@ def cmd_visualize_mesh(args):
         state.color_map = args.colormap or 'Cool to Warm'
         state.show_scalar_bar = True
         state.background_color_hex = '#1a1a26'
-        state.show_edges = False
         state.show_orientation_axes = True
         state.show_bounding_box = False
         state.show_cube_axes = False  # Coordinate grid
@@ -334,17 +333,6 @@ def cmd_visualize_mesh(args):
                 update_view()
             except Exception as e:
                 print(f"Error updating background: {e}", file=sys.stderr)
-        
-        @state.change("show_edges")
-        def on_edges_change(show_edges, **kwargs):
-            try:
-                if show_edges:
-                    display.Representation = 'Surface With Edges'
-                else:
-                    display.Representation = state.representation
-                update_view()
-            except Exception as e:
-                print(f"Error updating edges: {e}", file=sys.stderr)
         
         @state.change("show_orientation_axes")
         def on_orientation_axes_change(show_orientation_axes, **kwargs):
@@ -537,7 +525,7 @@ def cmd_visualize_mesh(args):
                     # Representation Selector
                     vuetify.VSelect(
                         v_model=("representation", "Surface"),
-                        items=(['Surface', 'Wireframe', 'Points'],),
+                        items=(['Surface', 'Surface With Edges', 'Wireframe', 'Points'],),
                         label="Representation",
                         dense=True,
                         outlined=True,
@@ -661,14 +649,6 @@ def cmd_visualize_mesh(args):
                                     style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
                                     classes="mx-auto d-block"
                                 )
-                    
-                    # Show Edges
-                    vuetify.VCheckbox(
-                        v_model=("show_edges", False),
-                        label="Show Edges",
-                        dense=True,
-                        classes="mb-2"
-                    )
                     
                     # Show 3D Axis Indicator
                     vuetify.VCheckbox(
@@ -1336,7 +1316,6 @@ def cmd_visualize_overlay(args):
         state.color_map = args.colormap or 'Cool to Warm'
         state.show_scalar_bar = True
         state.background_color_hex = '#1a1a26'
-        state.show_edges = False
         state.show_orientation_axes = True
         state.show_bounding_box = False
         state.show_cube_axes = False
@@ -1372,6 +1351,17 @@ def cmd_visualize_overlay(args):
             view.Background = hex_to_rgb(background_color_hex)
             update_view()
 
+        @state.change("representation")
+        def on_representation_change(representation, **kwargs):
+            try:
+                # Update all visible displays
+                for key in ['tally_display', 'geom_display']:
+                    if key in viz_data:
+                        viz_data[key].Representation = representation
+                update_view()
+            except Exception as e:
+                print(f"Error updating representation: {e}", file=sys.stderr)
+
         # UI setup (Simplified for overlay)
         with VAppLayout(server) as layout:
             with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
@@ -1380,6 +1370,16 @@ def cmd_visualize_overlay(args):
                     vuetify.VDivider(classes="mb-4")
                     
                     vuetify.VSlider(label="Tally Opacity", v_model=("opacity", 0.6), min=0, max=1, step=0.05, dense=True)
+                    
+                    # Representation Selector
+                    vuetify.VSelect(
+                        v_model=("representation", "Surface"),
+                        items=(['Surface', 'Surface With Edges', 'Wireframe', 'Points'],),
+                        label="Representation",
+                        dense=True,
+                        outlined=True,
+                        classes="mb-4"
+                    )
                     
                     vuetify.VBtn("Reset Camera", click=lambda: (simple.ResetCamera(), update_view(True)), block=True, outlined=True)
             

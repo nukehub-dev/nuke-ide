@@ -166,8 +166,8 @@ def create_app(file_path=None, port=None, theme='dark'):
     # Initialize state variables (serializable only)
     state.opacity = 1.0
     state.representation = 'Surface'
-    state.color_by = 'Solid Color'
     state.available_arrays = ['Solid Color']
+    state.color_by = 'Solid Color'
     state.color_map = 'Cool to Warm'
     state.show_scalar_bar = False
     state.show_controls = True
@@ -181,7 +181,6 @@ def create_app(file_path=None, port=None, theme='dark'):
     print(f"UI Theme: {theme}, sidebar_color: {state.sidebar_color}, sidebar_dark: {state.sidebar_dark}")
     
     # Visibility toggles
-    state.show_edges = False
     state.show_axes = False
     state.show_orientation_axes = True
     state.show_bounding_box = False  # Show data bounds outline
@@ -357,11 +356,13 @@ def create_app(file_path=None, port=None, theme='dark'):
                 # Map representation names to valid VTK representations
                 rep_map = {
                     'Surface': 'Surface',
+                    'Surface With Edges': 'Surface With Edges',
                     'Wireframe': 'Wireframe',
                     'Points': 'Points'
                 }
                 vtk_rep = rep_map.get(representation, 'Surface')
                 display.Representation = vtk_rep
+                
                 print(f"Representation changed to: {vtk_rep}")
                 state.appearance_update += 1
         except Exception as e:
@@ -492,24 +493,6 @@ def create_app(file_path=None, port=None, theme='dark'):
         except Exception as e:
             print(f"Error updating background color: {e}")
     
-    @state.change("show_edges")
-    def on_show_edges_change(show_edges, **kwargs):
-        """Handle edge visibility toggle."""
-        try:
-            display = pipeline.get('display')
-            if display:
-                # Get current representation from actual display
-                current_rep = str(display.Representation)
-                print(f"Current representation: {current_rep}, show_edges: {show_edges}")
-                
-                # Note: Edges are controlled separately via show_edges property
-                # No need to change representation
-                
-                # Trigger appearance update to refresh view
-                state.appearance_update += 1
-        except Exception as e:
-            print(f"Error updating edge visibility: {e}")
-    
     @state.change("show_axes")
     def on_show_axes_change(show_axes, **kwargs):
         """Handle axes visibility toggle."""
@@ -637,7 +620,8 @@ def create_app(file_path=None, port=None, theme='dark'):
                 # Show original, hide clip
                 simple.Show(original_source)
                 pipeline['source'] = original_source
-                pipeline['display'] = simple.GetDisplayProperties(original_source)
+                display = simple.GetDisplayProperties(original_source)
+                pipeline['display'] = display
             
             update_view()
         except Exception as e:
@@ -865,7 +849,7 @@ def create_app(file_path=None, port=None, theme='dark'):
                 # Representation Selector
                 vuetify.VSelect(
                     v_model=("representation", "Surface"),
-                    items=(['Surface', 'Wireframe', 'Points'],),
+                    items=(['Surface', 'Surface With Edges', 'Wireframe', 'Points'],),
                     label="Representation",
                     dense=True,
                     outlined=True,
@@ -1070,14 +1054,6 @@ def create_app(file_path=None, port=None, theme='dark'):
                                 style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
                                 classes="mx-auto d-block"
                             )
-                
-                # Edge Visibility Toggle
-                vuetify.VCheckbox(
-                    v_model=("show_edges", False),
-                    label="Show Edges",
-                    dense=True,
-                    classes="mb-2"
-                )
                 
                 # Orientation Axes Toggle (small XYZ in corner)
                 vuetify.VCheckbox(
