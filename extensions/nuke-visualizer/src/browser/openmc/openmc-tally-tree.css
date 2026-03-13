@@ -204,6 +204,30 @@
     margin-top: 12px;
 }
 
+.openmc-tally-tree .button-group {
+    display: flex;
+    flex: 1;
+    min-width: 100px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.openmc-tally-tree .button-group .tally-action-btn {
+    border-radius: 0;
+    border: none;
+    min-width: 0;
+}
+
+.openmc-tally-tree .button-group .tally-action-btn:first-child {
+    flex: 3;
+}
+
+.openmc-tally-tree .button-group .tally-action-btn:not(:first-child) {
+    flex: 1;
+    border-left: 1px solid var(--theia-panel-border);
+}
+
 .openmc-tally-tree .tally-action-btn {
     flex: 1;
     min-width: 80px;

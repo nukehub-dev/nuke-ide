@@ -29,7 +29,7 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
-    action?: 'visualize' | 'spectrum' | 'spatial';
+    action?: 'visualize' | 'spectrum' | 'spatial' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides';
 }
 
 @injectable()
@@ -215,26 +215,57 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                         <i className="fa fa-cube"></i>
                                         3D View
                                     </button>
-                                    <button 
-                                        className="tally-action-btn spatial"
-                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
-                                        title="Plot 1D Spatial Distribution"
-                                    >
-                                        <i className="fa fa-line-chart"></i>
-                                        Spatial Plot
-                                    </button>
+                                    <div className="button-group">
+                                        <button 
+                                            className="tally-action-btn spatial"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
+                                            title="Plot 1D Spatial Distribution"
+                                        >
+                                            <i className="fa fa-line-chart"></i>
+                                            Spatial Plot
+                                        </button>
+                                        {tally.scores.length > 1 && (
+                                            <button 
+                                                className="tally-action-btn spatial-multi"
+                                                onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
+                                                title="Plot All Scores (Spatial)"
+                                            >
+                                                <i className="fa fa-plus"></i>
+                                            </button>
+                                        )}
+                                    </div>
                                 </>
                             )}
                             
                             {energyFilter && (
-                                <button 
-                                    className="tally-action-btn spectrum"
-                                    onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
-                                    title="Plot Energy Spectrum"
-                                >
-                                    <i className="fa fa-area-chart"></i>
-                                    Spectrum
-                                </button>
+                                <div className="button-group">
+                                    <button 
+                                        className="tally-action-btn spectrum"
+                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
+                                        title="Plot Energy Spectrum"
+                                    >
+                                        <i className="fa fa-area-chart"></i>
+                                        Spectrum
+                                    </button>
+                                    {tally.scores.length > 1 && (
+                                        <button 
+                                            className="tally-action-btn spectrum-multi"
+                                            onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                            title="Plot All Scores (Spectrum)"
+                                        >
+                                            <i className="fa fa-plus"></i>
+                                        </button>
+                                    )}
+                                    {tally.nuclides.length > 1 && (
+                                        <button 
+                                            className="tally-action-btn spectrum-nuclide-multi"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                            title="Plot All Nuclides (Spectrum)"
+                                        >
+                                            <i className="fa fa-users"></i>
+                                        </button>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>
@@ -252,7 +283,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.update();
     }
 
-    private selectTally(tallyId: number, score: string, nuclide: string, action: 'visualize' | 'spectrum' | 'spatial'): void {
+    private selectTally(tallyId: number, score?: string, nuclide?: string, action?: TallySelection['action']): void {
         this.selectedTally = { tallyId, score, nuclide, action };
         this._onTallySelected.fire(this.selectedTally);
     }

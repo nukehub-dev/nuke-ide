@@ -26,6 +26,7 @@ import {
 } from '../../common/visualizer-protocol';
 import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { OpenMCMultiScoreData } from '../plotly/plotly-utils';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -377,10 +378,66 @@ export class OpenMCService {
     }
 
     /**
+     * Get spectrum for multiple scores/nuclides.
+     */
+    async getMultiScoreSpectrum(statepointUri: URI, tallyId: number, scores: string[], nuclide: string = 'total'): Promise<OpenMCMultiScoreData> {
+        const tally = this.currentTallies.find(t => t.id === tallyId);
+        if (!tally) throw new Error(`Tally ${tallyId} not found`);
+
+        const multiData: OpenMCMultiScoreData = { scores: [] };
+        
+        for (const scoreName of scores) {
+            const sIdx = tally.scores.indexOf(scoreName);
+            const nIdx = tally.nuclides.indexOf(nuclide);
+            if (sIdx === -1) continue;
+
+            const data = await this.getEnergySpectrum(statepointUri, tallyId, sIdx, nIdx);
+            if (!multiData.energy_bins) {
+                multiData.energy_bins = data.energy_bins;
+            }
+            multiData.scores.push({
+                name: `${scoreName} (${nuclide})`,
+                values: data.values,
+                std_dev: data.std_dev
+            });
+        }
+
+        return multiData;
+    }
+
+    /**
      * Get spatial plot data for a mesh tally.
      */
     async getSpatialPlot(statepointUri: URI, tallyId: number, axis: 'x' | 'y' | 'z', scoreIndex?: number, nuclideIndex?: number) {
         return this.openmcBackend.getSpatialPlot(statepointUri.path.toString(), tallyId, axis, scoreIndex, nuclideIndex);
+    }
+
+    /**
+     * Get spatial plot for multiple scores.
+     */
+    async getMultiScoreSpatialPlot(statepointUri: URI, tallyId: number, axis: 'x' | 'y' | 'z', scores: string[], nuclide: string = 'total'): Promise<OpenMCMultiScoreData> {
+        const tally = this.currentTallies.find(t => t.id === tallyId);
+        if (!tally) throw new Error(`Tally ${tallyId} not found`);
+
+        const multiData: OpenMCMultiScoreData = { scores: [] };
+        
+        for (const scoreName of scores) {
+            const sIdx = tally.scores.indexOf(scoreName);
+            const nIdx = tally.nuclides.indexOf(nuclide);
+            if (sIdx === -1) continue;
+
+            const data = await this.getSpatialPlot(statepointUri, tallyId, axis, sIdx, nIdx);
+            if (!multiData.positions) {
+                multiData.positions = data.positions;
+            }
+            multiData.scores.push({
+                name: `${scoreName} (${nuclide})`,
+                values: data.values,
+                std_dev: data.std_dev
+            });
+        }
+
+        return multiData;
     }
 
     /**

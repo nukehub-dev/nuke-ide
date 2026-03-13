@@ -36,6 +36,9 @@ import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc-plot-widget';
+import { PlotlyService } from '../plotly/plotly-service';
+import { PlotlyUtils } from '../plotly/plotly-utils';
+import { PlotlyFigure } from '../../common/visualizer-protocol';
 
 export namespace OpenMCCommands {
     export const OPENMC_CATEGORY = 'OpenMC';
@@ -109,6 +112,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     @inject(MessageService)
     protected readonly messageService: MessageService;
+
+    @inject(PlotlyService)
+    protected readonly plotlyService: PlotlyService;
     
     private tallyTreeWidget: OpenMCTallyTreeWidget | undefined;
 
@@ -492,6 +498,64 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         console.log(`[OpenMC] Spatial data received:`, data);
                         const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
                         plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
+                        if (!plotWidget.isAttached) {
+                            this.shell.addWidget(plotWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(plotWidget.id);
+                    } else if (selection.action === 'spectrum-all-scores' && tallyInfo) {
+                        const data = await this.openmcService.getMultiScoreSpectrum(statepointUri, selection.tallyId, tallyInfo.scores);
+                        const traces = PlotlyUtils.createMultiScoreTraces(data, 'spectrum');
+                        const figure: PlotlyFigure = {
+                            data: traces,
+                            layout: {
+                                xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
+                                yaxis: { title: { text: 'Tally Value' }, type: 'log' }
+                            },
+                            title: `Tally ${selection.tallyId} All Scores Spectrum`
+                        };
+                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-multi');
+                        plotWidget.setFigure(figure);
+                        if (!plotWidget.isAttached) {
+                            this.shell.addWidget(plotWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(plotWidget.id);
+                    } else if (selection.action === 'spatial-all-scores' && tallyInfo) {
+                        const data = await this.openmcService.getMultiScoreSpatialPlot(statepointUri, selection.tallyId, 'z', tallyInfo.scores);
+                        const traces = PlotlyUtils.createMultiScoreTraces(data, 'spatial');
+                        const figure: PlotlyFigure = {
+                            data: traces,
+                            layout: {
+                                xaxis: { title: { text: 'Position [cm]' } },
+                                yaxis: { title: { text: 'Tally Value' } }
+                            },
+                            title: `Tally ${selection.tallyId} All Scores Spatial Plot`
+                        };
+                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial-multi');
+                        plotWidget.setFigure(figure);
+                        if (!plotWidget.isAttached) {
+                            this.shell.addWidget(plotWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(plotWidget.id);
+                    } else if (selection.action === 'spectrum-all-nuclides' && tallyInfo) {
+                        console.log(`[OpenMC] Plotting all nuclides for tally ${selection.tallyId}`);
+                        const scoreIdx = selection.score ? tallyInfo.scores.indexOf(selection.score) : 0;
+                        const scoreName = selection.score || tallyInfo.scores[0];
+
+                        const nuclideTraces = await Promise.all(tallyInfo.nuclides.map(async nuclide => {
+                            const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, tallyInfo.nuclides.indexOf(nuclide));
+                            return PlotlyUtils.createSpectrumTrace(data, `${nuclide} (${scoreName})`);
+                        }));
+
+                        const figure: PlotlyFigure = {
+                            data: nuclideTraces,
+                            layout: {
+                                xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
+                                yaxis: { title: { text: 'Tally Value' }, type: 'log' }
+                            },
+                            title: `Tally ${selection.tallyId} All Nuclides - ${scoreName}`
+                        };
+                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-nuclides');
+                        plotWidget.setFigure(figure);
                         if (!plotWidget.isAttached) {
                             this.shell.addWidget(plotWidget, { area: 'main' });
                         }

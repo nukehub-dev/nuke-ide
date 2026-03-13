@@ -30,11 +30,13 @@
   ],
   "dependencies": {
     "@theia/core": "1.69.0",
-    "@theia/workspace": "1.69.0",
     "@theia/filesystem": "1.69.0",
-    "@theia/process": "1.69.0"
+    "@theia/process": "1.69.0",
+    "@theia/workspace": "1.69.0",
+    "plotly.js-dist-min": "^3.4.0"
   },
   "devDependencies": {
+    "@types/plotly.js": "^3.0.10",
     "rimraf": "^5.0.0",
     "typescript": "~5.4.5"
   },

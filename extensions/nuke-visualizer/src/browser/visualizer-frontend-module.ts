@@ -36,8 +36,11 @@ import { OpenMCContribution } from './openmc/openmc-contribution';
 import { OpenMCTallySelector } from './openmc/tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
+import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
+    // Bind Plotly service
+    bind(PlotlyService).to(PlotlyServiceImpl).inSingletonScope();
     // Bind preferences
     bindVisualizerPreferences(bind);
 

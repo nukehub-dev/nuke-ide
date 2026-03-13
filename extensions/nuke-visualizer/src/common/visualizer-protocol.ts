@@ -169,6 +169,15 @@ export interface VisualizerClient {
 
 export const VISUALIZER_BACKEND_PATH = '/services/visualizer';
 
+/** Generic Plotly figure definition for scientific plotting */
+export interface PlotlyFigure {
+    data: Partial<Plotly.Data>[];
+    layout: Partial<Plotly.Layout>;
+    config?: Partial<Plotly.Config>;
+    title?: string;
+    id?: string;
+}
+
 // === OpenMC Integration Types ===
 
 /** OpenMC filter metadata */
@@ -248,6 +257,7 @@ export interface OpenMCSpectrumData {
 export interface OpenMCSpatialPlotData {
     positions: number[];
     values: number[];
+    std_dev?: number[];
     axis: string;
     error?: string;
 }
