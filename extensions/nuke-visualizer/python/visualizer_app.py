@@ -186,6 +186,12 @@ def create_app(file_path=None, port=None, theme='dark'):
     state.show_bounding_box = False  # Show data bounds outline
     state.show_cube_axes = False     # Show grid cube axes
     
+    # Appearance details
+    state.point_size = 2.0
+    state.line_width = 1.0
+    state.ambient_light = 0.2  # 0 to 1
+    state.parallel_projection = False
+    
     # Clipping state
     state.clip_enabled = False
     state.clip_origin_x = 0.0
@@ -562,6 +568,48 @@ def create_app(file_path=None, port=None, theme='dark'):
                 state.appearance_update += 1
         except Exception as e:
             print(f"Error updating cube axes: {e}")
+    
+    @state.change("point_size")
+    def on_point_size_change(point_size, **kwargs):
+        try:
+            display = pipeline.get('display')
+            if display:
+                display.PointSize = float(point_size)
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating point size: {e}")
+            
+    @state.change("line_width")
+    def on_line_width_change(line_width, **kwargs):
+        try:
+            display = pipeline.get('display')
+            if display:
+                display.LineWidth = float(line_width)
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating line width: {e}")
+            
+    @state.change("ambient_light")
+    def on_ambient_light_change(ambient_light, **kwargs):
+        try:
+            display = pipeline.get('display')
+            if display:
+                display.Ambient = float(ambient_light)
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating ambient light: {e}")
+            
+    @state.change("parallel_projection")
+    def on_parallel_projection_change(parallel_projection, **kwargs):
+        try:
+            view = pipeline.get('view')
+            if view:
+                # Use standard ParaView property for orthographic view
+                view.CameraParallelProjection = 1 if parallel_projection else 0
+                state.camera_update_counter += 1
+                state.appearance_update += 1
+        except Exception as e:
+            print(f"Error updating projection mode: {e}")
     
     @state.change("current_timestep")
     def on_timestep_change(current_timestep, **kwargs):
@@ -1054,6 +1102,43 @@ def create_app(file_path=None, port=None, theme='dark'):
                                 style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
                                 classes="mx-auto d-block"
                             )
+                
+                vuetify.VDivider(classes="my-4")
+                
+                # Projection Mode
+                vuetify.VCheckbox(
+                    v_model=("parallel_projection", False),
+                    label="Parallel Projection (2D/Ortho)",
+                    dense=True,
+                    classes="mb-2"
+                )
+                
+                # Detail sliders (Point Size, Line Width, Lighting)
+                with vuetify.VRow(dense=True, classes="mt-2"):
+                    with vuetify.VCol(cols=12):
+                        vuetify.VSlider(
+                            v_model=("point_size", 2.0),
+                            min=1, max=20, step=0.5,
+                            label="Point Size",
+                            dense=True, hide_details=True,
+                            classes="mb-4"
+                        )
+                        vuetify.VSlider(
+                            v_model=("line_width", 1.0),
+                            min=0.5, max=10, step=0.5,
+                            label="Line Width",
+                            dense=True, hide_details=True,
+                            classes="mb-4"
+                        )
+                        vuetify.VSlider(
+                            v_model=("ambient_light", 0.2),
+                            min=0, max=1, step=0.05,
+                            label="Ambient",
+                            dense=True, hide_details=True,
+                            classes="mb-4"
+                        )
+                
+                vuetify.VDivider(classes="my-4")
                 
                 # Orientation Axes Toggle (small XYZ in corner)
                 vuetify.VCheckbox(

@@ -158,6 +158,12 @@ def cmd_visualize_mesh(args):
         state.screenshot_status = ""
         state.camera_update_counter = 0  # Used to trigger camera updates
         
+        # Appearance details
+        state.point_size = 2.0
+        state.line_width = 1.0
+        state.ambient_light = 0.2
+        state.parallel_projection = False
+        
         # Tally and mesh info for display
         state.mesh_type = mesh_info_display.get('type', 'Unknown')
         state.mesh_dimensions = mesh_info_display.get('dimensions', 'N/A')
@@ -368,6 +374,38 @@ def cmd_visualize_mesh(args):
                 update_view()
             except Exception as e:
                 print(f"Error updating cube axes: {e}", file=sys.stderr)
+                
+        @state.change("point_size")
+        def on_point_size_change(point_size, **kwargs):
+            try:
+                display.PointSize = float(point_size)
+                update_view()
+            except Exception as e:
+                print(f"Error updating point size: {e}", file=sys.stderr)
+                
+        @state.change("line_width")
+        def on_line_width_change(line_width, **kwargs):
+            try:
+                display.LineWidth = float(line_width)
+                update_view()
+            except Exception as e:
+                print(f"Error updating line width: {e}", file=sys.stderr)
+                
+        @state.change("ambient_light")
+        def on_ambient_light_change(ambient_light, **kwargs):
+            try:
+                display.Ambient = float(ambient_light)
+                update_view()
+            except Exception as e:
+                print(f"Error updating ambient light: {e}", file=sys.stderr)
+                
+        @state.change("parallel_projection")
+        def on_parallel_projection_change(parallel_projection, **kwargs):
+            try:
+                view.CameraParallelProjection = 1 if parallel_projection else 0
+                update_view(True)
+            except Exception as e:
+                print(f"Error updating projection mode: {e}", file=sys.stderr)
         
         # Define camera functions BEFORE UI setup so lambdas can capture them
         def reset_camera():
@@ -650,6 +688,43 @@ def cmd_visualize_mesh(args):
                                     classes="mx-auto d-block"
                                 )
                     
+                    vuetify.VDivider(classes="my-4")
+                    
+                    # Projection Mode
+                    vuetify.VCheckbox(
+                        v_model=("parallel_projection", False),
+                        label="Parallel Projection (2D/Ortho)",
+                        dense=True,
+                        classes="mb-2"
+                    )
+                    
+                    # Detail sliders (Point Size, Line Width, Lighting)
+                    with vuetify.VRow(dense=True, classes="mt-2"):
+                        with vuetify.VCol(cols=12):
+                            vuetify.VSlider(
+                                v_model=("point_size", 2.0),
+                                min=1, max=20, step=0.5,
+                                label="Point Size",
+                                dense=True, hide_details=True,
+                                classes="mb-4"
+                            )
+                            vuetify.VSlider(
+                                v_model=("line_width", 1.0),
+                                min=0.5, max=10, step=0.5,
+                                label="Line Width",
+                                dense=True, hide_details=True,
+                                classes="mb-4"
+                            )
+                            vuetify.VSlider(
+                                v_model=("ambient_light", 0.2),
+                                min=0, max=1, step=0.05,
+                                label="Ambient",
+                                dense=True, hide_details=True,
+                                classes="mb-4"
+                            )
+                    
+                    vuetify.VDivider(classes="my-4")
+                    
                     # Show 3D Axis Indicator
                     vuetify.VCheckbox(
                         v_model=("show_orientation_axes", True),
@@ -820,6 +895,10 @@ def cmd_visualize_source(args):
         state.show_orientation_axes = True
         state.camera_update_counter = 0  # Used to trigger camera updates
         
+        # Appearance details
+        state.ambient_light = 0.2
+        state.parallel_projection = False
+        
         # Load in ParaView
         source_reader = simple.XMLPolyDataReader(FileName=tmp_path)
         
@@ -963,6 +1042,38 @@ def cmd_visualize_source(args):
                 update_view()
             except Exception as e:
                 print(f"Error updating cube axes: {e}", file=sys.stderr)
+                
+        @state.change("point_size")
+        def on_point_size_change(point_size, **kwargs):
+            try:
+                display.PointSize = float(point_size)
+                update_view()
+            except Exception as e:
+                print(f"Error updating point size: {e}", file=sys.stderr)
+                
+        @state.change("line_width")
+        def on_line_width_change(line_width, **kwargs):
+            try:
+                display.LineWidth = float(line_width)
+                update_view()
+            except Exception as e:
+                print(f"Error updating line width: {e}", file=sys.stderr)
+                
+        @state.change("ambient_light")
+        def on_ambient_light_change(ambient_light, **kwargs):
+            try:
+                display.Ambient = float(ambient_light)
+                update_view()
+            except Exception as e:
+                print(f"Error updating ambient light: {e}", file=sys.stderr)
+                
+        @state.change("parallel_projection")
+        def on_parallel_projection_change(parallel_projection, **kwargs):
+            try:
+                view.CameraParallelProjection = 1 if parallel_projection else 0
+                update_view(True)
+            except Exception as e:
+                print(f"Error updating projection mode: {e}", file=sys.stderr)
         
         # Define camera functions BEFORE UI setup so lambdas can capture them
         def reset_camera():
@@ -1073,14 +1184,34 @@ def cmd_visualize_source(args):
                         html.Div("Particles", style="font-size: 10px; color: #888; text-transform: uppercase;")
                         html.Div(str(source_poly.GetNumberOfPoints()), style="font-size: 14px; color: #fff; font-weight: 500;")
                     
-                    vuetify.VSlider(
-                        label="Point Size",
-                        v_model=("point_size", 2.0),
-                        min=1, max=10, step=0.5,
-                        thumb_label=True,
+                    vuetify.VDivider(classes="mb-4")
+                    
+                    # Projection Mode
+                    vuetify.VCheckbox(
+                        v_model=("parallel_projection", False),
+                        label="Parallel Projection (2D/Ortho)",
                         dense=True,
-                        classes="mb-4"
+                        classes="mb-2"
                     )
+                    
+                    # Detail sliders (Point Size, Lighting)
+                    with vuetify.VRow(dense=True, classes="mt-2"):
+                        with vuetify.VCol(cols=12):
+                            vuetify.VSlider(
+                                label="Point Size",
+                                v_model=("point_size", 2.0),
+                                min=1, max=10, step=0.5,
+                                thumb_label=True,
+                                dense=True,
+                                classes="mb-4"
+                            )
+                            vuetify.VSlider(
+                                v_model=("ambient_light", 0.2),
+                                min=0, max=1, step=0.05,
+                                label="Ambient",
+                                dense=True, hide_details=True,
+                                classes="mb-4"
+                            )
                     
                     vuetify.VSelect(
                         v_model=("color_by", state.color_by),
@@ -1321,6 +1452,10 @@ def cmd_visualize_overlay(args):
         state.show_cube_axes = False
         state.camera_update_counter = 0
         
+        # Appearance details
+        state.ambient_light = 0.2
+        state.parallel_projection = False
+        
         # State change handlers
         def update_view(push_camera=False):
             try:
@@ -1362,6 +1497,26 @@ def cmd_visualize_overlay(args):
             except Exception as e:
                 print(f"Error updating representation: {e}", file=sys.stderr)
 
+        @state.change("ambient_light")
+        def on_ambient_light_change(ambient_light, **kwargs):
+            try:
+                # Update all visible displays
+                for key in ['tally_display', 'geom_display']:
+                    if key in viz_data:
+                        viz_data[key].Ambient = float(ambient_light)
+                update_view()
+            except Exception as e:
+                print(f"Error updating ambient light: {e}", file=sys.stderr)
+
+        @state.change("parallel_projection")
+        def on_parallel_projection_change(parallel_projection, **kwargs):
+            try:
+                view = simple.GetActiveViewOrCreate('RenderView')
+                view.CameraParallelProjection = 1 if parallel_projection else 0
+                update_view(True)
+            except Exception as e:
+                print(f"Error updating projection mode: {e}", file=sys.stderr)
+
         # UI setup (Simplified for overlay)
         with VAppLayout(server) as layout:
             with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
@@ -1380,6 +1535,26 @@ def cmd_visualize_overlay(args):
                         outlined=True,
                         classes="mb-4"
                     )
+                    
+                    vuetify.VDivider(classes="my-4")
+                    
+                    # Projection Mode
+                    vuetify.VCheckbox(
+                        v_model=("parallel_projection", False),
+                        label="Parallel Projection (2D/Ortho)",
+                        dense=True,
+                        classes="mb-2"
+                    )
+                    
+                    vuetify.VSlider(
+                        v_model=("ambient_light", 0.2),
+                        min=0, max=1, step=0.05,
+                        label="Ambient",
+                        dense=True, hide_details=True,
+                        classes="mb-4"
+                    )
+                    
+                    vuetify.VDivider(classes="my-4")
                     
                     vuetify.VBtn("Reset Camera", click=lambda: (simple.ResetCamera(), update_view(True)), block=True, outlined=True)
             
