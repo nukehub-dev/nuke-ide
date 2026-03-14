@@ -20,7 +20,13 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import { ThemeService } from '@theia/core/lib/browser/theming';
-import { XSPlotData, XSReaction, COMMON_XS_REACTIONS } from '../../common/visualizer-protocol';
+import { 
+    XSPlotData, 
+    XSReaction, 
+    COMMON_XS_REACTIONS,
+    XS_ENERGY_REGIONS,
+    XSEnergyRegion
+} from '../../common/visualizer-protocol';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
 import { VisualizerPreferences } from '../visualizer-preferences';
@@ -29,6 +35,22 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 
+/** Mode for XS plotting */
+type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison';
+
+/** Material component definition */
+interface MaterialComponent {
+    nuclide: string;
+    fraction: number;
+}
+
+/** Material definition */
+interface Material {
+    name: string;
+    components: MaterialComponent[];
+    density: number;
+}
+
 @injectable()
 export class XSPlotWidget extends ReactWidget {
     static readonly ID = 'xs-plot-widget';
@@ -36,15 +58,37 @@ export class XSPlotWidget extends ReactWidget {
 
     private data: XSPlotData | null = null;
     private titleText: string = 'Cross-Section Plot';
+    
+    // Plot mode
+    private plotMode: XSPlotMode = 'nuclides';
+    
+    // Nuclide mode
     private selectedNuclides: string[] = ['U235'];
-    private nuclidesInput: string = 'U235'; // Raw input for textarea
+    private nuclidesInput: string = 'U235';
+    private availableNuclides: string[] = [];
+    private showNuclideDropdown: boolean = false;
+    private nuclideSearchFilter: string = '';
+    
+    // Material mode
+    private materials: Material[] = [];
+    private currentMaterial: Material = { name: 'New Material', components: [], density: 1.0 };
+    
+    // Temperature comparison mode
+    private tempComparisonNuclide: string = 'U235';
+    private tempComparisonReaction: number = 18;  // fission
+    private tempComparisonTemps: number[] = [294, 600, 900, 1200];
+    
+    // Common settings
     private selectedReactions: XSReaction[] = COMMON_XS_REACTIONS.map(r => ({ ...r }));
     private temperature: number = 294;
-    private energyRange: [number, number] = [1e-5, 2e7]; // 0.01 meV to 20 MeV
+    private energyRegion: XSEnergyRegion = 'full';
+    // Note: Energy range is managed by energyRegion preset
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
     private crossSectionsPath: string = '';
     private showSetupDialog: boolean = false;
+    
+    // Note: Reaction rates can be extended in future for displaying calculated rates
 
     @inject(ThemeService)
     protected readonly themeService: ThemeService;
@@ -84,14 +128,36 @@ export class XSPlotWidget extends ReactWidget {
             if (e.preferenceName === 'nukeVisualizer.openmcCrossSectionsPath') {
                 // Re-read the preference value
                 this.crossSectionsPath = this.preferences['nukeVisualizer.openmcCrossSectionsPath'];
+                this.loadAvailableNuclides();
                 this.update();
             }
         });
 
         // Listen for theme changes to re-render the plot
         this.themeService.onDidColorThemeChange(() => this.update());
+        
+        // Load available nuclides
+        this.loadAvailableNuclides();
 
         this.update();
+    }
+    
+    private async loadAvailableNuclides(): Promise<void> {
+        try {
+            this.availableNuclides = await this.openmcService.getAvailableNuclides(this.crossSectionsPath);
+            if (this.availableNuclides.length === 0) {
+                // Fallback to common nuclides
+                this.availableNuclides = [
+                    'H1', 'H2', 'He3', 'He4', 'B10', 'B11', 'C0', 'N14', 'O16',
+                    'Na23', 'Al27', 'Si28', 'K39', 'Fe54', 'Fe56', 'Ni58', 'Ni60',
+                    'Zr90', 'Zr91', 'Zr92', 'Nb93', 'Mo95', 'Mo98',
+                    'U234', 'U235', 'U238', 'Pu238', 'Pu239', 'Pu240', 'Pu241'
+                ];
+            }
+            this.update();
+        } catch (error) {
+            console.error('[XSPlotWidget] Failed to load nuclides:', error);
+        }
     }
 
     focus(): void {
@@ -278,39 +344,33 @@ export class XSPlotWidget extends ReactWidget {
         const textColor = theme === 'dark' ? '#cccccc' : '#333333';
         const accentColor = '#0e639c';
         const checkboxBg = theme === 'dark' ? '#3c3c3c' : '#ffffff';
+        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
 
         return (
             <>
+                {/* Mode Selection */}
                 <div style={{
-                    padding: '15px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                    padding: '10px 15px',
+                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                    backgroundColor: panelBg
                 }}>
-                    <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
                         <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
-                        Nuclides
+                        Plot Mode
                     </h4>
-                    <textarea
-                        value={this.nuclidesInput}
-                        onChange={(e) => this.handleNuclidesChange(e.target.value)}
-                        placeholder="Enter nuclides (e.g., U235, U238, H1)"
-                        style={{
-                            width: '100%',
-                            height: '60px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                            borderRadius: '3px',
-                            padding: '6px',
-                            fontSize: '12px',
-                            fontFamily: 'monospace',
-                            resize: 'none'
-                        }}
-                    />
-                    <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
-                        Comma-separated list (e.g., U235, Pu239, H1)
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        {this.renderModeButton('nuclides', 'Nuclides', theme)}
+                        {this.renderModeButton('materials', 'Materials', theme)}
+                        {this.renderModeButton('temp-comparison', 'Temp Compare', theme)}
                     </div>
                 </div>
 
+                {/* Plot Mode Specific Controls */}
+                {this.plotMode === 'nuclides' && this.renderNuclideControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'materials' && this.renderMaterialControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(theme, textColor, checkboxBg)}
+
+                {/* Reactions Section */}
                 <div style={{
                     padding: '15px',
                     borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
@@ -359,6 +419,51 @@ export class XSPlotWidget extends ReactWidget {
                     </div>
                 </div>
 
+                {/* Energy Region Presets */}
+                <div style={{
+                    padding: '15px',
+                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                }}>
+                    <h4 style={{ margin: '0 0 10px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                        <span className={codicon('globe')} style={{ marginRight: '6px' }} />
+                        Energy Region
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        {(Object.keys(XS_ENERGY_REGIONS) as XSEnergyRegion[]).map(region => (
+                            <button
+                                key={region}
+                                onClick={() => this.setEnergyRegion(region)}
+                                style={{
+                                    padding: '6px 8px',
+                                    fontSize: '11px',
+                                    backgroundColor: this.energyRegion === region
+                                        ? accentColor
+                                        : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
+                                    color: this.energyRegion === region
+                                        ? 'white'
+                                        : textColor,
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer',
+                                    textAlign: 'center'
+                                }}
+                                title={XS_ENERGY_REGIONS[region].description}
+                            >
+                                {XS_ENERGY_REGIONS[region].label}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ 
+                        fontSize: '10px', 
+                        color: '#888', 
+                        marginTop: '8px',
+                        textAlign: 'center'
+                    }}>
+                        {XS_ENERGY_REGIONS[this.energyRegion].range[0].toExponential(0)} - {XS_ENERGY_REGIONS[this.energyRegion].range[1].toExponential(0)} eV
+                    </div>
+                </div>
+
+                {/* Settings */}
                 <div style={{
                     padding: '15px',
                     borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
@@ -367,67 +472,27 @@ export class XSPlotWidget extends ReactWidget {
                         <span className={codicon('settings')} style={{ marginRight: '6px' }} />
                         Settings
                     </h4>
-                    <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
-                            Temperature (K)
-                        </label>
-                        <input
-                            type="number"
-                            value={this.temperature}
-                            onChange={(e) => this.setState({ temperature: parseFloat(e.target.value) || 294 })}
-                            style={{
-                                width: '100%',
-                                padding: '4px 8px',
-                                backgroundColor: checkboxBg,
-                                color: textColor,
-                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                                borderRadius: '3px',
-                                fontSize: '12px'
-                            }}
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
-                            Energy Range (eV)
-                        </label>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {this.plotMode !== 'temp-comparison' && (
+                        <div style={{ marginBottom: '10px' }}>
+                            <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                                Temperature (K)
+                            </label>
                             <input
-                                type="text"
-                                value={this.energyRange[0].toExponential(1)}
-                                readOnly
-                                title="Min Energy"
+                                type="number"
+                                value={this.temperature}
+                                onChange={(e) => this.setState({ temperature: parseFloat(e.target.value) || 294 })}
                                 style={{
-                                    flex: 1,
-                                    minWidth: 0,
-                                    padding: '4px 6px',
-                                    backgroundColor: theme === 'dark' ? '#2a2a2a' : '#e8e8e8',
+                                    width: '100%',
+                                    padding: '4px 8px',
+                                    backgroundColor: checkboxBg,
                                     color: textColor,
                                     border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                                     borderRadius: '3px',
-                                    fontSize: '10px',
-                                    textAlign: 'center'
-                                }}
-                            />
-                            <span style={{ color: '#888', fontSize: '11px', whiteSpace: 'nowrap' }}>to</span>
-                            <input
-                                type="text"
-                                value={this.energyRange[1].toExponential(1)}
-                                readOnly
-                                title="Max Energy"
-                                style={{
-                                    flex: 1,
-                                    minWidth: 0,
-                                    padding: '4px 6px',
-                                    backgroundColor: theme === 'dark' ? '#2a2a2a' : '#e8e8e8',
-                                    color: textColor,
-                                    border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                                    borderRadius: '3px',
-                                    fontSize: '10px',
-                                    textAlign: 'center'
+                                    fontSize: '12px'
                                 }}
                             />
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 <div style={{ padding: '15px' }}>
@@ -530,11 +595,6 @@ export class XSPlotWidget extends ReactWidget {
     private async handlePlot(): Promise<void> {
         const selectedReactions = this.selectedReactions.filter(r => r.selected);
         
-        if (this.selectedNuclides.length === 0) {
-            this.errorMessage = 'Please enter at least one nuclide';
-            this.update();
-            return;
-        }
         if (selectedReactions.length === 0) {
             this.errorMessage = 'Please select at least one reaction';
             this.update();
@@ -543,19 +603,74 @@ export class XSPlotWidget extends ReactWidget {
 
         this.isLoading = true;
         this.errorMessage = null;
+        // Reaction rates would be stored here for display
         this.update();
 
         try {
-            const request = {
-                nuclides: this.selectedNuclides,
-                reactions: selectedReactions.map(r => r.mt),
-                temperature: this.temperature,
-                energyRange: this.energyRange
-            };
+            let request: any;
+            let title: string;
+
+            if (this.plotMode === 'temp-comparison') {
+                // Temperature comparison mode
+                if (!this.tempComparisonNuclide) {
+                    this.errorMessage = 'Please select a nuclide for temperature comparison';
+                    this.isLoading = false;
+                    this.update();
+                    return;
+                }
+
+                request = {
+                    nuclides: [this.tempComparisonNuclide],
+                    reactions: [this.tempComparisonReaction],
+                    temperatureComparison: {
+                        nuclide: this.tempComparisonNuclide,
+                        reaction: this.tempComparisonReaction,
+                        temperatures: this.tempComparisonTemps
+                    },
+                    energyRegion: this.energyRegion
+                };
+                title = `Temperature Comparison: ${this.tempComparisonNuclide} MT=${this.tempComparisonReaction}`;
+            } else if (this.plotMode === 'materials') {
+                // Material mixing mode
+                if (this.materials.length === 0) {
+                    this.errorMessage = 'Please define at least one material';
+                    this.isLoading = false;
+                    this.update();
+                    return;
+                }
+
+                request = {
+                    nuclides: [],
+                    reactions: selectedReactions.map(r => r.mt),
+                    temperature: this.temperature,
+                    energyRegion: this.energyRegion,
+                    materials: this.materials.map(m => ({
+                        name: m.name,
+                        components: m.components,
+                        density: m.density
+                    }))
+                };
+                title = `Material Cross-Sections: ${this.materials.map(m => m.name).join(', ')}`;
+            } else {
+                // Standard nuclide mode
+                if (this.selectedNuclides.length === 0) {
+                    this.errorMessage = 'Please enter at least one nuclide';
+                    this.isLoading = false;
+                    this.update();
+                    return;
+                }
+
+                request = {
+                    nuclides: this.selectedNuclides,
+                    reactions: selectedReactions.map(r => r.mt),
+                    temperature: this.temperature,
+                    energyRegion: this.energyRegion
+                };
+                title = `Cross-Sections: ${this.selectedNuclides.join(', ')}`;
+            }
 
             const data = await this.openmcService.getXSData(request);
             
-            // Always ensure loading is reset even if data is null/undefined
             this.isLoading = false;
             
             if (data) {
@@ -563,9 +678,9 @@ export class XSPlotWidget extends ReactWidget {
                     this.errorMessage = data.error;
                     this.data = null;
                 } else if (data.curves && data.curves.length > 0) {
-                    const nuclidesStr = this.selectedNuclides.join(', ');
-                    this.setData(data, `Cross-Sections: ${nuclidesStr}`);
-                    return; // setData already resets isLoading and calls update
+                    // Reaction rates from data: data.reactionRates
+                    this.setData(data, title);
+                    return;
                 } else {
                     this.errorMessage = 'No cross-section data returned. The nuclide(s) may not be available in the cross-section library.';
                     this.data = null;
@@ -738,5 +853,511 @@ export class XSPlotWidget extends ReactWidget {
         } catch (error) {
             this.messageService.error(`Failed to save path: ${error}`);
         }
+    }
+
+    // ===== Mode Selection UI =====
+
+    private renderModeButton(mode: XSPlotMode, label: string, theme: 'dark' | 'light'): React.ReactNode {
+        const isActive = this.plotMode === mode;
+        return (
+            <button
+                onClick={() => this.setPlotMode(mode)}
+                style={{
+                    flex: 1,
+                    padding: '6px 4px',
+                    fontSize: '11px',
+                    backgroundColor: isActive
+                        ? '#0e639c'
+                        : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
+                    color: isActive ? 'white' : (theme === 'dark' ? '#ccc' : '#333'),
+                    border: 'none',
+                    borderRadius: '3px',
+                    cursor: 'pointer',
+                    fontWeight: isActive ? '500' : 'normal'
+                }}
+            >
+                {label}
+            </button>
+        );
+    }
+
+    private setPlotMode(mode: XSPlotMode): void {
+        this.plotMode = mode;
+        this.update();
+    }
+
+    // ===== Energy Region =====
+
+    private setEnergyRegion(region: XSEnergyRegion): void {
+        this.energyRegion = region;
+        // Custom energy range can be derived from XS_ENERGY_REGIONS[region].range
+        this.update();
+    }
+
+    // ===== Nuclide Controls =====
+
+    private renderNuclideControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        const searchLower = this.nuclideSearchFilter.toLowerCase();
+        const filteredNuclides = this.availableNuclides.filter(n => 
+            n.toLowerCase().includes(searchLower)
+        ).slice(0, 100);
+
+        return (
+            <div style={{
+                padding: '15px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+            }}>
+                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
+                    Nuclides
+                </h4>
+                
+                <div style={{ position: 'relative', marginBottom: '8px' }}>
+                    <input
+                        type="text"
+                        value={this.nuclideSearchFilter}
+                        onChange={(e) => this.setNuclideSearchFilter(e.target.value)}
+                        placeholder="Search nuclides..."
+                        style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '12px'
+                        }}
+                    />
+                    {this.showNuclideDropdown && this.nuclideSearchFilter && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            maxHeight: '150px',
+                            overflow: 'auto',
+                            backgroundColor: theme === 'dark' ? '#2d2d30' : '#ffffff',
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            zIndex: 100,
+                            marginTop: '2px'
+                        }}>
+                            {filteredNuclides.map(nuclide => (
+                                <div
+                                    key={nuclide}
+                                    onClick={() => this.addNuclide(nuclide)}
+                                    style={{
+                                        padding: '6px 8px',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        color: textColor
+                                    }}
+                                >
+                                    {nuclide}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                        Selected ({this.selectedNuclides.length}):
+                    </div>
+                    <div style={{ 
+                        display: 'flex', 
+                        flexWrap: 'wrap', 
+                        gap: '4px',
+                        maxHeight: '80px',
+                        overflow: 'auto'
+                    }}>
+                        {this.selectedNuclides.map(nuclide => (
+                            <span
+                                key={nuclide}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '2px 6px',
+                                    backgroundColor: theme === 'dark' ? '#094771' : '#e5f3ff',
+                                    color: theme === 'dark' ? '#fff' : '#0066bf',
+                                    borderRadius: '3px',
+                                    fontSize: '11px',
+                                    gap: '4px'
+                                }}
+                            >
+                                {nuclide}
+                                <span
+                                    onClick={() => this.removeNuclide(nuclide)}
+                                    style={{ cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                    ×
+                                </span>
+                            </span>
+                        ))}
+                    </div>
+                </div>
+
+                <textarea
+                    value={this.nuclidesInput}
+                    onChange={(e) => this.handleNuclidesChange(e.target.value)}
+                    placeholder="Or enter manually (e.g., U235, U238, H1)"
+                    style={{
+                        width: '100%',
+                        height: '50px',
+                        backgroundColor: checkboxBg,
+                        color: textColor,
+                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                        borderRadius: '3px',
+                        padding: '6px',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        resize: 'none'
+                    }}
+                />
+            </div>
+        );
+    }
+
+    private setNuclideSearchFilter(filter: string): void {
+        this.nuclideSearchFilter = filter;
+        this.showNuclideDropdown = true;
+        this.update();
+    }
+
+    private addNuclide(nuclide: string): void {
+        if (!this.selectedNuclides.includes(nuclide)) {
+            this.selectedNuclides.push(nuclide);
+            this.nuclidesInput = this.selectedNuclides.join(', ');
+        }
+        this.nuclideSearchFilter = '';
+        this.showNuclideDropdown = false;
+        this.update();
+    }
+
+    private removeNuclide(nuclide: string): void {
+        this.selectedNuclides = this.selectedNuclides.filter(n => n !== nuclide);
+        this.nuclidesInput = this.selectedNuclides.join(', ');
+        this.update();
+    }
+
+    // ===== Material Controls =====
+
+    private renderMaterialControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        return (
+            <div style={{
+                padding: '15px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+            }}>
+                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <span className={codicon('symbol-struct')} style={{ marginRight: '6px' }} />
+                    Materials
+                </h4>
+
+                {this.materials.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                        {this.materials.map((mat, idx) => (
+                            <div
+                                key={idx}
+                                style={{
+                                    padding: '8px',
+                                    backgroundColor: theme === 'dark' ? '#2d2d30' : '#f5f5f5',
+                                    borderRadius: '3px',
+                                    marginBottom: '6px',
+                                    fontSize: '12px'
+                                }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <strong>{mat.name}</strong>
+                                    <span onClick={() => this.removeMaterial(idx)} style={{ cursor: 'pointer', color: '#ff6b6b' }}>
+                                        ×
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#888' }}>
+                                    {mat.components.map(c => `${c.nuclide} (${(c.fraction * 100).toFixed(1)}%)`).join(', ')}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div style={{
+                    padding: '10px',
+                    backgroundColor: theme === 'dark' ? '#1e1e1e' : '#fafafa',
+                    borderRadius: '3px',
+                    border: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                }}>
+                    <input
+                        type="text"
+                        placeholder="Material name"
+                        value={this.currentMaterial.name}
+                        onChange={(e) => this.updateCurrentMaterial({ name: e.target.value })}
+                        style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            marginBottom: '8px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '12px'
+                        }}
+                    />
+
+                    <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>Components:</div>
+                        {this.currentMaterial.components.map((comp, idx) => (
+                            <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                                <select
+                                    value={comp.nuclide}
+                                    onChange={(e) => this.updateComponent(idx, { nuclide: e.target.value })}
+                                    style={{
+                                        flex: 1,
+                                        padding: '4px',
+                                        fontSize: '11px',
+                                        backgroundColor: checkboxBg,
+                                        color: textColor,
+                                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                        borderRadius: '3px'
+                                    }}
+                                >
+                                    <option value="">Select nuclide...</option>
+                                    {this.availableNuclides.map(n => (
+                                        <option key={n} value={n}>{n}</option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max="1"
+                                    placeholder="Fraction"
+                                    value={comp.fraction}
+                                    onChange={(e) => this.updateComponent(idx, { fraction: parseFloat(e.target.value) || 0 })}
+                                    style={{
+                                        width: '70px',
+                                        padding: '4px',
+                                        fontSize: '11px',
+                                        backgroundColor: checkboxBg,
+                                        color: textColor,
+                                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                        borderRadius: '3px'
+                                    }}
+                                />
+                                <button
+                                    onClick={() => this.removeComponent(idx)}
+                                    style={{
+                                        padding: '4px 8px',
+                                        backgroundColor: '#ff6b6b',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px'
+                                    }}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            onClick={() => this.addComponent()}
+                            style={{
+                                padding: '4px 8px',
+                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                color: textColor,
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                fontSize: '11px'
+                            }}
+                        >
+                            + Add Component
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={() => this.addMaterial()}
+                        disabled={this.currentMaterial.components.length === 0 || !this.currentMaterial.name}
+                        style={{
+                            width: '100%',
+                            padding: '6px',
+                            backgroundColor: this.currentMaterial.components.length > 0 && this.currentMaterial.name
+                                ? '#0e639c'
+                                : '#666',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '3px',
+                            cursor: this.currentMaterial.components.length > 0 && this.currentMaterial.name
+                                ? 'pointer'
+                                : 'not-allowed',
+                            fontSize: '12px'
+                        }}
+                    >
+                        Add Material
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    private updateCurrentMaterial(updates: Partial<Material>): void {
+        this.currentMaterial = { ...this.currentMaterial, ...updates };
+        this.update();
+    }
+
+    private addComponent(): void {
+        this.currentMaterial.components.push({ nuclide: '', fraction: 1.0 });
+        this.update();
+    }
+
+    private updateComponent(idx: number, updates: Partial<MaterialComponent>): void {
+        this.currentMaterial.components[idx] = { 
+            ...this.currentMaterial.components[idx], 
+            ...updates 
+        };
+        this.update();
+    }
+
+    private removeComponent(idx: number): void {
+        this.currentMaterial.components.splice(idx, 1);
+        this.update();
+    }
+
+    private addMaterial(): void {
+        const total = this.currentMaterial.components.reduce((sum, c) => sum + c.fraction, 0);
+        if (total > 0) {
+            this.currentMaterial.components.forEach(c => c.fraction /= total);
+        }
+        this.materials.push({ ...this.currentMaterial });
+        this.currentMaterial = { name: 'New Material', components: [], density: 1.0 };
+        this.update();
+    }
+
+    private removeMaterial(idx: number): void {
+        this.materials.splice(idx, 1);
+        this.update();
+    }
+
+    // ===== Temperature Comparison Controls =====
+
+    private renderTempComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        return (
+            <div style={{
+                padding: '15px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+            }}>
+                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <span className={codicon('flame')} style={{ marginRight: '6px' }} />
+                    Temperature Comparison
+                </h4>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '12px' }}>
+                    Visualize Doppler broadening effects.
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                        Nuclide
+                    </label>
+                    <select
+                        value={this.tempComparisonNuclide}
+                        onChange={(e) => this.setTempComparisonNuclide(e.target.value)}
+                        style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '12px'
+                        }}
+                    >
+                        {this.availableNuclides.map(n => (
+                            <option key={n} value={n}>{n}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                        Reaction
+                    </label>
+                    <select
+                        value={this.tempComparisonReaction}
+                        onChange={(e) => this.setTempComparisonReaction(parseInt(e.target.value))}
+                        style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '12px'
+                        }}
+                    >
+                        {COMMON_XS_REACTIONS.map(r => (
+                            <option key={r.mt} value={r.mt}>{r.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                        Temperatures (K)
+                    </label>
+                    <input
+                        type="text"
+                        value={this.tempComparisonTemps.join(', ')}
+                        onChange={(e) => this.setTempComparisonTemps(e.target.value)}
+                        placeholder="e.g., 294, 600, 900, 1200"
+                        style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '12px'
+                        }}
+                    />
+                </div>
+
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {[[294, 600, 900], [300, 600, 1200], [293, 500, 1000, 1500]].map((temps, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => { this.tempComparisonTemps = temps; this.update(); }}
+                            style={{
+                                padding: '4px 8px',
+                                fontSize: '10px',
+                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                color: textColor,
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {temps.join('/')}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    private setTempComparisonNuclide(nuclide: string): void {
+        this.tempComparisonNuclide = nuclide;
+        this.update();
+    }
+
+    private setTempComparisonReaction(reaction: number): void {
+        this.tempComparisonReaction = reaction;
+        this.update();
+    }
+
+    private setTempComparisonTemps(value: string): void {
+        this.tempComparisonTemps = value.split(/[,\s]+/)
+            .map(t => parseFloat(t.trim()))
+            .filter(t => !isNaN(t) && t > 0);
+        this.update();
     }
 }

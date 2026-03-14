@@ -650,4 +650,51 @@ export class OpenMCService {
         }
     }
 
+    /**
+     * Get cross-section data with temperature comparison (Doppler broadening visualization).
+     */
+    async getXSTemperatureComparison(
+        nuclide: string,
+        reaction: number | string,
+        temperatures: number[],
+        crossSectionsPath?: string,
+        energyRegion?: string
+    ): Promise<XSPlotData | null> {
+        return this.getXSData({
+            nuclides: [nuclide],
+            reactions: [reaction],
+            temperatureComparison: {
+                nuclide,
+                reaction,
+                temperatures
+            },
+            crossSectionsPath,
+            energyRegion: energyRegion as any
+        });
+    }
+
+    /**
+     * Get cross-section data for mixed materials.
+     */
+    async getXSMaterialData(
+        materials: { name: string; components: { nuclide: string; fraction: number }[]; density?: number }[],
+        reactions: (number | string)[],
+        temperature: number = 294,
+        crossSectionsPath?: string,
+        fluxSpectrum?: { energy: number[]; values: number[]; name?: string }
+    ): Promise<XSPlotData | null> {
+        return this.getXSData({
+            nuclides: [],
+            reactions,
+            temperature,
+            materials: materials.map(m => ({
+                name: m.name,
+                components: m.components,
+                density: m.density
+            })),
+            crossSectionsPath,
+            fluxSpectrum
+        });
+    }
+
 }

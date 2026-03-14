@@ -406,6 +406,77 @@ export interface XSReaction {
     selected: boolean;
 }
 
+/** Nuclide component for material mixing */
+export interface XSNuclideComponent {
+    /** Nuclide name (e.g., 'U235', 'H1') */
+    nuclide: string;
+    /** Weight/atomic fraction (default 1.0 for pure nuclides) */
+    fraction: number;
+}
+
+/** Material definition for XS plotting */
+export interface XSMaterial {
+    /** Material name */
+    name: string;
+    /** Nuclide components with fractions */
+    components: XSNuclideComponent[];
+    /** Density in g/cm³ (optional, for macroscopic XS) */
+    density?: number;
+}
+
+/** Energy region presets for XS plotting */
+export type XSEnergyRegion = 'full' | 'thermal' | 'resonance' | 'fast' | 'epithermal';
+
+/** Energy region configuration */
+export interface XSEnergyRegionConfig {
+    label: string;
+    range: [number, number];
+    description: string;
+}
+
+/** Energy region presets */
+export const XS_ENERGY_REGIONS: Record<XSEnergyRegion, XSEnergyRegionConfig> = {
+    full: { label: 'Full Range', range: [1e-5, 2e7], description: 'Full energy range (0.01 meV - 20 MeV)' },
+    thermal: { label: 'Thermal', range: [1e-5, 1], description: 'Thermal region (< 1 eV)' },
+    resonance: { label: 'Resonance', range: [1, 1e5], description: 'Resonance region (1 eV - 100 keV)' },
+    epithermal: { label: 'Epithermal', range: [1e-3, 1e5], description: 'Epithermal region (1 meV - 100 keV)' },
+    fast: { label: 'Fast', range: [1e5, 2e7], description: 'Fast region (> 100 keV)' },
+};
+
+/** Temperature comparison request */
+export interface XSTemperatureComparison {
+    /** List of temperatures to compare (K) */
+    temperatures: number[];
+    /** Base nuclide for comparison */
+    nuclide: string;
+    /** Reaction MT number */
+    reaction: number | string;
+}
+
+/** Flux spectrum data for reaction rate calculation */
+export interface XSFluxSpectrum {
+    /** Energy bins (eV) - must be same length as values + 1 */
+    energy: number[];
+    /** Flux values (neutrons/cm²/s per energy bin) */
+    values: number[];
+    /** Spectrum name/description */
+    name?: string;
+}
+
+/** Reaction rate result */
+export interface XSReactionRate {
+    /** Nuclide name */
+    nuclide: string;
+    /** Reaction MT number */
+    reaction: number | string;
+    /** Reaction rate (reactions/cm³/s) */
+    rate: number;
+    /** Integrated flux */
+    integratedFlux?: number;
+    /** Average cross-section */
+    avgXS?: number;
+}
+
 /** Cross-section data for a single nuclide/reaction */
 export interface XSCurveData {
     /** Energy values in eV */
@@ -418,14 +489,20 @@ export interface XSCurveData {
     reaction: string | number;
     /** Reaction label */
     label: string;
+    /** Temperature for this curve (K) */
+    temperature?: number;
+    /** Whether this is a macroscopic cross-section (1/cm) */
+    isMacroscopic?: boolean;
 }
 
 /** Complete XS plot data for multiple nuclides/reactions */
 export interface XSPlotData {
     /** All curves to plot */
     curves: XSCurveData[];
-    /** Temperature in Kelvin */
+    /** Temperature in Kelvin (for single temperature plots) */
     temperature?: number;
+    /** Reaction rates if flux was provided */
+    reactionRates?: XSReactionRate[];
     /** Error message if any */
     error?: string;
 }
@@ -456,8 +533,16 @@ export interface XSPlotRequest {
     reactions: (number | string)[];
     /** Temperature in Kelvin (default 294K) */
     temperature?: number;
+    /** Multiple temperatures for comparison (overrides temperature if set) */
+    temperatureComparison?: XSTemperatureComparison;
     /** Energy range [min, max] in eV */
     energyRange?: [number, number];
+    /** Energy region preset (alternative to energyRange) */
+    energyRegion?: XSEnergyRegion;
     /** Path to cross_sections.xml (optional, overrides environment variable) */
     crossSectionsPath?: string;
+    /** Materials to plot (alternative to nuclides for mixed materials) */
+    materials?: XSMaterial[];
+    /** Flux spectrum for reaction rate calculation (optional) */
+    fluxSpectrum?: XSFluxSpectrum;
 }

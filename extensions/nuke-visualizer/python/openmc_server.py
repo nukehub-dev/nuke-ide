@@ -1637,11 +1637,49 @@ def cmd_xs_plot(args):
         return 1
 
     try:
-        nuclides = [n.strip() for n in args.nuclides.split(',')]
+        nuclides = [n.strip() for n in args.nuclides.split(',')] if args.nuclides else []
         reactions = [r.strip() for r in args.reactions.split(',')]
         temperature = float(args.temperature) if args.temperature else 294.0
         energy_min = float(args.energy_min) if args.energy_min else 1e-5
         energy_max = float(args.energy_max) if args.energy_max else 2e7
+        
+        # Handle temperature comparison mode
+        temp_comparison = None
+        if args.temp_comparison:
+            temps = [float(t.strip()) for t in args.temp_comparison.split(',')]
+            temp_comparison = {
+                'nuclide': nuclides[0] if nuclides else 'U235',
+                'reaction': int(reactions[0]) if reactions else 18,
+                'temperatures': temps
+            }
+        
+        # Handle materials (JSON string)
+        materials = None
+        if args.materials:
+            try:
+                materials = json.loads(args.materials)
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse materials: {e}", file=sys.stderr)
+        
+        # Handle flux spectrum (JSON string)
+        flux_spectrum = None
+        if args.flux_spectrum:
+            try:
+                flux_spectrum = json.loads(args.flux_spectrum)
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse flux spectrum: {e}", file=sys.stderr)
+        
+        # Handle energy region preset
+        if args.energy_region:
+            region_ranges = {
+                'thermal': (1e-5, 1),
+                'resonance': (1, 1e5),
+                'epithermal': (1e-3, 1e5),
+                'fast': (1e5, 2e7),
+                'full': (1e-5, 2e7)
+            }
+            if args.energy_region in region_ranges:
+                energy_min, energy_max = region_ranges[args.energy_region]
         
         # Convert reaction strings to integers if they're numeric
         parsed_reactions = []
@@ -1670,6 +1708,7 @@ def cmd_xs_plot(args):
         }
         
         curves = []
+        reaction_rates = []
         
         # Try to load cross_sections library
         library = None
@@ -1685,14 +1724,6 @@ def cmd_xs_plot(args):
         except Exception as e:
             print(f"Warning: Could not load cross_sections.xml: {e}", file=sys.stderr)
         
-        # Debug: print library structure
-        if library:
-            try:
-                lib_count = len(library.libraries) if hasattr(library.libraries, '__len__') else 'unknown'
-                print(f"[XS Plot] Library contains {lib_count} libraries", file=sys.stderr)
-            except:
-                pass
-        
         # Get the directory from cross_sections path for fallback file search
         xs_dir = None
         if cross_sections_path:
@@ -1700,165 +1731,336 @@ def cmd_xs_plot(args):
         elif os.environ.get('OPENMC_CROSS_SECTIONS'):
             xs_dir = os.path.dirname(os.environ.get('OPENMC_CROSS_SECTIONS'))
         
-        for nuclide_name in nuclides:
-            try:
-                print(f"[XS Plot] Looking for nuclide: {nuclide_name}", file=sys.stderr)
+        def load_nuclide_data(nuclide_name, library, xs_dir):
+            """Helper function to load nuclide data from library or file."""
+            xs_file = None
+            
+            if library:
+                libraries = library.libraries
+                if isinstance(libraries, dict):
+                    libraries = libraries.values()
                 
-                # Find the nuclide in the library
-                xs_file = None
-                if library:
-                    # Handle both old and new OpenMC API
-                    # library.libraries can be a list or a dict
-                    libraries = library.libraries
-                    if isinstance(libraries, dict):
-                        libraries = libraries.values()
+                for lib in libraries:
+                    tables = getattr(lib, 'tables', [])
+                    if isinstance(tables, dict):
+                        tables = tables.values()
                     
-                    for lib in libraries:
-                        # lib.tables can also be a list or a dict
-                        tables = getattr(lib, 'tables', [])
-                        if isinstance(tables, dict):
-                            tables = tables.values()
-                        
-                        for table in tables:
-                            table_name = getattr(table, 'nuclide', getattr(table, 'name', None))
-                            # Try exact match and common variations
-                            possible_names = [
-                                nuclide_name,
-                                nuclide_name.replace('-', ''),
-                                nuclide_name.replace('-', '_'),
-                            ]
-                            if table_name in possible_names:
-                                xs_file = table.filename
-                                print(f"[XS Plot] Found {nuclide_name} -> {xs_file}", file=sys.stderr)
-                                break
-                        if xs_file:
+                    for table in tables:
+                        table_name = getattr(table, 'nuclide', getattr(table, 'name', None))
+                        possible_names = [
+                            nuclide_name,
+                            nuclide_name.replace('-', ''),
+                            nuclide_name.replace('-', '_'),
+                        ]
+                        if table_name in possible_names:
+                            xs_file = table.filename
                             break
-                
-                # If we found the file, load it
-                nuc_data = None
-                if xs_file and os.path.exists(xs_file):
-                    try:
-                        nuc_data = openmc.data.IncidentNeutron.from_hdf5(xs_file)
-                    except Exception as e:
-                        print(f"Warning: Failed to load {xs_file}: {e}", file=sys.stderr)
-                
-                # If not found in library, try direct file search in the cross_sections directory
-                if nuc_data is None and xs_dir:
-                    possible_files = [
-                        os.path.join(xs_dir, f"{nuclide_name}.h5"),
-                        os.path.join(xs_dir, f"{nuclide_name}.hdf5"),
-                        os.path.join(xs_dir, f"n-{nuclide_name}.h5"),
-                        os.path.join(xs_dir, f"n-{nuclide_name}.hdf5"),
-                        # Try with underscores instead of hyphens
-                        os.path.join(xs_dir, f"{nuclide_name.replace('-', '_')}.h5"),
-                        os.path.join(xs_dir, f"{nuclide_name.replace('-', '')}.h5"),
-                    ]
-                    for pf in possible_files:
-                        if os.path.exists(pf):
-                            print(f"[XS Plot] Found file directly: {pf}", file=sys.stderr)
-                            try:
-                                nuc_data = openmc.data.IncidentNeutron.from_hdf5(pf)
-                                break
-                            except Exception as e:
-                                print(f"Warning: Failed to load {pf}: {e}", file=sys.stderr)
-                
-                if nuc_data is None:
-                    print(f"[XS Plot] ERROR: Could not find cross-section data for {nuclide_name}", file=sys.stderr)
-                    print(f"[XS Plot] Searched in: {xs_dir if xs_dir else 'cross_sections.xml library'}", file=sys.stderr)
-                    if library:
-                        # Try to list available nuclides for debugging
+                    if xs_file:
+                        break
+            
+            nuc_data = None
+            if xs_file and os.path.exists(xs_file):
+                try:
+                    nuc_data = openmc.data.IncidentNeutron.from_hdf5(xs_file)
+                except Exception as e:
+                    print(f"Warning: Failed to load {xs_file}: {e}", file=sys.stderr)
+            
+            if nuc_data is None and xs_dir:
+                possible_files = [
+                    os.path.join(xs_dir, f"{nuclide_name}.h5"),
+                    os.path.join(xs_dir, f"{nuclide_name}.hdf5"),
+                    os.path.join(xs_dir, f"n-{nuclide_name}.h5"),
+                    os.path.join(xs_dir, f"n-{nuclide_name}.hdf5"),
+                    os.path.join(xs_dir, f"{nuclide_name.replace('-', '_')}.h5"),
+                    os.path.join(xs_dir, f"{nuclide_name.replace('-', '')}.h5"),
+                ]
+                for pf in possible_files:
+                    if os.path.exists(pf):
                         try:
-                            available = []
-                            libraries = library.libraries
-                            if isinstance(libraries, dict):
-                                libraries = libraries.values()
-                            for lib in list(libraries)[:1]:  # Just check first library
-                                tables = getattr(lib, 'tables', [])
-                                if isinstance(tables, dict):
-                                    tables = tables.values()
-                                for table in list(tables)[:10]:  # First 10 entries
-                                    name = getattr(table, 'nuclide', getattr(table, 'name', None))
-                                    if name:
-                                        available.append(name)
-                            if available:
-                                print(f"[XS Plot] Available nuclides (sample): {', '.join(available)}", file=sys.stderr)
+                            nuc_data = openmc.data.IncidentNeutron.from_hdf5(pf)
+                            break
                         except Exception as e:
-                            print(f"[XS Plot] Could not list available nuclides: {e}", file=sys.stderr)
-                    continue
+                            print(f"Warning: Failed to load {pf}: {e}", file=sys.stderr)
+            
+            return nuc_data
+        
+        def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
+            """Get XS data for a specific temperature."""
+            if reaction_mt not in nuc_data.reactions:
+                return None, None
+            
+            reaction = nuc_data.reactions[reaction_mt]
+            
+            if hasattr(reaction, 'xs') and reaction.xs:
+                available_temps = list(reaction.xs.keys())
+                if not available_temps:
+                    return None, None
                 
-                # Get cross-section data for each reaction
+                temps_numeric = []
+                for t in available_temps:
+                    if isinstance(t, str):
+                        try:
+                            temps_numeric.append(float(t.rstrip('K').rstrip('k')))
+                        except:
+                            continue
+                    else:
+                        temps_numeric.append(float(t))
+                
+                if not temps_numeric:
+                    closest_temp = available_temps[0]
+                else:
+                    closest_temp_idx = np.argmin(np.abs(np.array(temps_numeric) - temperature))
+                    closest_temp = available_temps[closest_temp_idx]
+                
+                xs_data = reaction.xs[closest_temp]
+                return xs_data.x, xs_data.y
+            
+            return None, None
+        
+        def calculate_macroscopic_xs(nuc_data, reaction_mt, temperature, density, fraction=1.0):
+            """Calculate macroscopic XS from microscopic XS."""
+            energy, xs_micro = get_xs_data_for_temp(nuc_data, reaction_mt, temperature)
+            if energy is None:
+                return None, None
+            
+            # Convert barns (1e-24 cm²) to cm², then multiply by atomic density
+            # atomic density = density * avogadro / atomic_weight
+            atomic_weight = nuc_data.atomic_weight if hasattr(nuc_data, 'atomic_weight') else 1.0
+            avogadro = 6.02214076e23
+            atomic_density = density * avogadro / atomic_weight  # atoms/cm³
+            
+            # Macroscopic XS = N * σ (in 1/cm)
+            xs_macro = xs_micro * 1e-24 * atomic_density * fraction
+            
+            return energy, xs_macro
+        
+        def calculate_reaction_rate(energy, xs, flux_energy, flux_values):
+            """Calculate reaction rate by integrating XS * flux."""
+            # Interpolate XS to flux energy grid
+            xs_interp = np.interp(flux_energy, energy, xs, left=0, right=0)
+            
+            # Calculate group-wise reaction rate
+            group_rates = xs_interp * flux_values
+            
+            # Integrate (simple trapezoidal)
+            if len(flux_energy) > 1:
+                # Use log-log interpolation for energy groups
+                total_rate = np.trapz(group_rates, flux_energy)
+                total_flux = np.trapz(flux_values, flux_energy)
+                avg_xs = total_rate / total_flux if total_flux > 0 else 0
+            else:
+                total_rate = np.sum(group_rates)
+                total_flux = np.sum(flux_values)
+                avg_xs = total_rate / total_flux if total_flux > 0 else 0
+            
+            return total_rate, total_flux, avg_xs
+        
+        # Handle temperature comparison mode
+        if temp_comparison:
+            nuc_data = load_nuclide_data(temp_comparison['nuclide'], library, xs_dir)
+            if nuc_data is None:
+                print(json.dumps({"error": f"Could not load data for {temp_comparison['nuclide']}"}))
+                return 1
+            
+            reaction_mt = temp_comparison['reaction']
+            reaction_name = mt_names.get(reaction_mt, f"MT={reaction_mt}")
+            
+            for temp in temp_comparison['temperatures']:
+                try:
+                    energy, xs_values = get_xs_data_for_temp(nuc_data, reaction_mt, temp)
+                    if energy is None:
+                        continue
+                    
+                    mask = (energy >= energy_min) & (energy <= energy_max)
+                    energy_filtered = energy[mask]
+                    xs_filtered = xs_values[mask]
+                    xs_filtered = np.maximum(xs_filtered, 1e-10)
+                    
+                    curves.append({
+                        "energy": energy_filtered.tolist(),
+                        "xs": xs_filtered.tolist(),
+                        "nuclide": temp_comparison['nuclide'],
+                        "reaction": reaction_mt,
+                        "label": f"{temp_comparison['nuclide']} {reaction_name} @ {temp:.0f}K",
+                        "temperature": temp
+                    })
+                except Exception as e:
+                    print(f"Warning: Failed to get data at {temp}K: {e}", file=sys.stderr)
+        
+        # Handle materials (mixed nuclides)
+        elif materials:
+            for material in materials:
+                mat_name = material.get('name', 'Material')
+                mat_density = material.get('density', 1.0)
+                components = material.get('components', [])
+                
+                # Collect XS data from all components
+                component_data = []
+                total_fraction = 0.0
+                
+                for comp in components:
+                    nuc_name = comp.get('nuclide')
+                    fraction = comp.get('fraction', 1.0)
+                    total_fraction += fraction
+                    
+                    nuc_data = load_nuclide_data(nuc_name, library, xs_dir)
+                    if nuc_data is None:
+                        print(f"Warning: Could not load {nuc_name}", file=sys.stderr)
+                        continue
+                    
+                    component_data.append({
+                        'nuclide': nuc_name,
+                        'fraction': fraction,
+                        'data': nuc_data
+                    })
+                
+                # Normalize fractions
+                if total_fraction > 0:
+                    for comp in component_data:
+                        comp['fraction'] /= total_fraction
+                
+                # Calculate macroscopic XS for each reaction
                 for reaction_mt in parsed_reactions:
-                    try:
-                        # Get the reaction
-                        if reaction_mt not in nuc_data.reactions:
-                            print(f"Warning: Reaction MT={reaction_mt} not available for {nuclide_name}", file=sys.stderr)
+                    reaction_name = mt_names.get(reaction_mt, f"MT={reaction_mt}")
+                    
+                    # Find common energy grid from first component
+                    if not component_data:
+                        continue
+                    
+                    first_energy, _ = get_xs_data_for_temp(component_data[0]['data'], reaction_mt, temperature)
+                    if first_energy is None:
+                        continue
+                    
+                    # Filter by energy range first
+                    mask = (first_energy >= energy_min) & (first_energy <= energy_max)
+                    energy_grid = first_energy[mask]
+                    
+                    if len(energy_grid) == 0:
+                        continue
+                    
+                    # Sum macroscopic XS from all components
+                    macro_xs = np.zeros_like(energy_grid)
+                    
+                    for comp in component_data:
+                        nuc_data = comp['data']
+                        fraction = comp['fraction']
+                        
+                        energy, xs_micro = get_xs_data_for_temp(nuc_data, reaction_mt, temperature)
+                        if energy is None:
                             continue
                         
-                        reaction = nuc_data.reactions[reaction_mt]
+                        # Interpolate to common grid
+                        xs_interp = np.interp(energy_grid, energy, xs_micro, left=0, right=0)
                         
-                        # Get the cross-section data
-                        if hasattr(reaction, 'xs') and reaction.xs:
-                            # Find the closest temperature
-                            available_temps = list(reaction.xs.keys())
-                            if not available_temps:
+                        # Convert to macroscopic
+                        atomic_weight = nuc_data.atomic_weight if hasattr(nuc_data, 'atomic_weight') else 1.0
+                        avogadro = 6.02214076e23
+                        atomic_density = mat_density * avogadro / atomic_weight
+                        
+                        macro_xs += xs_interp * 1e-24 * atomic_density * fraction
+                    
+                    macro_xs = np.maximum(macro_xs, 1e-15)  # Ensure positive
+                    
+                    curves.append({
+                        "energy": energy_grid.tolist(),
+                        "xs": macro_xs.tolist(),
+                        "nuclide": mat_name,
+                        "reaction": reaction_mt,
+                        "label": f"{mat_name} Σ{reaction_name} (macroscopic)",
+                        "isMacroscopic": True
+                    })
+                    
+                    # Calculate reaction rate if flux spectrum provided
+                    if flux_spectrum:
+                        flux_energy = np.array(flux_spectrum.get('energy', []))
+                        flux_values = np.array(flux_spectrum.get('values', []))
+                        
+                        if len(flux_energy) > 0 and len(flux_values) > 0:
+                            rate, int_flux, avg_xs = calculate_reaction_rate(
+                                energy_grid, macro_xs, flux_energy, flux_values
+                            )
+                            
+                            reaction_rates.append({
+                                "nuclide": mat_name,
+                                "reaction": reaction_mt,
+                                "rate": float(rate),
+                                "integratedFlux": float(int_flux),
+                                "avgXS": float(avg_xs)
+                            })
+        
+        # Standard mode: individual nuclides
+        else:
+            for nuclide_name in nuclides:
+                try:
+                    print(f"[XS Plot] Looking for nuclide: {nuclide_name}", file=sys.stderr)
+                    
+                    nuc_data = load_nuclide_data(nuclide_name, library, xs_dir)
+                    
+                    if nuc_data is None:
+                        print(f"[XS Plot] ERROR: Could not find cross-section data for {nuclide_name}", file=sys.stderr)
+                        print(f"[XS Plot] Searched in: {xs_dir if xs_dir else 'cross_sections.xml library'}", file=sys.stderr)
+                        continue
+                    
+                    # Get cross-section data for each reaction
+                    for reaction_mt in parsed_reactions:
+                        try:
+                            energy, xs_values = get_xs_data_for_temp(nuc_data, reaction_mt, temperature)
+                            
+                            if energy is None:
+                                print(f"Warning: Reaction MT={reaction_mt} not available for {nuclide_name}", file=sys.stderr)
                                 continue
                             
-                            # Convert temperature strings like '294K' to float
-                            temps_numeric = []
-                            for t in available_temps:
-                                if isinstance(t, str):
-                                    try:
-                                        temps_numeric.append(float(t.rstrip('K').rstrip('k')))
-                                    except:
-                                        continue
-                                else:
-                                    temps_numeric.append(float(t))
+                            # Filter by energy range
+                            mask = (energy >= energy_min) & (energy <= energy_max)
+                            energy_filtered = energy[mask]
+                            xs_filtered = xs_values[mask]
                             
-                            if not temps_numeric:
-                                closest_temp = available_temps[0]
-                            else:
-                                closest_temp_idx = np.argmin(np.abs(np.array(temps_numeric) - temperature))
-                                closest_temp = available_temps[closest_temp_idx]
+                            # Ensure positive values for log scale
+                            xs_filtered = np.maximum(xs_filtered, 1e-10)
                             
-                            xs_data = reaction.xs[closest_temp]
+                            # Get reaction name
+                            reaction_name = mt_names.get(reaction_mt, f"MT={reaction_mt}")
                             
-                            # Get energy and xs values
-                            energy = xs_data.x
-                            xs_values = xs_data.y
-                        else:
+                            # Create label
+                            label = f"{nuclide_name} {reaction_name}"
+                            
+                            curves.append({
+                                "energy": energy_filtered.tolist(),
+                                "xs": xs_filtered.tolist(),
+                                "nuclide": nuclide_name,
+                                "reaction": reaction_mt,
+                                "label": label
+                            })
+                            
+                            # Calculate reaction rate if flux spectrum provided
+                            if flux_spectrum:
+                                flux_energy = np.array(flux_spectrum.get('energy', []))
+                                flux_values = np.array(flux_spectrum.get('values', []))
+                                
+                                if len(flux_energy) > 0 and len(flux_values) > 0:
+                                    # For microscopic XS, we need to convert to macroscopic
+                                    # For now, calculate per atom reaction rate
+                                    rate, int_flux, avg_xs = calculate_reaction_rate(
+                                        energy_filtered, xs_filtered, flux_energy, flux_values
+                                    )
+                                    
+                                    reaction_rates.append({
+                                        "nuclide": nuclide_name,
+                                        "reaction": reaction_mt,
+                                        "rate": float(rate),
+                                        "integratedFlux": float(int_flux),
+                                        "avgXS": float(avg_xs)
+                                    })
+                        except Exception as e:
+                            print(f"Warning: Failed to get reaction {reaction_mt} for {nuclide_name}: {e}", 
+                                  file=sys.stderr)
                             continue
-                        
-                        # Filter by energy range
-                        mask = (energy >= energy_min) & (energy <= energy_max)
-                        energy = energy[mask]
-                        xs_values = xs_values[mask]
-                        
-                        # Ensure positive values for log scale
-                        xs_values = np.maximum(xs_values, 1e-10)
-                        
-                        # Get reaction name
-                        reaction_name = mt_names.get(reaction_mt, f"MT={reaction_mt}")
-                        
-                        # Create label
-                        label = f"{nuclide_name} {reaction_name}"
-                        
-                        curves.append({
-                            "energy": energy.tolist(),
-                            "xs": xs_values.tolist(),
-                            "nuclide": nuclide_name,
-                            "reaction": reaction_mt,
-                            "label": label
-                        })
-                    except Exception as e:
-                        print(f"Warning: Failed to get reaction {reaction_mt} for {nuclide_name}: {e}", 
-                              file=sys.stderr)
-                        continue
-                        
-            except Exception as e:
-                print(f"Warning: Failed to process nuclide {nuclide_name}: {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc(file=sys.stderr)
-                continue
+                            
+                except Exception as e:
+                    print(f"Warning: Failed to process nuclide {nuclide_name}: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    continue
         
         if not curves:
             error_msg = "No valid cross-section data found."
@@ -1871,8 +2073,11 @@ def cmd_xs_plot(args):
         
         result = {
             "curves": curves,
-            "temperature": temperature
+            "temperature": temperature if not temp_comparison else None
         }
+        
+        if reaction_rates:
+            result["reactionRates"] = reaction_rates
         
         print(json.dumps(result))
         return 0
@@ -2009,12 +2214,16 @@ def main():
     
     # XS Plot command
     xs_parser = subparsers.add_parser('xs-plot', help='Plot cross-sections')
-    xs_parser.add_argument('--nuclides', required=True, help='Comma-separated nuclide names')
+    xs_parser.add_argument('--nuclides', help='Comma-separated nuclide names')
     xs_parser.add_argument('--reactions', required=True, help='Comma-separated reaction MT numbers')
     xs_parser.add_argument('--temperature', type=float, default=294.0, help='Temperature in Kelvin')
     xs_parser.add_argument('--energy-min', type=float, default=1e-5, help='Minimum energy in eV')
     xs_parser.add_argument('--energy-max', type=float, default=2e7, help='Maximum energy in eV')
+    xs_parser.add_argument('--energy-region', help='Energy region preset (thermal, resonance, epithermal, fast, full)')
     xs_parser.add_argument('--cross-sections', help='Path to cross_sections.xml file')
+    xs_parser.add_argument('--temp-comparison', help='Temperature comparison mode: comma-separated temperatures')
+    xs_parser.add_argument('--materials', help='JSON string of materials with components')
+    xs_parser.add_argument('--flux-spectrum', help='JSON string of flux spectrum for reaction rate calculation')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')

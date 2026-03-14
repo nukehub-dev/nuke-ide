@@ -382,26 +382,52 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         const args = [
             scriptPath,
             'xs-plot',
-            '--nuclides', request.nuclides.join(','),
-            '--reactions', request.reactions.join(','),
-            '--temperature', (request.temperature || 294).toString()
+            '--reactions', request.reactions.join(',')
         ];
 
-        if (request.energyRange) {
+        // Add nuclides if provided
+        if (request.nuclides && request.nuclides.length > 0) {
+            args.push('--nuclides', request.nuclides.join(','));
+        }
+
+        // Add temperature (default 294K)
+        args.push('--temperature', (request.temperature || 294).toString());
+
+        // Add energy range or region preset
+        if (request.energyRegion) {
+            args.push('--energy-region', request.energyRegion);
+        } else if (request.energyRange) {
             args.push('--energy-min', request.energyRange[0].toString());
             args.push('--energy-max', request.energyRange[1].toString());
         }
 
+        // Add cross-section path
         if (request.crossSectionsPath) {
             args.push('--cross-sections', request.crossSectionsPath);
+        }
+
+        // Add temperature comparison mode
+        if (request.temperatureComparison) {
+            const temps = request.temperatureComparison.temperatures.join(',');
+            args.push('--temp-comparison', temps);
+        }
+
+        // Add materials for mixed nuclide calculations
+        if (request.materials && request.materials.length > 0) {
+            args.push('--materials', JSON.stringify(request.materials));
+        }
+
+        // Add flux spectrum for reaction rate calculation
+        if (request.fluxSpectrum) {
+            args.push('--flux-spectrum', JSON.stringify(request.fluxSpectrum));
         }
 
         console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
 
         const result = spawnSync(pythonCommand, args, {
             encoding: 'utf8',
-            maxBuffer: 10 * 1024 * 1024,
-            timeout: 60000
+            maxBuffer: 20 * 1024 * 1024,  // Increased for larger datasets
+            timeout: 120000  // Increased for complex calculations
         });
 
         if (result.status !== 0) {
