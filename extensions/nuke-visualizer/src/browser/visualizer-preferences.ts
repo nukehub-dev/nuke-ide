@@ -39,6 +39,11 @@ export const VisualizerPreferenceSchema: PreferenceSchema = {
             type: 'number',
             default: 30,
             description: 'Timeout in seconds to wait for visualizer server to start.'
+        },
+        'nukeVisualizer.openmcCrossSectionsPath': {
+            type: 'string',
+            default: '',
+            description: 'Path to OpenMC cross_sections.xml file for XS plotting. If not set, uses OPENMC_CROSS_SECTIONS environment variable.'
         }
     }
 };
@@ -47,6 +52,7 @@ export interface VisualizerConfiguration {
     'nukeVisualizer.pythonPath': string;
     'nukeVisualizer.condaEnv': string;
     'nukeVisualizer.serverTimeout': number;
+    'nukeVisualizer.openmcCrossSectionsPath': string;
 }
 
 export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceContribution');

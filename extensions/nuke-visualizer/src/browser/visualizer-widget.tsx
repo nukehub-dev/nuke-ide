@@ -14,10 +14,11 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { ReactWidget, Message } from '@theia/core/lib/browser';
+import { ReactWidget, Message, CommonCommands } from '@theia/core/lib/browser';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
+import { CommandRegistry } from '@theia/core/lib/common/command';
 import { VisualizerBackendService, PythonConfig } from '../common/visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
 
@@ -48,6 +49,9 @@ export class VisualizerWidget extends ReactWidget {
 
     @inject(VisualizerPreferences)
     protected readonly preferences: VisualizerPreferences;
+
+    @inject(CommandRegistry)
+    protected readonly commandRegistry: CommandRegistry;
 
     @postConstruct()
     protected init(): void {
@@ -207,24 +211,43 @@ export class VisualizerWidget extends ReactWidget {
 
                             <p style={{ fontSize: '12px', marginTop: '10px' }}>File: {this.currentFile}</p>
                         )}
-                        <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
-                            Configure Python path in Preferences → Settings → Extensions → Nuke Visualizer
-                        </div>
                         {isError && (
-                            <button 
-                                style={{ 
-                                    marginTop: '15px',
-                                    padding: '8px 16px',
-                                    backgroundColor: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    border: '1px solid var(--theia-button-border)',
-                                    borderRadius: '3px',
-                                    cursor: 'pointer'
-                                }}
-                                onClick={() => this.retry()}
-                            >
-                                Retry
-                            </button>
+                            <div style={{ marginTop: '20px', display: 'flex', gap: '10px', flexDirection: 'column', alignItems: 'center' }}>
+                                <button 
+                                    style={{ 
+                                        padding: '8px 16px',
+                                        backgroundColor: 'var(--theia-button-background)',
+                                        color: 'var(--theia-button-foreground)',
+                                        border: '1px solid var(--theia-button-border)',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => this.retry()}
+                                >
+                                    <span className='codicon codicon-refresh' />
+                                    Retry
+                                </button>
+                                <button 
+                                    style={{ 
+                                        padding: '8px 16px',
+                                        backgroundColor: 'var(--theia-button-secondaryBackground, #0e639c)',
+                                        color: 'var(--theia-button-secondaryForeground, #fff)',
+                                        border: '1px solid var(--theia-button-border)',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => this.openSettings()}
+                                >
+                                    <span className='codicon codicon-settings-gear' />
+                                    Configure Python Path
+                                </button>
+                            </div>
                         )}
                     </div>
                 )}
@@ -338,6 +361,11 @@ export class VisualizerWidget extends ReactWidget {
         } else {
             await this.startVisualizerServer();
         }
+    }
+
+    private openSettings(): void {
+        // Open the preferences view
+        this.commandRegistry.executeCommand(CommonCommands.OPEN_PREFERENCES.id);
     }
 
     private async convertAndLoadDAGMC(h5mPath: string, loadId: number): Promise<void> {

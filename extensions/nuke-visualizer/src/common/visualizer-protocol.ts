@@ -329,6 +329,17 @@ export interface OpenMCBackendService {
     
     /** Check if OpenMC integration is available (h5py installed) */
     checkOpenMCAvailable(): Promise<{ available: boolean; message: string }>;
+    
+    // === Cross-Section (XS) Plotting ===
+    
+    /** Get cross-section data for nuclides and reactions */
+    getXSData(request: XSPlotRequest): Promise<XSPlotData>;
+    
+    /** Check if OpenMC Python module is available (for XS plotting) */
+    checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string }>;
+    
+    /** Get available nuclides from cross_sections.xml */
+    getAvailableNuclides(crossSectionsPath?: string): Promise<string[]>;
 }
 
 // === Color Map Presets ===
@@ -382,3 +393,71 @@ export const DEFAULT_VISUALIZATION_STATE: VisualizationState = {
     clipInvert: false,
     backgroundColor: [0.1, 0.1, 0.15],
 };
+
+// === Cross-Section (XS) Plotting Types ===
+
+/** Reaction type for XS plotting */
+export interface XSReaction {
+    /** MT number or reaction name */
+    mt: number | string;
+    /** Human-readable label */
+    label: string;
+    /** Whether reaction is selected */
+    selected: boolean;
+}
+
+/** Cross-section data for a single nuclide/reaction */
+export interface XSCurveData {
+    /** Energy values in eV */
+    energy: number[];
+    /** Cross-section values in barns */
+    xs: number[];
+    /** Nuclide name (e.g., 'U235', 'H1') */
+    nuclide: string;
+    /** Reaction MT number or name */
+    reaction: string | number;
+    /** Reaction label */
+    label: string;
+}
+
+/** Complete XS plot data for multiple nuclides/reactions */
+export interface XSPlotData {
+    /** All curves to plot */
+    curves: XSCurveData[];
+    /** Temperature in Kelvin */
+    temperature?: number;
+    /** Error message if any */
+    error?: string;
+}
+
+/** Available reactions for XS plotting */
+export const COMMON_XS_REACTIONS: XSReaction[] = [
+    { mt: 1, label: 'Total (n,total)', selected: true },
+    { mt: 2, label: 'Elastic (n,elastic)', selected: false },
+    { mt: 18, label: 'Fission (n,fission)', selected: true },
+    { mt: 102, label: 'Capture (n,gamma)', selected: true },
+    { mt: 103, label: 'Proton (n,p)', selected: false },
+    { mt: 104, label: 'Deuteron (n,d)', selected: false },
+    { mt: 105, label: 'Triton (n,t)', selected: false },
+    { mt: 106, label: 'Helium-3 (n,He3)', selected: false },
+    { mt: 107, label: 'Alpha (n,alpha)', selected: false },
+    { mt: 16, label: '2n (n,2n)', selected: false },
+    { mt: 17, label: '3n (n,3n)', selected: false },
+    { mt: 22, label: 'nα (n,nα)', selected: false },
+    { mt: 28, label: 'np (n,np)', selected: false },
+    { mt: 41, label: '2np (n,2np)', selected: false },
+];
+
+/** Request for XS plot data */
+export interface XSPlotRequest {
+    /** List of nuclide names (e.g., ['U235', 'U238', 'H1']) */
+    nuclides: string[];
+    /** List of reaction MT numbers or names */
+    reactions: (number | string)[];
+    /** Temperature in Kelvin (default 294K) */
+    temperature?: number;
+    /** Energy range [min, max] in eV */
+    energyRange?: [number, number];
+    /** Path to cross_sections.xml (optional, overrides environment variable) */
+    crossSectionsPath?: string;
+}

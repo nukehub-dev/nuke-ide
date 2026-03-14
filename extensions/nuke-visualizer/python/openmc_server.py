@@ -1627,6 +1627,333 @@ def check_openmc_available():
         return False, "h5py not installed. Run: pip install h5py"
 
 
+def cmd_xs_plot(args):
+    """Generate cross-section plot data using openmc.data."""
+    try:
+        import openmc
+        import openmc.data
+    except ImportError as e:
+        print(json.dumps({"error": f"OpenMC not installed: {e}"}))
+        return 1
+
+    try:
+        nuclides = [n.strip() for n in args.nuclides.split(',')]
+        reactions = [r.strip() for r in args.reactions.split(',')]
+        temperature = float(args.temperature) if args.temperature else 294.0
+        energy_min = float(args.energy_min) if args.energy_min else 1e-5
+        energy_max = float(args.energy_max) if args.energy_max else 2e7
+        
+        # Convert reaction strings to integers if they're numeric
+        parsed_reactions = []
+        for r in reactions:
+            try:
+                parsed_reactions.append(int(r))
+            except ValueError:
+                parsed_reactions.append(r)
+        
+        # Reaction names mapping
+        mt_names = {
+            1: 'total',
+            2: 'elastic',
+            18: 'fission',
+            102: 'capture',
+            103: '(n,p)',
+            104: '(n,d)',
+            105: '(n,t)',
+            106: '(n,He3)',
+            107: '(n,alpha)',
+            16: '(n,2n)',
+            17: '(n,3n)',
+            22: '(n,nalpha)',
+            28: '(n,np)',
+            41: '(n,2np)',
+        }
+        
+        curves = []
+        
+        # Try to load cross_sections library
+        library = None
+        cross_sections_path = args.cross_sections if args.cross_sections else None
+        
+        try:
+            if cross_sections_path:
+                library = openmc.data.DataLibrary.from_xml(cross_sections_path)
+                print(f"[XS Plot] Loaded cross_sections.xml from: {cross_sections_path}", file=sys.stderr)
+            else:
+                library = openmc.data.DataLibrary.from_xml()
+                print(f"[XS Plot] Loaded default cross_sections.xml", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Could not load cross_sections.xml: {e}", file=sys.stderr)
+        
+        # Debug: print library structure
+        if library:
+            try:
+                lib_count = len(library.libraries) if hasattr(library.libraries, '__len__') else 'unknown'
+                print(f"[XS Plot] Library contains {lib_count} libraries", file=sys.stderr)
+            except:
+                pass
+        
+        # Get the directory from cross_sections path for fallback file search
+        xs_dir = None
+        if cross_sections_path:
+            xs_dir = os.path.dirname(cross_sections_path)
+        elif os.environ.get('OPENMC_CROSS_SECTIONS'):
+            xs_dir = os.path.dirname(os.environ.get('OPENMC_CROSS_SECTIONS'))
+        
+        for nuclide_name in nuclides:
+            try:
+                print(f"[XS Plot] Looking for nuclide: {nuclide_name}", file=sys.stderr)
+                
+                # Find the nuclide in the library
+                xs_file = None
+                if library:
+                    # Handle both old and new OpenMC API
+                    # library.libraries can be a list or a dict
+                    libraries = library.libraries
+                    if isinstance(libraries, dict):
+                        libraries = libraries.values()
+                    
+                    for lib in libraries:
+                        # lib.tables can also be a list or a dict
+                        tables = getattr(lib, 'tables', [])
+                        if isinstance(tables, dict):
+                            tables = tables.values()
+                        
+                        for table in tables:
+                            table_name = getattr(table, 'nuclide', getattr(table, 'name', None))
+                            # Try exact match and common variations
+                            possible_names = [
+                                nuclide_name,
+                                nuclide_name.replace('-', ''),
+                                nuclide_name.replace('-', '_'),
+                            ]
+                            if table_name in possible_names:
+                                xs_file = table.filename
+                                print(f"[XS Plot] Found {nuclide_name} -> {xs_file}", file=sys.stderr)
+                                break
+                        if xs_file:
+                            break
+                
+                # If we found the file, load it
+                nuc_data = None
+                if xs_file and os.path.exists(xs_file):
+                    try:
+                        nuc_data = openmc.data.IncidentNeutron.from_hdf5(xs_file)
+                    except Exception as e:
+                        print(f"Warning: Failed to load {xs_file}: {e}", file=sys.stderr)
+                
+                # If not found in library, try direct file search in the cross_sections directory
+                if nuc_data is None and xs_dir:
+                    possible_files = [
+                        os.path.join(xs_dir, f"{nuclide_name}.h5"),
+                        os.path.join(xs_dir, f"{nuclide_name}.hdf5"),
+                        os.path.join(xs_dir, f"n-{nuclide_name}.h5"),
+                        os.path.join(xs_dir, f"n-{nuclide_name}.hdf5"),
+                        # Try with underscores instead of hyphens
+                        os.path.join(xs_dir, f"{nuclide_name.replace('-', '_')}.h5"),
+                        os.path.join(xs_dir, f"{nuclide_name.replace('-', '')}.h5"),
+                    ]
+                    for pf in possible_files:
+                        if os.path.exists(pf):
+                            print(f"[XS Plot] Found file directly: {pf}", file=sys.stderr)
+                            try:
+                                nuc_data = openmc.data.IncidentNeutron.from_hdf5(pf)
+                                break
+                            except Exception as e:
+                                print(f"Warning: Failed to load {pf}: {e}", file=sys.stderr)
+                
+                if nuc_data is None:
+                    print(f"[XS Plot] ERROR: Could not find cross-section data for {nuclide_name}", file=sys.stderr)
+                    print(f"[XS Plot] Searched in: {xs_dir if xs_dir else 'cross_sections.xml library'}", file=sys.stderr)
+                    if library:
+                        # Try to list available nuclides for debugging
+                        try:
+                            available = []
+                            libraries = library.libraries
+                            if isinstance(libraries, dict):
+                                libraries = libraries.values()
+                            for lib in list(libraries)[:1]:  # Just check first library
+                                tables = getattr(lib, 'tables', [])
+                                if isinstance(tables, dict):
+                                    tables = tables.values()
+                                for table in list(tables)[:10]:  # First 10 entries
+                                    name = getattr(table, 'nuclide', getattr(table, 'name', None))
+                                    if name:
+                                        available.append(name)
+                            if available:
+                                print(f"[XS Plot] Available nuclides (sample): {', '.join(available)}", file=sys.stderr)
+                        except Exception as e:
+                            print(f"[XS Plot] Could not list available nuclides: {e}", file=sys.stderr)
+                    continue
+                
+                # Get cross-section data for each reaction
+                for reaction_mt in parsed_reactions:
+                    try:
+                        # Get the reaction
+                        if reaction_mt not in nuc_data.reactions:
+                            print(f"Warning: Reaction MT={reaction_mt} not available for {nuclide_name}", file=sys.stderr)
+                            continue
+                        
+                        reaction = nuc_data.reactions[reaction_mt]
+                        
+                        # Get the cross-section data
+                        if hasattr(reaction, 'xs') and reaction.xs:
+                            # Find the closest temperature
+                            available_temps = list(reaction.xs.keys())
+                            if not available_temps:
+                                continue
+                            
+                            # Convert temperature strings like '294K' to float
+                            temps_numeric = []
+                            for t in available_temps:
+                                if isinstance(t, str):
+                                    try:
+                                        temps_numeric.append(float(t.rstrip('K').rstrip('k')))
+                                    except:
+                                        continue
+                                else:
+                                    temps_numeric.append(float(t))
+                            
+                            if not temps_numeric:
+                                closest_temp = available_temps[0]
+                            else:
+                                closest_temp_idx = np.argmin(np.abs(np.array(temps_numeric) - temperature))
+                                closest_temp = available_temps[closest_temp_idx]
+                            
+                            xs_data = reaction.xs[closest_temp]
+                            
+                            # Get energy and xs values
+                            energy = xs_data.x
+                            xs_values = xs_data.y
+                        else:
+                            continue
+                        
+                        # Filter by energy range
+                        mask = (energy >= energy_min) & (energy <= energy_max)
+                        energy = energy[mask]
+                        xs_values = xs_values[mask]
+                        
+                        # Ensure positive values for log scale
+                        xs_values = np.maximum(xs_values, 1e-10)
+                        
+                        # Get reaction name
+                        reaction_name = mt_names.get(reaction_mt, f"MT={reaction_mt}")
+                        
+                        # Create label
+                        label = f"{nuclide_name} {reaction_name}"
+                        
+                        curves.append({
+                            "energy": energy.tolist(),
+                            "xs": xs_values.tolist(),
+                            "nuclide": nuclide_name,
+                            "reaction": reaction_mt,
+                            "label": label
+                        })
+                    except Exception as e:
+                        print(f"Warning: Failed to get reaction {reaction_mt} for {nuclide_name}: {e}", 
+                              file=sys.stderr)
+                        continue
+                        
+            except Exception as e:
+                print(f"Warning: Failed to process nuclide {nuclide_name}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                continue
+        
+        if not curves:
+            error_msg = "No valid cross-section data found."
+            if cross_sections_path:
+                error_msg += f" Could not load from: {cross_sections_path}"
+            else:
+                error_msg += " Set the cross-section path in Preferences → Nuke Visualizer, or set OPENMC_CROSS_SECTIONS environment variable."
+            print(json.dumps({"error": error_msg}))
+            return 1
+        
+        result = {
+            "curves": curves,
+            "temperature": temperature
+        }
+        
+        print(json.dumps(result))
+        return 0
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+def cmd_list_nuclides(args):
+    """List available nuclides from cross_sections.xml."""
+    try:
+        import openmc
+        import openmc.data
+    except ImportError as e:
+        print(json.dumps({"nuclides": [], "error": f"OpenMC not installed: {e}"}))
+        return 1
+
+    try:
+        # Get the cross sections path from environment or argument
+        cross_sections = args.cross_sections if args.cross_sections else None
+        
+        if cross_sections:
+            # Load specific cross_sections.xml
+            data = openmc.data.DataLibrary.from_xml(cross_sections)
+        else:
+            # Try to use default cross sections
+            try:
+                data = openmc.data.DataLibrary.open()
+            except:
+                # If that fails, return common nuclides
+                common_nuclides = [
+                    'H1', 'H2', 'He3', 'He4', 'Li6', 'Li7', 'Be9', 'B10', 'B11',
+                    'C0', 'N14', 'N15', 'O16', 'O17', 'O18', 'F19', 'Na23', 'Mg24',
+                    'Al27', 'Si28', 'P31', 'S32', 'Cl35', 'K39', 'Ca40', 'Sc45',
+                    'Ti46', 'V51', 'Cr52', 'Mn55', 'Fe54', 'Co59', 'Ni58', 'Cu63',
+                    'Ga69', 'Ge70', 'As75', 'Se76', 'Br79', 'Kr80', 'Rb85', 'Sr86',
+                    'Y89', 'Zr90', 'Nb93', 'Mo96', 'Tc99', 'Ru100', 'Rh103', 'Pd104',
+                    'Ag107', 'Cd110', 'In113', 'Sn114', 'Sb121', 'Te122', 'I127',
+                    'Xe128', 'Cs133', 'Ba134', 'La139', 'Ce140', 'Pr141', 'Nd142',
+                    'Pm147', 'Sm144', 'Eu151', 'Gd156', 'Tb159', 'Dy162', 'Ho165',
+                    'Er166', 'Tm169', 'Yb168', 'Lu175', 'Hf174', 'Ta181', 'W182',
+                    'Re185', 'Os190', 'Ir191', 'Pt192', 'Au197', 'Hg200', 'Tl203',
+                    'Pb204', 'Bi209', 'Th232', 'Pa231', 'U234', 'U235', 'U238',
+                    'Np237', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 'Am241',
+                    'Am242', 'Am243', 'Cm244', 'Cm245', 'Cm246', 'Cm247', 'Cm248'
+                ]
+                print(json.dumps({"nuclides": common_nuclides}))
+                return 0
+        
+        # Extract nuclide names from the data library
+        nuclides = []
+        # Handle both old and new OpenMC API (dict vs list)
+        libraries = data.libraries
+        if isinstance(libraries, dict):
+            libraries = libraries.values()
+        
+        for library in libraries:
+            tables = getattr(library, 'tables', [])
+            if isinstance(tables, dict):
+                tables = tables.values()
+            
+            for table in tables:
+                if hasattr(table, 'nuclide'):
+                    nuclides.append(table.nuclide)
+                elif hasattr(table, 'name'):
+                    nuclides.append(table.name)
+        
+        # Remove duplicates and sort
+        nuclides = sorted(set(nuclides))
+        
+        print(json.dumps({"nuclides": nuclides}))
+        return 0
+        
+    except Exception as e:
+        print(json.dumps({"nuclides": [], "error": str(e)}))
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='OpenMC server for NukeIDE')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -1680,6 +2007,19 @@ def main():
     # Check command
     check_parser = subparsers.add_parser('check', help='Check availability')
     
+    # XS Plot command
+    xs_parser = subparsers.add_parser('xs-plot', help='Plot cross-sections')
+    xs_parser.add_argument('--nuclides', required=True, help='Comma-separated nuclide names')
+    xs_parser.add_argument('--reactions', required=True, help='Comma-separated reaction MT numbers')
+    xs_parser.add_argument('--temperature', type=float, default=294.0, help='Temperature in Kelvin')
+    xs_parser.add_argument('--energy-min', type=float, default=1e-5, help='Minimum energy in eV')
+    xs_parser.add_argument('--energy-max', type=float, default=2e7, help='Maximum energy in eV')
+    xs_parser.add_argument('--cross-sections', help='Path to cross_sections.xml file')
+    
+    # List Nuclides command
+    nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')
+    nuclides_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -1695,6 +2035,8 @@ def main():
         'spectrum': cmd_spectrum,
         'spatial': cmd_spatial,
         'check': cmd_check,
+        'xs-plot': cmd_xs_plot,
+        'list-nuclides': cmd_list_nuclides,
     }
     
     if args.command in commands:

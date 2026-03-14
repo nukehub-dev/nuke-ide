@@ -32,10 +32,11 @@ import { bindVisualizerPreferences } from './visualizer-preferences';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './openmc/openmc-service';
-import { OpenMCContribution } from './openmc/openmc-contribution';
+import { OpenMCContribution, XSPlotViewContribution, OpenMCTalliesViewContribution } from './openmc/openmc-contribution';
 import { OpenMCTallySelector } from './openmc/tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
+import { XSPlotWidget } from './openmc/xs-plot-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -132,4 +133,19 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             return widget;
         },
     })).inSingletonScope();
+
+    // Bind XS plot widget
+    bind(XSPlotWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: XSPlotWidget.ID,
+        createWidget: () => context.container.get<XSPlotWidget>(XSPlotWidget),
+    })).inSingletonScope();
+
+    // Bind XS Plot View Contribution (adds icon to sidebar)
+    bindViewContribution(bind, XSPlotViewContribution);
+    bind(FrontendApplicationContribution).toService(XSPlotViewContribution);
+
+    // Bind OpenMC Tallies View Contribution (adds icon to sidebar)
+    bindViewContribution(bind, OpenMCTalliesViewContribution);
+    bind(FrontendApplicationContribution).toService(OpenMCTalliesViewContribution);
 });

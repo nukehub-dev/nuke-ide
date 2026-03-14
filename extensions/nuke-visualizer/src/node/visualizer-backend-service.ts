@@ -270,11 +270,19 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
         // Check trame
         try {
-            const trameOutput = execSync(`"${pythonInfo.command}" -c "import trame; print(trame.__version__)"`, { encoding: 'utf8' }).trim();
+            // Try trame.app first (the main submodule that has __version__)
+            const trameOutput = execSync(`"${pythonInfo.command}" -c "import trame.app; print(trame.app.__version__)"`, { encoding: 'utf8' }).trim();
             info.trameInstalled = true;
             info.trameVersion = trameOutput;
         } catch (e) {
-            info.trameInstalled = false;
+            // Fallback: just check if trame can be imported
+            try {
+                execSync(`"${pythonInfo.command}" -c "import trame"`, { stdio: 'ignore' });
+                info.trameInstalled = true;
+                info.trameVersion = 'installed (version unknown)';
+            } catch {
+                info.trameInstalled = false;
+            }
         }
 
         // Check moab (pymoab)

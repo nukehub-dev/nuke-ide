@@ -22,11 +22,14 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
-    OpenMCTallyInfo
+    OpenMCTallyInfo,
+    XSPlotRequest,
+    XSPlotData
 } from '../../common/visualizer-protocol';
 import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCMultiScoreData } from '../plotly/plotly-utils';
+import { VisualizerPreferences } from '../visualizer-preferences';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -66,6 +69,9 @@ export class OpenMCService {
 
     @inject(OpenMCBackendService)
     protected readonly openmcBackend: OpenMCBackendService;
+
+    @inject(VisualizerPreferences)
+    protected readonly preferences: VisualizerPreferences;
 
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
@@ -578,6 +584,70 @@ export class OpenMCService {
         }
         
         return parts.join(' | ') || 'Tally';
+    }
+
+    // === Cross-Section (XS) Plotting ===
+
+    /**
+     * Check if OpenMC Python module is available for XS plotting.
+     */
+    async checkOpenMCPythonAvailable(): Promise<boolean> {
+        try {
+            const result = await this.openmcBackend.checkOpenMCPythonAvailable();
+            if (!result.available) {
+                this.messageService.warn(`OpenMC Python: ${result.message}`);
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error('[OpenMC] Error checking Python availability:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get cross-section data for nuclides and reactions.
+     */
+    async getXSData(request: XSPlotRequest): Promise<XSPlotData | null> {
+        const available = await this.checkOpenMCPythonAvailable();
+        if (!available) {
+            return { curves: [], error: 'OpenMC Python module not available' };
+        }
+
+        const progress = await this.messageService.showProgress({
+            text: 'Loading cross-section data...',
+            options: { cancelable: false }
+        });
+
+        try {
+            // Add cross-section path from preferences if not already set
+            if (!request.crossSectionsPath) {
+                const prefPath = this.preferences['nukeVisualizer.openmcCrossSectionsPath'];
+                if (prefPath) {
+                    request.crossSectionsPath = prefPath;
+                }
+            }
+
+            const data = await this.openmcBackend.getXSData(request);
+            return data;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return { curves: [], error: msg };
+        } finally {
+            progress.cancel();
+        }
+    }
+
+    /**
+     * Get available nuclides from cross_sections.xml.
+     */
+    async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
+        try {
+            return await this.openmcBackend.getAvailableNuclides(crossSectionsPath);
+        } catch (error) {
+            console.error('[OpenMC] Error getting nuclides:', error);
+            return [];
+        }
     }
 
 }

@@ -19,7 +19,8 @@ import { Command, CommandRegistry, MenuModelRegistry } from '@theia/core/lib/com
 import { MessageService } from '@theia/core/lib/common';
 import { 
     QuickInputService, 
-    QuickPickValue
+    QuickPickValue,
+    AbstractViewContribution
 } from '@theia/core/lib/browser';
 import { 
     LabelProvider, 
@@ -27,7 +28,8 @@ import {
     FrontendApplicationContribution,
     OpenHandler,
     WidgetOpenerOptions,
-    Widget
+    Widget,
+    FrontendApplication
 } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
@@ -36,6 +38,7 @@ import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc-plot-widget';
+import { XSPlotWidget } from './xs-plot-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -84,6 +87,13 @@ export namespace OpenMCCommands {
         label: 'Discover OpenMC Files in Directory...',
         iconClass: 'codicon codicon-search'
     };
+    
+    export const PLOT_CROSS_SECTIONS: Command = {
+        id: 'openmc.plot-xs',
+        category: OPENMC_CATEGORY,
+        label: 'Plot Cross-Sections...',
+        iconClass: 'codicon codicon-graph-line'
+    };
 }
 
 @injectable()
@@ -122,6 +132,12 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         const widgetId = `${OpenMCPlotWidget.ID}:${tallyId}:${type}`;
         return this.widgetManager.getOrCreateWidget<OpenMCPlotWidget>(OpenMCPlotWidget.ID, {
             id: widgetId
+        } as any);
+    }
+
+    private async getOrCreateXSPlotWidget(): Promise<XSPlotWidget> {
+        return this.widgetManager.getOrCreateWidget<XSPlotWidget>(XSPlotWidget.ID, {
+            id: XSPlotWidget.ID
         } as any);
     }
 
@@ -228,6 +244,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerCommand(OpenMCCommands.DISCOVER_OPENMC_FILES, {
             execute: () => this.discoverFilesCommand()
         });
+
+        registry.registerCommand(OpenMCCommands.PLOT_CROSS_SECTIONS, {
+            execute: () => this.plotXSCommand()
+        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
@@ -262,6 +282,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerMenuAction(['openmc'], {
             commandId: OpenMCCommands.SHOW_TALLY_INFO.id,
             order: '5'
+        });
+
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
+            order: '6'
         });
 
         // Add context menu for OpenMC files
@@ -419,9 +444,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         // Update the widget state
         widget.setStatepoint(statepointUri, info, tallies);
         
-        // Add to left sidebar if not already there
+        // Add to right sidebar if not already there
         if (!widget.isAttached) {
-            await this.shell.addWidget(widget, { area: 'left' });
+            await this.shell.addWidget(widget, { area: 'right' });
         }
         
         // Activate the widget
@@ -609,5 +634,95 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     private async getGeometryFiles(): Promise<QuickPickValue<string>[]> {
         return [];
+    }
+
+    private async plotXSCommand(): Promise<void> {
+        const widget = await this.getOrCreateXSPlotWidget();
+        
+        if (!widget.isAttached) {
+            await this.shell.addWidget(widget, { area: 'right' });
+        }
+        
+        await this.shell.activateWidget(widget.id);
+    }
+}
+
+/**
+ * View contribution for XS Plot widget - adds icon to sidebar
+ */
+@injectable()
+export class XSPlotViewContribution extends AbstractViewContribution<XSPlotWidget> {
+    
+    @inject(ApplicationShell)
+    protected readonly shell: ApplicationShell;
+
+    constructor() {
+        super({
+            widgetId: XSPlotWidget.ID,
+            widgetName: XSPlotWidget.LABEL,
+            defaultWidgetOptions: {
+                area: 'right',
+                rank: 200
+            },
+            toggleCommandId: 'xsPlot.toggle',
+            toggleKeybinding: 'ctrlcmd+shift+x'
+        });
+    }
+
+    override registerCommands(commands: CommandRegistry): void {
+        super.registerCommands(commands);
+        
+        commands.registerCommand({
+            id: 'xsPlot.open',
+            label: 'OpenMC: Open Cross-Section Plot'
+        }, {
+            execute: () => this.openView({ reveal: true, activate: true })
+        });
+    }
+
+    async initializeLayout(app: FrontendApplication): Promise<void> {
+        // Don't auto-open by default, but the icon will be available in the sidebar
+    }
+}
+
+/**
+ * View contribution for OpenMC Tallies widget - adds icon to sidebar
+ */
+@injectable()
+export class OpenMCTalliesViewContribution extends AbstractViewContribution<OpenMCTallyTreeWidget> {
+    
+    @inject(ApplicationShell)
+    protected readonly shell: ApplicationShell;
+
+    @inject(OpenMCService)
+    protected readonly openmcService: OpenMCService;
+
+    constructor() {
+        super({
+            widgetId: OpenMCTallyTreeWidget.ID,
+            widgetName: OpenMCTallyTreeWidget.LABEL,
+            defaultWidgetOptions: {
+                area: 'right',
+                rank: 100
+            },
+            toggleCommandId: 'openmcTallies.toggle',
+            toggleKeybinding: 'ctrlcmd+shift+t'
+        });
+    }
+
+    override registerCommands(commands: CommandRegistry): void {
+        super.registerCommands(commands);
+        
+        commands.registerCommand({
+            id: 'openmcTallies.open',
+            label: 'OpenMC: Open Tallies'
+        }, {
+            execute: () => this.openView({ reveal: true, activate: true }),
+            isEnabled: () => this.openmcService.getCurrentStatepoint() !== null
+        });
+    }
+
+    async initializeLayout(app: FrontendApplication): Promise<void> {
+        // Don't auto-open by default, but the icon will be available in the sidebar
     }
 }

@@ -373,6 +373,105 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Cross-Section (XS) Plotting ===
+
+    async getXSData(request: any): Promise<any> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath,
+            'xs-plot',
+            '--nuclides', request.nuclides.join(','),
+            '--reactions', request.reactions.join(','),
+            '--temperature', (request.temperature || 294).toString()
+        ];
+
+        if (request.energyRange) {
+            args.push('--energy-min', request.energyRange[0].toString());
+            args.push('--energy-max', request.energyRange[1].toString());
+        }
+
+        if (request.crossSectionsPath) {
+            args.push('--cross-sections', request.crossSectionsPath);
+        }
+
+        console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            maxBuffer: 10 * 1024 * 1024,
+            timeout: 60000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] XS plot command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get XS data');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse XS data: ${e}`);
+            console.error(`[OpenMC] Raw output: ${result.stdout?.substring(0, 500)}`);
+            throw e;
+        }
+    }
+
+    async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string }> {
+        try {
+            const pythonCommand = await this.detectPythonCommand();
+            
+            // Check for openmc module
+            try {
+                execSync(`"${pythonCommand}" -c "import openmc"`, { stdio: 'ignore' });
+            } catch {
+                return {
+                    available: false,
+                    message: 'OpenMC Python module not installed. Run: pip install openmc'
+                };
+            }
+
+            return {
+                available: true,
+                message: 'OpenMC Python module available'
+            };
+        } catch (error) {
+            return {
+                available: false,
+                message: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
+    async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'list-nuclides'];
+        if (crossSectionsPath) {
+            args.push('--cross-sections', crossSectionsPath);
+        }
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] List nuclides command failed: ${result.stderr}`);
+            return [];
+        }
+
+        try {
+            const data = JSON.parse(result.stdout);
+            return data.nuclides || [];
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse nuclides list: ${e}`);
+            return [];
+        }
+    }
+
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
         const tally = tallies.find(t => t.id === tallyId);
