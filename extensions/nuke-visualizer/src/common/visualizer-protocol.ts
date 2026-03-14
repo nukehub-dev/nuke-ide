@@ -501,6 +501,8 @@ export interface XSCurveData {
     library?: string;
     /** Uncertainty/error data for cross-section (if available) */
     uncertainty?: XSUncertaintyData;
+    /** Calculated integral quantities for this curve */
+    integrals?: XSIntegralQuantities;
 }
 
 /** Uncertainty/error data for cross-section */
@@ -602,6 +604,22 @@ export const COMMON_XS_REACTIONS: XSReaction[] = [
     { mt: 41, label: '2np (n,2np)', selected: false },
 ];
 
+/** XS Integral Quantities calculated from cross-section data */
+export interface XSIntegralQuantities {
+    /** Resonance integral (barns) - integral of XS from 0.5 eV to 1e5 eV divided by ln(E2/E1) */
+    resonanceIntegral?: number;
+    /** Thermal cross-section at 2200 m/s (0.0253 eV) in barns */
+    thermalXS?: number;
+    /** Maxwellian averaged cross-section at thermal temperature (barns) */
+    maxwellianAverage?: number;
+    /** Average XS over the plotted energy range (barns) */
+    averageXS?: number;
+    /** Integrated XS over full energy range (barns·eV) */
+    integratedXS?: number;
+    /** Fission rate factor (for fission reactions) - nu * sigma_f */
+    fissionRateFactor?: number;
+}
+
 /** Request for XS plot data */
 export interface XSPlotRequest {
     /** List of nuclide names (e.g., ['U235', 'U238', 'H1']) */
@@ -626,4 +644,6 @@ export interface XSPlotRequest {
     libraryComparison?: XSLibraryComparison;
     /** Whether to extract and return uncertainty data */
     includeUncertainty?: boolean;
+    /** Whether to calculate integral quantities */
+    includeIntegrals?: boolean;
 }

@@ -1680,6 +1680,9 @@ def cmd_xs_plot(args):
         # Handle uncertainty extraction flag
         include_uncertainty = getattr(args, 'include_uncertainty', False)
         
+        # Handle integral quantities calculation flag
+        include_integrals = getattr(args, 'include_integrals', False)
+        
         # Handle energy region preset
         if args.energy_region:
             region_ranges = {
@@ -1904,6 +1907,87 @@ def cmd_xs_plot(args):
             except Exception as e:
                 print(f"[XS Plot] Error extracting uncertainty: {e}", file=sys.stderr)
                 return None
+        
+        def calculate_integral_quantities(curve):
+            """Calculate integral quantities for a cross-section curve."""
+            integrals = {}
+            
+            try:
+                energy = np.array(curve["energy"])
+                xs = np.array(curve["xs"])
+                
+                if len(energy) == 0 or len(xs) == 0:
+                    return integrals
+                
+                # Ensure energy is sorted
+                sort_idx = np.argsort(energy)
+                energy = energy[sort_idx]
+                xs = xs[sort_idx]
+                
+                # Helper function for trapezoidal integration (compatible with all NumPy versions)
+                def trapz_integrate(y, x):
+                    """Manual trapezoidal integration."""
+                    if len(y) != len(x) or len(y) < 2:
+                        return 0.0
+                    dx = np.diff(x)
+                    y_avg = (y[:-1] + y[1:]) / 2.0
+                    return float(np.sum(y_avg * dx))
+                
+                # 1. Resonance Integral (0.5 eV to 1e5 eV, divided by ln(E2/E1))
+                # Standard resonance integral definition
+                ri_mask = (energy >= 0.5) & (energy <= 1e5)
+                if np.any(ri_mask):
+                    ri_energy = energy[ri_mask]
+                    ri_xs = xs[ri_mask]
+                    # Resonance integral = ∫ σ(E) dE/E from E1 to E2
+                    # For log-energy grid: ∫ σ(E) d(ln E) = ∫ σ(E)/E dE
+                    if len(ri_energy) > 1:
+                        # Convert to log-energy space
+                        log_e = np.log(ri_energy)
+                        # Trapezoidal integration in log space
+                        ri = trapz_integrate(ri_xs, log_e)
+                        integrals["resonanceIntegral"] = float(ri)
+                
+                # 2. Thermal cross-section at 2200 m/s (0.0253 eV)
+                thermal_e = 0.0253
+                if np.any(energy <= thermal_e * 10):  # Check if we have thermal data
+                    # Interpolate to thermal energy
+                    thermal_xs = np.interp(thermal_e, energy, xs, left=xs[0], right=xs[-1])
+                    integrals["thermalXS"] = float(thermal_xs)
+                    
+                    # 3. Maxwellian average at thermal temperature (293.6K)
+                    # ⟨σ⟩ = ∫ σ(E) φ(E) dE / ∫ φ(E) dE where φ(E) = E exp(-E/kT)
+                    kT = 0.0253  # eV at room temperature
+                    # Only use thermal region
+                    maxwell_mask = energy <= 1.0  # Up to 1 eV
+                    if np.any(maxwell_mask):
+                        me_energy = energy[maxwell_mask]
+                        me_xs = xs[maxwell_mask]
+                        # Maxwellian flux spectrum: φ(E) ∝ E exp(-E/kT)
+                        flux = me_energy * np.exp(-me_energy / kT)
+                        # Weighted average
+                        numerator = trapz_integrate(me_xs * flux, me_energy)
+                        denominator = trapz_integrate(flux, me_energy)
+                        if denominator > 0:
+                            integrals["maxwellianAverage"] = float(numerator / denominator)
+                
+                # 4. Average XS over full energy range
+                if len(energy) > 1:
+                    # Energy-weighted average
+                    log_energy = np.log(energy)
+                    avg_xs = trapz_integrate(xs, log_energy) / (log_energy[-1] - log_energy[0])
+                    integrals["averageXS"] = float(avg_xs)
+                    
+                    # 5. Integrated XS (barns·eV)
+                    integrated = trapz_integrate(xs, energy)
+                    integrals["integratedXS"] = float(integrated)
+                
+            except Exception as e:
+                print(f"[XS Plot] Error calculating integrals: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            
+            return integrals
         
         def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
             """Get XS data for a specific temperature."""
@@ -2405,6 +2489,11 @@ def cmd_xs_plot(args):
                     traceback.print_exc(file=sys.stderr)
                     continue
         
+        # Calculate integral quantities if requested
+        if include_integrals and curves:
+            for curve in curves:
+                curve["integrals"] = calculate_integral_quantities(curve)
+        
         if not curves:
             error_msg = "No valid cross-section data found."
             if cross_sections_path:
@@ -2569,6 +2658,7 @@ def main():
     xs_parser.add_argument('--flux-spectrum', help='JSON string of flux spectrum for reaction rate calculation')
     xs_parser.add_argument('--library-comparison', help='JSON string of library comparison configuration')
     xs_parser.add_argument('--include-uncertainty', action='store_true', help='Include uncertainty/error data if available')
+    xs_parser.add_argument('--include-integrals', action='store_true', help='Calculate and include integral quantities')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')

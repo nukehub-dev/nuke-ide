@@ -92,6 +92,9 @@ export class XSPlotWidget extends ReactWidget {
     private showResonanceRegions: boolean = true;
     private showResonances: boolean = true;
     private showUncertainty: boolean = false;
+    private showIntegrals: boolean = true;
+    private integralsPanelHeight: number = 180; // Default height in pixels
+    private isDraggingIntegrals: boolean = false;
     // Note: Energy range is managed by energyRegion preset
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
@@ -304,7 +307,26 @@ export class XSPlotWidget extends ReactWidget {
                         ) : this.showSetupDialog ? (
                             this.renderSetupDialog()
                         ) : this.data ? (
-                            this.renderPlot(theme)
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                height: '100%',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{ 
+                                    flex: 1, 
+                                    minHeight: this.showIntegrals ? '150px' : '100%',
+                                    overflow: 'hidden' 
+                                }}>
+                                    {this.renderPlot(theme)}
+                                </div>
+                                {this.showIntegrals && (
+                                    <>
+                                        {this.renderResizeHandle(theme)}
+                                        {this.renderIntegralsPanel(theme)}
+                                    </>
+                                )}
+                            </div>
                         ) : (
                             <div style={{
                                 display: 'flex',
@@ -537,6 +559,15 @@ export class XSPlotWidget extends ReactWidget {
                                 style={{ marginRight: '8px' }}
                             />
                             Show Uncertainty Bands
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showIntegrals}
+                                onChange={() => { this.showIntegrals = !this.showIntegrals; this.update(); }}
+                                style={{ marginRight: '8px' }}
+                            />
+                            Calculate Integral Quantities
                         </label>
                     </div>
                 </div>
@@ -796,9 +827,13 @@ export class XSPlotWidget extends ReactWidget {
                         mode: 'markers',
                         name: `${curve.nuclide} Resonances`,
                         marker: {
-                            symbol: 'diamond-open',
-                            size: 8,
-                            color: 'rgba(255, 0, 0, 0.5)'
+                            symbol: 'diamond',
+                            size: 10,
+                            color: 'rgba(255, 0, 0, 0.6)',
+                            line: {
+                                color: 'rgba(255, 0, 0, 0.8)',
+                                width: 1
+                            }
                         },
                         text: resHover,
                         hoverinfo: 'text',
@@ -911,7 +946,8 @@ export class XSPlotWidget extends ReactWidget {
                         reaction: this.libraryComparisonReaction,
                         temperature: this.libraryComparisonTemperature
                     },
-                    includeUncertainty: this.showUncertainty
+                    includeUncertainty: this.showUncertainty,
+                    includeIntegrals: this.showIntegrals
                 };
                 title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
             } else if (this.plotMode === 'temp-comparison') {
@@ -954,7 +990,8 @@ export class XSPlotWidget extends ReactWidget {
                         components: m.components,
                         density: m.density
                     })),
-                    includeUncertainty: this.showUncertainty
+                    includeUncertainty: this.showUncertainty,
+                    includeIntegrals: this.showIntegrals
                 };
                 title = `Material Cross-Sections: ${this.materials.map(m => m.name).join(', ')}`;
             } else {
@@ -971,7 +1008,8 @@ export class XSPlotWidget extends ReactWidget {
                     reactions: selectedReactions.map(r => r.mt),
                     temperature: this.temperature,
                     energyRegion: this.energyRegion,
-                    includeUncertainty: this.showUncertainty
+                    includeUncertainty: this.showUncertainty,
+                    includeIntegrals: this.showIntegrals
                 };
                 title = `Cross-Sections: ${this.selectedNuclides.join(', ')}`;
             }
@@ -1877,6 +1915,161 @@ export class XSPlotWidget extends ReactWidget {
 
                 <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
                     Tip: Add libraries with cross_sections.xml paths.
+                </div>
+            </div>
+        );
+    }
+
+    private renderResizeHandle(theme: 'dark' | 'light'): React.ReactNode {
+        const handleColor = theme === 'dark' ? '#555' : '#ccc';
+        const handleHoverColor = theme === 'dark' ? '#777' : '#999';
+        
+        return (
+            <div
+                style={{
+                    height: '6px',
+                    backgroundColor: this.isDraggingIntegrals ? handleHoverColor : handleColor,
+                    cursor: 'row-resize',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'background-color 0.2s'
+                }}
+                onMouseDown={(e) => this.startResizeIntegrals(e)}
+                title="Drag to resize"
+            >
+                <div style={{
+                    width: '30px',
+                    height: '2px',
+                    backgroundColor: theme === 'dark' ? '#888' : '#666',
+                    borderRadius: '1px'
+                }} />
+            </div>
+        );
+    }
+
+    private startResizeIntegrals(e: React.MouseEvent): void {
+        this.isDraggingIntegrals = true;
+        const startY = e.clientY;
+        const startHeight = this.integralsPanelHeight;
+        
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            if (!this.isDraggingIntegrals) return;
+            
+            const deltaY = startY - moveEvent.clientY; // Negative when dragging down
+            const newHeight = Math.max(100, Math.min(400, startHeight + deltaY));
+            this.integralsPanelHeight = newHeight;
+            this.update();
+        };
+        
+        const handleMouseUp = () => {
+            this.isDraggingIntegrals = false;
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            this.update();
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    private renderIntegralsPanel(theme: 'dark' | 'light'): React.ReactNode {
+        if (!this.data || !this.data.curves || this.data.curves.length === 0) {
+            return null;
+        }
+
+        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
+        const borderColor = theme === 'dark' ? '#3c3c3c' : '#e0e0e0';
+        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
+        const headerColor = theme === 'dark' ? '#fff' : '#000';
+
+        return (
+            <div style={{
+                height: `${this.integralsPanelHeight}px`,
+                overflow: 'auto',
+                backgroundColor: panelBg,
+                borderTop: `1px solid ${borderColor}`,
+                padding: '10px 15px',
+                flexShrink: 0
+            }}>
+                <h4 style={{ margin: '0 0 10px 0', color: headerColor, fontSize: '13px' }}>
+                    <span className={codicon('symbol-constant')} style={{ marginRight: '6px' }} />
+                    Integral Quantities
+                    <span 
+                        onClick={() => { this.showIntegrals = false; this.update(); }}
+                        style={{ 
+                            float: 'right', 
+                            cursor: 'pointer', 
+                            fontSize: '12px',
+                            color: textColor,
+                            marginLeft: '10px'
+                        }}
+                        title="Hide panel"
+                    >
+                        ×
+                    </span>
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {this.data.curves.map((curve, idx) => {
+                        if (!curve.integrals) return null;
+                        const integrals = curve.integrals;
+                        
+                        return (
+                            <div key={idx} style={{
+                                padding: '8px',
+                                backgroundColor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
+                                borderRadius: '3px',
+                                border: `1px solid ${borderColor}`,
+                                fontSize: '11px'
+                            }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: '4px', color: headerColor }}>
+                                    {curve.label}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', color: textColor }}>
+                                    {integrals.resonanceIntegral !== undefined && (
+                                        <>
+                                            <span>Resonance Integral:</span>
+                                            <span style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                                {integrals.resonanceIntegral.toExponential(4)} b
+                                            </span>
+                                        </>
+                                    )}
+                                    {integrals.thermalXS !== undefined && (
+                                        <>
+                                            <span>Thermal (2200 m/s):</span>
+                                            <span style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                                {integrals.thermalXS.toFixed(3)} b
+                                            </span>
+                                        </>
+                                    )}
+                                    {integrals.maxwellianAverage !== undefined && (
+                                        <>
+                                            <span>Maxwellian Avg:</span>
+                                            <span style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                                {integrals.maxwellianAverage.toFixed(3)} b
+                                            </span>
+                                        </>
+                                    )}
+                                    {integrals.averageXS !== undefined && (
+                                        <>
+                                            <span>Average XS:</span>
+                                            <span style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                                {integrals.averageXS.toExponential(4)} b
+                                            </span>
+                                        </>
+                                    )}
+                                    {integrals.integratedXS !== undefined && (
+                                        <>
+                                            <span>Integrated XS:</span>
+                                            <span style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                                {integrals.integratedXS.toExponential(4)} b·eV
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         );

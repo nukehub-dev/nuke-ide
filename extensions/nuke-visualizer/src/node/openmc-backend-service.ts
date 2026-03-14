@@ -432,6 +432,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--include-uncertainty');
         }
 
+        // Add integral quantities calculation flag
+        if (request.includeIntegrals) {
+            args.push('--include-integrals');
+        }
+
         console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
 
         const result = spawnSync(pythonCommand, args, {
