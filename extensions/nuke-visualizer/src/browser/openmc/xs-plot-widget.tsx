@@ -36,7 +36,7 @@ import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 
 /** Mode for XS plotting */
-type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison';
+type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison';
 
 /** Material component definition */
 interface MaterialComponent {
@@ -77,6 +77,13 @@ export class XSPlotWidget extends ReactWidget {
     private tempComparisonNuclide: string = 'U235';
     private tempComparisonReaction: number = 18;  // fission
     private tempComparisonTemps: number[] = [294, 600, 900, 1200];
+    
+    // Library comparison mode
+    private libraryComparisonNuclide: string = 'U235';
+    private libraryComparisonReaction: number = 18;  // fission
+    private libraryComparisonTemperature: number = 294;
+    private libraryComparisonLibraries: { name: string; path: string }[] = [];
+    private currentLibrary: { name: string; path: string } = { name: '', path: '' };
     
     // Common settings
     private selectedReactions: XSReaction[] = COMMON_XS_REACTIONS.map(r => ({ ...r }));
@@ -208,13 +215,14 @@ export class XSPlotWidget extends ReactWidget {
             }}>
                 {/* Sidebar with controls */}
                 <div style={{
-                    width: '300px',
-                    minWidth: '300px',
+                    width: '320px',
+                    minWidth: '320px',
+                    maxWidth: '320px',
                     backgroundColor: panelBg,
                     borderRight: `1px solid ${borderColor}`,
                     display: 'flex',
                     flexDirection: 'column',
-                    overflow: 'hidden'
+                    overflow: 'auto'
                 }}>
                     {this.renderControls(theme)}
                 </div>
@@ -361,10 +369,11 @@ export class XSPlotWidget extends ReactWidget {
                         <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
                         Plot Mode
                     </h4>
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {this.renderModeButton('nuclides', 'Nuclides', theme)}
                         {this.renderModeButton('materials', 'Materials', theme)}
-                        {this.renderModeButton('temp-comparison', 'Temp Compare', theme)}
+                        {this.renderModeButton('temp-comparison', 'Temp', theme)}
+                        {this.renderModeButton('library-comparison', 'Libraries', theme)}
                     </div>
                 </div>
 
@@ -372,13 +381,15 @@ export class XSPlotWidget extends ReactWidget {
                 {this.plotMode === 'nuclides' && this.renderNuclideControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'materials' && this.renderMaterialControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'library-comparison' && this.renderLibraryComparisonControls(theme, textColor, checkboxBg)}
 
                 {/* Reactions Section */}
                 <div style={{
                     padding: '15px',
                     borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
                     flex: 1,
-                    overflow: 'auto'
+                    overflow: 'auto',
+                    minHeight: '150px'
                 }}>
                     <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
                         <span className={codicon('list-flat')} style={{ marginRight: '6px' }} />
@@ -491,7 +502,8 @@ export class XSPlotWidget extends ReactWidget {
                                     color: textColor,
                                     border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                                     borderRadius: '3px',
-                                    fontSize: '12px'
+                                    fontSize: '12px',
+                                    boxSizing: 'border-box'
                                 }}
                             />
                         </div>
@@ -537,7 +549,8 @@ export class XSPlotWidget extends ReactWidget {
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: '6px',
-                            opacity: this.isLoading ? 0.7 : 1
+                            opacity: this.isLoading ? 0.7 : 1,
+                            boxSizing: 'border-box'
                         }}
                     >
                         <span className={this.isLoading ? codicon('loading') : codicon('play')} />
@@ -566,7 +579,28 @@ export class XSPlotWidget extends ReactWidget {
         const seenRegions = new Set<string>();
         const seenResonances = new Set<string>();
 
+        // Track libraries for styling
+        const libraries = [...new Set(this.data.curves.map(c => c.library).filter(Boolean))];
+        const libraryStyles: Record<string, { dash?: string; width?: number; color?: string }> = {};
+        
+        // Define line styles for different libraries
+        const lineStyles = [
+            { width: 2 },
+            { dash: 'dash', width: 2 },
+            { dash: 'dot', width: 2 },
+            { dash: 'dashdot', width: 2 },
+            { width: 2.5 },
+            { dash: 'longdash', width: 2 },
+        ];
+        
+        libraries.forEach((lib, idx) => {
+            libraryStyles[lib!] = lineStyles[idx % lineStyles.length];
+        });
+
         this.data.curves.forEach((curve, curveIdx) => {
+            // Determine line style based on library
+            const lineStyle = curve.library ? libraryStyles[curve.library] : { width: 1.5 };
+            
             // Main XS curve
             traces.push({
                 x: curve.energy,
@@ -574,7 +608,10 @@ export class XSPlotWidget extends ReactWidget {
                 type: 'scatter',
                 mode: 'lines',
                 name: curve.label,
-                line: { width: 1.5 },
+                line: { 
+                    width: lineStyle?.width || 1.5,
+                    dash: lineStyle?.dash as any
+                },
                 hovertemplate: `<b>${curve.label}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`
             });
 
@@ -789,7 +826,38 @@ export class XSPlotWidget extends ReactWidget {
             let request: any;
             let title: string;
 
-            if (this.plotMode === 'temp-comparison') {
+            if (this.plotMode === 'library-comparison') {
+                // Library comparison mode
+                if (!this.libraryComparisonNuclide) {
+                    this.errorMessage = 'Please select a nuclide for library comparison';
+                    this.isLoading = false;
+                    this.update();
+                    return;
+                }
+
+                if (this.libraryComparisonLibraries.length === 0) {
+                    this.errorMessage = 'Please add at least one library for comparison';
+                    this.isLoading = false;
+                    this.update();
+                    return;
+                }
+
+                request = {
+                    nuclides: [this.libraryComparisonNuclide],
+                    reactions: [this.libraryComparisonReaction],
+                    energyRegion: this.energyRegion,
+                    libraryComparison: {
+                        libraries: this.libraryComparisonLibraries.map(lib => ({
+                            name: lib.name,
+                            path: lib.path
+                        })),
+                        nuclide: this.libraryComparisonNuclide,
+                        reaction: this.libraryComparisonReaction,
+                        temperature: this.libraryComparisonTemperature
+                    }
+                };
+                title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
+            } else if (this.plotMode === 'temp-comparison') {
                 // Temperature comparison mode
                 if (!this.tempComparisonNuclide) {
                     this.errorMessage = 'Please select a nuclide for temperature comparison';
@@ -966,12 +1034,14 @@ export class XSPlotWidget extends ReactWidget {
                             this.update();
                         }}
                         style={{
+                            width: '100%',
                             padding: '10px 12px',
                             fontSize: '13px',
                             backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                            borderRadius: '4px'
+                            borderRadius: '4px',
+                            boxSizing: 'border-box'
                         }}
                     />
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -1104,7 +1174,8 @@ export class XSPlotWidget extends ReactWidget {
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                             borderRadius: '3px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            boxSizing: 'border-box'
                         }}
                     />
                     {this.showNuclideDropdown && this.nuclideSearchFilter && (
@@ -1190,6 +1261,7 @@ export class XSPlotWidget extends ReactWidget {
                         padding: '6px',
                         fontSize: '12px',
                         fontFamily: 'monospace',
+                        boxSizing: 'border-box',
                         resize: 'none'
                     }}
                 />
@@ -1278,7 +1350,8 @@ export class XSPlotWidget extends ReactWidget {
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                             borderRadius: '3px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            boxSizing: 'border-box'
                         }}
                     />
 
@@ -1296,7 +1369,8 @@ export class XSPlotWidget extends ReactWidget {
                                         backgroundColor: checkboxBg,
                                         color: textColor,
                                         border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                                        borderRadius: '3px'
+                                        borderRadius: '3px',
+                                        boxSizing: 'border-box'
                                     }}
                                 >
                                     <option value="">Select nuclide...</option>
@@ -1319,7 +1393,8 @@ export class XSPlotWidget extends ReactWidget {
                                         backgroundColor: checkboxBg,
                                         color: textColor,
                                         border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
-                                        borderRadius: '3px'
+                                        borderRadius: '3px',
+                                        boxSizing: 'border-box'
                                     }}
                                 />
                                 <button
@@ -1447,7 +1522,8 @@ export class XSPlotWidget extends ReactWidget {
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                             borderRadius: '3px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            boxSizing: 'border-box'
                         }}
                     >
                         {this.availableNuclides.map(n => (
@@ -1470,7 +1546,8 @@ export class XSPlotWidget extends ReactWidget {
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                             borderRadius: '3px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            boxSizing: 'border-box'
                         }}
                     >
                         {COMMON_XS_REACTIONS.map(r => (
@@ -1495,7 +1572,8 @@ export class XSPlotWidget extends ReactWidget {
                             color: textColor,
                             border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
                             borderRadius: '3px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            boxSizing: 'border-box'
                         }}
                     />
                 </div>
@@ -1537,6 +1615,236 @@ export class XSPlotWidget extends ReactWidget {
         this.tempComparisonTemps = value.split(/[,\s]+/)
             .map(t => parseFloat(t.trim()))
             .filter(t => !isNaN(t) && t > 0);
+        this.update();
+    }
+
+    // ===== Library Comparison Controls =====
+
+    private renderLibraryComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        return (
+            <div style={{
+                padding: '10px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                boxSizing: 'border-box',
+                width: '100%'
+            }}>
+                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                    <span className={codicon('book')} style={{ marginRight: '6px' }} />
+                    Library Comparison
+                </h4>
+                <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px' }}>
+                    Compare nuclide data across different libraries.
+                </div>
+
+                <div style={{ marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Nuclide
+                    </label>
+                    <select
+                        value={this.libraryComparisonNuclide}
+                        onChange={(e) => this.setLibraryComparisonNuclide(e.target.value)}
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        {this.availableNuclides.map(n => (
+                            <option key={n} value={n}>{n}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Reaction
+                    </label>
+                    <select
+                        value={this.libraryComparisonReaction}
+                        onChange={(e) => this.setLibraryComparisonReaction(parseInt(e.target.value))}
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        {COMMON_XS_REACTIONS.map(r => (
+                            <option key={r.mt} value={r.mt}>{r.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Temperature (K)
+                    </label>
+                    <input
+                        type="number"
+                        value={this.libraryComparisonTemperature}
+                        onChange={(e) => this.setLibraryComparisonTemperature(parseFloat(e.target.value) || 294)}
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    />
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Libraries ({this.libraryComparisonLibraries.length}):
+                    </label>
+                    
+                    {this.libraryComparisonLibraries.length > 0 && (
+                        <div style={{ 
+                            marginBottom: '6px',
+                            maxHeight: '100px',
+                            overflow: 'auto'
+                        }}>
+                            {this.libraryComparisonLibraries.map((lib, idx) => (
+                                <div
+                                    key={idx}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '4px 6px',
+                                        backgroundColor: theme === 'dark' ? '#2d2d30' : '#f5f5f5',
+                                        borderRadius: '3px',
+                                        marginBottom: '3px',
+                                        fontSize: '10px'
+                                    }}
+                                >
+                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <strong>{lib.name}</strong>
+                                    </div>
+                                    <span 
+                                        onClick={() => this.removeLibrary(idx)} 
+                                        style={{ cursor: 'pointer', color: '#ff6b6b', marginLeft: '6px', flexShrink: 0 }}
+                                    >
+                                        ×
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div style={{
+                        padding: '8px',
+                        backgroundColor: theme === 'dark' ? '#1e1e1e' : '#fafafa',
+                        borderRadius: '3px',
+                        border: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                        boxSizing: 'border-box'
+                    }}>
+                        <input
+                            type="text"
+                            placeholder="Library name (e.g., ENDF/B-VIII.0)"
+                            value={this.currentLibrary.name}
+                            onChange={(e) => this.updateCurrentLibrary({ name: e.target.value })}
+                            style={{
+                                width: '100%',
+                                padding: '3px 6px',
+                                marginBottom: '4px',
+                                backgroundColor: checkboxBg,
+                                color: textColor,
+                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                borderRadius: '3px',
+                                fontSize: '11px',
+                                boxSizing: 'border-box'
+                            }}
+                        />
+                        <input
+                            type="text"
+                            placeholder="Path to cross_sections.xml"
+                            value={this.currentLibrary.path}
+                            onChange={(e) => this.updateCurrentLibrary({ path: e.target.value })}
+                            style={{
+                                width: '100%',
+                                padding: '3px 6px',
+                                marginBottom: '4px',
+                                backgroundColor: checkboxBg,
+                                color: textColor,
+                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                borderRadius: '3px',
+                                fontSize: '10px',
+                                boxSizing: 'border-box'
+                            }}
+                        />
+                        <button
+                            onClick={() => this.addLibrary()}
+                            disabled={!this.currentLibrary.name || !this.currentLibrary.path}
+                            style={{
+                                width: '100%',
+                                padding: '4px',
+                                backgroundColor: this.currentLibrary.name && this.currentLibrary.path
+                                    ? '#0e639c'
+                                    : '#666',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: this.currentLibrary.name && this.currentLibrary.path
+                                    ? 'pointer'
+                                    : 'not-allowed',
+                                fontSize: '10px'
+                            }}
+                        >
+                            + Add
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
+                    Tip: Add libraries with cross_sections.xml paths.
+                </div>
+            </div>
+        );
+    }
+
+    private setLibraryComparisonNuclide(nuclide: string): void {
+        this.libraryComparisonNuclide = nuclide;
+        this.update();
+    }
+
+    private setLibraryComparisonReaction(reaction: number): void {
+        this.libraryComparisonReaction = reaction;
+        this.update();
+    }
+
+    private setLibraryComparisonTemperature(temp: number): void {
+        this.libraryComparisonTemperature = temp;
+        this.update();
+    }
+
+    private updateCurrentLibrary(updates: Partial<{ name: string; path: string }>): void {
+        this.currentLibrary = { ...this.currentLibrary, ...updates };
+        this.update();
+    }
+
+    private addLibrary(): void {
+        if (this.currentLibrary.name && this.currentLibrary.path) {
+            this.libraryComparisonLibraries.push({ ...this.currentLibrary });
+            this.currentLibrary = { name: '', path: '' };
+            this.update();
+        }
+    }
+
+    private removeLibrary(idx: number): void {
+        this.libraryComparisonLibraries.splice(idx, 1);
         this.update();
     }
 }

@@ -422,6 +422,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--flux-spectrum', JSON.stringify(request.fluxSpectrum));
         }
 
+        // Add library comparison mode
+        if (request.libraryComparison) {
+            args.push('--library-comparison', JSON.stringify(request.libraryComparison));
+        }
+
         console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
 
         const result = spawnSync(pythonCommand, args, {

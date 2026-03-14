@@ -497,6 +497,32 @@ export interface XSCurveData {
     resonanceRegions?: XSResonanceRegion[];
     /** Key resonance parameters for this nuclide */
     resonances?: XSResonanceParameter[];
+    /** Library name/source for multi-library comparison */
+    library?: string;
+}
+
+/** Library definition for multi-library comparison */
+export interface XSLibrary {
+    /** Library name/label (e.g., 'ENDF/B-VIII.0', 'JEFF-3.3') */
+    name: string;
+    /** Path to cross_sections.xml for this library */
+    path: string;
+    /** Library color for plotting (optional) */
+    color?: string;
+    /** Line style for plotting (optional) */
+    lineStyle?: 'solid' | 'dash' | 'dot' | 'dashdot';
+}
+
+/** Multi-library comparison request */
+export interface XSLibraryComparison {
+    /** List of libraries to compare */
+    libraries: XSLibrary[];
+    /** Nuclide to compare across libraries */
+    nuclide: string;
+    /** Reaction MT number */
+    reaction: number | string;
+    /** Temperature (K) */
+    temperature?: number;
 }
 
 /** Resonance region type */
@@ -578,4 +604,6 @@ export interface XSPlotRequest {
     materials?: XSMaterial[];
     /** Flux spectrum for reaction rate calculation (optional) */
     fluxSpectrum?: XSFluxSpectrum;
+    /** Multi-library comparison (overrides other modes if set) */
+    libraryComparison?: XSLibraryComparison;
 }

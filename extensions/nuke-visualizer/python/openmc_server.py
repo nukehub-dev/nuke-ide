@@ -1669,6 +1669,14 @@ def cmd_xs_plot(args):
             except json.JSONDecodeError as e:
                 print(f"Warning: Failed to parse flux spectrum: {e}", file=sys.stderr)
         
+        # Handle library comparison mode
+        library_comparison = None
+        if args.library_comparison:
+            try:
+                library_comparison = json.loads(args.library_comparison)
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse library comparison: {e}", file=sys.stderr)
+        
         # Handle energy region preset
         if args.energy_region:
             region_ranges = {
@@ -1735,10 +1743,16 @@ def cmd_xs_plot(args):
             """Helper function to load nuclide data from library or file."""
             xs_file = None
             
+            print(f"[XS Plot] load_nuclide_data: Looking for {nuclide_name}, xs_dir={xs_dir}", file=sys.stderr)
+            
             if library:
                 libraries = library.libraries
                 if isinstance(libraries, dict):
-                    libraries = libraries.values()
+                    libraries = list(libraries.values())
+                else:
+                    libraries = list(libraries)
+                
+                print(f"[XS Plot] Library has {len(libraries)} sub-libraries", file=sys.stderr)
                 
                 for lib in libraries:
                     tables = getattr(lib, 'tables', [])
@@ -1754,16 +1768,21 @@ def cmd_xs_plot(args):
                         ]
                         if table_name in possible_names:
                             xs_file = table.filename
+                            print(f"[XS Plot] Found nuclide {nuclide_name} in library table: {xs_file}", file=sys.stderr)
                             break
                     if xs_file:
                         break
             
             nuc_data = None
             if xs_file and os.path.exists(xs_file):
+                print(f"[XS Plot] Loading nuclide data from: {xs_file}", file=sys.stderr)
                 try:
                     nuc_data = openmc.data.IncidentNeutron.from_hdf5(xs_file)
+                    print(f"[XS Plot] Successfully loaded nuclide data from: {xs_file}", file=sys.stderr)
                 except Exception as e:
-                    print(f"Warning: Failed to load {xs_file}: {e}", file=sys.stderr)
+                    print(f"[XS Plot] ERROR: Failed to load {xs_file}: {e}", file=sys.stderr)
+            else:
+                print(f"[XS Plot] XS file not found or not specified: xs_file={xs_file}, exists={os.path.exists(xs_file) if xs_file else 'N/A'}", file=sys.stderr)
             
             if nuc_data is None and xs_dir:
                 possible_files = [
@@ -1855,8 +1874,107 @@ def cmd_xs_plot(args):
             
             return total_rate, total_flux, avg_xs
         
+        # Handle library comparison mode
+        if library_comparison:
+            libraries = library_comparison.get('libraries', [])
+            lib_nuclide = library_comparison.get('nuclide', 'U235')
+            lib_reaction = library_comparison.get('reaction', 18)
+            lib_temperature = library_comparison.get('temperature', 294)
+            
+            reaction_name = mt_names.get(lib_reaction, f"MT={lib_reaction}")
+            
+            print(f"[XS Plot] Library comparison mode: {len(libraries)} libraries, nuclide={lib_nuclide}, reaction={lib_reaction}", file=sys.stderr)
+            
+            for lib in libraries:
+                lib_name = lib.get('name', 'Unknown')
+                lib_path = lib.get('path', '')
+                
+                print(f"[XS Plot] Processing library '{lib_name}' from: {lib_path}", file=sys.stderr)
+                
+                try:
+                    # Load library-specific cross-sections
+                    lib_data_library = None
+                    lib_xs_dir = None
+                    if lib_path:
+                        try:
+                            lib_data_library = openmc.data.DataLibrary.from_xml(lib_path)
+                            lib_xs_dir = os.path.dirname(lib_path)
+                            print(f"[XS Plot] Successfully loaded library '{lib_name}' from: {lib_path}", file=sys.stderr)
+                        except Exception as e:
+                            print(f"[XS Plot] ERROR: Could not load library '{lib_name}' from {lib_path}: {e}", file=sys.stderr)
+                            import traceback
+                            traceback.print_exc(file=sys.stderr)
+                            continue
+                    else:
+                        # Use default library
+                        lib_data_library = library
+                        lib_xs_dir = xs_dir
+                        print(f"[XS Plot] Using default library for '{lib_name}'", file=sys.stderr)
+                    
+                    # Load nuclide data from this library
+                    print(f"[XS Plot] Looking for nuclide {lib_nuclide} in library '{lib_name}'...", file=sys.stderr)
+                    nuc_data = load_nuclide_data(lib_nuclide, lib_data_library, lib_xs_dir)
+                    if nuc_data is None:
+                        print(f"[XS Plot] ERROR: Could not load nuclide {lib_nuclide} from library '{lib_name}'", file=sys.stderr)
+                        continue
+                    print(f"[XS Plot] Found nuclide {lib_nuclide} in library '{lib_name}'", file=sys.stderr)
+                    
+                    # Get XS data
+                    energy, xs_values = get_xs_data_for_temp(nuc_data, lib_reaction, lib_temperature)
+                    if energy is None:
+                        print(f"Warning: Reaction MT={lib_reaction} not available for {lib_nuclide} in '{lib_name}'", file=sys.stderr)
+                        continue
+                    
+                    # Filter by energy range
+                    mask = (energy >= energy_min) & (energy <= energy_max)
+                    energy_filtered = energy[mask]
+                    xs_filtered = xs_values[mask]
+                    xs_filtered = np.maximum(xs_filtered, 1e-10)
+                    
+                    # Extract resonance info
+                    resonance_regions = []
+                    if hasattr(nuc_data, 'resonances') and nuc_data.resonances:
+                        res = nuc_data.resonances
+                        if hasattr(res, 'resolved') and res.resolved:
+                            resolved_list = res.resolved if isinstance(res.resolved, list) else [res.resolved]
+                            for r in resolved_list:
+                                resonance_regions.append({
+                                    "type": "resolved",
+                                    "energyMin": float(r.energy_min),
+                                    "energyMax": float(r.energy_max)
+                                })
+                        if hasattr(res, 'unresolved') and res.unresolved:
+                            unresolved_list = res.unresolved if isinstance(res.unresolved, list) else [res.unresolved]
+                            for ur in unresolved_list:
+                                resonance_regions.append({
+                                    "type": "unresolved",
+                                    "energyMin": float(ur.energy_min),
+                                    "energyMax": float(ur.energy_max)
+                                })
+                    
+                    curve = {
+                        "energy": energy_filtered.tolist(),
+                        "xs": xs_filtered.tolist(),
+                        "nuclide": lib_nuclide,
+                        "reaction": lib_reaction,
+                        "label": f"{lib_nuclide} {reaction_name} ({lib_name})",
+                        "temperature": lib_temperature,
+                        "library": lib_name
+                    }
+                    
+                    if resonance_regions:
+                        curve["resonanceRegions"] = resonance_regions
+                    
+                    curves.append(curve)
+                    print(f"[XS Plot] Added curve for '{lib_name}': {len(energy_filtered)} points", file=sys.stderr)
+                    
+                except Exception as e:
+                    print(f"Warning: Failed to get data from library '{lib_name}': {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+        
         # Handle temperature comparison mode
-        if temp_comparison:
+        elif temp_comparison:
             nuc_data = load_nuclide_data(temp_comparison['nuclide'], library, xs_dir)
             if nuc_data is None:
                 print(json.dumps({"error": f"Could not load data for {temp_comparison['nuclide']}"}))
@@ -2337,6 +2455,7 @@ def main():
     xs_parser.add_argument('--temp-comparison', help='Temperature comparison mode: comma-separated temperatures')
     xs_parser.add_argument('--materials', help='JSON string of materials with components')
     xs_parser.add_argument('--flux-spectrum', help='JSON string of flux spectrum for reaction rate calculation')
+    xs_parser.add_argument('--library-comparison', help='JSON string of library comparison configuration')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')
