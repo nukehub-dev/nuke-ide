@@ -1677,6 +1677,9 @@ def cmd_xs_plot(args):
             except json.JSONDecodeError as e:
                 print(f"Warning: Failed to parse library comparison: {e}", file=sys.stderr)
         
+        # Handle uncertainty extraction flag
+        include_uncertainty = getattr(args, 'include_uncertainty', False)
+        
         # Handle energy region preset
         if args.energy_region:
             region_ranges = {
@@ -1802,6 +1805,105 @@ def cmd_xs_plot(args):
                             print(f"Warning: Failed to load {pf}: {e}", file=sys.stderr)
             
             return nuc_data
+        
+        def extract_uncertainty_data(nuc_data, reaction_mt, temperature, energy_grid):
+            """Extract uncertainty/error data for a reaction if available."""
+            uncertainty = None
+            
+            print(f"[XS Plot] extract_uncertainty_data: MT={reaction_mt}, temp={temperature}", file=sys.stderr)
+            
+            try:
+                if reaction_mt not in nuc_data.reactions:
+                    print(f"[XS Plot] Reaction MT={reaction_mt} not found in nuc_data", file=sys.stderr)
+                    return None
+                
+                reaction = nuc_data.reactions[reaction_mt]
+                print(f"[XS Plot] Found reaction MT={reaction_mt}, type={type(reaction)}", file=sys.stderr)
+                
+                # Check if the reaction has uncertainty/xs_yield data
+                # OpenMC stores uncertainty information in various places depending on the version
+                
+                # Try to get the closest temperature
+                print(f"[XS Plot] Checking reaction.xs attribute: {hasattr(reaction, 'xs')}", file=sys.stderr)
+                if hasattr(reaction, 'xs') and reaction.xs:
+                    print(f"[XS Plot] reaction.xs type: {type(reaction.xs)}, keys: {list(reaction.xs.keys()) if hasattr(reaction.xs, 'keys') else 'N/A'}", file=sys.stderr)
+                    available_temps = list(reaction.xs.keys())
+                    if not available_temps:
+                        return None
+                    
+                    temps_numeric = []
+                    for t in available_temps:
+                        if isinstance(t, str):
+                            try:
+                                temps_numeric.append(float(t.rstrip('K').rstrip('k')))
+                            except:
+                                continue
+                        else:
+                            temps_numeric.append(float(t))
+                    
+                    if not temps_numeric:
+                        closest_temp = available_temps[0]
+                    else:
+                        closest_temp_idx = np.argmin(np.abs(np.array(temps_numeric) - temperature))
+                        closest_temp = available_temps[closest_temp_idx]
+                    
+                    xs_data = reaction.xs[closest_temp]
+                    print(f"[XS Plot] Got xs_data for temp {closest_temp}, type: {type(xs_data)}", file=sys.stderr)
+                    
+                    # Check for uncertainty in the HDF5 structure
+                    # OpenMC data files may contain '_uncertainty' datasets
+                    has_unc_attr = hasattr(xs_data, '_uncertainty') and xs_data._uncertainty is not None
+                    if has_unc_attr:
+                        std_dev = xs_data._uncertainty
+                        lower = np.maximum(xs_data.y - std_dev, 1e-10)
+                        upper = xs_data.y + std_dev
+                        
+                        uncertainty = {
+                            "stdDev": std_dev.tolist(),
+                            "lower": lower.tolist(),
+                            "upper": upper.tolist(),
+                            "relative": (std_dev / np.maximum(xs_data.y, 1e-10)).tolist()
+                        }
+                    
+                    # Check for yield/multiplicity uncertainty (common for fission)
+                    elif hasattr(reaction, 'yield_'):
+                        rxn_yield = getattr(reaction, 'yield_')
+                        if rxn_yield is not None and hasattr(rxn_yield, 'std_dev') and rxn_yield.std_dev is not None:
+                            y = getattr(rxn_yield, 'y', xs_data.y) if hasattr(rxn_yield, 'y') else xs_data.y
+                            std_dev = rxn_yield.std_dev
+                            
+                            uncertainty = {
+                                "stdDev": std_dev.tolist(),
+                                "lower": np.maximum(y - std_dev, 1e-10).tolist(),
+                                "upper": (y + std_dev).tolist(),
+                                "relative": (std_dev / np.maximum(y, 1e-10)).tolist()
+                            }
+                    
+                    # Check for covariance data (more complex uncertainty representation)
+                    has_cov = hasattr(nuc_data, 'covariance') and nuc_data.covariance is not None
+                    
+                    # Note: Most standard NNDC/OpenMC HDF5 libraries don't include uncertainty data
+                    # Uncertainty data is typically available in:
+                    # - ENDF/B-VIII.0 with uncertainty covariance matrices (MF=30-35)
+                    # - Special uncertainty-enabled cross-section libraries
+                    # - Continuous energy data with _uncertainty attributes
+                    
+                    if has_cov:
+                        # Covariance data exists but is complex to extract
+                        # Mark that it's available
+                        if uncertainty:
+                            uncertainty["hasCovariance"] = True
+                        else:
+                            uncertainty = {"hasCovariance": True}
+                    
+                    if uncertainty is None:
+                        print(f"[XS Plot] No uncertainty data available for MT={reaction_mt} in this library", file=sys.stderr)
+                    
+                    return uncertainty
+                
+            except Exception as e:
+                print(f"[XS Plot] Error extracting uncertainty: {e}", file=sys.stderr)
+                return None
         
         def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
             """Get XS data for a specific temperature."""
@@ -2260,6 +2362,16 @@ def cmd_xs_plot(args):
                                 curve["resonanceRegions"] = resonance_regions
                             # Always include resonances array (empty if no parameters)
                             curve["resonances"] = resonance_params if resonance_params else []
+                            
+                            # Extract uncertainty data if requested
+                            print(f"[XS Plot] include_uncertainty={include_uncertainty}, checking for MT={reaction_mt}", file=sys.stderr)
+                            if include_uncertainty:
+                                print(f"[XS Plot] Calling extract_uncertainty_data for MT={reaction_mt}", file=sys.stderr)
+                                uncertainty = extract_uncertainty_data(nuc_data, reaction_mt, temperature, energy_filtered)
+                                print(f"[XS Plot] extract_uncertainty_data returned: {uncertainty is not None}", file=sys.stderr)
+                                if uncertainty:
+                                    curve["uncertainty"] = uncertainty
+                                    print(f"[XS Plot] Added uncertainty to curve for MT={reaction_mt}", file=sys.stderr)
                                 
                             curves.append(curve)
                             
@@ -2456,6 +2568,7 @@ def main():
     xs_parser.add_argument('--materials', help='JSON string of materials with components')
     xs_parser.add_argument('--flux-spectrum', help='JSON string of flux spectrum for reaction rate calculation')
     xs_parser.add_argument('--library-comparison', help='JSON string of library comparison configuration')
+    xs_parser.add_argument('--include-uncertainty', action='store_true', help='Include uncertainty/error data if available')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')

@@ -499,6 +499,24 @@ export interface XSCurveData {
     resonances?: XSResonanceParameter[];
     /** Library name/source for multi-library comparison */
     library?: string;
+    /** Uncertainty/error data for cross-section (if available) */
+    uncertainty?: XSUncertaintyData;
+}
+
+/** Uncertainty/error data for cross-section */
+export interface XSUncertaintyData {
+    /** Standard deviation values (same length as xs) */
+    stdDev?: number[];
+    /** Relative uncertainty (fraction, e.g., 0.05 = 5%) */
+    relative?: number[];
+    /** Lower error bound (xs - error) */
+    lower?: number[];
+    /** Upper error bound (xs + error) */
+    upper?: number[];
+    /** Interpolation type used for error propagation */
+    interpolation?: string;
+    /** Whether covariance matrix is available */
+    hasCovariance?: boolean;
 }
 
 /** Library definition for multi-library comparison */
@@ -606,4 +624,6 @@ export interface XSPlotRequest {
     fluxSpectrum?: XSFluxSpectrum;
     /** Multi-library comparison (overrides other modes if set) */
     libraryComparison?: XSLibraryComparison;
+    /** Whether to extract and return uncertainty data */
+    includeUncertainty?: boolean;
 }

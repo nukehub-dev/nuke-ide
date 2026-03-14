@@ -91,6 +91,7 @@ export class XSPlotWidget extends ReactWidget {
     private energyRegion: XSEnergyRegion = 'full';
     private showResonanceRegions: boolean = true;
     private showResonances: boolean = true;
+    private showUncertainty: boolean = false;
     // Note: Energy range is managed by energyRegion preset
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
@@ -528,6 +529,15 @@ export class XSPlotWidget extends ReactWidget {
                             />
                             Show Resonance Markers
                         </label>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showUncertainty}
+                                onChange={() => { this.showUncertainty = !this.showUncertainty; this.update(); }}
+                                style={{ marginRight: '8px' }}
+                            />
+                            Show Uncertainty Bands
+                        </label>
                     </div>
                 </div>
 
@@ -614,6 +624,52 @@ export class XSPlotWidget extends ReactWidget {
                 },
                 hovertemplate: `<b>${curve.label}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`
             });
+
+            // Add uncertainty/error bands if available and enabled
+            if (this.showUncertainty && curve.uncertainty) {
+                const hasBounds = curve.uncertainty.lower && curve.uncertainty.upper && 
+                                  curve.uncertainty.lower.length > 0 && curve.uncertainty.upper.length > 0;
+                const hasStdDev = curve.uncertainty.stdDev && curve.uncertainty.stdDev.length > 0;
+                
+                if (hasBounds) {
+                    // Create filled area between lower and upper bounds
+                    // Plotly needs: upper bound line + lower bound line (reversed) for fill
+                    const xCombined = [...curve.energy, ...curve.energy.slice().reverse()];
+                    const yCombined = [...(curve.uncertainty.upper as number[]), ...(curve.uncertainty.lower as number[]).slice().reverse()];
+                    
+                    traces.push({
+                        x: xCombined,
+                        y: yCombined,
+                        type: 'scatter',
+                        mode: 'lines',
+                        fill: 'toself',
+                        fillcolor: 'rgba(255, 100, 100, 0.2)',
+                        line: { width: 0 },
+                        name: `${curve.label} ±σ`,
+                        showlegend: false,
+                        hoverinfo: 'skip'
+                    });
+                } else if (hasStdDev) {
+                    // Use error bars
+                    traces.push({
+                        x: curve.energy,
+                        y: curve.xs,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `${curve.label} ±σ`,
+                        line: { width: 0 },
+                        showlegend: false,
+                        error_y: {
+                            type: 'data',
+                            array: curve.uncertainty.stdDev as number[],
+                            visible: true,
+                            color: 'rgba(255, 100, 100, 0.5)',
+                            thickness: 1
+                        },
+                        hoverinfo: 'skip'
+                    });
+                }
+            }
 
             // Add resonance regions
             if (this.showResonanceRegions && curve.resonanceRegions) {
@@ -854,7 +910,8 @@ export class XSPlotWidget extends ReactWidget {
                         nuclide: this.libraryComparisonNuclide,
                         reaction: this.libraryComparisonReaction,
                         temperature: this.libraryComparisonTemperature
-                    }
+                    },
+                    includeUncertainty: this.showUncertainty
                 };
                 title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
             } else if (this.plotMode === 'temp-comparison') {
@@ -874,7 +931,8 @@ export class XSPlotWidget extends ReactWidget {
                         reaction: this.tempComparisonReaction,
                         temperatures: this.tempComparisonTemps
                     },
-                    energyRegion: this.energyRegion
+                    energyRegion: this.energyRegion,
+                    includeUncertainty: this.showUncertainty
                 };
                 title = `Temperature Comparison: ${this.tempComparisonNuclide} MT=${this.tempComparisonReaction}`;
             } else if (this.plotMode === 'materials') {
@@ -895,7 +953,8 @@ export class XSPlotWidget extends ReactWidget {
                         name: m.name,
                         components: m.components,
                         density: m.density
-                    }))
+                    })),
+                    includeUncertainty: this.showUncertainty
                 };
                 title = `Material Cross-Sections: ${this.materials.map(m => m.name).join(', ')}`;
             } else {
@@ -911,7 +970,8 @@ export class XSPlotWidget extends ReactWidget {
                     nuclides: this.selectedNuclides,
                     reactions: selectedReactions.map(r => r.mt),
                     temperature: this.temperature,
-                    energyRegion: this.energyRegion
+                    energyRegion: this.energyRegion,
+                    includeUncertainty: this.showUncertainty
                 };
                 title = `Cross-Sections: ${this.selectedNuclides.join(', ')}`;
             }
@@ -925,6 +985,13 @@ export class XSPlotWidget extends ReactWidget {
                     this.errorMessage = data.error;
                     this.data = null;
                 } else if (data.curves && data.curves.length > 0) {
+                    // Check if uncertainty was requested but not available
+                    if (this.showUncertainty) {
+                        const hasUncertainty = data.curves.some((c: any) => c.uncertainty);
+                        if (!hasUncertainty) {
+                            this.messageService.info('Uncertainty data not available in this cross-section library. Libraries with covariance data (MF=30-35) are required.');
+                        }
+                    }
                     // Reaction rates from data: data.reactionRates
                     this.setData(data, title);
                     return;

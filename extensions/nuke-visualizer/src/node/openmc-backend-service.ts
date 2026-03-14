@@ -427,6 +427,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--library-comparison', JSON.stringify(request.libraryComparison));
         }
 
+        // Add uncertainty extraction flag
+        if (request.includeUncertainty) {
+            args.push('--include-uncertainty');
+        }
+
         console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
 
         const result = spawnSync(pythonCommand, args, {
@@ -434,6 +439,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             maxBuffer: 20 * 1024 * 1024,  // Increased for larger datasets
             timeout: 120000  // Increased for complex calculations
         });
+
+        // Log stderr for debugging (even on success)
+        if (result.stderr) {
+            console.log(`[OpenMC] Python stderr: ${result.stderr}`);
+        }
 
         if (result.status !== 0) {
             console.error(`[OpenMC] XS plot command failed: ${result.stderr}`);
