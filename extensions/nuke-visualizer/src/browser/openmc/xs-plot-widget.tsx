@@ -82,6 +82,8 @@ export class XSPlotWidget extends ReactWidget {
     private selectedReactions: XSReaction[] = COMMON_XS_REACTIONS.map(r => ({ ...r }));
     private temperature: number = 294;
     private energyRegion: XSEnergyRegion = 'full';
+    private showResonanceRegions: boolean = true;
+    private showResonances: boolean = true;
     // Note: Energy range is managed by energyRegion preset
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
@@ -165,6 +167,7 @@ export class XSPlotWidget extends ReactWidget {
     }
 
     setData(data: XSPlotData, title: string): void {
+        console.log('[XSPlotWidget] Setting data:', data);
         this.data = data;
         this.titleText = title;
         this.isLoading = false;
@@ -493,6 +496,27 @@ export class XSPlotWidget extends ReactWidget {
                             />
                         </div>
                     )}
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showResonanceRegions}
+                                onChange={() => { this.showResonanceRegions = !this.showResonanceRegions; this.update(); }}
+                                style={{ marginRight: '8px' }}
+                            />
+                            Show Resonance Regions
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showResonances}
+                                onChange={() => { this.showResonances = !this.showResonances; this.update(); }}
+                                style={{ marginRight: '8px' }}
+                            />
+                            Show Resonance Markers
+                        </label>
+                    </div>
                 </div>
 
                 <div style={{ padding: '15px' }}>
@@ -529,14 +553,167 @@ export class XSPlotWidget extends ReactWidget {
             return null;
         }
 
-        const traces: Partial<Plotly.Data>[] = this.data.curves.map(curve => ({
-            x: curve.energy,
-            y: curve.xs,
-            type: 'scatter',
-            mode: 'lines',
-            name: curve.label,
-            line: { width: 1.5 }
-        }));
+        console.log('[XSPlotWidget] Rendering plot. Toggles:', { 
+            showResonanceRegions: this.showResonanceRegions, 
+            showResonances: this.showResonances 
+        });
+
+        const traces: Partial<Plotly.Data>[] = [];
+        const shapes: Partial<Plotly.Shape>[] = [];
+        const annotations: Partial<Plotly.Annotations>[] = [];
+
+        // Track seen resonance regions to avoid duplicates if multiple reactions for same nuclide
+        const seenRegions = new Set<string>();
+        const seenResonances = new Set<string>();
+
+        this.data.curves.forEach((curve, curveIdx) => {
+            // Main XS curve
+            traces.push({
+                x: curve.energy,
+                y: curve.xs,
+                type: 'scatter',
+                mode: 'lines',
+                name: curve.label,
+                line: { width: 1.5 },
+                hovertemplate: `<b>${curve.label}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`
+            });
+
+            // Add resonance regions
+            if (this.showResonanceRegions && curve.resonanceRegions) {
+                console.log(`[XSPlotWidget] Adding ${curve.resonanceRegions.length} resonance regions for ${curve.nuclide}`);
+                curve.resonanceRegions.forEach(region => {
+                    const regionKey = `${curve.nuclide}-${region.type}-${region.energyMin}-${region.energyMax}`;
+                    if (!seenRegions.has(regionKey)) {
+                        seenRegions.add(regionKey);
+                        
+                        const isResolved = region.type === 'resolved';
+                        shapes.push({
+                            type: 'rect',
+                            xref: 'x',
+                            yref: 'paper',
+                            x0: region.energyMin,
+                            x1: region.energyMax,
+                            y0: 0,
+                            y1: 1,
+                            fillcolor: isResolved ? 'rgba(0, 255, 0, 0.15)' : 'rgba(255, 165, 0, 0.15)',
+                            line: { width: 0 },
+                            layer: 'below'
+                        });
+
+                        // Add invisible hover points for region tooltip
+                        const centerX = (region.energyMin + region.energyMax) / 2;
+                        const hoverX = [region.energyMin, centerX, region.energyMax];
+                        // Find corresponding Y values from curve for each hover point
+                        const hoverY: number[] = [];
+                        const hoverTexts: string[] = [];
+                        
+                        hoverX.forEach(x => {
+                            // Find closest energy in curve
+                            let closestIdx = 0;
+                            let minDiff = Math.abs(curve.energy[0] - x);
+                            for (let i = 1; i < curve.energy.length; i++) {
+                                const diff = Math.abs(curve.energy[i] - x);
+                                if (diff < minDiff) {
+                                    minDiff = diff;
+                                    closestIdx = i;
+                                } else if (diff > minDiff) {
+                                    break; // Assuming energy is sorted
+                                }
+                            }
+                            hoverY.push(curve.xs[closestIdx]);
+                            hoverTexts.push(`<b>${isResolved ? 'Resolved' : 'Unresolved'} Resonance Region</b><br>Nuclide: ${curve.nuclide}<br>Energy: ${region.energyMin.toExponential(3)} - ${region.energyMax.toExponential(3)} eV<br>Type: ${region.type}${isResolved ? '' : ' (URR)'}`);
+                        });
+                        
+                        traces.push({
+                            x: hoverX,
+                            y: hoverY,
+                            type: 'scatter',
+                            mode: 'markers',
+                            marker: { size: 0, opacity: 0 },
+                            text: hoverTexts,
+                            hoverinfo: 'text',
+                            showlegend: false,
+                            hoverlabel: { bgcolor: isResolved ? 'rgba(0, 150, 0, 0.8)' : 'rgba(150, 100, 0, 0.8)' }
+                        });
+
+                        // Add label for the region
+                        annotations.push({
+                            x: centerX,
+                            y: 1,
+                            xref: 'x',
+                            yref: 'paper',
+                            text: isResolved ? 'Resolved' : 'Unresolved',
+                            showarrow: false,
+                            font: { 
+                                size: 10, 
+                                color: isResolved ? 'rgba(0, 150, 0, 0.5)' : 'rgba(150, 100, 0, 0.5)' 
+                            },
+                            textangle: '-90',
+                            xanchor: 'center',
+                            yanchor: 'top'
+                        });
+                    }
+                });
+            }
+
+            // Add individual resonance markers (transparent but with hover info)
+            if (this.showResonances && curve.resonances && curve.resonances.length > 0) {
+                console.log(`[XSPlotWidget] Adding ${curve.resonances.length} resonance markers for ${curve.nuclide}`);
+                const resX: number[] = [];
+                const resY: number[] = [];
+                const resHover: string[] = [];
+
+                curve.resonances.forEach(res => {
+                    const resKey = `${curve.nuclide}-${res.energy}`;
+                    if (!seenResonances.has(resKey)) {
+                        seenResonances.add(resKey);
+
+                        // Find closest energy in curve to get Y value for better hover positioning
+                        // Simple binary search would be better but let's just find the closest
+                        let closestIdx = 0;
+                        let minDiff = Math.abs(curve.energy[0] - res.energy);
+                        for (let i = 1; i < curve.energy.length; i++) {
+                            const diff = Math.abs(curve.energy[i] - res.energy);
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                closestIdx = i;
+                            } else if (diff > minDiff) {
+                                break; // Assuming energy is sorted
+                            }
+                        }
+
+                        resX.push(res.energy);
+                        resY.push(curve.xs[closestIdx]);
+                        
+                        let hoverText = `<b>${curve.nuclide} Resonance</b><br>`;
+                        hoverText += `E₀: ${res.energy.toFixed(3)} eV<br>`;
+                        if (res.totalWidth) hoverText += `Γ: ${res.totalWidth.toExponential(3)} eV<br>`;
+                        if (res.neutronWidth) hoverText += `Γₙ: ${res.neutronWidth.toExponential(3)} eV<br>`;
+                        if (res.gammaWidth) hoverText += `Γᵧ: ${res.gammaWidth.toExponential(3)} eV<br>`;
+                        if (res.fissionWidth) hoverText += `Γ_f: ${res.fissionWidth.toExponential(3)} eV<br>`;
+                        resHover.push(hoverText);
+                    }
+                });
+
+                if (resX.length > 0) {
+                    traces.push({
+                        x: resX,
+                        y: resY,
+                        type: 'scatter',
+                        mode: 'markers',
+                        name: `${curve.nuclide} Resonances`,
+                        marker: {
+                            symbol: 'diamond-open',
+                            size: 8,
+                            color: 'rgba(255, 0, 0, 0.5)'
+                        },
+                        text: resHover,
+                        hoverinfo: 'text',
+                        showlegend: false
+                    });
+                }
+            }
+        });
 
         const layout: Partial<Plotly.Layout> = {
             xaxis: {
@@ -559,6 +736,8 @@ export class XSPlotWidget extends ReactWidget {
                 bgcolor: theme === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
                 font: { color: theme === 'dark' ? '#ccc' : '#333' }
             },
+            shapes: shapes,
+            annotations: annotations,
             paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
             plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
             font: { color: theme === 'dark' ? '#ccc' : '#333' }

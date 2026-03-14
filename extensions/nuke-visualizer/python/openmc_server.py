@@ -2001,6 +2001,111 @@ def cmd_xs_plot(args):
                         print(f"[XS Plot] Searched in: {xs_dir if xs_dir else 'cross_sections.xml library'}", file=sys.stderr)
                         continue
                     
+                    # Extract resonance info
+                    resonance_regions = []
+                    resonance_params = []
+                    print(f"[XS Plot] Checking resonances for {nuclide_name}...", file=sys.stderr)
+                    if hasattr(nuc_data, 'resonances') and nuc_data.resonances:
+                        res = nuc_data.resonances
+                        print(f"[XS Plot] Found resonance object for {nuclide_name}: {type(res)}", file=sys.stderr)
+                        
+                        # Resolved regions
+                        if hasattr(res, 'resolved') and res.resolved:
+                            resolved_list = res.resolved if isinstance(res.resolved, list) else [res.resolved]
+                            print(f"[XS Plot] Found {len(resolved_list)} resolved region(s)", file=sys.stderr)
+                            for r in resolved_list:
+                                print(f"[XS Plot] Resolved region: {r.energy_min} to {r.energy_max} eV", file=sys.stderr)
+                                resonance_regions.append({
+                                    "type": "resolved",
+                                    "energyMin": float(r.energy_min),
+                                    "energyMax": float(r.energy_max)
+                                })
+                                # Try to extract some parameters for key resonances
+                                try:
+                                    if hasattr(r, 'parameters') and r.parameters is not None:
+                                        df = r.parameters
+                                        print(f"[XS Plot] Resonance parameters found. Type: {type(df)}", file=sys.stderr)
+                                        
+                                        # Handle both Pandas DataFrame and Numpy structured array
+                                        is_pandas = hasattr(df, 'iterrows')
+                                        
+                                        energies = df['energy'].values if is_pandas else df['energy']
+                                        mask = (energies >= energy_min) & (energies <= energy_max)
+                                        
+                                        if is_pandas:
+                                            in_range = df[mask]
+                                        else:
+                                            # Numpy structured array filtering
+                                            in_range = df[mask]
+                                            
+                                        print(f"[XS Plot] {len(in_range)} resonances in plot range", file=sys.stderr)
+                                        
+                                        # Limit to top 100 to avoid huge JSON
+                                        if len(in_range) > 100:
+                                            print(f"[XS Plot] Limiting 100+ resonances to top 100", file=sys.stderr)
+                                            if is_pandas:
+                                                sort_col = next((c for c in ['totalWidth', 'neutronWidth', 'captureWidth'] if c in in_range.columns), 'energy')
+                                                in_range = in_range.sort_values(sort_col, ascending=False).head(100)
+                                            else:
+                                                # Basic sort for numpy arrays
+                                                sort_col = next((c for c in ['totalWidth', 'neutronWidth', 'captureWidth'] if c in in_range.dtype.names), 'energy')
+                                                in_range = np.sort(in_range, order=sort_col)[-100:]
+                                        
+                                        if is_pandas:
+                                            for _, row in in_range.iterrows():
+                                                param = {"energy": float(row['energy'])}
+                                                width_map = {'neutronWidth': 'neutronWidth', 'captureWidth': 'gammaWidth', 
+                                                           'gammaWidth': 'gammaWidth', 'fissionWidth': 'fissionWidth', 
+                                                           'totalWidth': 'totalWidth'}
+                                                for col, target in width_map.items():
+                                                    if col in row and not np.isnan(row[col]):
+                                                        param[target] = float(row[col])
+                                                resonance_params.append(param)
+                                        else:
+                                            for row in in_range:
+                                                param = {"energy": float(row['energy'])}
+                                                for col in in_range.dtype.names:
+                                                    target = {'neutronWidth': 'neutronWidth', 'captureWidth': 'gammaWidth', 
+                                                            'gammaWidth': 'gammaWidth', 'fissionWidth': 'fissionWidth', 
+                                                            'totalWidth': 'totalWidth'}.get(col)
+                                                    if target and not np.isnan(row[col]):
+                                                        param[target] = float(row[col])
+                                                resonance_params.append(param)
+                                except Exception as e:
+                                    print(f"[XS Plot] Error extracting parameters: {e}", file=sys.stderr)
+                                    import traceback
+                                    traceback.print_exc(file=sys.stderr)
+                                    
+                        # Unresolved regions
+                        if hasattr(res, 'unresolved') and res.unresolved:
+                            unresolved_list = res.unresolved if isinstance(res.unresolved, list) else [res.unresolved]
+                            print(f"[XS Plot] Found {len(unresolved_list)} unresolved region(s)", file=sys.stderr)
+                            for ur in unresolved_list:
+                                resonance_regions.append({
+                                    "type": "unresolved",
+                                    "energyMin": float(ur.energy_min),
+                                    "energyMax": float(ur.energy_max)
+                                })
+                    else:
+                        print(f"[XS Plot] No 'resonances' attribute found in nuc_data for {nuclide_name}", file=sys.stderr)
+                        # Check for URR (Unresolved Resonance Region) data
+                        if hasattr(nuc_data, 'urr') and nuc_data.urr:
+                            print(f"[XS Plot] Found URR data for {nuclide_name}", file=sys.stderr)
+                            # Use first temperature's energy range
+                            for temp, urr_table in nuc_data.urr.items():
+                                if hasattr(urr_table, 'energy') and urr_table.energy is not None:
+                                    energies = urr_table.energy
+                                    if len(energies) > 0:
+                                        energy_min_urr = float(energies[0])
+                                        energy_max_urr = float(energies[-1])
+                                        print(f"[XS Plot] URR energy range: {energy_min_urr} to {energy_max_urr} eV", file=sys.stderr)
+                                        resonance_regions.append({
+                                            "type": "unresolved",
+                                            "energyMin": energy_min_urr,
+                                            "energyMax": energy_max_urr
+                                        })
+                                    break  # Use first temperature only
+
                     # Get cross-section data for each reaction
                     for reaction_mt in parsed_reactions:
                         try:
@@ -2024,13 +2129,21 @@ def cmd_xs_plot(args):
                             # Create label
                             label = f"{nuclide_name} {reaction_name}"
                             
-                            curves.append({
+                            curve = {
                                 "energy": energy_filtered.tolist(),
                                 "xs": xs_filtered.tolist(),
                                 "nuclide": nuclide_name,
                                 "reaction": reaction_mt,
                                 "label": label
-                            })
+                            }
+                            
+                            # Add resonance info to curve
+                            if resonance_regions:
+                                curve["resonanceRegions"] = resonance_regions
+                            # Always include resonances array (empty if no parameters)
+                            curve["resonances"] = resonance_params if resonance_params else []
+                                
+                            curves.append(curve)
                             
                             # Calculate reaction rate if flux spectrum provided
                             if flux_spectrum:

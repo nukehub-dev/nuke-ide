@@ -493,6 +493,39 @@ export interface XSCurveData {
     temperature?: number;
     /** Whether this is a macroscopic cross-section (1/cm) */
     isMacroscopic?: boolean;
+    /** Resonance regions for this nuclide */
+    resonanceRegions?: XSResonanceRegion[];
+    /** Key resonance parameters for this nuclide */
+    resonances?: XSResonanceParameter[];
+}
+
+/** Resonance region type */
+export type XSResonanceType = 'resolved' | 'unresolved';
+
+/** Resonance region definition */
+export interface XSResonanceRegion {
+    /** Type of resonance region */
+    type: XSResonanceType;
+    /** Lower energy bound in eV */
+    energyMin: number;
+    /** Upper energy bound in eV */
+    energyMax: number;
+}
+
+/** Individual resonance parameter */
+export interface XSResonanceParameter {
+    /** Energy of resonance in eV (E₀) */
+    energy: number;
+    /** Neutron width in eV (Γₙ) */
+    neutronWidth?: number;
+    /** Gamma width in eV (Γᵧ) */
+    gammaWidth?: number;
+    /** Fission width in eV (Γ_f) */
+    fissionWidth?: number;
+    /** Total width in eV (Γ) */
+    totalWidth?: number;
+    /** Peak cross-section in barns (σ₀) - approximate */
+    peakXS?: number;
 }
 
 /** Complete XS plot data for multiple nuclides/reactions */
