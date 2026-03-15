@@ -46,6 +46,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     private errorMessage: string | null = null;
     private loadSliceTimeout: number | null = null;  // Debounce timer
     private colormap: string = 'Jet';  // Default colormap
+    private useLogScale: boolean = false;  // Toggle for log/linear scale
 
     @inject(ThemeService)
     protected readonly themeService: ThemeService;
@@ -371,6 +372,55 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         <option value="Greys">Greys</option>
                     </select>
                 </div>
+
+                {/* Log Scale Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        fontSize: '12px',
+                        cursor: this.isLoading ? 'not-allowed' : 'pointer',
+                        opacity: this.isLoading ? 0.6 : 1
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={this.useLogScale}
+                            onChange={() => { this.useLogScale = !this.useLogScale; this.update(); }}
+                            disabled={this.isLoading}
+                        />
+                        Log Scale
+                    </label>
+                </div>
+
+                {/* Min/Max Statistics */}
+                {this.data && (() => {
+                    const allValues = this.data.values.flat();
+                    const minVal = Math.min(...allValues);
+                    const maxVal = Math.max(...allValues);
+                    const meanVal = allValues.reduce((a, b) => a + b, 0) / allValues.length;
+                    return (
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            fontSize: '11px',
+                            padding: '4px 10px',
+                            backgroundColor: theme === 'dark' ? '#252525' : '#e8e8e8',
+                            borderRadius: '4px'
+                        }}>
+                            <span style={{ color: theme === 'dark' ? '#ff6b6b' : '#d32f2f' }}>
+                                Min: {minVal.toExponential(3)}
+                            </span>
+                            <span style={{ color: theme === 'dark' ? '#4caf50' : '#2e7d32' }}>
+                                Max: {maxVal.toExponential(3)}
+                            </span>
+                            <span style={{ color: theme === 'dark' ? '#2196f3' : '#1565c0' }}>
+                                Mean: {meanVal.toExponential(3)}
+                            </span>
+                        </div>
+                    );
+                })()}
             </div>
         );
     }
@@ -383,22 +433,41 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         const minValue = Math.min(...allValues.filter(v => v > 0)) || 1e-10;
         const maxValue = Math.max(...allValues) || 1;
 
+        // Apply log scale transformation if enabled
+        let displayValues = values;
+        let zMin = minValue;
+        let zMax = maxValue;
+        let colorbarTitle = 'Tally Value';
+        let hoverTemplate = `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Value:</b> %{z:.6e}<extra></extra>`;
+
+        if (this.useLogScale) {
+            // Transform values to log10, handling zeros/negatives
+            displayValues = values.map(row => 
+                row.map(v => v > 0 ? Math.log10(v) : Math.log10(minValue))
+            );
+            zMin = Math.log10(minValue);
+            zMax = Math.log10(maxValue);
+            colorbarTitle = 'log₁₀(Tally Value)';
+            hoverTemplate = `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Value:</b> 10^%{z:.2f} = %{customdata:.6e}<extra></extra>`;
+        }
+
         const trace: Partial<Plotly.Data> = {
-            z: values,
+            z: displayValues,
             x: x_coords,
             y: y_coords,
             type: 'heatmap',
             colorscale: this.colormap as Plotly.ColorScale,
-            zmin: minValue,
-            zmax: maxValue,
+            zmin: zMin,
+            zmax: zMax,
+            customdata: this.useLogScale ? values : undefined,  // Original values for hover
             colorbar: {
                 title: {
-                    text: 'Tally Value',
+                    text: colorbarTitle,
                     font: { color: theme === 'dark' ? '#ccc' : '#333' }
                 },
                 tickfont: { color: theme === 'dark' ? '#ccc' : '#333' }
             },
-            hovertemplate: `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Value:</b> %{z:.6e}<extra></extra>`
+            hovertemplate: hoverTemplate
         };
 
         const layout: Partial<Plotly.Layout> = {
