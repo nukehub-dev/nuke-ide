@@ -282,6 +282,9 @@ export const OpenMCBackendService = Symbol('OpenMCBackendService');
 export const OPENMC_BACKEND_PATH = '/services/openmc';
 
 export interface OpenMCBackendService {
+    /** Set Python configuration for OpenMC operations */
+    setPythonConfig(config: PythonConfig): Promise<void>;
+
     /** Load OpenMC statepoint and return summary information */
     loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
     
@@ -328,7 +331,7 @@ export interface OpenMCBackendService {
     stopServer(port: number): Promise<void>;
     
     /** Check if OpenMC integration is available (h5py installed) */
-    checkOpenMCAvailable(): Promise<{ available: boolean; message: string }>;
+    checkOpenMCAvailable(): Promise<{ available: boolean; message: string; warning?: string }>;
     
     // === Cross-Section (XS) Plotting ===
     
@@ -336,7 +339,7 @@ export interface OpenMCBackendService {
     getXSData(request: XSPlotRequest): Promise<XSPlotData>;
     
     /** Check if OpenMC Python module is available (for XS plotting) */
-    checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string }>;
+    checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string; warning?: string }>;
     
     /** Get available nuclides from cross_sections.xml */
     getAvailableNuclides(crossSectionsPath?: string): Promise<string[]>;

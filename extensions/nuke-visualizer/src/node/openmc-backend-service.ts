@@ -19,6 +19,7 @@ import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process
 import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
+import * as os from 'os';
 import { execSync, spawnSync } from 'child_process';
 import {
     OpenMCBackendService,
@@ -26,7 +27,8 @@ import {
     OpenMCTallyInfo,
     OpenMCVisualizationResult,
     OpenMCFilter,
-    XSGroupStructuresResponse
+    XSGroupStructuresResponse,
+    PythonConfig
 } from '../common/visualizer-protocol';
 
 interface OpenMCProcess {
@@ -39,12 +41,19 @@ interface OpenMCProcess {
 export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private processes: Map<number, OpenMCProcess> = new Map();
     private reservedPorts: Set<number> = new Set();
+    private pythonConfig: PythonConfig = {};
 
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
 
+    async setPythonConfig(config: PythonConfig): Promise<void> {
+        this.pythonConfig = config;
+        console.log(`[OpenMC] Python config updated: ${JSON.stringify(config)}`);
+    }
+
     async loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const result = spawnSync(
@@ -74,7 +83,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const result = spawnSync(
@@ -122,7 +132,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonCommand = await this.detectPythonCommand();
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
             const scriptPath = this.findOpenMCScript();
 
             const args: string[] = [
@@ -170,7 +181,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonCommand = await this.detectPythonCommand();
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
             const scriptPath = this.findOpenMCScript();
 
             const args: string[] = [
@@ -209,7 +221,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonCommand = await this.detectPythonCommand();
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
             const scriptPath = this.findOpenMCScript();
 
             const args: string[] = [
@@ -253,7 +266,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [
@@ -293,7 +307,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [
@@ -337,9 +352,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
-    async checkOpenMCAvailable(): Promise<{ available: boolean; message: string }> {
+    async checkOpenMCAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
         try {
-            const pythonCommand = await this.detectPythonCommand();
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
+            const warning = pythonInfo.warning;
             
             // Check for h5py
             try {
@@ -347,7 +364,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             } catch {
                 return {
                     available: false,
-                    message: 'h5py not installed. Run: pip install h5py'
+                    message: `h5py not installed in ${pythonCommand}. Run: pip install h5py`,
+                    warning
                 };
             }
 
@@ -357,13 +375,15 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (!fs.existsSync(scriptPath)) {
                 return {
                     available: false,
-                    message: `OpenMC integration script not found at ${scriptPath}`
+                    message: `OpenMC integration script not found at ${scriptPath}`,
+                    warning
                 };
             }
 
             return {
                 available: true,
-                message: 'OpenMC integration available'
+                message: 'OpenMC integration available',
+                warning
             };
 
         } catch (error) {
@@ -377,7 +397,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     // === Cross-Section (XS) Plotting ===
 
     async getXSData(request: any): Promise<any> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [
@@ -480,9 +501,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
-    async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string }> {
+    async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
         try {
-            const pythonCommand = await this.detectPythonCommand();
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
+            const warning = pythonInfo.warning;
             
             // Check for openmc module
             try {
@@ -490,13 +513,15 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             } catch {
                 return {
                     available: false,
-                    message: 'OpenMC Python module not installed. Run: pip install openmc'
+                    message: `OpenMC Python module not installed in ${pythonCommand}. Run: pip install openmc`,
+                    warning
                 };
             }
 
             return {
                 available: true,
-                message: 'OpenMC Python module available'
+                message: 'OpenMC Python module available',
+                warning
             };
         } catch (error) {
             return {
@@ -507,7 +532,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [scriptPath, 'list-nuclides'];
@@ -535,7 +561,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [scriptPath, 'list-thermal-materials'];
@@ -563,7 +590,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async getGroupStructures(): Promise<XSGroupStructuresResponse> {
-        const pythonCommand = await this.detectPythonCommand();
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
         const scriptPath = this.findOpenMCScript();
 
         const args = [scriptPath, 'list-group-structures'];
@@ -687,26 +715,124 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
     }
 
-    private async detectPythonCommand(): Promise<string> {
-        // Try to find a suitable Python with ParaView
-        const candidates = [
-            process.env.CONDA_PREFIX ? path.join(process.env.CONDA_PREFIX, 'bin', 'python') : null,
-            'pvpython',
-            'python3',
-            'python',
-        ].filter((c): c is string => c !== null);
+    private async detectPythonCommand(): Promise<{ command: string; warning?: string }> {
+        const warnings: string[] = [];
 
-        for (const cmd of candidates) {
-            try {
-                execSync(`"${cmd}" -c "import paraview; import h5py"`, { stdio: 'ignore' });
-                return cmd;
-            } catch {
-                continue;
+        // 1. Check pythonConfig.pythonPath first (user preference)
+        if (this.pythonConfig.pythonPath && fs.existsSync(this.pythonConfig.pythonPath)) {
+            if (this.testPython(this.pythonConfig.pythonPath)) {
+                return { command: this.pythonConfig.pythonPath };
+            }
+            const msg = `Configured Python at ${this.pythonConfig.pythonPath} is missing required dependencies (h5py, openmc). Using fallback.`;
+            console.warn(`[OpenMC] ${msg}`);
+            warnings.push(msg);
+        } else if (this.pythonConfig.pythonPath) {
+            const msg = `Configured Python path does not exist: ${this.pythonConfig.pythonPath}. Using fallback.`;
+            console.warn(`[OpenMC] ${msg}`);
+            warnings.push(msg);
+        }
+
+        // 2. Check pythonConfig.condaEnv (user preference for conda env name)
+        if (this.pythonConfig.condaEnv) {
+            const condaPython = this.findCondaPython(this.pythonConfig.condaEnv);
+            if (condaPython && this.testPython(condaPython)) {
+                return { 
+                    command: condaPython,
+                    warning: warnings.length > 0 ? warnings.join(' ') : undefined
+                };
+            }
+            const msg = `Conda environment '${this.pythonConfig.condaEnv}' not found or missing dependencies. Using fallback.`;
+            console.warn(`[OpenMC] ${msg}`);
+            warnings.push(msg);
+        }
+
+        // 3. Try common conda envs if not configured
+        const commonCondaEnvs = ['visualizer', 'trame', 'openmc', 'nuke-ide'];
+        for (const envName of commonCondaEnvs) {
+            const condaPython = this.findCondaPython(envName);
+            if (condaPython && this.testPython(condaPython)) {
+                const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
+                const fallbackMsg = `Using auto-detected conda environment: ${envName}`;
+                return { 
+                    command: condaPython, 
+                    warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
+                };
             }
         }
 
-        // Fallback to python3
-        return 'python3';
+        // 4. Check CONDA_PREFIX env var (if shell has activated conda)
+        const condaPrefix = process.env.CONDA_PREFIX;
+        if (condaPrefix) {
+            const condaPython = path.join(condaPrefix, 'bin', 'python');
+            if (fs.existsSync(condaPython) && this.testPython(condaPython)) {
+                const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
+                const fallbackMsg = `Using active conda environment: ${path.basename(condaPrefix)}`;
+                return { 
+                    command: condaPython,
+                    warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
+                };
+            }
+        }
+
+        // 5. Try system commands
+        const candidates = ['pvpython', 'python3', 'python'];
+        for (const cmd of candidates) {
+            try {
+                // Use which to get absolute path
+                const cmdPath = execSync(`which ${cmd}`, { encoding: 'utf8' }).trim();
+                if (cmdPath && this.testPython(cmdPath)) {
+                    const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
+                    const fallbackMsg = `Using system ${cmd} from PATH: ${cmdPath}`;
+                    return { 
+                        command: cmdPath,
+                        warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
+                    };
+                }
+            } catch {
+                // not found
+            }
+        }
+
+        // Final fallback to python3 if all detection fails
+        const msg = '[OpenMC] All Python detection methods failed. Falling back to default python3.';
+        console.warn(msg);
+        return { 
+            command: 'python3',
+            warning: warnings.length > 0 ? `${warnings.join(' ')} ${msg}` : msg
+        };
+    }
+
+    private findCondaPython(envName: string): string | undefined {
+        const homeDir = os.homedir();
+        const condaBasePaths = [
+            path.join(homeDir, '.conda', 'envs'),
+            path.join(homeDir, 'anaconda3', 'envs'),
+            path.join(homeDir, 'miniconda3', 'envs'),
+            '/opt/conda/envs',
+            '/opt/miniconda3/envs',
+            '/opt/anaconda3/envs',
+            '/usr/local/conda/envs',
+            '/usr/local/miniconda3/envs',
+            '/usr/local/anaconda3/envs',
+        ];
+
+        for (const condaPath of condaBasePaths) {
+            const envPython = path.join(condaPath, envName, 'bin', 'python');
+            if (fs.existsSync(envPython)) {
+                return envPython;
+            }
+        }
+        return undefined;
+    }
+
+    private testPython(pythonPath: string): boolean {
+        try {
+            // Check for critical dependencies h5py and openmc
+            execSync(`"${pythonPath}" -c "import h5py; import openmc"`, { stdio: 'ignore' });
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     private getExtensionPath(): string {

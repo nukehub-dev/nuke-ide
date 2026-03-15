@@ -442,8 +442,8 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
         
         // No suitable Python found
-        const errorMessage = `Unable to find a Python interpreter with both visualizer and ParaView installed.\n\n` +
-            `Please configure a Python path in Preferences → NukeVisualizer.\n\n` +
+        const errorMessage = `Unable to find a Python interpreter with both trame and ParaView installed.\n\n` +
+            `Please configure a Python path in Preferences → Nuke Visualizer.\n\n` +
             `Details:\n${errors.map(e => '  • ' + e).join('\n')}`;
         throw new Error(errorMessage);
     }
@@ -455,6 +455,10 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             path.join(homeDir, 'anaconda3', 'envs'),
             path.join(homeDir, 'miniconda3', 'envs'),
             '/opt/conda/envs',
+            '/opt/miniconda3/envs',
+            '/opt/anaconda3/envs',
+            '/usr/local/conda/envs',
+            '/usr/local/miniconda3/envs',
             '/usr/local/anaconda3/envs',
         ];
         

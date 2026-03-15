@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { Emitter, Event } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
@@ -25,7 +25,8 @@ import {
     OpenMCTallyInfo,
     XSPlotRequest,
     XSPlotData,
-    XSGroupStructuresResponse
+    XSGroupStructuresResponse,
+    PythonConfig
 } from '../../common/visualizer-protocol';
 import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
@@ -83,12 +84,33 @@ export class OpenMCService {
     private currentStatepoint: OpenMCStatepointInfo | null = null;
     private currentTallies: OpenMCTallyInfo[] = [];
 
+    @postConstruct()
+    protected init(): void {
+        this.updatePythonConfig();
+        this.preferences.onPreferenceChanged(event => {
+            if (event.preferenceName === 'nukeVisualizer.pythonPath' || event.preferenceName === 'nukeVisualizer.condaEnv') {
+                this.updatePythonConfig();
+            }
+        });
+    }
+
+    protected updatePythonConfig(): void {
+        const config: PythonConfig = {
+            pythonPath: this.preferences['nukeVisualizer.pythonPath'] || undefined,
+            condaEnv: this.preferences['nukeVisualizer.condaEnv'] || undefined,
+        };
+        this.openmcBackend.setPythonConfig(config);
+    }
+
     /**
      * Check if OpenMC integration is available.
      */
     async checkAvailability(): Promise<boolean> {
         try {
             const result = await this.openmcBackend.checkOpenMCAvailable();
+            if (result.warning) {
+                this.messageService.warn(result.warning);
+            }
             if (!result.available) {
                 this.messageService.warn(`OpenMC integration: ${result.message}`);
                 return false;
@@ -595,6 +617,9 @@ export class OpenMCService {
     async checkOpenMCPythonAvailable(): Promise<boolean> {
         try {
             const result = await this.openmcBackend.checkOpenMCPythonAvailable();
+            if (result.warning) {
+                this.messageService.warn(result.warning);
+            }
             if (!result.available) {
                 this.messageService.warn(`OpenMC Python: ${result.message}`);
                 return false;
