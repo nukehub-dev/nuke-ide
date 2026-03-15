@@ -38,6 +38,7 @@ import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
 import { OpenMCHeatmapWidget } from './openmc/openmc-heatmap-widget';
 import { XSPlotWidget } from './openmc/xs-plot-widget';
+import { OpenMCDepletionWidget } from './openmc/openmc-depletion-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -162,4 +163,17 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind OpenMC Tallies View Contribution (adds icon to sidebar)
     bindViewContribution(bind, OpenMCTalliesViewContribution);
     bind(FrontendApplicationContribution).toService(OpenMCTalliesViewContribution);
+
+    // Bind depletion widget
+    bind(OpenMCDepletionWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCDepletionWidget.ID,
+        createWidget: (options?: { id?: string }) => {
+            const widget = context.container.get<OpenMCDepletionWidget>(OpenMCDepletionWidget);
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
+    })).inSingletonScope();
 });

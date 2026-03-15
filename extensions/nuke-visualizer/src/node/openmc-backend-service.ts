@@ -703,6 +703,102 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Depletion/Burnup Methods ===
+
+    async getDepletionSummary(filePath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'depletion-summary', filePath];
+
+        console.log(`[OpenMC] Running depletion-summary command for ${filePath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Depletion summary command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to load depletion summary');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse depletion summary: ${e}`);
+            throw e;
+        }
+    }
+
+    async getDepletionMaterials(filePath: string): Promise<any[]> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'depletion-materials', filePath];
+
+        console.log(`[OpenMC] Running depletion-materials command for ${filePath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Depletion materials command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to load depletion materials');
+        }
+
+        try {
+            const data = JSON.parse(result.stdout);
+            return data.materials || [];
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse depletion materials: ${e}`);
+            throw e;
+        }
+    }
+
+    async getDepletionData(
+        filePath: string,
+        materialIndex: number,
+        nuclides?: string[],
+        includeActivity?: boolean
+    ): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'depletion-data', filePath, materialIndex.toString()
+        ];
+
+        if (nuclides && nuclides.length > 0) {
+            args.push('--nuclides', nuclides.join(','));
+        }
+
+        console.log(`[OpenMC] Running depletion-data command for material ${materialIndex}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 60000,
+            maxBuffer: 50 * 1024 * 1024  // 50MB for large depletion files
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Depletion data command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to load depletion data');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse depletion data: ${e}`);
+            throw e;
+        }
+    }
+
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
         const tally = tallies.find(t => t.id === tallyId);

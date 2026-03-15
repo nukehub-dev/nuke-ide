@@ -401,6 +401,22 @@ export interface OpenMCBackendService {
     
     /** Get available energy group structures for multigroup XS */
     getGroupStructures(): Promise<XSGroupStructuresResponse>;
+    
+    // === Depletion/Burnup Visualization ===
+    
+    /** Get summary of depletion results */
+    getDepletionSummary(filePath: string): Promise<OpenMCDepletionSummary>;
+    
+    /** Get list of materials from depletion results */
+    getDepletionMaterials(filePath: string): Promise<OpenMCDepletionMaterial[]>;
+    
+    /** Get depletion data for a specific material */
+    getDepletionData(
+        filePath: string,
+        materialIndex: number,
+        nuclides?: string[],
+        includeActivity?: boolean
+    ): Promise<OpenMCDepletionResponse>;
 }
 
 // === Color Map Presets ===
@@ -853,4 +869,165 @@ export interface XSChainDecayRequest {
     maxDepth?: number;
     /** Specific daughter nuclides to track (if empty, tracks all) */
     trackDaughters?: string[];
+}
+
+// ============================================================================
+// Depletion/Burnup Visualization Types
+// ============================================================================
+
+/** Depletion results summary from depletion_results.h5 */
+export interface OpenMCDepletionSummary {
+    /** Number of burnable materials */
+    nMaterials: number;
+    /** Number of time steps */
+    nSteps: number;
+    /** Number of nuclides tracked */
+    nNuclides: number;
+    /** Time points in seconds */
+    timePoints: number[];
+    /** Time points in days (converted) */
+    timeDays: number[];
+    /** Burnup values in MWd/kg (if available) */
+    burnup?: number[];
+    /** Source rate (particles/sec) if available */
+    sourceRate?: number[];
+}
+
+/** Material information from depletion results */
+export interface OpenMCDepletionMaterial {
+    /** Material index */
+    index: number;
+    /** Material name */
+    name: string;
+    /** Initial volume in cm³ */
+    volume?: number;
+    /** Initial mass in grams */
+    initialMass?: number;
+}
+
+/** Nuclide concentration data */
+export interface OpenMCDepletionNuclideData {
+    /** Nuclide name (e.g., 'U235', 'Pu239') */
+    nuclide: string;
+    /** Concentration at each time step (atoms/barn-cm) */
+    concentrations: number[];
+    /** Concentration in grams (if calculated) */
+    massGrams?: number[];
+    /** Concentration as fraction of total mass */
+    massFraction?: number[];
+}
+
+/** Activity data for a nuclide */
+export interface OpenMCDepletionActivityData {
+    /** Nuclide name */
+    nuclide: string;
+    /** Activity at each time step (Bq) */
+    activity: number[];
+    /** Activity in curies (Ci) */
+    activityCi?: number[];
+    /** Decay heat at each time step (Watts) */
+    decayHeat?: number[];
+    /** Half-life in seconds */
+    halfLife?: number;
+}
+
+/** Complete depletion data for a material */
+export interface OpenMCDepletionMaterialData {
+    /** Material information */
+    material: OpenMCDepletionMaterial;
+    /** Nuclide concentration data */
+    nuclides: OpenMCDepletionNuclideData[];
+    /** Total atoms per time step */
+    totalAtoms: number[];
+    /** Total mass per time step (grams) */
+    totalMass: number[];
+}
+
+/** Request for depletion data */
+export interface OpenMCDepletionRequest {
+    /** Path to depletion_results.h5 file */
+    filePath: string;
+    /** Material index to analyze (if not specified, returns summary) */
+    materialIndex?: number;
+    /** Specific nuclides to include (if empty, returns all) */
+    nuclides?: string[];
+    /** Include activity data */
+    includeActivity?: boolean;
+}
+
+/** Response for depletion data request */
+export interface OpenMCDepletionResponse {
+    /** Summary information */
+    summary: OpenMCDepletionSummary;
+    /** Material data (if materialIndex specified) */
+    materialData?: OpenMCDepletionMaterialData;
+    /** All materials list (if no materialIndex specified) */
+    materials?: OpenMCDepletionMaterial[];
+    /** Activity data (if requested) */
+    activity?: OpenMCDepletionActivityData[];
+    /** Error message if any */
+    error?: string;
+}
+
+/** Plot type for depletion visualization */
+export type DepletionPlotType = 'concentration' | 'mass' | 'activity' | 'decay_heat' | 'normalized';
+
+/** Y-axis scale type */
+export type DepletionScaleType = 'linear' | 'log';
+
+/** X-axis type */
+export type DepletionXAxis = 'time' | 'burnup' | 'step';
+
+/** Preset nuclide groups for quick selection */
+export interface DepletionNuclidePreset {
+    /** Preset identifier */
+    id: string;
+    /** Display name */
+    label: string;
+    /** Nuclides in this preset */
+    nuclides: string[];
+    /** Description */
+    description: string;
+}
+
+/** Common nuclide presets for depletion analysis */
+export const DEPLETION_NUCLIDE_PRESETS: DepletionNuclidePreset[] = [
+    {
+        id: 'actinides',
+        label: 'Major Actinides',
+        nuclides: ['U234', 'U235', 'U236', 'U238', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 'Am241', 'Am242m'],
+        description: 'Primary actinides for burnup analysis'
+    },
+    {
+        id: 'fission_products',
+        label: 'Fission Products',
+        nuclides: ['Xe135', 'Sm149', 'Cs137', 'I135', 'Pm147', 'Nd143', 'Nd145'],
+        description: 'Important fission products with impact on reactivity and decay heat'
+    },
+    {
+        id: 'burnable_poisons',
+        label: 'Burnable Poisons',
+        nuclides: ['B10', 'Gd155', 'Gd157', 'Er166', 'Er167'],
+        description: 'Neutron absorbers used for reactivity control'
+    },
+    {
+        id: 'gases',
+        label: 'Noble Gases',
+        nuclides: ['Kr83', 'Kr85', 'Xe131', 'Xe133', 'Xe135'],
+        description: 'Gaseous fission products for gap release analysis'
+    }
+];
+
+/** Time step information */
+export interface DepletionTimeStep {
+    /** Step index */
+    index: number;
+    /** Time in seconds */
+    time: number;
+    /** Time in days */
+    days: number;
+    /** Burnup in MWd/kg (if available) */
+    burnup?: number;
+    /** Power level in Watts (if available) */
+    power?: number;
 }

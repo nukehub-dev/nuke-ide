@@ -789,4 +789,59 @@ export class OpenMCService {
         });
     }
 
+    // =========================================================================
+    // Depletion/Burnup Methods
+    // =========================================================================
+
+    /**
+     * Get summary information from depletion results file.
+     */
+    async getDepletionSummary(fileUri: URI): Promise<any> {
+        try {
+            return await this.openmcBackend.getDepletionSummary(fileUri.path.toString());
+        } catch (error) {
+            this.messageService.error(`Failed to load depletion summary: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get list of materials from depletion results.
+     */
+    async getDepletionMaterials(fileUri: URI): Promise<any[]> {
+        try {
+            return await this.openmcBackend.getDepletionMaterials(fileUri.path.toString());
+        } catch (error) {
+            this.messageService.error(`Failed to load depletion materials: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get depletion data for a specific material.
+     */
+    async getDepletionData(
+        fileUri: URI,
+        materialIndex: number,
+        nuclides?: string[]
+    ): Promise<any> {
+        try {
+            return await this.openmcBackend.getDepletionData(
+                fileUri.path.toString(),
+                materialIndex,
+                nuclides,
+                false  // includeActivity - can be added later
+            );
+        } catch (error) {
+            this.messageService.error(`Failed to load depletion data: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Check if a file is a depletion results file.
+     */
+    isDepletionFile(fileName: string): boolean {
+        return fileName.includes('depletion') && fileName.endsWith('.h5');
+    }
 }

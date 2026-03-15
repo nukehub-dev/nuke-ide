@@ -1201,6 +1201,238 @@ class OpenMCPlotter:
         return slices
 
 
+class OpenMCDepletionReader:
+    """Reader for OpenMC depletion results from depletion_results.h5"""
+    
+    @staticmethod
+    def load_summary(file_path: str) -> Dict[str, Any]:
+        """
+        Load summary information from depletion results.
+        
+        Args:
+            file_path: Path to depletion_results.h5
+            
+        Returns:
+            Dictionary with summary information
+        """
+        with h5py.File(file_path, 'r') as f:
+            # Get number of materials from 'materials' group
+            if 'materials' in f:
+                n_materials = len(list(f['materials'].keys()))
+            else:
+                n_materials = 0
+            
+            # Get time data - depletion time is in seconds
+            # Use 'time' dataset which has [start, end] in days for each step
+            if 'time' in f:
+                time_data = f['time'][()]  # Shape: (n_steps, 2) - [start, end] days
+                n_steps = time_data.shape[0]
+                # Use end time of each step
+                time_days = time_data[:, 1].tolist()
+                time_seconds = [t * 24 * 3600 for t in time_days]
+            elif 'depletion time' in f:
+                # Fallback to depletion time in seconds
+                dep_time = f['depletion time'][()]
+                n_steps = len(dep_time)
+                time_seconds = dep_time.tolist()
+                time_days = [t / (24 * 3600) for t in time_seconds]
+            else:
+                n_steps = 0
+                time_days = []
+                time_seconds = []
+            
+            # Get burnup if available
+            burnup = None
+            if 'burnup' in f:
+                burnup = f['burnup'][()].tolist()
+            
+            # Get source rate if available
+            source_rate = None
+            if 'source_rate' in f:
+                source_rate = f['source_rate'][()].tolist()
+            
+            # Get nuclide list from 'nuclides' group
+            nuclides = []
+            if 'nuclides' in f:
+                nuclides = list(f['nuclides'].keys())
+            
+            # Get number array shape: (n_steps, n_materials, n_nuclides)
+            n_nuclides = 0
+            if 'number' in f:
+                n_nuclides = f['number'].shape[2] if len(f['number'].shape) > 2 else 0
+            
+            return {
+                'nMaterials': n_materials,
+                'nSteps': n_steps,
+                'nNuclides': n_nuclides or len(nuclides),
+                'timePoints': time_seconds,
+                'timeDays': time_days,
+                'burnup': burnup,
+                'sourceRate': source_rate,
+                'nuclides': nuclides
+            }
+    
+    @staticmethod
+    def list_materials(file_path: str) -> List[Dict[str, Any]]:
+        """
+        List all materials in depletion results.
+        
+        Args:
+            file_path: Path to depletion_results.h5
+            
+        Returns:
+            List of material information dictionaries
+        """
+        materials = []
+        with h5py.File(file_path, 'r') as f:
+            if 'materials' not in f:
+                return materials
+                
+            for key in sorted(f['materials'].keys()):
+                try:
+                    mat_idx = int(key)
+                    mat_group = f['materials'][key]
+                    
+                    # Get material name if available
+                    name = f'material {mat_idx}'
+                    if 'name' in mat_group.attrs:
+                        name = mat_group.attrs['name']
+                        if isinstance(name, bytes):
+                            name = name.decode('utf-8')
+                    
+                    # Get volume if available (in attrs or dataset)
+                    volume = None
+                    if 'volume' in mat_group.attrs:
+                        volume = float(mat_group.attrs['volume'])
+                    elif 'volume' in mat_group:
+                        volume = float(mat_group['volume'][()])
+                    
+                    # Get number density array shape
+                    number_shape = None
+                    if 'number' in f:
+                        number_shape = f['number'].shape
+                    
+                    # Get initial atoms from the number array
+                    initial_atoms = None
+                    if number_shape and len(number_shape) == 3:
+                        # number[time_step, material_index, nuclide_index]
+                        # Find material index (0-based from materials group order)
+                        mat_order = sorted([int(k) for k in f['materials'].keys()])
+                        mat_array_idx = mat_order.index(mat_idx)
+                        initial_atoms = float(np.sum(f['number'][0, mat_array_idx, :]))
+                    
+                    materials.append({
+                        'index': mat_idx,
+                        'name': name,
+                        'volume': volume,
+                        'initialAtoms': initial_atoms
+                    })
+                except (ValueError, KeyError) as e:
+                    # Skip invalid entries
+                    print(f"[DepletionReader] Warning: Could not read material {key}: {e}", file=sys.stderr)
+                    continue
+        
+        return materials
+    
+    @staticmethod
+    def load_material_data(
+        file_path: str,
+        material_index: int,
+        nuclide_filter: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Load depletion data for a specific material.
+        
+        Args:
+            file_path: Path to depletion_results.h5
+            material_index: Material index to load
+            nuclide_filter: Optional list of nuclides to include (all if None)
+            
+        Returns:
+            Dictionary with material depletion data
+        """
+        with h5py.File(file_path, 'r') as f:
+            # Check that materials group exists
+            if 'materials' not in f:
+                raise ValueError(f"No 'materials' group found in {file_path}")
+            
+            mat_key = str(material_index)
+            if mat_key not in f['materials']:
+                raise ValueError(f"Material {material_index} not found in {file_path}")
+            
+            # Get material info from materials group
+            mat_group = f['materials'][mat_key]
+            
+            # Get material name if available
+            name = f'material {material_index}'
+            if 'name' in mat_group.attrs:
+                name = mat_group.attrs['name']
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8')
+            
+            # Get volume if available
+            volume = None
+            if 'volume' in mat_group.attrs:
+                volume = float(mat_group.attrs['volume'])
+            elif 'volume' in mat_group:
+                volume = float(mat_group['volume'][()])
+            
+            # Get nuclide names from 'nuclides' group
+            if 'nuclides' not in f:
+                raise ValueError(f"No 'nuclides' group found in {file_path}")
+            
+            nuclide_names = list(f['nuclides'].keys())
+            n_nuclides = len(nuclide_names)
+            
+            # Get number array: (n_steps, n_materials, n_nuclides)
+            if 'number' not in f:
+                raise ValueError(f"No 'number' dataset found in {file_path}")
+            
+            number_data = f['number'][()]  # Shape: (steps, materials, nuclides)
+            n_steps = number_data.shape[0]
+            
+            # Find material index in the array
+            mat_order = sorted([int(k) for k in f['materials'].keys()])
+            if material_index not in mat_order:
+                raise ValueError(f"Material {material_index} not in materials list")
+            mat_array_idx = mat_order.index(material_index)
+            
+            # Extract concentrations for this material: (steps, nuclides)
+            concentrations = number_data[:, mat_array_idx, :]  # Shape: (steps, nuclides)
+            
+            # Filter nuclides if requested
+            if nuclide_filter:
+                indices = [i for i, n in enumerate(nuclide_names) if n in nuclide_filter]
+                nuclide_names = [nuclide_names[i] for i in indices]
+                concentrations = concentrations[:, indices]
+            
+            # Build nuclide data
+            nuclide_data = []
+            for i, nuclide in enumerate(nuclide_names):
+                conc = concentrations[:, i].tolist()
+                
+                nuclide_data.append({
+                    'nuclide': nuclide,
+                    'concentrations': conc,
+                    'massGrams': None  # Mass not directly available in this format
+                })
+            
+            # Calculate totals
+            total_atoms = np.sum(concentrations, axis=1).tolist()
+            
+            return {
+                'material': {
+                    'index': material_index,
+                    'name': name,
+                    'volume': volume,
+                    'initialAtoms': total_atoms[0] if total_atoms else None
+                },
+                'nuclides': nuclide_data,
+                'totalAtoms': total_atoms,
+                'totalMass': None  # Not directly available
+            }
+
+
 def check_openmc_available() -> Tuple[bool, str]:
     """
     Check if OpenMC Python module is available.

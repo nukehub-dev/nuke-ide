@@ -1768,6 +1768,68 @@ def cmd_list_group_structures(args):
         return 1
 
 
+def cmd_depletion_summary(args):
+    """Get summary of depletion results."""
+    try:
+        from openmc_integration import OpenMCDepletionReader
+        reader = OpenMCDepletionReader()
+        summary = reader.load_summary(args.file)
+        print(json.dumps(summary))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+def cmd_depletion_materials(args):
+    """List materials in depletion results."""
+    try:
+        from openmc_integration import OpenMCDepletionReader
+        reader = OpenMCDepletionReader()
+        materials = reader.list_materials(args.file)
+        print(json.dumps({"materials": materials}))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+def cmd_depletion_data(args):
+    """Get depletion data for a specific material."""
+    try:
+        from openmc_integration import OpenMCDepletionReader
+        reader = OpenMCDepletionReader()
+        
+        nuclide_filter = None
+        if args.nuclides:
+            nuclide_filter = [n.strip() for n in args.nuclides.split(',')]
+        
+        data = reader.load_material_data(
+            args.file,
+            args.material_index,
+            nuclide_filter
+        )
+        
+        # Add summary to response
+        summary = reader.load_summary(args.file)
+        response = {
+            "summary": summary,
+            "materialData": data
+        }
+        
+        print(json.dumps(response))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def cmd_xs_plot(args):
     """Generate cross-section plot data using openmc.data."""
     try:
@@ -3473,6 +3535,18 @@ def main():
     # List Group Structures command
     lgs_parser = subparsers.add_parser('list-group-structures', help='List available energy group structures')
     
+    # Depletion commands
+    depletion_summary_parser = subparsers.add_parser('depletion-summary', help='Get depletion results summary')
+    depletion_summary_parser.add_argument('file', help='Path to depletion_results.h5')
+    
+    depletion_materials_parser = subparsers.add_parser('depletion-materials', help='List materials in depletion results')
+    depletion_materials_parser.add_argument('file', help='Path to depletion_results.h5')
+    
+    depletion_data_parser = subparsers.add_parser('depletion-data', help='Get depletion data for a material')
+    depletion_data_parser.add_argument('file', help='Path to depletion_results.h5')
+    depletion_data_parser.add_argument('material_index', type=int, help='Material index')
+    depletion_data_parser.add_argument('--nuclides', help='Comma-separated nuclide names to filter')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -3494,6 +3568,9 @@ def main():
         'list-nuclides': cmd_list_nuclides,
         'list-thermal-materials': cmd_list_thermal_materials,
         'list-group-structures': cmd_list_group_structures,
+        'depletion-summary': cmd_depletion_summary,
+        'depletion-materials': cmd_depletion_materials,
+        'depletion-data': cmd_depletion_data,
     }
     
     if args.command in commands:

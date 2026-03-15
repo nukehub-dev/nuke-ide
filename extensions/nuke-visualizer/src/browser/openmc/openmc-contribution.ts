@@ -31,6 +31,7 @@ import {
     Widget,
     FrontendApplication
 } from '@theia/core/lib/browser';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import URI from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { WidgetManager } from '@theia/core/lib/browser';
@@ -40,6 +41,7 @@ import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc-plot-widget';
 import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
+import { OpenMCDepletionWidget } from './openmc-depletion-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -95,6 +97,13 @@ export namespace OpenMCCommands {
         label: 'Plot Cross-Sections...',
         iconClass: 'codicon codicon-graph-line'
     };
+    
+    export const OPEN_DEPLETION_VIEWER: Command = {
+        id: 'openmc.open-depletion',
+        category: OPENMC_CATEGORY,
+        label: 'View Depletion Results...',
+        iconClass: 'codicon codicon-flame'
+    };
 }
 
 @injectable()
@@ -123,6 +132,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     @inject(MessageService)
     protected readonly messageService: MessageService;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
 
     @inject(PlotlyService)
     protected readonly plotlyService: PlotlyService;
@@ -159,6 +171,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         
         // Handle source files
         if (name === 'source.h5') {
+            return 200;
+        }
+        
+        // Handle depletion results files
+        if (name.includes('depletion') && name.endsWith('.h5')) {
             return 200;
         }
         
@@ -216,6 +233,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 // No statepoint, use standard visualization
                 throw new Error('Use standard visualizer for geometry-only view');
             }
+        } else if (name.includes('depletion') && name.endsWith('.h5')) {
+            // Open depletion viewer
+            await this.openDepletionFile(uri.toString(), uri.path.base);
         }
         
         // Return a dummy widget - actual visualization is handled by VisualizerWidget
@@ -255,6 +275,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
         registry.registerCommand(OpenMCCommands.PLOT_CROSS_SECTIONS, {
             execute: () => this.plotXSCommand()
+        });
+        
+        registry.registerCommand(OpenMCCommands.OPEN_DEPLETION_VIEWER, {
+            execute: () => this.openDepletionViewerCommand()
         });
     }
 
@@ -296,12 +320,24 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
             order: '6'
         });
+        
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
+            order: '7'
+        });
 
         // Add context menu for OpenMC files
         registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
             commandId: OpenMCCommands.LOAD_STATEPOINT.id,
             when: 'resourceExtname == .h5',
             order: '1'
+        });
+        
+        // Add context menu for depletion files
+        registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
+            commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
+            when: 'resourceFilename =~ /depletion.*\\.h5/',
+            order: '2'
         });
     }
 
@@ -691,6 +727,91 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     private async getGeometryFiles(): Promise<QuickPickValue<string>[]> {
         return [];
+    }
+
+    private async openDepletionViewerCommand(): Promise<void> {
+        // Find depletion results files
+        const files = await this.getDepletionFiles();
+        
+        if (files.length === 0) {
+            this.messageService.error('No depletion_results.h5 files found in workspace');
+            return;
+        }
+
+        // If only one file, open it directly
+        if (files.length === 1) {
+            await this.openDepletionFile(files[0].value, files[0].label);
+            return;
+        }
+
+        // Otherwise show picker
+        const selection = await this.quickInput.showQuickPick(files, {
+            title: 'Select Depletion Results File',
+            placeholder: 'Choose a depletion_results.h5 file'
+        });
+
+        if (selection) {
+            await this.openDepletionFile(selection.value, selection.label);
+        }
+    }
+
+    private async openDepletionFile(filePath: string, fileName: string): Promise<void> {
+        try {
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionWidget>(
+                OpenMCDepletionWidget.ID,
+                { id: `${OpenMCDepletionWidget.ID}:${filePath}` } as any
+            );
+
+            widget.setDepletionFile(new URI(filePath), fileName);
+
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'main' });
+            }
+            this.shell.activateWidget(widget.id);
+        } catch (error) {
+            this.messageService.error(`Failed to open depletion file: ${error}`);
+        }
+    }
+
+    private async getDepletionFiles(): Promise<QuickPickValue<string>[]> {
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectH5Files = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name.includes('depletion') && child.name.endsWith('.h5')) {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                // Recurse into subdirectories (limit to prevent too many requests)
+                                await collectH5Files(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectH5Files(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for depletion files:', e);
+        }
+
+        return files;
     }
 
     private async plotXSCommand(): Promise<void> {
