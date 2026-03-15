@@ -36,7 +36,7 @@ import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 
 /** Mode for XS plotting */
-type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison';
+type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering';
 
 /** Material component definition */
 interface MaterialComponent {
@@ -84,6 +84,12 @@ export class XSPlotWidget extends ReactWidget {
     private libraryComparisonTemperature: number = 294;
     private libraryComparisonLibraries: { name: string; path: string }[] = [];
     private currentLibrary: { name: string; path: string } = { name: '', path: '' };
+    
+    // Thermal scattering (S(alpha,beta)) mode
+    // Materials are dynamically fetched from cross_sections.xml
+    private thermalMaterial: string = 'c_Graphite';
+    private thermalTemperatures: number[] = [294, 600, 800, 1000];
+    private availableThermalMaterials: string[] = [];
     
     // Common settings
     private selectedReactions: XSReaction[] = COMMON_XS_REACTIONS.map(r => ({ ...r }));
@@ -151,6 +157,7 @@ export class XSPlotWidget extends ReactWidget {
         
         // Load available nuclides
         this.loadAvailableNuclides();
+        this.loadAvailableThermalMaterials();
 
         this.update();
     }
@@ -170,6 +177,30 @@ export class XSPlotWidget extends ReactWidget {
             this.update();
         } catch (error) {
             console.error('[XSPlotWidget] Failed to load nuclides:', error);
+        }
+    }
+
+    private async loadAvailableThermalMaterials(): Promise<void> {
+        try {
+            this.availableThermalMaterials = await this.openmcService.getAvailableThermalMaterials(this.crossSectionsPath);
+            if (this.availableThermalMaterials.length === 0) {
+                // Fallback to common thermal materials
+                this.availableThermalMaterials = [
+                    'c_Graphite',
+                    'c_H_in_H2O',
+                    'c_D_in_D2O',
+                    'c_Be',
+                    'c_Be_in_BeO',
+                ];
+            } else {
+                // Set default selection to first available if current not in list
+                if (!this.availableThermalMaterials.includes(this.thermalMaterial)) {
+                    this.thermalMaterial = this.availableThermalMaterials[0];
+                }
+            }
+            this.update();
+        } catch (error) {
+            console.error('[XSPlotWidget] Failed to load thermal materials:', error);
         }
     }
 
@@ -397,6 +428,7 @@ export class XSPlotWidget extends ReactWidget {
                         {this.renderModeButton('materials', 'Materials', theme)}
                         {this.renderModeButton('temp-comparison', 'Temp', theme)}
                         {this.renderModeButton('library-comparison', 'Libraries', theme)}
+                        {this.renderModeButton('thermal-scattering', 'S(α,β)', theme)}
                     </div>
                 </div>
 
@@ -405,6 +437,7 @@ export class XSPlotWidget extends ReactWidget {
                 {this.plotMode === 'materials' && this.renderMaterialControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'library-comparison' && this.renderLibraryComparisonControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'thermal-scattering' && this.renderThermalScatteringControls(theme, textColor, checkboxBg)}
 
                 {/* Reactions Section */}
                 <div style={{
@@ -950,6 +983,20 @@ export class XSPlotWidget extends ReactWidget {
                     includeIntegrals: this.showIntegrals
                 };
                 title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
+            } else if (this.plotMode === 'thermal-scattering') {
+                // S(alpha, beta) thermal scattering mode
+                request = {
+                    nuclides: [],
+                    reactions: [2],  // Elastic scattering
+                    temperature: this.temperature,
+                    energyRegion: this.energyRegion,
+                    thermalScattering: {
+                        material: this.thermalMaterial,
+                        temperatures: this.thermalTemperatures
+                    },
+                    includeUncertainty: false
+                };
+                title = `S(α,β) Thermal Scattering: ${this.thermalMaterial}`;
             } else if (this.plotMode === 'temp-comparison') {
                 // Temperature comparison mode
                 if (!this.tempComparisonNuclide) {
@@ -1723,6 +1770,23 @@ export class XSPlotWidget extends ReactWidget {
         this.update();
     }
 
+    // ===== Thermal Scattering Setters =====
+
+    private setThermalMaterial(material: string): void {
+        this.thermalMaterial = material;
+        this.update();
+    }
+
+    private setThermalTemperatures(value: string): void {
+        this.thermalTemperatures = value.split(/[,\s]+/)
+            .map(t => parseFloat(t.trim()))
+            .filter(t => !isNaN(t) && t > 0);
+        if (this.thermalTemperatures.length === 0) {
+            this.thermalTemperatures = [294];
+        }
+        this.update();
+    }
+
     // ===== Library Comparison Controls =====
 
     private renderLibraryComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
@@ -1915,6 +1979,96 @@ export class XSPlotWidget extends ReactWidget {
 
                 <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
                     Tip: Add libraries with cross_sections.xml paths.
+                </div>
+            </div>
+        );
+    }
+
+    private renderThermalScatteringControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        return (
+            <div style={{
+                padding: '10px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                boxSizing: 'border-box',
+                width: '100%'
+            }}>
+                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                    <span className={codicon('flame')} style={{ marginRight: '6px' }} />
+                    S(α,β) Thermal Scattering
+                </h4>
+                <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+                    Plot thermal neutron scattering cross-sections.
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Thermal Scattering Material
+                    </label>
+                    <select
+                        value={this.thermalMaterial}
+                        onChange={(e) => this.setThermalMaterial(e.target.value)}
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        {this.availableThermalMaterials.map(mat => (
+                            <option key={mat} value={mat}>{mat}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Temperatures (K)
+                    </label>
+                    <input
+                        type="text"
+                        value={this.thermalTemperatures.join(', ')}
+                        onChange={(e) => this.setThermalTemperatures(e.target.value)}
+                        placeholder="e.g., 294, 600, 800"
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    />
+                </div>
+
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {[[294], [294, 600], [294, 600, 800, 1000]].map((temps, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => { this.thermalTemperatures = temps; this.update(); }}
+                            style={{
+                                padding: '3px 6px',
+                                fontSize: '10px',
+                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                color: textColor,
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {temps.join('/')}
+                        </button>
+                    ))}
+                </div>
+
+                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '8px' }}>
+                    {this.availableThermalMaterials.length} thermal scattering material(s) available in your library.
+                    {this.availableThermalMaterials.length === 0 && ' Check cross-section path.'}
                 </div>
             </div>
         );

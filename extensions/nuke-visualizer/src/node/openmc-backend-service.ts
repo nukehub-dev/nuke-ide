@@ -437,6 +437,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--include-integrals');
         }
 
+        // Add thermal scattering mode
+        if (request.thermalScattering) {
+            args.push('--thermal-scattering', JSON.stringify(request.thermalScattering));
+        }
+
         console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
 
         const result = spawnSync(pythonCommand, args, {
@@ -514,6 +519,34 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             return data.nuclides || [];
         } catch (e) {
             console.error(`[OpenMC] Failed to parse nuclides list: ${e}`);
+            return [];
+        }
+    }
+
+    async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'list-thermal-materials'];
+        if (crossSectionsPath) {
+            args.push('--cross-sections', crossSectionsPath);
+        }
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] List thermal materials command failed: ${result.stderr}`);
+            return [];
+        }
+
+        try {
+            const data = JSON.parse(result.stdout);
+            return data.materials || [];
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse thermal materials list: ${e}`);
             return [];
         }
     }

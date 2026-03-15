@@ -340,6 +340,9 @@ export interface OpenMCBackendService {
     
     /** Get available nuclides from cross_sections.xml */
     getAvailableNuclides(crossSectionsPath?: string): Promise<string[]>;
+    
+    /** Get available thermal scattering materials from cross_sections.xml */
+    getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]>;
 }
 
 // === Color Map Presets ===
@@ -503,6 +506,8 @@ export interface XSCurveData {
     uncertainty?: XSUncertaintyData;
     /** Calculated integral quantities for this curve */
     integrals?: XSIntegralQuantities;
+    /** Thermal scattering (S(alpha,beta)) data if applicable */
+    thermalScattering?: XSThermalScatteringData;
 }
 
 /** Uncertainty/error data for cross-section */
@@ -620,6 +625,40 @@ export interface XSIntegralQuantities {
     fissionRateFactor?: number;
 }
 
+/** S(alpha, beta) thermal scattering data */
+export interface XSThermalScatteringData {
+    /** Thermal scattering material name (e.g., 'c_Graphite', 'h_H2O') */
+    material: string;
+    /** Temperature in Kelvin */
+    temperature: number;
+    /** Energy values in eV */
+    energy: number[];
+    /** Inelastic cross-section values (barns) */
+    inelasticXS?: number[];
+    /** Elastic cross-section values (barns) */
+    elasticXS?: number[];
+    /** Total thermal scattering cross-section (barns) */
+    totalXS?: number[];
+    /** Beta values (dimensionless energy transfer) */
+    beta?: number[];
+    /** Alpha values (dimensionless momentum transfer) */
+    alpha?: number[][];
+    /** S(alpha, beta) scattering law values */
+    sab?: number[][];
+}
+
+/** Thermal scattering (S(alpha,beta)) plot request */
+export interface XSThermalScatteringRequest {
+    /** Thermal scattering material name (e.g., 'c_Graphite', 'h_H2O', 'h_ZrH') */
+    material: string;
+    /** Temperature in Kelvin (default 294K) */
+    temperature?: number;
+    /** Compare multiple temperatures */
+    temperatures?: number[];
+    /** Energy range [min, max] in eV (typically thermal range: 1e-5 to 10 eV) */
+    energyRange?: [number, number];
+}
+
 /** Request for XS plot data */
 export interface XSPlotRequest {
     /** List of nuclide names (e.g., ['U235', 'U238', 'H1']) */
@@ -646,4 +685,6 @@ export interface XSPlotRequest {
     includeUncertainty?: boolean;
     /** Whether to calculate integral quantities */
     includeIntegrals?: boolean;
+    /** S(alpha, beta) thermal scattering mode (overrides other modes if set) */
+    thermalScattering?: XSThermalScatteringRequest;
 }

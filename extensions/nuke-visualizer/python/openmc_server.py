@@ -1683,6 +1683,14 @@ def cmd_xs_plot(args):
         # Handle integral quantities calculation flag
         include_integrals = getattr(args, 'include_integrals', False)
         
+        # Handle thermal scattering (S(alpha,beta)) mode
+        thermal_scattering = None
+        if args.thermal_scattering:
+            try:
+                thermal_scattering = json.loads(args.thermal_scattering)
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse thermal scattering request: {e}", file=sys.stderr)
+        
         # Handle energy region preset
         if args.energy_region:
             region_ranges = {
@@ -2022,6 +2030,185 @@ def cmd_xs_plot(args):
             
             return None, None
         
+        def get_available_thermal_materials(xs_dir):
+            """Get list of available thermal scattering materials from cross_sections.xml."""
+            import xml.etree.ElementTree as ET
+            
+            materials = []
+            cross_sections_xml = None
+            
+            # Find cross_sections.xml
+            if xs_dir:
+                possible_paths = [
+                    os.path.join(xs_dir, 'cross_sections.xml'),
+                    os.path.join(xs_dir, 'cross_sections.xml'),
+                ]
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        cross_sections_xml = path
+                        break
+            
+            # Also check environment variable
+            if cross_sections_xml is None and 'OPENMC_CROSS_SECTIONS' in os.environ:
+                cross_sections_xml = os.environ['OPENMC_CROSS_SECTIONS']
+            
+            if cross_sections_xml and os.path.exists(cross_sections_xml):
+                try:
+                    tree = ET.parse(cross_sections_xml)
+                    root = tree.getroot()
+                    for lib in root.findall('library'):
+                        if lib.get('type') == 'thermal':
+                            mat = lib.get('materials')
+                            if mat:
+                                materials.append(mat)
+                except Exception as e:
+                    print(f"[XS Plot] Error parsing cross_sections.xml: {e}", file=sys.stderr)
+            
+            return materials
+        
+        def load_thermal_scattering_data(material_name, xs_dir):
+            """Load thermal scattering (S(alpha,beta)) data for a material."""
+            ts_file = None
+            
+            # First check if material is available in cross_sections.xml
+            available_materials = get_available_thermal_materials(xs_dir)
+            if available_materials and material_name not in available_materials:
+                print(f"[XS Plot] Material '{material_name}' not found in cross_sections.xml", file=sys.stderr)
+                print(f"[XS Plot] Available thermal materials: {', '.join(available_materials)}", file=sys.stderr)
+                return None
+            
+            # Common thermal scattering material naming patterns
+            possible_names = [
+                material_name,
+                material_name.replace('_', '-'),
+                material_name.lower(),
+                material_name.upper(),
+            ]
+            
+            # Try to find the thermal scattering file
+            if xs_dir:
+                for name in possible_names:
+                    for ext in ['.h5', '.hdf5']:
+                        possible_file = os.path.join(xs_dir, f"{name}{ext}")
+                        if os.path.exists(possible_file):
+                            ts_file = possible_file
+                            break
+                    if ts_file:
+                        break
+                    
+                    # Also try with thermal_ prefix
+                    possible_file = os.path.join(xs_dir, f"thermal_{name}.h5")
+                    if os.path.exists(possible_file):
+                        ts_file = possible_file
+                        break
+            
+            if ts_file is None:
+                print(f"[XS Plot] Could not find thermal scattering file for {material_name}", file=sys.stderr)
+                if available_materials:
+                    print(f"[XS Plot] Available materials: {', '.join(available_materials)}", file=sys.stderr)
+                return None
+            
+            try:
+                # Load the thermal scattering data using openmc.data.ThermalScattering
+                ts_data = openmc.data.ThermalScattering.from_hdf5(ts_file)
+                print(f"[XS Plot] Loaded thermal scattering data from: {ts_file}", file=sys.stderr)
+                return ts_data
+            except Exception as e:
+                print(f"[XS Plot] Error loading thermal scattering data: {e}", file=sys.stderr)
+                return None
+        
+        def get_thermal_scattering_xs(ts_data, temperature, energy_min, energy_max):
+            """Get thermal scattering cross-sections for a temperature."""
+            if not hasattr(ts_data, 'kTs'):
+                return None, None, None
+            
+            # Handle different kTs formats (dict or list)
+            kTs = ts_data.kTs
+            if isinstance(kTs, dict):
+                available_temps = list(kTs.keys())
+            elif isinstance(kTs, list):
+                available_temps = kTs
+            else:
+                print(f"[XS Plot] Unexpected kTs type: {type(kTs)}", file=sys.stderr)
+                return None, None, None
+            
+            if not available_temps:
+                return None, None, None
+            
+            # Convert available temps to Kelvin for comparison
+            # kTs can be in eV (divide by 8.617333e-5 to get K) or strings like "296K"
+            temps_in_k = []
+            for t in available_temps:
+                if isinstance(t, str):
+                    temps_in_k.append(float(t.rstrip('K').rstrip('k')))
+                else:
+                    # Assume it's in eV, convert to K
+                    temps_in_k.append(float(t) / 8.617333e-5)
+            
+            closest_temp_idx = np.argmin(np.abs(np.array(temps_in_k) - temperature))
+            closest_temp = available_temps[closest_temp_idx]
+            closest_temp_k = temps_in_k[closest_temp_idx]
+            
+            print(f"[XS Plot] Using thermal scattering data at {closest_temp_k:.1f}K (requested {temperature}K)", file=sys.stderr)
+            
+            # Generate energy grid for thermal region
+            # Log-uniform grid from energy_min to energy_max
+            n_points = 500
+            energy = np.logspace(np.log10(energy_min), np.log10(energy_max), n_points)
+            
+            # Get cross-sections
+            inelastic_xs = np.zeros(n_points)
+            elastic_xs = np.zeros(n_points)
+            
+            try:
+                # Get temperature key for XS dictionaries (e.g., "296K")
+                # Round to nearest integer and ensure we match the key format
+                temp_key = f"{int(round(closest_temp_k))}K"
+                
+                # Try to get inelastic cross-section
+                # ts_data.inelastic.xs is a dict like {'296K': Tabulated1D object}
+                if hasattr(ts_data, 'inelastic') and hasattr(ts_data.inelastic, 'xs'):
+                    inelastic_dict = ts_data.inelastic.xs
+                    if temp_key in inelastic_dict:
+                        xs_data = inelastic_dict[temp_key]
+                        if hasattr(xs_data, 'x') and hasattr(xs_data, 'y'):
+                            inelastic_xs = np.interp(energy, xs_data.x, xs_data.y, left=0, right=0)
+                            print(f"[XS Plot] Loaded inelastic XS for {temp_key}", file=sys.stderr)
+                    else:
+                        # Try to find any available temperature
+                        if inelastic_dict:
+                            first_key = list(inelastic_dict.keys())[0]
+                            xs_data = inelastic_dict[first_key]
+                            if hasattr(xs_data, 'x') and hasattr(xs_data, 'y'):
+                                inelastic_xs = np.interp(energy, xs_data.x, xs_data.y, left=0, right=0)
+                                print(f"[XS Plot] Loaded inelastic XS using {first_key} (requested {temp_key} not found)", file=sys.stderr)
+                
+                # Try to get elastic cross-section
+                # ts_data.elastic.xs is a dict like {'296K': CoherentElastic object}
+                if hasattr(ts_data, 'elastic') and hasattr(ts_data.elastic, 'xs'):
+                    elastic_dict = ts_data.elastic.xs
+                    if temp_key in elastic_dict:
+                        xs_data = elastic_dict[temp_key]
+                        # CoherentElastic has bragg_edges and factors
+                        if hasattr(xs_data, 'bragg_edges') and hasattr(xs_data, 'factors'):
+                            elastic_xs = np.interp(energy, xs_data.bragg_edges, xs_data.factors, left=0, right=0)
+                            print(f"[XS Plot] Loaded elastic XS for {temp_key}", file=sys.stderr)
+                    else:
+                        # Try to find any available temperature
+                        if elastic_dict:
+                            first_key = list(elastic_dict.keys())[0]
+                            xs_data = elastic_dict[first_key]
+                            if hasattr(xs_data, 'bragg_edges') and hasattr(xs_data, 'factors'):
+                                elastic_xs = np.interp(energy, xs_data.bragg_edges, xs_data.factors, left=0, right=0)
+                                print(f"[XS Plot] Loaded elastic XS using {first_key} (requested {temp_key} not found)", file=sys.stderr)
+                            
+            except Exception as e:
+                print(f"[XS Plot] Error extracting cross-sections: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            
+            return energy, inelastic_xs, elastic_xs
+        
         def calculate_macroscopic_xs(nuc_data, reaction_mt, temperature, density, fraction=1.0):
             """Calculate macroscopic XS from microscopic XS."""
             energy, xs_micro = get_xs_data_for_temp(nuc_data, reaction_mt, temperature)
@@ -2050,8 +2237,8 @@ def cmd_xs_plot(args):
             # Integrate (simple trapezoidal)
             if len(flux_energy) > 1:
                 # Use log-log interpolation for energy groups
-                total_rate = np.trapz(group_rates, flux_energy)
-                total_flux = np.trapz(flux_values, flux_energy)
+                total_rate = trapz_integrate(group_rates, flux_energy)
+                total_flux = trapz_integrate(flux_values, flux_energy)
                 avg_xs = total_rate / total_flux if total_flux > 0 else 0
             else:
                 total_rate = np.sum(group_rates)
@@ -2060,8 +2247,84 @@ def cmd_xs_plot(args):
             
             return total_rate, total_flux, avg_xs
         
+        # Handle thermal scattering (S(alpha,beta)) mode
+        if thermal_scattering:
+            ts_material = thermal_scattering.get('material', 'c_Graphite')
+            ts_temperature = thermal_scattering.get('temperature', 294)
+            ts_temperatures = thermal_scattering.get('temperatures', [ts_temperature])
+            ts_energy_range = thermal_scattering.get('energyRange', [1e-5, 10.0])
+            ts_energy_min, ts_energy_max = ts_energy_range
+            
+            print(f"[XS Plot] Thermal scattering mode: material={ts_material}, temps={ts_temperatures}", file=sys.stderr)
+            
+            try:
+                # Load thermal scattering data
+                ts_data = load_thermal_scattering_data(ts_material, xs_dir)
+                
+                if ts_data is None:
+                    print(json.dumps({"error": f"Could not load thermal scattering data for {ts_material}"}))
+                    return 1
+                
+                for temp in ts_temperatures:
+                    try:
+                        # Get thermal scattering cross-sections
+                        energy, inelastic_xs, elastic_xs = get_thermal_scattering_xs(ts_data, temp, ts_energy_min, ts_energy_max)
+                        
+                        if energy is None:
+                            print(f"[XS Plot] No thermal scattering data at {temp}K", file=sys.stderr)
+                            continue
+                        
+                        # Calculate total XS
+                        total_xs = inelastic_xs + elastic_xs
+                        
+                        curve = {
+                            "energy": energy.tolist(),
+                            "xs": total_xs.tolist(),
+                            "nuclide": ts_material,
+                            "reaction": "thermal",
+                            "label": f"{ts_material} Thermal Scattering @ {temp}K",
+                            "temperature": temp,
+                            "thermalScattering": {
+                                "material": ts_material,
+                                "temperature": temp,
+                                "energy": energy.tolist(),
+                                "inelasticXS": inelastic_xs.tolist(),
+                                "elasticXS": elastic_xs.tolist(),
+                                "totalXS": total_xs.tolist()
+                            }
+                        }
+                        curves.append(curve)
+                        
+                        # Also add separate curves for inelastic and elastic
+                        curves.append({
+                            "energy": energy.tolist(),
+                            "xs": inelastic_xs.tolist(),
+                            "nuclide": ts_material,
+                            "reaction": "thermal_inelastic",
+                            "label": f"{ts_material} Inelastic @ {temp}K",
+                            "temperature": temp
+                        })
+                        
+                        curves.append({
+                            "energy": energy.tolist(),
+                            "xs": elastic_xs.tolist(),
+                            "nuclide": ts_material,
+                            "reaction": "thermal_elastic",
+                            "label": f"{ts_material} Elastic @ {temp}K",
+                            "temperature": temp
+                        })
+                        
+                    except Exception as e:
+                        print(f"[XS Plot] Error processing thermal scattering at {temp}K: {e}", file=sys.stderr)
+                        continue
+                        
+            except Exception as e:
+                print(f"[XS Plot] Error loading thermal scattering data: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+        
         # Handle library comparison mode
-        if library_comparison:
+        elif library_comparison:
             libraries = library_comparison.get('libraries', [])
             lib_nuclide = library_comparison.get('nuclide', 'U235')
             lib_reaction = library_comparison.get('reaction', 18)
@@ -2564,21 +2827,24 @@ def cmd_list_nuclides(args):
         
         # Extract nuclide names from the data library
         nuclides = []
-        # Handle both old and new OpenMC API (dict vs list)
-        libraries = data.libraries
-        if isinstance(libraries, dict):
-            libraries = libraries.values()
         
-        for library in libraries:
-            tables = getattr(library, 'tables', [])
-            if isinstance(tables, dict):
-                tables = tables.values()
-            
-            for table in tables:
-                if hasattr(table, 'nuclide'):
-                    nuclides.append(table.nuclide)
-                elif hasattr(table, 'name'):
-                    nuclides.append(table.name)
+        # In newer OpenMC versions, data.libraries is a DataLibrary object containing dicts
+        for entry in data.libraries:
+            # Entry is a dict with 'path', 'type', 'materials' keys
+            if isinstance(entry, dict):
+                materials = entry.get('materials', [])
+                if materials:
+                    nuclides.extend(materials)
+            else:
+                # Handle old API where entry might be an object with tables
+                tables = getattr(entry, 'tables', [])
+                if isinstance(tables, dict):
+                    tables = tables.values()
+                for table in tables:
+                    if hasattr(table, 'nuclide'):
+                        nuclides.append(table.nuclide)
+                    elif hasattr(table, 'name'):
+                        nuclides.append(table.name)
         
         # Remove duplicates and sort
         nuclides = sorted(set(nuclides))
@@ -2587,7 +2853,50 @@ def cmd_list_nuclides(args):
         return 0
         
     except Exception as e:
-        print(json.dumps({"nuclides": [], "error": str(e)}))
+        import traceback
+        print(json.dumps({"nuclides": [], "error": str(e), "traceback": traceback.format_exc()}))
+        return 1
+
+
+def cmd_list_thermal_materials(args):
+    """List available thermal scattering materials from cross_sections.xml."""
+    try:
+        import xml.etree.ElementTree as ET
+    except ImportError as e:
+        print(json.dumps({"materials": [], "error": f"XML parsing not available: {e}"}))
+        return 1
+
+    try:
+        # Get the cross sections path from environment or argument
+        cross_sections = args.cross_sections if args.cross_sections else None
+        
+        if not cross_sections:
+            # Try environment variable
+            cross_sections = os.environ.get('OPENMC_CROSS_SECTIONS')
+        
+        if not cross_sections or not os.path.exists(cross_sections):
+            print(json.dumps({"materials": [], "error": "Cross sections file not found"}))
+            return 1
+        
+        # Parse cross_sections.xml
+        tree = ET.parse(cross_sections)
+        root = tree.getroot()
+        
+        materials = []
+        for lib in root.findall('library'):
+            if lib.get('type') == 'thermal':
+                mat = lib.get('materials')
+                if mat:
+                    materials.append(mat)
+        
+        # Sort materials
+        materials = sorted(materials)
+        
+        print(json.dumps({"materials": materials}))
+        return 0
+        
+    except Exception as e:
+        print(json.dumps({"materials": [], "error": str(e)}))
         return 1
 
 
@@ -2659,10 +2968,15 @@ def main():
     xs_parser.add_argument('--library-comparison', help='JSON string of library comparison configuration')
     xs_parser.add_argument('--include-uncertainty', action='store_true', help='Include uncertainty/error data if available')
     xs_parser.add_argument('--include-integrals', action='store_true', help='Calculate and include integral quantities')
+    xs_parser.add_argument('--thermal-scattering', help='JSON string of thermal scattering (S(alpha,beta)) request')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')
     nuclides_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
+    
+    # List Thermal Materials command
+    thermal_parser = subparsers.add_parser('list-thermal-materials', help='List available thermal scattering materials')
+    thermal_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
     
     args = parser.parse_args()
     
@@ -2681,6 +2995,7 @@ def main():
         'check': cmd_check,
         'xs-plot': cmd_xs_plot,
         'list-nuclides': cmd_list_nuclides,
+        'list-thermal-materials': cmd_list_thermal_materials,
     }
     
     if args.command in commands:

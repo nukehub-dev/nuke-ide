@@ -651,6 +651,18 @@ export class OpenMCService {
     }
 
     /**
+     * Get available thermal scattering materials from cross_sections.xml.
+     */
+    async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
+        try {
+            return await this.openmcBackend.getAvailableThermalMaterials(crossSectionsPath);
+        } catch (error) {
+            console.error('[OpenMC] Error getting thermal materials:', error);
+            return [];
+        }
+    }
+
+    /**
      * Get cross-section data with temperature comparison (Doppler broadening visualization).
      */
     async getXSTemperatureComparison(
