@@ -300,6 +300,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         <option value="concentration">Concentration (atoms/b-cm)</option>
                         <option value="mass">Mass (grams)</option>
                         <option value="normalized">Normalized (% of initial)</option>
+                        <option value="stacked">Stacked Composition (%)</option>
                         <option value="activity" disabled={!this.activityData}>Activity (Ci)</option>
                         <option value="decay_heat" disabled={!this.activityData}>Decay Heat (Watts)</option>
                     </select>
@@ -333,13 +334,21 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         </div>
                     )}
 
-                    <label style={{ fontSize: '12px', color: textColor, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <label style={{ 
+                        fontSize: '12px', 
+                        color: this.plotType === 'stacked' ? '#888' : textColor, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px', 
+                        cursor: this.plotType === 'stacked' ? 'not-allowed' : 'pointer' 
+                    }}>
                         <input
                             type="checkbox"
                             checked={this.scaleType === 'log'}
+                            disabled={this.plotType === 'stacked'}
                             onChange={(e) => { this.scaleType = e.target.checked ? 'log' : 'linear'; this.update(); }}
                         />
-                        Log Scale
+                        Log Scale {this.plotType === 'stacked' && '(N/A for Stacked)'}
                     </label>
                 </div>
 
@@ -704,6 +713,66 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     colorIndex++;
                 }
             }
+        } else if (this.plotType === 'stacked') {
+            // Stacked area chart showing composition evolution
+            // Calculate percentage contribution of each nuclide to total at each timestep
+            const selectedNuclideData: { name: string; values: number[]; percentages: number[] }[] = [];
+            let totalPerStep: number[] = new Array(this.summary.nSteps).fill(0);
+            
+            // First pass: collect data and calculate totals
+            for (const nuclideName of this.selectedNuclides) {
+                const nuclide = this.nuclideData.find(n => n.nuclide === nuclideName);
+                if (!nuclide) continue;
+                
+                const values = nuclide.concentrations;
+                selectedNuclideData.push({
+                    name: nuclideName,
+                    values: values,
+                    percentages: []  // Will calculate after getting total
+                });
+                
+                // Add to total per step
+                for (let i = 0; i < this.summary.nSteps; i++) {
+                    totalPerStep[i] += values[i];
+                }
+            }
+            
+            // Second pass: calculate percentages
+            for (const nucData of selectedNuclideData) {
+                nucData.percentages = nucData.values.map((v, i) => {
+                    const total = totalPerStep[i];
+                    return total > 0 ? (v / total) * 100 : 0;
+                });
+            }
+            
+            // Sort by final percentage (largest on bottom)
+            selectedNuclideData.sort((a, b) => b.percentages[b.percentages.length - 1] - a.percentages[a.percentages.length - 1]);
+            
+            // Create stacked traces
+            // Use a larger color palette for stacked charts
+            const stackedColors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+                '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
+                '#393b79', '#637939', '#8c6d31', '#843c39', '#7b4173'
+            ];
+            
+            selectedNuclideData.forEach((nucData, index) => {
+                traces.push({
+                    x: xValues,
+                    y: nucData.percentages,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: nucData.name,
+                    fill: index === 0 ? 'tozeroy' : 'tonexty',
+                    fillcolor: stackedColors[index % stackedColors.length],
+                    line: { color: stackedColors[index % stackedColors.length], width: 0.5 },
+                    stackgroup: 'one',
+                    hovertemplate: `<b>${nucData.name}</b><br>Time: %{x:.1f}<br>Fraction: %{y:.2f}%<extra></extra>`
+                });
+            });
+            
         } else {
             // Standard nuclide concentration plots
             for (const nuclideName of this.selectedNuclides) {
@@ -750,7 +819,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 title: { text: this.getYAxisLabel(), font: { color: theme === 'dark' ? '#ccc' : '#333' } },
                 tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
                 gridcolor: theme === 'dark' ? '#444' : '#ddd',
-                type: this.scaleType
+                type: this.plotType === 'stacked' ? 'linear' : this.scaleType,
+                range: this.plotType === 'stacked' ? [0, 100] : undefined
             },
             paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
             plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
@@ -777,6 +847,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 return 'Mass (grams)';
             case 'normalized':
                 return 'Relative to Initial (%)';
+            case 'stacked':
+                return 'Composition (%)';
             case 'activity':
                 return 'Activity (Ci)';
             case 'decay_heat':

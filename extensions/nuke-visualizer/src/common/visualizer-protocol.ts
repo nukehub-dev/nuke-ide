@@ -970,7 +970,7 @@ export interface OpenMCDepletionResponse {
 }
 
 /** Plot type for depletion visualization */
-export type DepletionPlotType = 'concentration' | 'mass' | 'activity' | 'decay_heat' | 'normalized';
+export type DepletionPlotType = 'concentration' | 'mass' | 'activity' | 'decay_heat' | 'normalized' | 'stacked';
 
 /** Y-axis scale type */
 export type DepletionScaleType = 'linear' | 'log';
