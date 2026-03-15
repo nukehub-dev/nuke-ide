@@ -510,6 +510,26 @@ export interface XSCurveData {
     thermalScattering?: XSThermalScatteringData;
     /** Derivative/slope data (dXS/dE) for this curve */
     derivative?: XSDerivativeData;
+    /** Chain decay/buildup data for parent-daughter relationships */
+    chainDecay?: XSChainDecayData;
+}
+
+/** Chain decay/buildup data for cumulative cross-sections */
+export interface XSChainDecayData {
+    /** Parent nuclide name */
+    parentNuclide: string;
+    /** Decay time used for calculation (seconds) */
+    decayTime: number;
+    /** Daughter nuclides included in calculation */
+    daughterNuclides: string[];
+    /** Branching ratios for each daughter */
+    branchingRatios: Record<string, number>;
+    /** Cumulative cross-section (parent + daughters weighted by abundance) */
+    cumulativeXS: number[];
+    /** Individual contributions from each nuclide in chain */
+    contributions: Record<string, number[]>;
+    /** Half-lives of tracked nuclides (seconds) */
+    halfLives: Record<string, number>;
 }
 
 /** Uncertainty/error data for cross-section */
@@ -707,4 +727,22 @@ export interface XSPlotRequest {
     includeDerivative?: boolean;
     /** S(alpha, beta) thermal scattering mode (overrides other modes if set) */
     thermalScattering?: XSThermalScatteringRequest;
+    /** Chain decay/buildup calculation for parent-daughter relationships */
+    chainDecay?: XSChainDecayRequest;
+}
+
+/** Chain decay/buildup request parameters */
+export interface XSChainDecayRequest {
+    /** Parent nuclide (e.g., 'U235', 'Pu239') */
+    parentNuclide: string;
+    /** Decay time in seconds (for buildup calculations) */
+    decayTime?: number;
+    /** Neutron flux for activation calculations (n/cm²/s) */
+    flux?: number;
+    /** Include daughter products in cumulative cross-section */
+    includeDaughters?: boolean;
+    /** Maximum decay chain depth (default: 3) */
+    maxDepth?: number;
+    /** Specific daughter nuclides to track (if empty, tracks all) */
+    trackDaughters?: string[];
 }

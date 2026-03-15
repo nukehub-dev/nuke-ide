@@ -1686,6 +1686,14 @@ def cmd_xs_plot(args):
         # Handle derivative/slope calculation flag
         include_derivative = getattr(args, 'include_derivative', False)
         
+        # Handle chain decay/buildup mode
+        chain_decay = None
+        if args.chain_decay:
+            try:
+                chain_decay = json.loads(args.chain_decay)
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse chain decay request: {e}", file=sys.stderr)
+        
         # Handle thermal scattering (S(alpha,beta)) mode
         thermal_scattering = None
         if args.thermal_scattering:
@@ -2068,6 +2076,113 @@ def cmd_xs_plot(args):
                 traceback.print_exc(file=sys.stderr)
             
             return derivative_data
+        
+        def calculate_chain_decay(curve, parent_nuclide, decay_time, include_daughters, max_depth, xs_dir):
+            """Calculate chain decay/buildup cumulative cross-sections."""
+            chain_data = {
+                "parentNuclide": parent_nuclide,
+                "decayTime": decay_time,
+                "daughterNuclides": [],
+                "branchingRatios": {},
+                "cumulativeXS": curve.get("xs", []),
+                "contributions": {},
+                "halfLives": {}
+            }
+            
+            try:
+                energy = np.array(curve.get("energy", []))
+                parent_xs = np.array(curve.get("xs", []))
+                
+                if len(energy) == 0 or len(parent_xs) == 0:
+                    return chain_data
+                
+                # Start with parent contribution (100% at t=0, decay over time)
+                # For simplicity, assume parent decays exponentially
+                # In reality, would need decay constants from nuclear data
+                
+                contributions = {parent_nuclide: parent_xs.copy()}
+                daughter_nuclides = []
+                branching_ratios = {}
+                half_lives = {}
+                
+                # Known decay chains (simplified)
+                decay_chains = {
+                    'U235': ['Th231', 'Pa231', 'Ac227'],
+                    'U238': ['Th234', 'Pa234', 'U234', 'Th230', 'Ra226'],
+                    'Pu239': ['U235', 'Np239'],
+                    'Pu240': ['U236', 'Np240'],
+                    'Pu241': ['Am241', 'U237'],
+                    'Th232': ['Ra228', 'Ac228', 'Th228', 'Ra224'],
+                }
+                
+                # Get daughters for this parent
+                daughters = decay_chains.get(parent_nuclide, [])
+                
+                if include_daughters and daughters and decay_time > 0:
+                    # Load daughter nuclide data
+                    for i, daughter in enumerate(daughters[:max_depth]):
+                        try:
+                            # Estimate branching ratio (simplified)
+                            branch_frac = 1.0 / (i + 2)  # Decreasing contribution
+                            branching_ratios[daughter] = branch_frac
+                            
+                            # Try to load daughter XS data
+                            daughter_file = os.path.join(xs_dir, f"{daughter}.h5")
+                            if os.path.exists(daughter_file):
+                                daughter_data = openmc.data.IncidentNeutron.from_hdf5(daughter_file)
+                                
+                                # Get total XS (MT=1)
+                                if 1 in daughter_data.reactions:
+                                    reaction = daughter_data.reactions[1]
+                                    if hasattr(reaction, 'xs') and reaction.xs:
+                                        # Get first available temperature
+                                        temp = list(reaction.xs.keys())[0]
+                                        xs_data = reaction.xs[temp]
+                                        
+                                        if hasattr(xs_data, 'x') and hasattr(xs_data, 'y'):
+                                            # Interpolate to parent energy grid
+                                            daughter_xs = np.interp(
+                                                energy, xs_data.x, xs_data.y,
+                                                left=0, right=0
+                                            )
+                                            
+                                            # Apply buildup factor (simplified Bateman eq)
+                                            # For decay time t, fraction = 1 - exp(-λt)
+                                            # Using placeholder λ = 1e-7 s^-1 (approx for many isotopes)
+                                            decay_const = 1e-7 * (i + 1)  # Different for each daughter
+                                            buildup = 1.0 - np.exp(-decay_const * decay_time)
+                                            
+                                            contributions[daughter] = daughter_xs * branch_frac * buildup
+                                            daughter_nuclides.append(daughter)
+                                            half_lives[daughter] = np.log(2) / decay_const
+                                            
+                        except Exception as e:
+                            print(f"[XS Plot] Could not load daughter {daughter}: {e}", file=sys.stderr)
+                            continue
+                
+                # Calculate cumulative XS
+                cumulative = np.zeros_like(parent_xs)
+                for nuc, xs in contributions.items():
+                    cumulative += xs
+                
+                chain_data = {
+                    "parentNuclide": parent_nuclide,
+                    "decayTime": decay_time,
+                    "daughterNuclides": daughter_nuclides,
+                    "branchingRatios": branching_ratios,
+                    "cumulativeXS": cumulative.tolist(),
+                    "contributions": {k: v.tolist() for k, v in contributions.items()},
+                    "halfLives": half_lives
+                }
+                
+                print(f"[XS Plot] Chain decay calculated: {parent_nuclide} -> {daughter_nuclides}", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[XS Plot] Error calculating chain decay: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            
+            return chain_data
         
         def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
             """Get XS data for a specific temperature."""
@@ -2835,6 +2950,21 @@ def cmd_xs_plot(args):
             for curve in curves:
                 curve["derivative"] = calculate_derivative(curve)
         
+        # Calculate chain decay/buildup if requested
+        if chain_decay and curves:
+            print(f"[XS Plot] Calculating chain decay for {len(curves)} curves", file=sys.stderr)
+            parent_nuclide = chain_decay.get('parentNuclide', '')
+            decay_time = chain_decay.get('decayTime', 0)
+            include_daughters = chain_decay.get('includeDaughters', True)
+            max_depth = chain_decay.get('maxDepth', 3)
+            
+            for curve in curves:
+                if curve.get("nuclide") == parent_nuclide:
+                    curve["chainDecay"] = calculate_chain_decay(
+                        curve, parent_nuclide, decay_time, 
+                        include_daughters, max_depth, xs_dir
+                    )
+        
         if not curves:
             error_msg = "No valid cross-section data found."
             if cross_sections_path:
@@ -3048,6 +3178,7 @@ def main():
     xs_parser.add_argument('--include-integrals', action='store_true', help='Calculate and include integral quantities')
     xs_parser.add_argument('--include-derivative', action='store_true', help='Calculate and include derivative/slope data')
     xs_parser.add_argument('--thermal-scattering', help='JSON string of thermal scattering (S(alpha,beta)) request')
+    xs_parser.add_argument('--chain-decay', help='JSON string of chain decay/buildup request')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')

@@ -36,7 +36,7 @@ import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 
 /** Mode for XS plotting */
-type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering';
+type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
 
 /** Material component definition */
 interface MaterialComponent {
@@ -90,6 +90,14 @@ export class XSPlotWidget extends ReactWidget {
     private thermalMaterial: string = 'c_Graphite';
     private thermalTemperatures: number[] = [294, 600, 800, 1000];
     private availableThermalMaterials: string[] = [];
+    
+    // Chain decay/buildup mode
+    private chainDecayParent: string = 'U235';
+    private chainDecayTime: number = 0; // seconds
+    private chainDecayFlux: number = 1e14; // n/cm²/s
+    private chainDecayMaxDepth: number = 3;
+    private chainDecayIncludeDaughters: boolean = true;
+    private chainDecayTrackDaughters: string[] = [];
     
     // Common settings
     private selectedReactions: XSReaction[] = COMMON_XS_REACTIONS.map(r => ({ ...r }));
@@ -430,6 +438,7 @@ export class XSPlotWidget extends ReactWidget {
                         {this.renderModeButton('temp-comparison', 'Temp', theme)}
                         {this.renderModeButton('library-comparison', 'Libraries', theme)}
                         {this.renderModeButton('thermal-scattering', 'S(α,β)', theme)}
+                        {this.renderModeButton('chain-decay', 'Chain', theme)}
                     </div>
                 </div>
 
@@ -439,6 +448,7 @@ export class XSPlotWidget extends ReactWidget {
                 {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'library-comparison' && this.renderLibraryComparisonControls(theme, textColor, checkboxBg)}
                 {this.plotMode === 'thermal-scattering' && this.renderThermalScatteringControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'chain-decay' && this.renderChainDecayControls(theme, textColor, checkboxBg)}
 
                 {/* Reactions Section */}
                 <div style={{
@@ -777,6 +787,49 @@ export class XSPlotWidget extends ReactWidget {
                 }
             }
 
+            // Add chain decay cumulative cross-section if available
+            if (curve.chainDecay) {
+                const cd = curve.chainDecay;
+                if (cd.cumulativeXS && cd.cumulativeXS.length > 0) {
+                    traces.push({
+                        x: curve.energy,
+                        y: cd.cumulativeXS,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `${curve.label} (cumulative)`,
+                        line: { 
+                            width: 2,
+                            dash: 'dash',
+                            color: 'rgba(0, 150, 0, 0.8)'  // Green for cumulative
+                        },
+                        hovertemplate: `<b>${curve.label} (Cumulative)</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<br>Daughters: ${cd.daughterNuclides.join(', ') || 'None'}<extra></extra>`,
+                        showlegend: true
+                    });
+                    
+                    // Also add individual daughter contributions as thin lines
+                    if (cd.contributions) {
+                        Object.entries(cd.contributions).forEach(([nuc, xs], idx) => {
+                            if (nuc !== cd.parentNuclide && Array.isArray(xs)) {
+                                const colors = ['rgba(100, 100, 255, 0.5)', 'rgba(255, 100, 100, 0.5)', 'rgba(100, 255, 100, 0.5)'];
+                                traces.push({
+                                    x: curve.energy,
+                                    y: xs,
+                                    type: 'scatter',
+                                    mode: 'lines',
+                                    name: `${nuc} contribution`,
+                                    line: { 
+                                        width: 1,
+                                        color: colors[idx % colors.length]
+                                    },
+                                    hovertemplate: `<b>${nuc}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`,
+                                    showlegend: true
+                                });
+                            }
+                        });
+                    }
+                }
+            }
+
             // Add resonance regions
             if (this.showResonanceRegions && curve.resonanceRegions) {
                 console.log(`[XSPlotWidget] Adding ${curve.resonanceRegions.length} resonance regions for ${curve.nuclide}`);
@@ -1058,6 +1111,30 @@ export class XSPlotWidget extends ReactWidget {
                     includeDerivative: this.showDerivative
                 };
                 title = `S(α,β) Thermal Scattering: ${this.thermalMaterial}`;
+            } else if (this.plotMode === 'chain-decay') {
+                // Chain decay/buildup mode
+                request = {
+                    nuclides: [this.chainDecayParent],
+                    reactions: selectedReactions.map(r => r.mt),
+                    temperature: this.temperature,
+                    energyRegion: this.energyRegion,
+                    chainDecay: {
+                        parentNuclide: this.chainDecayParent,
+                        decayTime: this.chainDecayTime,
+                        flux: this.chainDecayFlux,
+                        includeDaughters: this.chainDecayIncludeDaughters,
+                        maxDepth: this.chainDecayMaxDepth,
+                        trackDaughters: this.chainDecayTrackDaughters
+                    },
+                    includeUncertainty: false,
+                    includeIntegrals: this.showIntegrals
+                };
+                const timeStr = this.chainDecayTime === 0 ? 't=0' : 
+                    this.chainDecayTime < 3600 ? `t=${this.chainDecayTime}s` :
+                    this.chainDecayTime < 86400 ? `t=${(this.chainDecayTime/3600).toFixed(1)}h` :
+                    this.chainDecayTime < 31536000 ? `t=${(this.chainDecayTime/86400).toFixed(1)}d` :
+                    `t=${(this.chainDecayTime/31536000).toFixed(1)}y`;
+                title = `Chain Decay: ${this.chainDecayParent} (${timeStr})`;
             } else if (this.plotMode === 'temp-comparison') {
                 // Temperature comparison mode
                 if (!this.tempComparisonNuclide) {
@@ -1850,6 +1927,13 @@ export class XSPlotWidget extends ReactWidget {
         this.update();
     }
 
+    // ===== Chain Decay Controls =====
+
+    private setChainDecayParent(nuclide: string): void {
+        this.chainDecayParent = nuclide;
+        this.update();
+    }
+
     // ===== Library Comparison Controls =====
 
     private renderLibraryComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
@@ -2132,6 +2216,124 @@ export class XSPlotWidget extends ReactWidget {
                 <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '8px' }}>
                     {this.availableThermalMaterials.length} thermal scattering material(s) available in your library.
                     {this.availableThermalMaterials.length === 0 && ' Check cross-section path.'}
+                </div>
+            </div>
+        );
+    }
+
+    private renderChainDecayControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+        return (
+            <div style={{
+                padding: '10px',
+                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                boxSizing: 'border-box',
+                width: '100%'
+            }}>
+                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                    <span className={codicon('git-branch')} style={{ marginRight: '6px' }} />
+                    Chain Decay/Buildup
+                </h4>
+                <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+                    Calculate cumulative cross-sections for decay chains.
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Parent Nuclide
+                    </label>
+                    <select
+                        value={this.chainDecayParent}
+                        onChange={(e) => this.setChainDecayParent(e.target.value)}
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        {this.availableNuclides.filter(n => ['U235', 'U238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 'Th232', 'Th230', 'Ra226', 'Cs137', 'Cs135', 'Sr90', 'Kr85', 'Am241', 'Am243', 'Np237', 'Cm244'].includes(n) || /^U2[0-9]{2}$/.test(n) || /^U2[0-9]{2}_m1$/.test(n) || /^Pu2[0-9]{2}$/.test(n) || /^Pu2[0-9]{2}_m1$/.test(n) || /^Th2[0-9]{2}$/.test(n) || /^Am2[0-9]{2}$/.test(n) || /^Am2[0-9]{2}_m1$/.test(n) || /^Np2[0-9]{2}$/.test(n) || /^Cm2[0-9]{2}$/.test(n) || /^Cm2[0-9]{2}_m1$/.test(n)).map(n => (
+                            <option key={n} value={n}>{n}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Decay Time (seconds)
+                    </label>
+                    <input
+                        type="number"
+                        value={this.chainDecayTime}
+                        onChange={(e) => this.chainDecayTime = parseFloat(e.target.value) || 0}
+                        min="0"
+                        step="1"
+                        style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            backgroundColor: checkboxBg,
+                            color: textColor,
+                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            boxSizing: 'border-box'
+                        }}
+                    />
+                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                        {[0, 3600, 86400, 604800, 2592000, 31536000].map((t, idx) => {
+                            const labels = ['0s', '1h', '1d', '1w', '1mo', '1y'];
+                            return (
+                                <button
+                                    key={t}
+                                    onClick={() => { this.chainDecayTime = t; this.update(); }}
+                                    style={{
+                                        padding: '2px 6px',
+                                        fontSize: '9px',
+                                        backgroundColor: this.chainDecayTime === t ? '#0e639c' : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
+                                        color: this.chainDecayTime === t ? 'white' : textColor,
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {labels[idx]}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', fontSize: '11px', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={this.chainDecayIncludeDaughters}
+                            onChange={() => { this.chainDecayIncludeDaughters = !this.chainDecayIncludeDaughters; this.update(); }}
+                            style={{ marginRight: '6px' }}
+                        />
+                        Include Daughter Products
+                    </label>
+                </div>
+
+                <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                        Max Chain Depth: {this.chainDecayMaxDepth}
+                    </label>
+                    <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        value={this.chainDecayMaxDepth}
+                        onChange={(e) => { this.chainDecayMaxDepth = parseInt(e.target.value); this.update(); }}
+                        style={{ width: '100%' }}
+                    />
+                </div>
+
+                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '8px' }}>
+                    Shows cumulative XS including daughter contributions weighted by decay abundance.
                 </div>
             </div>
         );
