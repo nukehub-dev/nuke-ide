@@ -437,6 +437,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--include-integrals');
         }
 
+        // Add derivative calculation flag
+        if (request.includeDerivative) {
+            args.push('--include-derivative');
+        }
+
         // Add thermal scattering mode
         if (request.thermalScattering) {
             args.push('--thermal-scattering', JSON.stringify(request.thermalScattering));

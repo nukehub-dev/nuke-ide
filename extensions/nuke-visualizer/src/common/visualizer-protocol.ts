@@ -508,6 +508,8 @@ export interface XSCurveData {
     integrals?: XSIntegralQuantities;
     /** Thermal scattering (S(alpha,beta)) data if applicable */
     thermalScattering?: XSThermalScatteringData;
+    /** Derivative/slope data (dXS/dE) for this curve */
+    derivative?: XSDerivativeData;
 }
 
 /** Uncertainty/error data for cross-section */
@@ -524,6 +526,22 @@ export interface XSUncertaintyData {
     interpolation?: string;
     /** Whether covariance matrix is available */
     hasCovariance?: boolean;
+}
+
+/** Derivative/slope data for cross-section (dXS/dE) */
+export interface XSDerivativeData {
+    /** Derivative values dXS/dE (same length as xs) */
+    dXdE: number[];
+    /** Log-log derivative d(log XS)/d(log E) = (E/XS) * (dXS/dE) */
+    logLogDerivative: number[];
+    /** Energy points where derivative is calculated (may be shorter than xs due to differencing) */
+    energy: number[];
+    /** Method used for derivative calculation */
+    method: 'central' | 'forward' | 'backward';
+    /** Maximum absolute derivative value */
+    maxSlope?: number;
+    /** Energy point where maximum slope occurs */
+    maxSlopeEnergy?: number;
 }
 
 /** Library definition for multi-library comparison */
@@ -685,6 +703,8 @@ export interface XSPlotRequest {
     includeUncertainty?: boolean;
     /** Whether to calculate integral quantities */
     includeIntegrals?: boolean;
+    /** Whether to calculate and return derivative/slope data */
+    includeDerivative?: boolean;
     /** S(alpha, beta) thermal scattering mode (overrides other modes if set) */
     thermalScattering?: XSThermalScatteringRequest;
 }

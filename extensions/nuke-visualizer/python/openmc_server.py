@@ -1683,6 +1683,9 @@ def cmd_xs_plot(args):
         # Handle integral quantities calculation flag
         include_integrals = getattr(args, 'include_integrals', False)
         
+        # Handle derivative/slope calculation flag
+        include_derivative = getattr(args, 'include_derivative', False)
+        
         # Handle thermal scattering (S(alpha,beta)) mode
         thermal_scattering = None
         if args.thermal_scattering:
@@ -1996,6 +1999,75 @@ def cmd_xs_plot(args):
                 traceback.print_exc(file=sys.stderr)
             
             return integrals
+        
+        def calculate_derivative(curve):
+            """Calculate derivative/slope data for a cross-section curve."""
+            derivative_data = {
+                "dXdE": [],
+                "logLogDerivative": [],
+                "energy": [],
+                "method": "central",
+                "maxSlope": 0.0,
+                "maxSlopeEnergy": 0.0
+            }
+            
+            try:
+                energy = np.array(curve["energy"])
+                xs = np.array(curve["xs"])
+                
+                if len(energy) < 3 or len(xs) == 0:
+                    return derivative_data
+                
+                # Ensure energy is sorted
+                sort_idx = np.argsort(energy)
+                energy = energy[sort_idx]
+                xs = xs[sort_idx]
+                
+                # Calculate central differences for dXS/dE
+                # Use log-space for better accuracy with wide energy ranges
+                dXdE = np.zeros(len(energy))
+                
+                # Forward difference for first point
+                dXdE[0] = (xs[1] - xs[0]) / (energy[1] - energy[0])
+                
+                # Central differences for interior points
+                for i in range(1, len(energy) - 1):
+                    # Central difference: (f(x+h) - f(x-h)) / (2h)
+                    dXdE[i] = (xs[i+1] - xs[i-1]) / (energy[i+1] - energy[i-1])
+                
+                # Backward difference for last point
+                dXdE[-1] = (xs[-1] - xs[-2]) / (energy[-1] - energy[-2])
+                
+                # Calculate log-log derivative: d(log XS)/d(log E) = (E/XS) * (dXS/dE)
+                log_log_deriv = np.zeros(len(energy))
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    # Avoid division by zero
+                    valid_mask = (xs > 1e-30) & (energy > 0)
+                    log_log_deriv[valid_mask] = (energy[valid_mask] / xs[valid_mask]) * dXdE[valid_mask]
+                
+                # Find maximum slope
+                abs_dXdE = np.abs(dXdE)
+                max_idx = np.argmax(abs_dXdE)
+                max_slope = float(abs_dXdE[max_idx])
+                max_slope_energy = float(energy[max_idx])
+                
+                derivative_data = {
+                    "dXdE": dXdE.tolist(),
+                    "logLogDerivative": log_log_deriv.tolist(),
+                    "energy": energy.tolist(),
+                    "method": "central",
+                    "maxSlope": max_slope,
+                    "maxSlopeEnergy": max_slope_energy
+                }
+                
+                print(f"[XS Plot] Derivative calculated: max slope = {max_slope:.4e} at {max_slope_energy:.4e} eV", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[XS Plot] Error calculating derivative: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            
+            return derivative_data
         
         def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
             """Get XS data for a specific temperature."""
@@ -2757,6 +2829,12 @@ def cmd_xs_plot(args):
             for curve in curves:
                 curve["integrals"] = calculate_integral_quantities(curve)
         
+        # Calculate derivative/slope data if requested
+        if include_derivative and curves:
+            print(f"[XS Plot] Calculating derivatives for {len(curves)} curves", file=sys.stderr)
+            for curve in curves:
+                curve["derivative"] = calculate_derivative(curve)
+        
         if not curves:
             error_msg = "No valid cross-section data found."
             if cross_sections_path:
@@ -2968,6 +3046,7 @@ def main():
     xs_parser.add_argument('--library-comparison', help='JSON string of library comparison configuration')
     xs_parser.add_argument('--include-uncertainty', action='store_true', help='Include uncertainty/error data if available')
     xs_parser.add_argument('--include-integrals', action='store_true', help='Calculate and include integral quantities')
+    xs_parser.add_argument('--include-derivative', action='store_true', help='Calculate and include derivative/slope data')
     xs_parser.add_argument('--thermal-scattering', help='JSON string of thermal scattering (S(alpha,beta)) request')
     
     # List Nuclides command

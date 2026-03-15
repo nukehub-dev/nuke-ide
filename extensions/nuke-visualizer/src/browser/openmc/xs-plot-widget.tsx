@@ -99,6 +99,7 @@ export class XSPlotWidget extends ReactWidget {
     private showResonances: boolean = true;
     private showUncertainty: boolean = false;
     private showIntegrals: boolean = true;
+    private showDerivative: boolean = false;
     private integralsPanelHeight: number = 180; // Default height in pixels
     private isDraggingIntegrals: boolean = false;
     // Note: Energy range is managed by energyRegion preset
@@ -602,6 +603,15 @@ export class XSPlotWidget extends ReactWidget {
                             />
                             Calculate Integral Quantities
                         </label>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showDerivative}
+                                onChange={() => { this.showDerivative = !this.showDerivative; this.update(); }}
+                                style={{ marginRight: '8px' }}
+                            />
+                            Show Derivative/Slopes (dXS/dE)
+                        </label>
                     </div>
                 </div>
 
@@ -731,6 +741,38 @@ export class XSPlotWidget extends ReactWidget {
                             thickness: 1
                         },
                         hoverinfo: 'skip'
+                    });
+                }
+            }
+
+            // Add derivative/slope trace if available and enabled
+            if (this.showDerivative && curve.derivative) {
+                const d = curve.derivative;
+                if (d.dXdE && d.dXdE.length > 0) {
+                    // Use the log-log derivative for better visualization across energy ranges
+                    const yValues = d.logLogDerivative && d.logLogDerivative.length > 0 
+                        ? d.logLogDerivative 
+                        : d.dXdE;
+                    
+                    // Find the corresponding energy values
+                    const energyValues = d.energy && d.energy.length > 0 
+                        ? d.energy 
+                        : curve.energy;
+                    
+                    traces.push({
+                        x: energyValues,
+                        y: yValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `${curve.label} (slope)`,
+                        line: { 
+                            width: 1,
+                            dash: 'dot',
+                            color: 'rgba(255, 140, 0, 0.7)'  // Orange for derivative
+                        },
+                        yaxis: 'y2',  // Use secondary y-axis
+                        hovertemplate: `<b>${curve.label} (Slope)</b><br>Energy: %{x:.4e} eV<br>dXS/dE: %{y:.4e}<extra></extra>`,
+                        showlegend: true
                     });
                 }
             }
@@ -876,6 +918,9 @@ export class XSPlotWidget extends ReactWidget {
             }
         });
 
+        // Check if any curve has derivative data and derivative view is enabled
+        const hasDerivativeData = this.showDerivative && this.data.curves.some(c => c.derivative);
+        
         const layout: Partial<Plotly.Layout> = {
             xaxis: {
                 title: { text: 'Energy [eV]' },
@@ -887,8 +932,22 @@ export class XSPlotWidget extends ReactWidget {
                 title: { text: 'Cross-Section [barns]' },
                 type: 'log',
                 showgrid: true,
-                gridcolor: theme === 'dark' ? '#333' : '#eee'
+                gridcolor: theme === 'dark' ? '#333' : '#eee',
+                // Make room for secondary y-axis if needed
+                domain: hasDerivativeData ? [0, 0.85] : [0, 1]
             },
+            // Add secondary y-axis for derivative when enabled
+            ...(hasDerivativeData && {
+                yaxis2: {
+                    title: { text: 'dXS/dE (slope)', font: { color: 'rgba(255, 140, 0, 0.9)' } },
+                    type: 'linear',
+                    overlaying: 'y',
+                    side: 'right',
+                    showgrid: false,
+                    position: 1,
+                    tickfont: { color: 'rgba(255, 140, 0, 0.9)' }
+                }
+            }),
             hovermode: 'closest',
             showlegend: true,
             legend: {
@@ -980,7 +1039,8 @@ export class XSPlotWidget extends ReactWidget {
                         temperature: this.libraryComparisonTemperature
                     },
                     includeUncertainty: this.showUncertainty,
-                    includeIntegrals: this.showIntegrals
+                    includeIntegrals: this.showIntegrals,
+                    includeDerivative: this.showDerivative
                 };
                 title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
             } else if (this.plotMode === 'thermal-scattering') {
@@ -994,7 +1054,8 @@ export class XSPlotWidget extends ReactWidget {
                         material: this.thermalMaterial,
                         temperatures: this.thermalTemperatures
                     },
-                    includeUncertainty: false
+                    includeUncertainty: false,
+                    includeDerivative: this.showDerivative
                 };
                 title = `S(α,β) Thermal Scattering: ${this.thermalMaterial}`;
             } else if (this.plotMode === 'temp-comparison') {
@@ -1038,7 +1099,8 @@ export class XSPlotWidget extends ReactWidget {
                         density: m.density
                     })),
                     includeUncertainty: this.showUncertainty,
-                    includeIntegrals: this.showIntegrals
+                    includeIntegrals: this.showIntegrals,
+                    includeDerivative: this.showDerivative
                 };
                 title = `Material Cross-Sections: ${this.materials.map(m => m.name).join(', ')}`;
             } else {
@@ -1056,7 +1118,8 @@ export class XSPlotWidget extends ReactWidget {
                     temperature: this.temperature,
                     energyRegion: this.energyRegion,
                     includeUncertainty: this.showUncertainty,
-                    includeIntegrals: this.showIntegrals
+                    includeIntegrals: this.showIntegrals,
+                    includeDerivative: this.showDerivative
                 };
                 title = `Cross-Sections: ${this.selectedNuclides.join(', ')}`;
             }
