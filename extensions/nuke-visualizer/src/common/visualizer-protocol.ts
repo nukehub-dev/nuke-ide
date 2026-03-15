@@ -370,6 +370,15 @@ export interface OpenMCBackendService {
         nuclideIndex?: number
     ): Promise<OpenMCHeatmapData>;
     
+    /** Get all 2D heatmap slices for a mesh tally */
+    getAllHeatmapSlices(
+        statepointPath: string,
+        tallyId: number,
+        plane: OpenMCHeatmapPlane,
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCHeatmapData[]>;
+    
     /** Stop a running visualization server */
     stopServer(port: number): Promise<void>;
     

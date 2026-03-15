@@ -493,6 +493,25 @@ export class OpenMCService {
     }
 
     /**
+     * Get all 2D heatmap slices for a mesh tally (for animation).
+     */
+    async getAllHeatmapSlices(
+        statepointUri: URI,
+        tallyId: number,
+        plane: OpenMCHeatmapPlane,
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCHeatmapData[]> {
+        return this.openmcBackend.getAllHeatmapSlices(
+            statepointUri.path.toString(),
+            tallyId,
+            plane,
+            scoreIndex,
+            nuclideIndex
+        );
+    }
+
+    /**
      * Discover OpenMC-related files in a directory.
      */
     async discoverFilesInDirectory(directoryUri: URI): Promise<OpenMCFileSet> {

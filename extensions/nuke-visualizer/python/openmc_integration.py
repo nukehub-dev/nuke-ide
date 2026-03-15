@@ -1076,6 +1076,130 @@ class OpenMCPlotter:
             'mesh_dimensions': [nx, ny, nz]
         }
 
+    @staticmethod
+    def create_heatmap_slice_all(
+        statepoint_file: str,
+        tally_id: int,
+        plane: str = 'xy',
+        score_index: int = 0,
+        nuclide_index: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Create all 2D heatmap slices from a 3D mesh tally.
+        
+        Args:
+            statepoint_file: Path to statepoint.h5
+            tally_id: Tally ID
+            plane: Slice plane ('xy', 'xz', or 'yz')
+            score_index: Index of score to extract
+            nuclide_index: Index of nuclide to extract
+            
+        Returns:
+            List of dictionaries, each with 2D values array and axis coordinates
+        """
+        reader = OpenMCReader()
+        tally = reader.load_tally(statepoint_file, tally_id)
+        
+        if not tally.has_mesh or not tally.mesh_info:
+            raise ValueError("Tally is not a mesh tally")
+        
+        mesh = tally.mesh_info
+        
+        # Only support regular (Cartesian) meshes for heatmaps
+        if mesh.get('mesh_type') == 'cylindrical':
+            raise ValueError("Cylindrical meshes not yet supported for 2D heatmaps")
+        
+        nx, ny, nz = mesh['dimensions']
+        dx, dy, dz = mesh['width']
+        xmin, ymin, zmin = mesh['lower_left']
+        xmax, ymax, zmax = mesh['upper_right']
+        
+        # Calculate cell centers for each axis
+        x_centers = np.linspace(xmin + dx/2, xmax - dx/2, nx)
+        y_centers = np.linspace(ymin + dy/2, ymax - dy/2, ny)
+        z_centers = np.linspace(zmin + dz/2, zmax - dz/2, nz)
+        
+        # Isolate Single Score/Nuclide
+        n_scores = len(tally.scores) if tally.scores else 1
+        n_nuclides = len(tally.nuclides) if tally.nuclides else 1
+        
+        mean_flat = tally.mean.flatten()
+        std_flat = tally.std_dev.flatten()
+        expected_size = nx * ny * nz * n_scores * n_nuclides
+        
+        if len(mean_flat) == expected_size:
+            reshaped = mean_flat.reshape(nx, ny, nz, n_scores, n_nuclides)
+            data_3d = reshaped[:, :, :, score_index, nuclide_index]
+            std_reshaped = std_flat.reshape(nx, ny, nz, n_scores, n_nuclides)
+            std_3d = std_reshaped[:, :, :, score_index, nuclide_index]
+        else:
+            data_3d = mean_flat[:nx*ny*nz].reshape(nx, ny, nz)
+            std_3d = std_flat[:nx*ny*nz].reshape(nx, ny, nz)
+        
+        slices = []
+        
+        if plane == 'xy':
+            total_slices = nz
+            for slice_index in range(nz):
+                values_2d = data_3d[:, :, slice_index].T
+                std_2d = std_3d[:, :, slice_index].T
+                slices.append({
+                    'values': values_2d.tolist(),
+                    'std_dev': std_2d.tolist(),
+                    'x_coords': x_centers.tolist(),
+                    'y_coords': y_centers.tolist(),
+                    'x_label': 'X [cm]',
+                    'y_label': 'Y [cm]',
+                    'plane': plane,
+                    'slice_index': slice_index,
+                    'total_slices': total_slices,
+                    'slice_position': float(z_centers[slice_index]),
+                    'slice_label': 'Z',
+                    'mesh_dimensions': [nx, ny, nz]
+                })
+        elif plane == 'xz':
+            total_slices = ny
+            for slice_index in range(ny):
+                values_2d = data_3d[:, slice_index, :].T
+                std_2d = std_3d[:, slice_index, :].T
+                slices.append({
+                    'values': values_2d.tolist(),
+                    'std_dev': std_2d.tolist(),
+                    'x_coords': x_centers.tolist(),
+                    'y_coords': z_centers.tolist(),
+                    'x_label': 'X [cm]',
+                    'y_label': 'Z [cm]',
+                    'plane': plane,
+                    'slice_index': slice_index,
+                    'total_slices': total_slices,
+                    'slice_position': float(y_centers[slice_index]),
+                    'slice_label': 'Y',
+                    'mesh_dimensions': [nx, ny, nz]
+                })
+        elif plane == 'yz':
+            total_slices = nx
+            for slice_index in range(nx):
+                values_2d = data_3d[slice_index, :, :].T
+                std_2d = std_3d[slice_index, :, :].T
+                slices.append({
+                    'values': values_2d.tolist(),
+                    'std_dev': std_2d.tolist(),
+                    'x_coords': y_centers.tolist(),
+                    'y_coords': z_centers.tolist(),
+                    'x_label': 'Y [cm]',
+                    'y_label': 'Z [cm]',
+                    'plane': plane,
+                    'slice_index': slice_index,
+                    'total_slices': total_slices,
+                    'slice_position': float(x_centers[slice_index]),
+                    'slice_label': 'X',
+                    'mesh_dimensions': [nx, ny, nz]
+                })
+        else:
+            raise ValueError(f"Invalid plane '{plane}'. Must be 'xy', 'xz', or 'yz'")
+        
+        return slices
+
 
 def check_openmc_available() -> Tuple[bool, str]:
     """

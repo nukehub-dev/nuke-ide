@@ -1702,6 +1702,32 @@ def cmd_heatmap(args):
         print(json.dumps({"error": str(e)}))
         return 1
 
+
+def cmd_heatmap_all(args):
+    """Get all 2D heatmap slices for animation."""
+    try:
+        from openmc_integration import OpenMCPlotter
+        plotter = OpenMCPlotter()
+        
+        # Use optimized method to load all slices at once
+        all_slices = plotter.create_heatmap_slice_all(
+            args.statepoint,
+            args.tally_id,
+            args.plane,
+            int(args.score_index or 0),
+            int(args.nuclide_index or 0)
+        )
+        
+        print(f"[Heatmap All] Loaded {len(all_slices)} slices", file=sys.stderr)
+        print(json.dumps(all_slices))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def cmd_check(args):
     """Check if OpenMC integration is available."""
     available, message = check_openmc_available()
@@ -3405,6 +3431,14 @@ def main():
     heatmap_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
     heatmap_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
     
+    # Heatmap all slices command
+    heatmap_all_parser = subparsers.add_parser('heatmap-all', help='Get all 2D heatmap slices for animation')
+    heatmap_all_parser.add_argument('statepoint', help='Path to statepoint.h5')
+    heatmap_all_parser.add_argument('tally_id', type=int, help='Tally ID')
+    heatmap_all_parser.add_argument('--plane', default='xy', choices=['xy', 'xz', 'yz'], help='Slice plane')
+    heatmap_all_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
+    heatmap_all_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
+    
     # Check command
     check_parser = subparsers.add_parser('check', help='Check availability')
     
@@ -3454,6 +3488,7 @@ def main():
         'spectrum': cmd_spectrum,
         'spatial': cmd_spatial,
         'heatmap': cmd_heatmap,
+        'heatmap-all': cmd_heatmap_all,
         'check': cmd_check,
         'xs-plot': cmd_xs_plot,
         'list-nuclides': cmd_list_nuclides,

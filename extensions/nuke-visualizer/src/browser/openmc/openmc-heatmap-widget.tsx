@@ -43,10 +43,16 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     private currentPlane: OpenMCHeatmapPlane = 'xy';
     private pendingSliceIndex: number = 0;  // Track user's selection during loading
     private isLoading: boolean = false;
+    private isLoadingAllSlices: boolean = false;  // Loading all slices for animation
     private errorMessage: string | null = null;
     private loadSliceTimeout: number | null = null;  // Debounce timer
     private colormap: string = 'Jet';  // Default colormap
     private useLogScale: boolean = false;  // Toggle for log/linear scale
+    private isAutoPlaying: boolean = false;  // Animation state
+    private autoPlayInterval: number | null = null;  // Animation timer
+    private autoPlaySpeed: number = 200;  // Speed in milliseconds (default faster for smooth animation)
+    private cachedSlices: OpenMCHeatmapData[] | null = null;  // All slices cached for animation
+    private hasLoadedAllSlices: boolean = false;  // Whether all slices are loaded
 
     @inject(ThemeService)
     protected readonly themeService: ThemeService;
@@ -97,7 +103,48 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         this.currentPlane = data.plane;
         this.pendingSliceIndex = data.slice_index;
         this.errorMessage = null;
+        // Reset cache when new data is set
+        this.cachedSlices = null;
+        this.hasLoadedAllSlices = false;
+        this.isAutoPlaying = false;
+        if (this.autoPlayInterval) {
+            window.clearInterval(this.autoPlayInterval);
+            this.autoPlayInterval = null;
+        }
         this.update();
+    }
+
+    private async loadAllSlices(): Promise<void> {
+        if (!this.statepointUri || this.hasLoadedAllSlices) return;
+        
+        this.isLoadingAllSlices = true;
+        this.errorMessage = null;
+        this.update();
+
+        try {
+            const slices = await this.openmcService.getAllHeatmapSlices(
+                this.statepointUri,
+                this.tallyId,
+                this.currentPlane,
+                this.scoreIndex,
+                this.nuclideIndex
+            );
+
+            if (slices && slices.length > 0) {
+                this.cachedSlices = slices;
+                this.hasLoadedAllSlices = true;
+                // Update current data to first slice
+                this.data = slices[0];
+                this.pendingSliceIndex = 0;
+            } else {
+                this.errorMessage = 'No slices loaded';
+            }
+        } catch (error) {
+            this.errorMessage = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.isLoadingAllSlices = false;
+            this.update();
+        }
     }
 
     private async loadSlice(plane: OpenMCHeatmapPlane, sliceIndex: number): Promise<void> {
@@ -134,11 +181,27 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     }
 
     private handlePlaneChange = (plane: OpenMCHeatmapPlane): void => {
-        // Reset slice index when changing planes
+        // Stop any ongoing animation
+        if (this.isAutoPlaying) {
+            this.stopAutoPlay();
+        }
+        // Clear cached slices from previous plane
+        this.cachedSlices = null;
+        this.hasLoadedAllSlices = false;
+        // Reset slice index and load first slice of new plane
         this.loadSlice(plane, 0);
     };
 
     private handleSliceChange = (sliceIndex: number): void => {
+        // If we have cached slices, use them immediately
+        if (this.cachedSlices && sliceIndex < this.cachedSlices.length) {
+            this.pendingSliceIndex = sliceIndex;
+            this.data = this.cachedSlices[sliceIndex];
+            this.update();
+            return;
+        }
+        
+        // Otherwise, load from server
         // Update immediately for responsive UI
         this.pendingSliceIndex = sliceIndex;
         this.update();  // Re-render to show the new slider position immediately
@@ -151,6 +214,46 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             this.loadSlice(this.currentPlane, sliceIndex);
         }, 100);  // 100ms debounce
     };
+
+    private async toggleAutoPlay(): Promise<void> {
+        if (this.isAutoPlaying) {
+            this.stopAutoPlay();
+        } else {
+            // Load all slices first if not cached
+            if (!this.hasLoadedAllSlices) {
+                await this.loadAllSlices();
+            }
+            if (this.hasLoadedAllSlices) {
+                this.startAutoPlay();
+            }
+        }
+    }
+
+    private startAutoPlay(): void {
+        if (!this.data || !this.cachedSlices) return;
+        
+        this.isAutoPlaying = true;
+        this.update();
+        
+        // Start animation loop using cached slices
+        this.autoPlayInterval = window.setInterval(() => {
+            if (!this.cachedSlices) return;
+            
+            const nextIndex = (this.pendingSliceIndex + 1) % this.cachedSlices.length;
+            this.pendingSliceIndex = nextIndex;
+            this.data = this.cachedSlices[nextIndex];
+            this.update();
+        }, this.autoPlaySpeed);
+    }
+
+    private stopAutoPlay(): void {
+        this.isAutoPlaying = false;
+        if (this.autoPlayInterval) {
+            window.clearInterval(this.autoPlayInterval);
+            this.autoPlayInterval = null;
+        }
+        this.update();
+    }
 
     protected getCurrentTheme(): 'dark' | 'light' {
         const themeId = this.themeService.getCurrentTheme().id;
@@ -421,6 +524,71 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         </div>
                     );
                 })()}
+
+                {/* Auto-play Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {!this.hasLoadedAllSlices && !this.isLoadingAllSlices && (
+                        <button
+                            onClick={() => this.loadAllSlices()}
+                            disabled={this.isLoading}
+                            style={{
+                                padding: '4px 12px',
+                                fontSize: '12px',
+                                borderRadius: '4px',
+                                border: 'none',
+                                backgroundColor: '#2196f3',
+                                color: 'white',
+                                cursor: this.isLoading ? 'not-allowed' : 'pointer',
+                                opacity: this.isLoading ? 0.6 : 1
+                            }}
+                            title="Load all slices for smooth animation"
+                        >
+                            📥 Load All
+                        </button>
+                    )}
+                    {this.isLoadingAllSlices && (
+                        <span style={{ fontSize: '12px', color: '#888' }}>
+                            Loading {this.data?.total_slices} slices...
+                        </span>
+                    )}
+                    {this.hasLoadedAllSlices && (
+                        <>
+                            <button
+                                onClick={() => this.toggleAutoPlay()}
+                                disabled={this.isLoading}
+                                style={{
+                                    padding: '4px 12px',
+                                    fontSize: '12px',
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    backgroundColor: this.isAutoPlaying ? '#ff6b6b' : '#4caf50',
+                                    color: 'white',
+                                    cursor: this.isLoading ? 'not-allowed' : 'pointer'
+                                }}
+                            >
+                                {this.isAutoPlaying ? '⏸ Stop' : '▶ Play'}
+                            </button>
+                            <select
+                                value={this.autoPlaySpeed}
+                                onChange={(e) => { this.autoPlaySpeed = parseInt(e.target.value); this.update(); }}
+                                disabled={this.isAutoPlaying}
+                                style={{
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    borderRadius: '4px',
+                                    border: `1px solid ${borderColor}`,
+                                    backgroundColor: buttonBg,
+                                    color: textColor,
+                                    cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
+                                }}
+                            >
+                                <option value="1000">Slow (1s)</option>
+                                <option value="500">Normal (0.5s)</option>
+                                <option value="200">Fast (0.2s)</option>
+                            </select>
+                        </>
+                    )}
+                </div>
             </div>
         );
     }
@@ -537,6 +705,11 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         if (this.loadSliceTimeout) {
             window.clearTimeout(this.loadSliceTimeout);
             this.loadSliceTimeout = null;
+        }
+        // Stop auto-play if running
+        if (this.autoPlayInterval) {
+            window.clearInterval(this.autoPlayInterval);
+            this.autoPlayInterval = null;
         }
         super.onCloseRequest(msg);
     }
