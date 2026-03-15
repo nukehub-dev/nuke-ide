@@ -25,7 +25,8 @@ import {
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
     OpenMCVisualizationResult,
-    OpenMCFilter
+    OpenMCFilter,
+    XSGroupStructuresResponse
 } from '../common/visualizer-protocol';
 
 interface OpenMCProcess {
@@ -442,6 +443,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             args.push('--include-derivative');
         }
 
+        // Add group structure for multigroup XS
+        if (request.groupStructure && request.groupStructure !== 'continuous') {
+            args.push('--group-structure', request.groupStructure);
+        }
+
         // Add thermal scattering mode
         if (request.thermalScattering) {
             args.push('--thermal-scattering', JSON.stringify(request.thermalScattering));
@@ -553,6 +559,34 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         } catch (e) {
             console.error(`[OpenMC] Failed to parse thermal materials list: ${e}`);
             return [];
+        }
+    }
+
+    async getGroupStructures(): Promise<XSGroupStructuresResponse> {
+        const pythonCommand = await this.detectPythonCommand();
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'list-group-structures'];
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 10000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] List group structures command failed: ${result.stderr}`);
+            return { structures: [], metadata: { openmc_available: false, sources: [] } };
+        }
+
+        try {
+            const data = JSON.parse(result.stdout);
+            return {
+                structures: data.structures || [],
+                metadata: data.metadata || { openmc_available: false, sources: [] }
+            };
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse group structures list: ${e}`);
+            return { structures: [], metadata: { openmc_available: false, sources: [] } };
         }
     }
 

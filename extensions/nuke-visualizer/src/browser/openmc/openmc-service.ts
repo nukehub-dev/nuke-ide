@@ -24,7 +24,8 @@ import {
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
     XSPlotRequest,
-    XSPlotData
+    XSPlotData,
+    XSGroupStructuresResponse
 } from '../../common/visualizer-protocol';
 import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
@@ -659,6 +660,18 @@ export class OpenMCService {
         } catch (error) {
             console.error('[OpenMC] Error getting thermal materials:', error);
             return [];
+        }
+    }
+
+    /**
+     * Get available energy group structures for multigroup XS.
+     */
+    async getGroupStructures(): Promise<XSGroupStructuresResponse> {
+        try {
+            return await this.openmcBackend.getGroupStructures();
+        } catch (error) {
+            console.error('[OpenMC] Error getting group structures:', error);
+            return { structures: [], metadata: { openmc_available: false, sources: [] } };
         }
     }
 

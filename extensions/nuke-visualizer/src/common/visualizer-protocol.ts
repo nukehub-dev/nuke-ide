@@ -343,6 +343,9 @@ export interface OpenMCBackendService {
     
     /** Get available thermal scattering materials from cross_sections.xml */
     getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]>;
+    
+    /** Get available energy group structures for multigroup XS */
+    getGroupStructures(): Promise<XSGroupStructuresResponse>;
 }
 
 // === Color Map Presets ===
@@ -512,6 +515,28 @@ export interface XSCurveData {
     derivative?: XSDerivativeData;
     /** Chain decay/buildup data for parent-daughter relationships */
     chainDecay?: XSChainDecayData;
+    /** Multigroup cross-section data (when group structure is applied) */
+    multigroup?: XSMultigroupData;
+}
+
+/** Multigroup cross-section data */
+export interface XSMultigroupData {
+    /** Group structure used (2, 8, 16, 70, 172) */
+    groupStructure: XSGroupStructure;
+    /** Number of energy groups */
+    numGroups: number;
+    /** Energy group boundaries (eV), length = numGroups + 1 */
+    groupBoundaries: number[];
+    /** Group average energies (eV), length = numGroups */
+    groupEnergies: number[];
+    /** Group widths (eV), length = numGroups */
+    groupWidths: number[];
+    /** Group cross-sections (barns), length = numGroups */
+    groupXS: number[];
+    /** Group flux used for weighting (optional), length = numGroups */
+    groupFlux?: number[];
+    /** Method used for group collapsing */
+    weightingMethod: 'flux' | 'lethargy' | 'constant';
 }
 
 /** Chain decay/buildup data for cumulative cross-sections */
@@ -729,7 +754,31 @@ export interface XSPlotRequest {
     thermalScattering?: XSThermalScatteringRequest;
     /** Chain decay/buildup calculation for parent-daughter relationships */
     chainDecay?: XSChainDecayRequest;
+    /** Multigroup structure for collapsing continuous XS */
+    groupStructure?: string;
 }
+
+/** Energy group structure information */
+export interface XSGroupStructureInfo {
+    /** Name of the structure (e.g., '8-group', 'CASMO-8') */
+    name: string;
+    /** Number of groups */
+    groups: number;
+    /** Energy range in eV [min, max] */
+    range_eV: [number, number];
+}
+
+/** Response for group structures list */
+export interface XSGroupStructuresResponse {
+    structures: XSGroupStructureInfo[];
+    metadata: {
+        openmc_available: boolean;
+        sources: string[];
+    };
+}
+
+/** Energy group structure for multigroup cross-sections */
+export type XSGroupStructure = string;
 
 /** Chain decay/buildup request parameters */
 export interface XSChainDecayRequest {

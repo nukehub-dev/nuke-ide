@@ -12,6 +12,74 @@ import tempfile
 import socket
 import numpy as np
 
+# NumPy 2.0+ compatibility: trapezoid replaces trapz
+if hasattr(np, 'trapezoid'):
+    _np_trapz = np.trapezoid
+else:
+    _np_trapz = np.trapz
+
+# Group structure cache
+_group_structures_cache = None
+
+def load_group_structures():
+    """Load group structure definitions from multiple sources.
+    
+    Sources in order of priority:
+    1. OpenMC built-in structures (if openmc.mgxs is available)
+    2. Global IDE configuration (~/.nuke-ide/group_structures.yaml)
+    3. Project-specific configuration (./group_structures.yaml)
+    
+    Returns:
+        tuple: (dict of structures, dict of metadata)
+    """
+    global _group_structures_cache
+    
+    if _group_structures_cache is not None:
+        return _group_structures_cache
+    
+    structures = {}
+    metadata = {
+        "openmc_available": False,
+        "sources": []
+    }
+
+    # 1. Try to load built-in OpenMC structures if available
+    try:
+        import openmc.mgxs
+        for name, edges in openmc.mgxs.GROUP_STRUCTURES.items():
+            structures[name] = sorted(edges, reverse=True)
+        metadata["openmc_available"] = True
+        metadata["sources"].append("OpenMC Built-ins")
+    except ImportError:
+        pass
+
+    # 2. Load from YAML files (allowing user overrides)
+    # Order: Global IDE Config < Project Config (Project Config wins)
+    yaml_locations = [
+        (os.path.expanduser('~/.nuke-ide/group_structures.yaml'), "Global IDE Config"),
+        (os.path.join(os.getcwd(), 'group_structures.yaml'), "Project Config")
+    ]
+    
+    for yaml_path, source_name in yaml_locations:
+        if os.path.exists(yaml_path):
+            try:
+                import yaml
+                with open(yaml_path, 'r') as f:
+                    data = yaml.safe_load(f)
+                if data and 'structures' in data:
+                    for name, info in data['structures'].items():
+                        if 'boundaries_eV' in info:
+                            structures[name] = sorted(info['boundaries_eV'], reverse=True)
+                    metadata["sources"].append(source_name)
+            except ImportError:
+                print(f"[XS Plot] PyYAML not installed, skipping {yaml_path}", file=sys.stderr)
+            except Exception as e:
+                print(f"[XS Plot] Error loading {yaml_path}: {e}", file=sys.stderr)
+
+    _group_structures_cache = (structures, metadata)
+    return _group_structures_cache
+
+
 # Force headless/offscreen rendering BEFORE importing vtk or paraview
 os.environ['DISPLAY'] = ''  # Disable X11 display
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'  # Qt offscreen platform
@@ -1627,6 +1695,30 @@ def check_openmc_available():
         return False, "h5py not installed. Run: pip install h5py"
 
 
+def cmd_list_group_structures(args):
+    """List available group structures."""
+    try:
+        structures, metadata = load_group_structures()
+        result = []
+        for name, boundaries in structures.items():
+            result.append({
+                "name": name,
+                "groups": len(boundaries) - 1,
+                "range_eV": [float(boundaries[-1]), float(boundaries[0])]
+            })
+        
+        result = sorted(result, key=lambda x: x['groups'])
+        
+        print(json.dumps({
+            "structures": result,
+            "metadata": metadata
+        }))
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def cmd_xs_plot(args):
     """Generate cross-section plot data using openmc.data."""
     try:
@@ -1693,6 +1785,9 @@ def cmd_xs_plot(args):
                 chain_decay = json.loads(args.chain_decay)
             except json.JSONDecodeError as e:
                 print(f"Warning: Failed to parse chain decay request: {e}", file=sys.stderr)
+        
+        # Handle group structure for multigroup XS
+        group_structure = args.group_structure if args.group_structure else 'continuous'
         
         # Handle thermal scattering (S(alpha,beta)) mode
         thermal_scattering = None
@@ -2183,6 +2278,99 @@ def cmd_xs_plot(args):
                 traceback.print_exc(file=sys.stderr)
             
             return chain_data
+        
+        def calculate_multigroup_xs(curve, group_structure):
+            """Calculate multigroup cross-sections by collapsing continuous data."""
+            # Load group structure definitions from YAML file (or fallback to built-in)
+            group_boundaries, _ = load_group_structures()
+            
+            mg_data = {
+                "groupStructure": group_structure,
+                "numGroups": 0,
+                "groupBoundaries": [],
+                "groupEnergies": [],
+                "groupWidths": [],
+                "groupXS": [],
+                "weightingMethod": "flux"
+            }
+            
+            try:
+                if group_structure not in group_boundaries:
+                    print(f"[XS Plot] Unknown group structure: {group_structure}", file=sys.stderr)
+                    return mg_data
+                
+                boundaries = np.array(group_boundaries[group_structure])
+                num_groups = len(boundaries) - 1
+                
+                energy = np.array(curve.get("energy", []))
+                xs = np.array(curve.get("xs", []))
+                
+                if len(energy) == 0 or len(xs) == 0:
+                    return mg_data
+                
+                # Ensure energy is sorted
+                sort_idx = np.argsort(energy)
+                energy = energy[sort_idx]
+                xs = xs[sort_idx]
+                
+                # Calculate group averages
+                group_xs = []
+                group_energies = []
+                group_widths = []
+                
+                for g in range(num_groups):
+                    e_high = boundaries[g]
+                    e_low = boundaries[g + 1]
+                    group_widths.append(e_high - e_low)
+                    group_energies.append(np.sqrt(e_high * e_low))  # Log-average energy
+                    
+                    # Find points within this energy group
+                    mask = (energy >= e_low) & (energy <= e_high)
+                    
+                    if np.any(mask):
+                        e_group = energy[mask]
+                        xs_group = xs[mask]
+                        
+                        # Flux-weighted average (using 1/E weighting as default)
+                        # This approximates typical reactor spectrum
+                        flux_weight = 1.0 / e_group  # 1/E spectrum
+                        
+                        # Group average: ∫(φ(E) * σ(E))dE / ∫φ(E)dE
+                        numerator = _np_trapz(xs_group * flux_weight, e_group)
+                        denominator = _np_trapz(flux_weight, e_group)
+                        
+                        if denominator > 0:
+                            group_avg = numerator / denominator
+                        else:
+                            group_avg = np.mean(xs_group) if len(xs_group) > 0 else 0.0
+                    else:
+                        # No data in this group - interpolate
+                        if len(energy) > 0:
+                            e_mid = np.sqrt(e_high * e_low)
+                            group_avg = np.interp(e_mid, energy, xs, left=xs[0], right=xs[-1])
+                        else:
+                            group_avg = 0.0
+                    
+                    group_xs.append(float(group_avg))
+                
+                mg_data = {
+                    "groupStructure": group_structure,
+                    "numGroups": num_groups,
+                    "groupBoundaries": boundaries.tolist(),
+                    "groupEnergies": group_energies,
+                    "groupWidths": group_widths,
+                    "groupXS": group_xs,
+                    "weightingMethod": "flux"
+                }
+                
+                print(f"[XS Plot] Multigroup XS calculated: {num_groups} groups for {curve.get('nuclide', 'unknown')}", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[XS Plot] Error calculating multigroup XS: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            
+            return mg_data
         
         def get_xs_data_for_temp(nuc_data, reaction_mt, temperature):
             """Get XS data for a specific temperature."""
@@ -2965,6 +3153,12 @@ def cmd_xs_plot(args):
                         include_daughters, max_depth, xs_dir
                     )
         
+        # Calculate multigroup cross-sections if requested
+        if group_structure != 'continuous' and curves:
+            print(f"[XS Plot] Calculating multigroup XS for {group_structure}", file=sys.stderr)
+            for curve in curves:
+                curve["multigroup"] = calculate_multigroup_xs(curve, group_structure)
+        
         if not curves:
             error_msg = "No valid cross-section data found."
             if cross_sections_path:
@@ -3179,6 +3373,7 @@ def main():
     xs_parser.add_argument('--include-derivative', action='store_true', help='Calculate and include derivative/slope data')
     xs_parser.add_argument('--thermal-scattering', help='JSON string of thermal scattering (S(alpha,beta)) request')
     xs_parser.add_argument('--chain-decay', help='JSON string of chain decay/buildup request')
+    xs_parser.add_argument('--group-structure', help='Energy group structure name (e.g., 8-group, CASMO-8, or any custom name in group_structures.yaml)')
     
     # List Nuclides command
     nuclides_parser = subparsers.add_parser('list-nuclides', help='List available nuclides')
@@ -3187,6 +3382,9 @@ def main():
     # List Thermal Materials command
     thermal_parser = subparsers.add_parser('list-thermal-materials', help='List available thermal scattering materials')
     thermal_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
+
+    # List Group Structures command
+    lgs_parser = subparsers.add_parser('list-group-structures', help='List available energy group structures')
     
     args = parser.parse_args()
     
@@ -3206,6 +3404,7 @@ def main():
         'xs-plot': cmd_xs_plot,
         'list-nuclides': cmd_list_nuclides,
         'list-thermal-materials': cmd_list_thermal_materials,
+        'list-group-structures': cmd_list_group_structures,
     }
     
     if args.command in commands:

@@ -23,6 +23,8 @@ import { ThemeService } from '@theia/core/lib/browser/theming';
 import { 
     XSPlotData, 
     XSReaction, 
+    XSGroupStructure,
+    XSGroupStructureInfo,
     COMMON_XS_REACTIONS,
     XS_ENERGY_REGIONS,
     XSEnergyRegion
@@ -69,6 +71,10 @@ export class XSPlotWidget extends ReactWidget {
     private showNuclideDropdown: boolean = false;
     private nuclideSearchFilter: string = '';
     
+    // Group structures
+    private availableGroupStructures: XSGroupStructureInfo[] = [];
+    private groupStructuresMetadata: { openmc_available: boolean; sources: string[] } = { openmc_available: true, sources: [] };
+    
     // Material mode
     private materials: Material[] = [];
     private currentMaterial: Material = { name: 'New Material', components: [], density: 1.0 };
@@ -108,6 +114,7 @@ export class XSPlotWidget extends ReactWidget {
     private showUncertainty: boolean = false;
     private showIntegrals: boolean = true;
     private showDerivative: boolean = false;
+    private groupStructure: string = 'continuous';
     private integralsPanelHeight: number = 180; // Default height in pixels
     private isDraggingIntegrals: boolean = false;
     // Note: Energy range is managed by energyRegion preset
@@ -167,12 +174,30 @@ export class XSPlotWidget extends ReactWidget {
         // Load available nuclides
         this.loadAvailableNuclides();
         this.loadAvailableThermalMaterials();
+        this.loadGroupStructures();
 
         this.update();
     }
-    
-    private async loadAvailableNuclides(): Promise<void> {
+
+    private async loadGroupStructures(): Promise<void> {
         try {
+            const response = await this.openmcService.getGroupStructures();
+            this.availableGroupStructures = response.structures;
+            this.groupStructuresMetadata = response.metadata;
+            
+            // If current group structure is not in the list (and not continuous), reset to continuous
+            if (this.groupStructure !== 'continuous' && 
+                !this.availableGroupStructures.some(gs => gs.name === this.groupStructure)) {
+                this.groupStructure = 'continuous';
+            }
+            
+            this.update();
+        } catch (e) {
+            console.error('[XSPlotWidget] Failed to load group structures:', e);
+        }
+    }
+
+    private async loadAvailableNuclides(): Promise<void> {        try {
             this.availableNuclides = await this.openmcService.getAvailableNuclides(this.crossSectionsPath);
             if (this.availableNuclides.length === 0) {
                 // Fallback to common nuclides
@@ -623,6 +648,54 @@ export class XSPlotWidget extends ReactWidget {
                             Show Derivative/Slopes (dXS/dE)
                         </label>
                     </div>
+                    
+                    {/* Group Structure Selector */}
+                    <div style={{ marginTop: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '4px' }}>
+                            Group Structure (Multigroup)
+                        </label>
+                        <select
+                            value={this.groupStructure}
+                            onChange={(e) => { this.groupStructure = e.target.value as XSGroupStructure; this.update(); }}
+                            style={{
+                                width: '100%',
+                                padding: '4px 8px',
+                                backgroundColor: checkboxBg,
+                                color: textColor,
+                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                borderRadius: '3px',
+                                fontSize: '12px',
+                                boxSizing: 'border-box'
+                            }}
+                        >
+                            <option value="continuous">Continuous Energy</option>
+                            {this.availableGroupStructures.length > 0 ? (
+                                this.availableGroupStructures.map(gs => (
+                                    <option key={gs.name} value={gs.name}>
+                                        {gs.name} ({gs.groups} groups)
+                                    </option>
+                                ))
+                            ) : (
+                                <option value="" disabled>No structures available</option>
+                            )}
+                        </select>
+                        {this.groupStructure !== 'continuous' && (
+                            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px', fontStyle: 'italic' }}>
+                                {`Collapse to ${this.groupStructure} structure using flux-weighting`}
+                            </div>
+                        )}
+                        {!this.groupStructuresMetadata.openmc_available && this.availableGroupStructures.length === 0 && (
+                            <div style={{ fontSize: '10px', color: '#e67e22', marginTop: '4px' }}>
+                                <i className={codicon('warning')} style={{ marginRight: '4px', verticalAlign: 'middle' }}></i>
+                                OpenMC built-ins not available. Add a group_structures.yaml to your project.
+                            </div>
+                        )}
+                        {this.groupStructuresMetadata.sources.length > 0 && (
+                            <div style={{ fontSize: '9px', color: '#888', marginTop: '2px' }}>
+                                Sources: {this.groupStructuresMetadata.sources.join(', ')}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div style={{ padding: '15px' }}>
@@ -695,19 +768,85 @@ export class XSPlotWidget extends ReactWidget {
             // Determine line style based on library
             const lineStyle = curve.library ? libraryStyles[curve.library] : { width: 1.5 };
             
-            // Main XS curve
-            traces.push({
-                x: curve.energy,
-                y: curve.xs,
-                type: 'scatter',
-                mode: 'lines',
-                name: curve.label,
-                line: { 
-                    width: lineStyle?.width || 1.5,
-                    dash: lineStyle?.dash as any
-                },
-                hovertemplate: `<b>${curve.label}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`
-            });
+            // Check if we should show multigroup data
+            const showMultigroup = this.groupStructure !== 'continuous' && curve.multigroup && 
+                                   curve.multigroup.groupXS && curve.multigroup.groupXS.length > 0;
+            
+            if (showMultigroup) {
+                // Render multigroup data as histogram bars
+                const mg = curve.multigroup!;
+                const boundaries = mg.groupBoundaries || [];
+                const groupXS = mg.groupXS || [];
+                
+                // Create bar chart for multigroup XS
+                // Use group midpoints for x positions, group widths for bar widths
+                const barX: number[] = [];
+                const barY: number[] = [];
+                const barWidths: number[] = [];
+                
+                for (let i = 0; i < groupXS.length; i++) {
+                    if (boundaries.length >= i + 2) {
+                        const eHigh = boundaries[i];
+                        const eLow = boundaries[i + 1];
+                        const eMid = Math.sqrt(eHigh * eLow);  // Log-average
+                        const width = eHigh - eLow;
+                        
+                        barX.push(eMid);
+                        barY.push(groupXS[i]);
+                        barWidths.push(width);
+                    }
+                }
+                
+                if (barX.length > 0) {
+                    // Add multigroup histogram bars
+                    traces.push({
+                        x: barX,
+                        y: barY,
+                        type: 'bar',
+                        name: `${curve.label} (${this.groupStructure})`,
+                        marker: {
+                            color: 'rgba(100, 150, 200, 0.6)',
+                            line: {
+                                color: 'rgba(50, 100, 150, 0.8)',
+                                width: 1
+                            }
+                        },
+                        width: barWidths.map(w => w * 0.95),  // 95% width for visual separation
+                        hovertemplate: `<b>${curve.label}</b><br>Group: %{x:.3e} eV<br>XS: %{y:.4e} b<extra></extra>`,
+                        showlegend: true
+                    } as Partial<Plotly.Data>);
+                }
+                
+                // Also show continuous curve as thin background line for reference
+                traces.push({
+                    x: curve.energy,
+                    y: curve.xs,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `${curve.label} (continuous)`,
+                    line: { 
+                        width: 1,
+                        dash: 'dot',
+                        color: 'rgba(150, 150, 150, 0.5)'
+                    },
+                    hovertemplate: `<b>${curve.label} (continuous)</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`,
+                    showlegend: true
+                });
+            } else {
+                // Main XS curve (continuous)
+                traces.push({
+                    x: curve.energy,
+                    y: curve.xs,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: curve.label,
+                    line: { 
+                        width: lineStyle?.width || 1.5,
+                        dash: lineStyle?.dash as any
+                    },
+                    hovertemplate: `<b>${curve.label}</b><br>Energy: %{x:.4e} eV<br>XS: %{y:.4e} b<extra></extra>`
+                });
+            }
 
             // Add uncertainty/error bands if available and enabled
             if (this.showUncertainty && curve.uncertainty) {
@@ -1093,7 +1232,8 @@ export class XSPlotWidget extends ReactWidget {
                     },
                     includeUncertainty: this.showUncertainty,
                     includeIntegrals: this.showIntegrals,
-                    includeDerivative: this.showDerivative
+                    includeDerivative: this.showDerivative,
+                    groupStructure: this.groupStructure
                 };
                 title = `Library Comparison: ${this.libraryComparisonNuclide} ${COMMON_XS_REACTIONS.find(r => r.mt === this.libraryComparisonReaction)?.label.split(' ')[0] || 'MT=' + this.libraryComparisonReaction}`;
             } else if (this.plotMode === 'thermal-scattering') {
@@ -1108,7 +1248,8 @@ export class XSPlotWidget extends ReactWidget {
                         temperatures: this.thermalTemperatures
                     },
                     includeUncertainty: false,
-                    includeDerivative: this.showDerivative
+                    includeDerivative: this.showDerivative,
+                    groupStructure: this.groupStructure
                 };
                 title = `S(α,β) Thermal Scattering: ${this.thermalMaterial}`;
             } else if (this.plotMode === 'chain-decay') {
@@ -1127,7 +1268,8 @@ export class XSPlotWidget extends ReactWidget {
                         trackDaughters: this.chainDecayTrackDaughters
                     },
                     includeUncertainty: false,
-                    includeIntegrals: this.showIntegrals
+                    includeIntegrals: this.showIntegrals,
+                    groupStructure: this.groupStructure
                 };
                 const timeStr = this.chainDecayTime === 0 ? 't=0' : 
                     this.chainDecayTime < 3600 ? `t=${this.chainDecayTime}s` :
@@ -1177,7 +1319,8 @@ export class XSPlotWidget extends ReactWidget {
                     })),
                     includeUncertainty: this.showUncertainty,
                     includeIntegrals: this.showIntegrals,
-                    includeDerivative: this.showDerivative
+                    includeDerivative: this.showDerivative,
+                    groupStructure: this.groupStructure
                 };
                 title = `Material Cross-Sections: ${this.materials.map(m => m.name).join(', ')}`;
             } else {
@@ -1196,7 +1339,8 @@ export class XSPlotWidget extends ReactWidget {
                     energyRegion: this.energyRegion,
                     includeUncertainty: this.showUncertainty,
                     includeIntegrals: this.showIntegrals,
-                    includeDerivative: this.showDerivative
+                    includeDerivative: this.showDerivative,
+                    groupStructure: this.groupStructure
                 };
                 title = `Cross-Sections: ${this.selectedNuclides.join(', ')}`;
             }
