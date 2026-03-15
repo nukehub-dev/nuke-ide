@@ -45,6 +45,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
     private loadSliceTimeout: number | null = null;  // Debounce timer
+    private colormap: string = 'Jet';  // Default colormap
 
     @inject(ThemeService)
     protected readonly themeService: ThemeService;
@@ -335,6 +336,41 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         {displaySliceIndex + 1} / {total_slices}
                     </span>
                 </div>
+
+                {/* Colormap Selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Colormap:</span>
+                    <select
+                        value={this.colormap}
+                        onChange={(e) => { this.colormap = e.target.value; this.update(); }}
+                        disabled={this.isLoading}
+                        style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            border: `1px solid ${borderColor}`,
+                            backgroundColor: buttonBg,
+                            color: textColor,
+                            cursor: this.isLoading ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        <option value="Jet">Jet</option>
+                        <option value="Viridis">Viridis</option>
+                        <option value="Plasma">Plasma</option>
+                        <option value="Inferno">Inferno</option>
+                        <option value="Magma">Magma</option>
+                        <option value="Cividis">Cividis</option>
+                        <option value="Hot">Hot</option>
+                        <option value="Cool">Cool</option>
+                        <option value="Rainbow">Rainbow</option>
+                        <option value="RdYlBu">RdYlBu</option>
+                        <option value="RdBu">RdBu</option>
+                        <option value="Spectral">Spectral</option>
+                        <option value="Blues">Blues</option>
+                        <option value="Greens">Greens</option>
+                        <option value="Greys">Greys</option>
+                    </select>
+                </div>
             </div>
         );
     }
@@ -352,10 +388,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             x: x_coords,
             y: y_coords,
             type: 'heatmap',
-            colorscale: 'Jet',
+            colorscale: this.colormap as Plotly.ColorScale,
             zmin: minValue,
             zmax: maxValue,
-
             colorbar: {
                 title: {
                     text: 'Tally Value',
