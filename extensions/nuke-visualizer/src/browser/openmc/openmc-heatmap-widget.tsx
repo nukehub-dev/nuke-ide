@@ -54,6 +54,11 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     private cachedSlices: OpenMCHeatmapData[] | null = null;  // All slices cached for animation
     private hasLoadedAllSlices: boolean = false;  // Whether all slices are loaded
 
+    // Difference view mode
+    private isDifferenceMode: boolean = false;  // Show difference between slices
+    private referenceSliceIndex: number = 0;  // Reference slice for comparison
+    private differenceData: OpenMCHeatmapData | null = null;  // Computed difference data
+
     @inject(ThemeService)
     protected readonly themeService: ThemeService;
 
@@ -188,6 +193,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         // Clear cached slices from previous plane
         this.cachedSlices = null;
         this.hasLoadedAllSlices = false;
+        // Reset difference mode when changing planes
+        this.isDifferenceMode = false;
+        this.differenceData = null;
         // Reset slice index and load first slice of new plane
         this.loadSlice(plane, 0);
     };
@@ -197,6 +205,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         if (this.cachedSlices && sliceIndex < this.cachedSlices.length) {
             this.pendingSliceIndex = sliceIndex;
             this.data = this.cachedSlices[sliceIndex];
+            // Recalculate difference if in difference mode
+            if (this.isDifferenceMode) {
+                this.calculateDifference();
+            }
             this.update();
             return;
         }
@@ -242,6 +254,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             const nextIndex = (this.pendingSliceIndex + 1) % this.cachedSlices.length;
             this.pendingSliceIndex = nextIndex;
             this.data = this.cachedSlices[nextIndex];
+            // Recalculate difference if in difference mode
+            if (this.isDifferenceMode) {
+                this.calculateDifference();
+            }
             this.update();
         }, this.autoPlaySpeed);
     }
@@ -254,6 +270,51 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         }
         this.update();
     }
+
+    private toggleDifferenceMode(): void {
+        this.isDifferenceMode = !this.isDifferenceMode;
+        if (this.isDifferenceMode) {
+            // Enable difference mode - calculate initial difference
+            this.calculateDifference();
+        } else {
+            // Disable difference mode - clear difference data
+            this.differenceData = null;
+        }
+        this.update();
+    }
+
+    private calculateDifference(): void {
+        if (!this.data || !this.cachedSlices) return;
+        
+        const currentSlice = this.cachedSlices[this.pendingSliceIndex];
+        const referenceSlice = this.cachedSlices[this.referenceSliceIndex];
+        
+        if (!currentSlice || !referenceSlice) return;
+        
+        // Calculate difference: current - reference
+        const diffValues: number[][] = [];
+        for (let i = 0; i < currentSlice.values.length; i++) {
+            const row: number[] = [];
+            for (let j = 0; j < currentSlice.values[i].length; j++) {
+                row.push(currentSlice.values[i][j] - referenceSlice.values[i][j]);
+            }
+            diffValues.push(row);
+        }
+        
+        this.differenceData = {
+            ...currentSlice,
+            values: diffValues,
+            slice_index: this.pendingSliceIndex
+        };
+    }
+
+    private handleReferenceSliceChange = (refIndex: number): void => {
+        this.referenceSliceIndex = refIndex;
+        if (this.isDifferenceMode) {
+            this.calculateDifference();
+        }
+        this.update();
+    };
 
     protected getCurrentTheme(): 'dark' | 'light' {
         const themeId = this.themeService.getCurrentTheme().id;
@@ -313,7 +374,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             Loading...
                         </div>
                     ) : (
-                        this.renderHeatmap(this.data, theme)
+                        this.renderHeatmap(
+                            this.isDifferenceMode && this.differenceData ? this.differenceData : this.data, 
+                            theme
+                        )
                     )}
                 </div>
             </div>
@@ -496,9 +560,66 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                     </label>
                 </div>
 
+                {/* Difference View Toggle - Only show when all slices loaded */}
+                {this.hasLoadedAllSlices && (
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        padding: '4px 10px',
+                        backgroundColor: this.isDifferenceMode ? (theme === 'dark' ? '#3d2818' : '#fff3e0') : 'transparent',
+                        borderRadius: '4px',
+                        border: this.isDifferenceMode ? `1px solid ${theme === 'dark' ? '#ff9800' : '#ff9800'}` : 'none'
+                    }}>
+                        <label style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px',
+                            fontSize: '12px',
+                            cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer',
+                            opacity: this.isAutoPlaying ? 0.6 : 1,
+                            color: this.isDifferenceMode ? '#ff9800' : textColor,
+                            fontWeight: this.isDifferenceMode ? 'bold' : 'normal'
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={this.isDifferenceMode}
+                                onChange={() => this.toggleDifferenceMode()}
+                                disabled={this.isAutoPlaying}
+                            />
+                            🔍 Difference View
+                        </label>
+                        {this.isDifferenceMode && (
+                            <>
+                                <span style={{ fontSize: '11px', color: '#888' }}>Ref:</span>
+                                <select
+                                    value={this.referenceSliceIndex}
+                                    onChange={(e) => this.handleReferenceSliceChange(parseInt(e.target.value))}
+                                    disabled={this.isAutoPlaying}
+                                    style={{
+                                        padding: '2px 6px',
+                                        fontSize: '11px',
+                                        borderRadius: '4px',
+                                        border: `1px solid ${borderColor}`,
+                                        backgroundColor: buttonBg,
+                                        color: textColor,
+                                        cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
+                                    }}
+                                >
+                                    {Array.from({ length: this.data?.total_slices || 0 }, (_, i) => (
+                                        <option key={i} value={i}>Slice {i + 1}</option>
+                                    ))}
+                                </select>
+                            </>
+                        )}
+                    </div>
+                )}
+
                 {/* Min/Max Statistics */}
                 {this.data && (() => {
-                    const allValues = this.data.values.flat();
+                    // Use difference data for stats when in difference mode
+                    const dataToUse = this.isDifferenceMode && this.differenceData ? this.differenceData : this.data;
+                    const allValues = dataToUse.values.flat();
                     const minVal = Math.min(...allValues);
                     const maxVal = Math.max(...allValues);
                     const meanVal = allValues.reduce((a, b) => a + b, 0) / allValues.length;
@@ -509,9 +630,17 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             gap: '12px',
                             fontSize: '11px',
                             padding: '4px 10px',
-                            backgroundColor: theme === 'dark' ? '#252525' : '#e8e8e8',
-                            borderRadius: '4px'
+                            backgroundColor: this.isDifferenceMode 
+                                ? (theme === 'dark' ? '#3d2818' : '#fff3e0')
+                                : (theme === 'dark' ? '#252525' : '#e8e8e8'),
+                            borderRadius: '4px',
+                            border: this.isDifferenceMode ? `1px solid ${theme === 'dark' ? '#ff9800' : '#ff9800'}` : 'none'
                         }}>
+                            {this.isDifferenceMode && (
+                                <span style={{ color: '#ff9800', fontWeight: 'bold' }}>
+                                    Δ:
+                                </span>
+                            )}
                             <span style={{ color: theme === 'dark' ? '#ff6b6b' : '#d32f2f' }}>
                                 Min: {minVal.toExponential(3)}
                             </span>
@@ -601,14 +730,23 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         const minValue = Math.min(...allValues.filter(v => v > 0)) || 1e-10;
         const maxValue = Math.max(...allValues) || 1;
 
-        // Apply log scale transformation if enabled
+        // Determine effective colormap - use diverging for difference mode
+        const effectiveColormap = this.isDifferenceMode ? 'RdBu' : this.colormap;
+
+        // Apply log scale transformation if enabled (not in difference mode)
         let displayValues = values;
-        let zMin = minValue;
-        let zMax = maxValue;
-        let colorbarTitle = 'Tally Value';
+        let zMin: number | undefined = minValue;
+        let zMax: number | undefined = maxValue;
+        let colorbarTitle = this.isDifferenceMode ? 'Difference' : 'Tally Value';
         let hoverTemplate = `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Value:</b> %{z:.6e}<extra></extra>`;
 
-        if (this.useLogScale) {
+        if (this.isDifferenceMode) {
+            // For difference mode: symmetric scale around zero
+            const absMax = Math.max(Math.abs(Math.min(...allValues)), Math.abs(Math.max(...allValues)));
+            zMin = -absMax;
+            zMax = absMax;
+            hoverTemplate = `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Diff:</b> %{z:.6e}<extra></extra>`;
+        } else if (this.useLogScale) {
             // Transform values to log10, handling zeros/negatives
             displayValues = values.map(row => 
                 row.map(v => v > 0 ? Math.log10(v) : Math.log10(minValue))
@@ -624,7 +762,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             x: x_coords,
             y: y_coords,
             type: 'heatmap',
-            colorscale: this.colormap as Plotly.ColorScale,
+            colorscale: effectiveColormap as Plotly.ColorScale,
             zmin: zMin,
             zmax: zMax,
             customdata: this.useLogScale ? values : undefined,  // Original values for hover
@@ -658,14 +796,17 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             margin: { t: 50, r: 30, b: 50, l: 60 },
             annotations: [{
                 x: 0.5,
-                y: 1.06,
+                y: 1.08,
                 xref: 'paper',
                 yref: 'paper',
-                text: `${slice_label} = ${slice_position.toFixed(3)} cm`,
+                text: this.isDifferenceMode 
+                    ? `Difference: Slice ${(this.pendingSliceIndex + 1)} − Slice ${(this.referenceSliceIndex + 1)} (${slice_label} = ${slice_position.toFixed(3)} cm)`
+                    : `${slice_label} = ${slice_position.toFixed(3)} cm`,
                 showarrow: false,
                 font: {
-                    size: 14,
-                    color: theme === 'dark' ? '#ccc' : '#333'
+                    size: this.isDifferenceMode ? 13 : 14,
+                    color: this.isDifferenceMode ? '#ff9800' : (theme === 'dark' ? '#ccc' : '#333'),
+                    weight: this.isDifferenceMode ? 700 : 400
                 }
             }],
             hovermode: 'closest'
