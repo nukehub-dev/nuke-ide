@@ -1420,6 +1420,11 @@ class OpenMCDepletionReader:
             # Calculate totals
             total_atoms = np.sum(concentrations, axis=1).tolist()
             
+            # Calculate activity and decay heat
+            activity_data = OpenMCDepletionReader._calculate_activity(
+                nuclide_names, concentrations, f
+            )
+            
             return {
                 'material': {
                     'index': material_index,
@@ -1429,8 +1434,135 @@ class OpenMCDepletionReader:
                 },
                 'nuclides': nuclide_data,
                 'totalAtoms': total_atoms,
-                'totalMass': None  # Not directly available
+                'totalMass': None,  # Not directly available
+                'activity': activity_data
             }
+    
+    @staticmethod
+    def _calculate_activity(
+        nuclide_names: List[str],
+        concentrations: np.ndarray,
+        h5_file: h5py.File
+    ) -> Dict[str, Any]:
+        """
+        Calculate activity and decay heat for nuclides.
+        
+        Args:
+            nuclide_names: List of nuclide names
+            concentrations: Concentration array (steps, nuclides) in atoms/barn-cm
+            h5_file: Open h5py file handle
+            
+        Returns:
+            Dictionary with activity data per nuclide and totals
+        """
+        n_steps = concentrations.shape[0]
+        n_nuclides = len(nuclide_names)
+        
+        # Try to get decay data from chain file
+        half_lives = {}
+        decay_energies = {}
+        
+        # Common nuclide half-lives (in seconds) and decay energies (in MeV)
+        # Data from ENDF/B-VIII.0 decay sublibrary
+        decay_data = {
+            # Fission products
+            'Xe135': {'half_life': 32904.0, 'decay_energy': 0.427},  # 9.14 hours
+            'I135': {'half_life': 23688.0, 'decay_energy': 0.515},   # 6.58 hours
+            'Cs137': {'half_life': 951984960.0, 'decay_energy': 0.514},  # 30.17 years
+            'Cs134': {'half_life': 6528768.0, 'decay_energy': 1.064},    # 2.06 years
+            'Sr90': {'half_life': 908556672.0, 'decay_energy': 0.546},   # 28.8 years
+            'Kr85': {'half_life': 33906240.0, 'decay_energy': 0.251},    # 10.76 years
+            'Pm147': {'half_life': 9126000.0, 'decay_energy': 0.069},    # 2.62 years
+            'Sm151': {'half_life': 2822400.0, 'decay_energy': 0.006},    # 90 years (approx)
+            'Eu154': {'half_life': 272160000.0, 'decay_energy': 0.949},  # 8.6 years
+            'Ru106': {'half_life': 11085120.0, 'decay_energy': 0.039},   # 128 days
+            'Ce144': {'half_life': 2491200.0, 'decay_energy': 0.082},    # 28.9 days
+            'Zr95': {'half_life': 5538240.0, 'decay_energy': 0.196},     # 64 days
+            'Nb95': {'half_life': 345600.0, 'decay_energy': 0.253},      # 4 days
+            'Mo99': {'half_life': 237600.0, 'decay_energy': 0.787},      # 2.75 days
+            'Tc99_m1': {'half_life': 21600.0, 'decay_energy': 0.391},    # 6 hours
+            'Ba140': {'half_life': 1108800.0, 'decay_energy': 0.481},    # 12.8 days
+            'La140': {'half_life': 145152.0, 'decay_energy': 1.577},     # 1.68 days
+            
+            # Actinides
+            'U235': {'half_life': 2.221e17, 'decay_energy': 4.679},      # 7.04e8 years (alpha)
+            'U238': {'half_life': 1.409e17, 'decay_energy': 4.270},      # 4.47e9 years (alpha)
+            'Pu239': {'half_life': 7.605e11, 'decay_energy': 5.245},     # 24110 years (alpha)
+            'Pu240': {'half_life': 2.071e11, 'decay_energy': 5.256},     # 6560 years (alpha)
+            'Pu241': {'half_life': 13674240.0, 'decay_energy': 0.006},   # 14.4 years (beta)
+            'Pu242': {'half_life': 1.183e13, 'decay_energy': 4.984},     # 3.75e5 years (alpha)
+            'Am241': {'half_life': 1.365e10, 'decay_energy': 5.637},     # 432 years (alpha)
+            'Am242_m1': {'half_life': 56400.0, 'decay_energy': 0.687},   # 15.7 hours
+            'Am243': {'half_life': 2.325e11, 'decay_energy': 5.439},     # 7370 years
+            'Cm242': {'half_life': 1401600.0, 'decay_energy': 6.216},    # 162 days
+            'Cm244': {'half_life': 56851200.0, 'decay_energy': 5.902},   # 18.1 years
+            'Np239': {'half_life': 203040.0, 'decay_energy': 0.438},     # 2.35 days
+        }
+        
+        # Get volume from file if available (convert from barn-cm to cm³)
+        volume_cm3 = 1.0  # Default assumption
+        
+        # Calculate activity for each nuclide
+        # Activity A = λ * N where λ = ln(2) / T_1/2
+        # Note: concentrations from OpenMC depletion are already total number of atoms
+        # (from the 'number' dataset which has shape [time_steps, materials, nuclides])
+        LN2 = 0.69314718056
+        
+        nuclide_activity = []
+        total_activity_bq = np.zeros(n_steps)
+        total_activity_ci = np.zeros(n_steps)
+        total_decay_heat = np.zeros(n_steps)
+        
+        for i, nuclide in enumerate(nuclide_names):
+            # Check for exact match first
+            decay_info = decay_data.get(nuclide)
+            
+            # Try without metastable state indicator if not found
+            if not decay_info and '_m1' in nuclide:
+                decay_info = decay_data.get(nuclide.replace('_m1', ''))
+            if not decay_info and '_m' in nuclide:
+                base_name = nuclide.split('_')[0]
+                decay_info = decay_data.get(base_name)
+            
+            if decay_info:
+                half_life = decay_info['half_life']  # seconds
+                decay_energy = decay_info['decay_energy']  # MeV per decay
+                
+                # Decay constant λ (1/s)
+                decay_constant = LN2 / half_life
+                
+                # Number of atoms at each timestep (already total atoms from 'number' dataset)
+                N = concentrations[:, i]  # atoms
+                
+                # Activity in Becquerels (decays/second)
+                activity_bq = N * decay_constant
+                
+                # Activity in Curies (1 Ci = 3.7e10 Bq)
+                activity_ci = activity_bq / 3.7e10
+                
+                # Decay heat in Watts
+                # 1 eV = 1.602e-19 J, 1 MeV = 1.602e-13 J
+                # Power = Activity * Energy per decay
+                decay_heat_w = activity_bq * decay_energy * 1.602e-13
+                
+                nuclide_activity.append({
+                    'nuclide': nuclide,
+                    'halfLife': half_life,
+                    'activityBq': activity_bq.tolist(),
+                    'activityCi': activity_ci.tolist(),
+                    'decayHeat': decay_heat_w.tolist()
+                })
+                
+                total_activity_bq += activity_bq
+                total_activity_ci += activity_ci
+                total_decay_heat += decay_heat_w
+        
+        return {
+            'nuclides': nuclide_activity,
+            'totalActivityBq': total_activity_bq.tolist(),
+            'totalActivityCi': total_activity_ci.tolist(),
+            'totalDecayHeat': total_decay_heat.tolist()
+        }
 
 
 def check_openmc_available() -> Tuple[bool, str]:

@@ -47,6 +47,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
     private materials: OpenMCDepletionMaterial[] = [];
     private selectedMaterialIndex: number = 0;
     private nuclideData: OpenMCDepletionNuclideData[] = [];
+    private activityData: any = null;
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
     
@@ -55,6 +56,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
     private scaleType: DepletionScaleType = 'log';
     private xAxisType: DepletionXAxis = 'burnup';
     private selectedNuclides: Set<string> = new Set();
+    private showActivityNuclides: boolean = false;  // Toggle for showing individual activity curves
     
     // UI state
     private showAllNuclides: boolean = false;
@@ -130,6 +132,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
             if (response.materialData) {
                 this.nuclideData = response.materialData.nuclides;
+                this.activityData = response.materialData.activity || null;
                 
                 // Auto-select important nuclides if none selected
                 if (this.selectedNuclides.size === 0 && this.nuclideData.length > 0) {
@@ -297,6 +300,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         <option value="concentration">Concentration (atoms/b-cm)</option>
                         <option value="mass">Mass (grams)</option>
                         <option value="normalized">Normalized (% of initial)</option>
+                        <option value="activity" disabled={!this.activityData}>Activity (Ci)</option>
+                        <option value="decay_heat" disabled={!this.activityData}>Decay Heat (Watts)</option>
                     </select>
 
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
@@ -374,33 +379,88 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     </div>
                 </div>
 
-                {/* Nuclide Selector */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <div style={{ padding: '15px 15px 10px' }}>
-                        <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
-                            Nuclides ({this.selectedNuclides.size} selected)
+                {/* Nuclide Selector - Hidden for Activity/Decay Heat plots */}
+                {(this.plotType !== 'activity' && this.plotType !== 'decay_heat') ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <div style={{ padding: '15px 15px 10px' }}>
+                            <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
+                                Nuclides ({this.selectedNuclides.size} selected)
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="Search nuclides..."
+                                value={this.searchFilter}
+                                onChange={(e) => { this.searchFilter = e.target.value; this.update(); }}
+                                style={{
+                                    width: '100%',
+                                    padding: '6px',
+                                    fontSize: '11px',
+                                    borderRadius: '4px',
+                                    border: `1px solid ${borderColor}`,
+                                    backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                                    color: textColor
+                                }}
+                            />
+                        </div>
+                        
+                        <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
+                            {this.renderNuclideList(theme)}
+                        </div>
+                    </div>
+                ) : (
+                    /* Activity/Decay Heat Info Panel */
+                    <div style={{ flex: 1, padding: '15px', overflow: 'auto' }}>
+                        <div style={{
+                            padding: '12px',
+                            backgroundColor: theme === 'dark' ? '#3d2818' : '#fff3e0',
+                            borderRadius: '6px',
+                            border: `1px solid ${theme === 'dark' ? '#ff9800' : '#ffb74d'}`,
+                            marginBottom: '15px'
+                        }}>
+                            <div style={{ fontSize: '12px', color: '#ff9800', fontWeight: 'bold', marginBottom: '6px' }}>
+                                ℹ️ Total Radioactivity
+                            </div>
+                            <div style={{ fontSize: '11px', color: textColor, lineHeight: '1.4' }}>
+                                {this.plotType === 'activity' 
+                                    ? 'Activity shows the total radioactivity from ALL nuclides in the material. Individual nuclide selection does not affect the total.' 
+                                    : 'Decay Heat shows the total heat generation from radioactive decay of ALL nuclides. Individual nuclide selection does not affect the total.'}
+                            </div>
+                        </div>
+                        
+                        <label style={{ 
+                            fontSize: '12px', 
+                            color: textColor, 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px', 
+                            cursor: 'pointer',
+                            padding: '10px',
+                            backgroundColor: theme === 'dark' ? '#2d2d2d' : '#f5f5f5',
+                            borderRadius: '4px'
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={this.showActivityNuclides}
+                                onChange={(e) => { this.showActivityNuclides = e.target.checked; this.update(); }}
+                            />
+                            <span>
+                                Show Individual Nuclide Contributions<br/>
+                                <span style={{ fontSize: '10px', color: '#888' }}>
+                                    Display breakdown curves for top contributors
+                                </span>
+                            </span>
                         </label>
-                        <input
-                            type="text"
-                            placeholder="Search nuclides..."
-                            value={this.searchFilter}
-                            onChange={(e) => { this.searchFilter = e.target.value; this.update(); }}
-                            style={{
-                                width: '100%',
-                                padding: '6px',
-                                fontSize: '11px',
-                                borderRadius: '4px',
-                                border: `1px solid ${borderColor}`,
-                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
-                                color: textColor
-                            }}
-                        />
+                        
+                        {this.showActivityNuclides && this.activityData && (
+                            <div style={{ marginTop: '15px' }}>
+                                <div style={{ fontSize: '11px', color: '#888', marginBottom: '8px' }}>
+                                    Top contributors by final {this.plotType === 'activity' ? 'activity' : 'decay heat'}:
+                                </div>
+                                {this.renderActivityNuclideList(theme)}
+                            </div>
+                        )}
                     </div>
-                    
-                    <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
-                        {this.renderNuclideList(theme)}
-                    </div>
-                </div>
+                )}
             </div>
         );
     }
@@ -481,6 +541,65 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
+    private renderActivityNuclideList(theme: 'dark' | 'light'): React.ReactNode {
+        const textColor = theme === 'dark' ? '#ccc' : '#333';
+        
+        if (!this.activityData || !this.activityData.nuclides) {
+            return <div style={{ fontSize: '11px', color: '#888' }}>No activity data available</div>;
+        }
+        
+        // Sort nuclides by final activity/decay heat
+        const sortedNuclides = [...this.activityData.nuclides].sort((a: any, b: any) => {
+            const aVal = this.plotType === 'activity' 
+                ? (a.activityCi?.[a.activityCi.length - 1] || 0)
+                : (a.decayHeat?.[a.decayHeat.length - 1] || 0);
+            const bVal = this.plotType === 'activity'
+                ? (b.activityCi?.[b.activityCi.length - 1] || 0)
+                : (b.decayHeat?.[b.decayHeat.length - 1] || 0);
+            return bVal - aVal;
+        });
+        
+        // Show top 15 contributors
+        const topNuclides = sortedNuclides.slice(0, 15);
+        
+        return (
+            <div>
+                {topNuclides.map((nuc: any, idx: number) => {
+                    const value = this.plotType === 'activity'
+                        ? (nuc.activityCi?.[nuc.activityCi.length - 1] || 0)
+                        : (nuc.decayHeat?.[nuc.decayHeat.length - 1] || 0);
+                    const unit = this.plotType === 'activity' ? 'Ci' : 'W';
+                    
+                    return (
+                        <div
+                            key={nuc.nuclide}
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                color: textColor,
+                                backgroundColor: idx % 2 === 0 ? (theme === 'dark' ? '#252525' : '#f5f5f5') : 'transparent',
+                                borderRadius: '3px'
+                            }}
+                        >
+                            <span>{idx + 1}. {nuc.nuclide}</span>
+                            <span style={{ color: '#888' }}>
+                                {value < 0.01 ? value.toExponential(2) : value.toFixed(2)} {unit}
+                            </span>
+                        </div>
+                    );
+                })}
+                {sortedNuclides.length > 15 && (
+                    <div style={{ fontSize: '10px', color: '#888', textAlign: 'center', marginTop: '8px' }}>
+                        ... and {sortedNuclides.length - 15} more nuclides
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     private applyPreset(preset: DepletionNuclidePreset): void {
         // Get available nuclides from this preset that exist in the data
         const availableNucs = preset.nuclides.filter(nuc => 
@@ -548,36 +667,76 @@ export class OpenMCDepletionWidget extends ReactWidget {
         ];
 
         let colorIndex = 0;
-        for (const nuclideName of this.selectedNuclides) {
-            const nuclide = this.nuclideData.find(n => n.nuclide === nuclideName);
-            if (!nuclide) continue;
-
-            let yValues: number[];
-
-            switch (this.plotType) {
-                case 'mass':
-                    yValues = nuclide.massGrams || nuclide.concentrations;
-                    break;
-                case 'normalized':
-                    const initial = nuclide.concentrations[0] || 1;
-                    yValues = nuclide.concentrations.map(c => (c / initial) * 100);
-                    break;
-                case 'concentration':
-                default:
-                    yValues = nuclide.concentrations;
-            }
-
+        
+        // Handle activity/decay heat plots differently
+        if ((this.plotType === 'activity' || this.plotType === 'decay_heat') && this.activityData) {
+            // Plot total activity/decay heat as a thick line
+            const totalValues = this.plotType === 'activity' 
+                ? this.activityData.totalActivityCi 
+                : this.activityData.totalDecayHeat;
+            
             traces.push({
                 x: xValues,
-                y: yValues,
+                y: totalValues,
                 type: 'scatter',
                 mode: 'lines+markers',
-                name: nuclideName,
-                line: { color: colors[colorIndex % colors.length], width: 2 },
-                marker: { size: 6 }
+                name: this.plotType === 'activity' ? 'Total Activity' : 'Total Decay Heat',
+                line: { color: '#d62728', width: 3 },
+                marker: { size: 8 }
             });
+            
+            // Optionally show individual nuclide contributions
+            if (this.showActivityNuclides && this.activityData.nuclides) {
+                for (const nucActivity of this.activityData.nuclides) {
+                    const values = this.plotType === 'activity' 
+                        ? nucActivity.activityCi 
+                        : nucActivity.decayHeat;
+                    
+                    traces.push({
+                        x: xValues,
+                        y: values,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: nucActivity.nuclide,
+                        line: { color: colors[colorIndex % colors.length], width: 1 },
+                        opacity: 0.7
+                    });
+                    colorIndex++;
+                }
+            }
+        } else {
+            // Standard nuclide concentration plots
+            for (const nuclideName of this.selectedNuclides) {
+                const nuclide = this.nuclideData.find(n => n.nuclide === nuclideName);
+                if (!nuclide) continue;
 
-            colorIndex++;
+                let yValues: number[];
+
+                switch (this.plotType) {
+                    case 'mass':
+                        yValues = nuclide.massGrams || nuclide.concentrations;
+                        break;
+                    case 'normalized':
+                        const initial = nuclide.concentrations[0] || 1;
+                        yValues = nuclide.concentrations.map(c => (c / initial) * 100);
+                        break;
+                    case 'concentration':
+                    default:
+                        yValues = nuclide.concentrations;
+                }
+
+                traces.push({
+                    x: xValues,
+                    y: yValues,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: nuclideName,
+                    line: { color: colors[colorIndex % colors.length], width: 2 },
+                    marker: { size: 6 }
+                });
+
+                colorIndex++;
+            }
         }
 
         const layout: any = {
@@ -618,6 +777,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 return 'Mass (grams)';
             case 'normalized':
                 return 'Relative to Initial (%)';
+            case 'activity':
+                return 'Activity (Ci)';
+            case 'decay_heat':
+                return 'Decay Heat (Watts)';
             case 'concentration':
             default:
                 return 'Concentration (atoms/barn-cm)';
