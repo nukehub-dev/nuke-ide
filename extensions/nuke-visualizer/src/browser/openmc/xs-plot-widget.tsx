@@ -247,6 +247,27 @@ export class XSPlotWidget extends ReactWidget {
         this.data = data;
         this.titleText = title;
         this.isLoading = false;
+        
+        // Display warnings for unavailable reactions
+        if (data.warnings && data.warnings.length > 0) {
+            console.log(`[XSPlotWidget] ${data.warnings.length} warnings:`, data.warnings);
+            // Show first warning as notification
+            const firstWarning = data.warnings[0];
+            const moreCount = data.warnings.length - 1;
+            if (moreCount > 0) {
+                this.messageService.warn(`${firstWarning} (+${moreCount} more unavailable)`, 
+                    'View All').then(action => {
+                    if (action === 'View All') {
+                        // Log all warnings to console for detailed view
+                        console.log('All unavailable reactions:', data.warnings);
+                        this.messageService.info(`Check browser console for full list of ${data.warnings?.length} unavailable reactions`);
+                    }
+                });
+            } else {
+                this.messageService.warn(firstWarning);
+            }
+        }
+        
         this.update();
     }
 

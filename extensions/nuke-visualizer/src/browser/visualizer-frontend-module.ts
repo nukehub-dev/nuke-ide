@@ -36,6 +36,7 @@ import { OpenMCContribution, XSPlotViewContribution, OpenMCTalliesViewContributi
 import { OpenMCTallySelector } from './openmc/tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
+import { OpenMCHeatmapWidget } from './openmc/openmc-heatmap-widget';
 import { XSPlotWidget } from './openmc/xs-plot-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
@@ -139,6 +140,19 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(WidgetFactory).toDynamicValue(context => ({
         id: XSPlotWidget.ID,
         createWidget: () => context.container.get<XSPlotWidget>(XSPlotWidget),
+    })).inSingletonScope();
+
+    // Bind heatmap widget
+    bind(OpenMCHeatmapWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCHeatmapWidget.ID,
+        createWidget: (options?: { id?: string }) => {
+            const widget = context.container.get<OpenMCHeatmapWidget>(OpenMCHeatmapWidget);
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
     })).inSingletonScope();
 
     // Bind XS Plot View Contribution (adds icon to sidebar)

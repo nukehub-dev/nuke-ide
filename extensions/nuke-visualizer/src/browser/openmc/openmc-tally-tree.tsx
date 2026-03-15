@@ -29,7 +29,7 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
-    action?: 'visualize' | 'spectrum' | 'spatial' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides';
+    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides';
 }
 
 @injectable()
@@ -214,6 +214,14 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                     >
                                         <i className="fa fa-cube"></i>
                                         3D View
+                                    </button>
+                                    <button 
+                                        className="tally-action-btn heatmap"
+                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
+                                        title="2D Heatmap Slices"
+                                    >
+                                        <i className="fa fa-th"></i>
+                                        2D Heatmap
                                     </button>
                                     <div className="button-group">
                                         <button 

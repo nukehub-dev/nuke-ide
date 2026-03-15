@@ -1679,6 +1679,29 @@ def cmd_spatial(args):
         traceback.print_exc(file=sys.stderr)
         return 1
 
+
+def cmd_heatmap(args):
+    """Get 2D heatmap slice data."""
+    try:
+        from openmc_integration import OpenMCPlotter
+        plotter = OpenMCPlotter()
+        data = plotter.create_heatmap_slice(
+            args.statepoint,
+            args.tally_id,
+            args.plane,
+            args.slice_index,
+            int(args.score_index or 0),
+            int(args.nuclide_index or 0)
+        )
+        
+        print(json.dumps(data))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
 def cmd_check(args):
     """Check if OpenMC integration is available."""
     available, message = check_openmc_available()
@@ -1727,6 +1750,9 @@ def cmd_xs_plot(args):
     except ImportError as e:
         print(json.dumps({"error": f"OpenMC not installed: {e}"}))
         return 1
+
+    # Collect warnings to show to user
+    warnings = []
 
     try:
         nuclides = [n.strip() for n in args.nuclides.split(',')] if args.nuclides else []
@@ -2746,7 +2772,9 @@ def cmd_xs_plot(args):
                     # Get XS data
                     energy, xs_values = get_xs_data_for_temp(nuc_data, lib_reaction, lib_temperature)
                     if energy is None:
-                        print(f"Warning: Reaction MT={lib_reaction} not available for {lib_nuclide} in '{lib_name}'", file=sys.stderr)
+                        warning_msg = f"Reaction MT={lib_reaction} ({mt_names.get(lib_reaction, 'unknown')}) not available for {lib_nuclide} in library '{lib_name}'"
+                        print(f"Warning: {warning_msg}", file=sys.stderr)
+                        warnings.append(warning_msg)
                         continue
                     
                     # Filter by energy range
@@ -3054,7 +3082,9 @@ def cmd_xs_plot(args):
                             energy, xs_values = get_xs_data_for_temp(nuc_data, reaction_mt, temperature)
                             
                             if energy is None:
-                                print(f"Warning: Reaction MT={reaction_mt} not available for {nuclide_name}", file=sys.stderr)
+                                warning_msg = f"Reaction MT={reaction_mt} ({mt_names.get(reaction_mt, 'unknown')}) not available for {nuclide_name}"
+                                print(f"Warning: {warning_msg}", file=sys.stderr)
+                                warnings.append(warning_msg)
                                 continue
                             
                             # Filter by energy range
@@ -3172,6 +3202,9 @@ def cmd_xs_plot(args):
             "curves": curves,
             "temperature": temperature if not temp_comparison else None
         }
+        
+        if warnings:
+            result["warnings"] = warnings
         
         if reaction_rates:
             result["reactionRates"] = reaction_rates
@@ -3352,6 +3385,15 @@ def main():
     spatial_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
     spatial_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
     
+    # Heatmap slice command
+    heatmap_parser = subparsers.add_parser('heatmap', help='Get 2D heatmap slice')
+    heatmap_parser.add_argument('statepoint', help='Path to statepoint.h5')
+    heatmap_parser.add_argument('tally_id', type=int, help='Tally ID')
+    heatmap_parser.add_argument('--plane', default='xy', choices=['xy', 'xz', 'yz'], help='Slice plane')
+    heatmap_parser.add_argument('--slice-index', type=int, default=0, help='Slice index')
+    heatmap_parser.add_argument('--score-index', type=str, default='0', help='Score index or name')
+    heatmap_parser.add_argument('--nuclide-index', type=str, default='0', help='Nuclide index or name')
+    
     # Check command
     check_parser = subparsers.add_parser('check', help='Check availability')
     
@@ -3400,6 +3442,7 @@ def main():
         'visualize-overlay': cmd_visualize_overlay,
         'spectrum': cmd_spectrum,
         'spatial': cmd_spatial,
+        'heatmap': cmd_heatmap,
         'check': cmd_check,
         'xs-plot': cmd_xs_plot,
         'list-nuclides': cmd_list_nuclides,

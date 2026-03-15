@@ -342,6 +342,50 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    async getHeatmapSlice(
+        statepointPath: string,
+        tallyId: number,
+        plane: 'xy' | 'xz' | 'yz',
+        sliceIndex: number,
+        scoreIndex: number = 0,
+        nuclideIndex: number = 0
+    ): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'heatmap', statepointPath, tallyId.toString(),
+            '--plane', plane,
+            '--slice-index', sliceIndex.toString(),
+            '--score-index', scoreIndex.toString(),
+            '--nuclide-index', nuclideIndex.toString()
+        ];
+
+        console.log(`[OpenMC] Running heatmap command: ${pythonCommand} ${args.join(' ')}`);
+
+        // Increased maxBuffer to 50MB for large mesh data
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            maxBuffer: 50 * 1024 * 1024
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Heatmap command failed with status ${result.status}`);
+            console.error(`[OpenMC] stderr: ${result.stderr}`);
+            throw new Error(result.stderr || `Command failed with status ${result.status}`);
+        }
+
+        try {
+            console.log(`[OpenMC] Heatmap output length: ${result.stdout?.length || 0} characters`);
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse heatmap JSON: ${e}`);
+            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
+            throw e;
+        }
+    }
+
     async stopServer(port: number): Promise<void> {
         const proc = this.processes.get(port);
         if (proc) {

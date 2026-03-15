@@ -38,6 +38,7 @@ import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc-plot-widget';
+import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
@@ -131,6 +132,13 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     private async getPlotWidget(tallyId: number, type: string): Promise<OpenMCPlotWidget> {
         const widgetId = `${OpenMCPlotWidget.ID}:${tallyId}:${type}`;
         return this.widgetManager.getOrCreateWidget<OpenMCPlotWidget>(OpenMCPlotWidget.ID, {
+            id: widgetId
+        } as any);
+    }
+
+    private async getHeatmapWidget(tallyId: number, score?: string): Promise<OpenMCHeatmapWidget> {
+        const widgetId = `${OpenMCHeatmapWidget.ID}:${tallyId}:${score || 'default'}`;
+        return this.widgetManager.getOrCreateWidget<OpenMCHeatmapWidget>(OpenMCHeatmapWidget.ID, {
             id: widgetId
         } as any);
     }
@@ -527,6 +535,55 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                             this.shell.addWidget(plotWidget, { area: 'main' });
                         }
                         this.shell.activateWidget(plotWidget.id);
+                    } else if (selection.action === 'heatmap') {
+                        console.log(`[OpenMC] Creating 2D heatmap for tally ${selection.tallyId}`);
+                        
+                        // Resolve indices for heatmap
+                        let scoreIdx = 0;
+                        let nuclideIdx = 0;
+                        let scoreName = 'total';
+                        let nuclideName = 'total';
+                        if (tallyInfo) {
+                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                                scoreName = selection.score;
+                            }
+                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                                nuclideName = selection.nuclide;
+                            }
+                        }
+
+                        const data = await this.openmcService.getHeatmapSlice(
+                            statepointUri, 
+                            selection.tallyId, 
+                            'xy',
+                            0,  // Start with first slice
+                            scoreIdx,
+                            nuclideIdx
+                        );
+                        console.log(`[OpenMC] Heatmap data received:`, data);
+                        
+                        if (data.error) {
+                            this.messageService.error(`Heatmap error: ${data.error}`);
+                            return;
+                        }
+                        
+                        const heatmapWidget = await this.getHeatmapWidget(selection.tallyId, selection.score);
+                        heatmapWidget.setData(
+                            data,
+                            statepointUri,
+                            selection.tallyId,
+                            scoreIdx,
+                            nuclideIdx,
+                            scoreName,
+                            nuclideName,
+                            `Tally ${selection.tallyId} 2D Heatmap`
+                        );
+                        if (!heatmapWidget.isAttached) {
+                            this.shell.addWidget(heatmapWidget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(heatmapWidget.id);
                     } else if (selection.action === 'spectrum-all-scores' && tallyInfo) {
                         const data = await this.openmcService.getMultiScoreSpectrum(statepointUri, selection.tallyId, tallyInfo.scores);
                         const traces = PlotlyUtils.createMultiScoreTraces(data, 'spectrum');

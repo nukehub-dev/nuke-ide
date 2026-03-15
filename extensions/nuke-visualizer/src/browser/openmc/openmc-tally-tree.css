@@ -261,6 +261,16 @@
     background: var(--theia-button-hoverBackground);
 }
 
+.openmc-tally-tree .tally-action-btn.heatmap {
+    background: var(--theia-textLink-foreground);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-textLink-foreground);
+}
+
+.openmc-tally-tree .tally-action-btn.heatmap:hover {
+    background: var(--theia-textLink-activeForeground);
+}
+
 .openmc-tally-tree .tally-action-btn i {
     font-size: 12px;
 }
@@ -309,4 +319,126 @@
 
 .openmc-tally-tree .tree-content::-webkit-scrollbar-thumb:hover {
     background: var(--theia-scrollbarSlider-hoverBackground);
+}
+
+/* Global Range Input Styling - Fix blue focus border */
+input[type="range"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background: transparent !important;
+    outline: none !important;
+    border: none !important;
+}
+
+input[type="range"]:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
+input[type="range"]:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 2px;
+    border: none !important;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 14px;
+    height: 14px;
+    background: var(--theia-textLink-foreground);
+    border-radius: 50%;
+    cursor: pointer;
+    margin-top: -5px;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+    box-shadow: none !important;
+    outline: none !important;
+    border: none !important;
+}
+
+input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 2px;
+    border: none !important;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--theia-textLink-foreground);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* Heatmap Widget Specific Slider Styling */
+.openmc-heatmap input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    outline: none;
+    border: none;
+}
+
+.openmc-heatmap input[type="range"]:focus {
+    outline: none;
+    box-shadow: none;
+    border: none;
+}
+
+.openmc-heatmap input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 2px;
+}
+
+.openmc-heatmap input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--theia-textLink-foreground);
+    border-radius: 50%;
+    cursor: pointer;
+    margin-top: -5px;
+    border: none;
+    box-shadow: none;
+}
+
+.openmc-heatmap input[type="range"]:focus::-webkit-slider-thumb {
+    box-shadow: none;
+    outline: none;
+}
+
+.openmc-heatmap input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 2px;
+    border: none;
+}
+
+.openmc-heatmap input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--theia-textLink-foreground);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: none;
 }

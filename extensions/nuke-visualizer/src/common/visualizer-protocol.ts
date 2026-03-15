@@ -262,6 +262,39 @@ export interface OpenMCSpatialPlotData {
     error?: string;
 }
 
+/** 2D Heatmap slice plane orientation */
+export type OpenMCHeatmapPlane = 'xy' | 'xz' | 'yz';
+
+/** OpenMC 2D heatmap slice data */
+export interface OpenMCHeatmapData {
+    /** 2D array of tally values (rows x cols) */
+    values: number[][];
+    /** 2D array of standard deviations (optional) */
+    std_dev?: number[][];
+    /** X-axis coordinates (cell centers) */
+    x_coords: number[];
+    /** Y-axis coordinates (cell centers) */
+    y_coords: number[];
+    /** X-axis label */
+    x_label: string;
+    /** Y-axis label */
+    y_label: string;
+    /** Slice plane orientation */
+    plane: OpenMCHeatmapPlane;
+    /** Slice index in the third dimension */
+    slice_index: number;
+    /** Total number of slices available */
+    total_slices: number;
+    /** Position of the slice in cm */
+    slice_position: number;
+    /** Z-axis label (the slice dimension) */
+    slice_label: string;
+    /** Mesh dimensions [nx, ny, nz] */
+    mesh_dimensions: number[];
+    /** Error message if any */
+    error?: string;
+}
+
 /** Result of loading OpenMC geometry with tally overlay */
 export interface OpenMCVisualizationResult {
     /** Whether loading was successful */
@@ -326,6 +359,16 @@ export interface OpenMCBackendService {
         scoreIndex?: number,
         nuclideIndex?: number
     ): Promise<OpenMCSpatialPlotData>;
+    
+    /** Get 2D heatmap slice data for a mesh tally */
+    getHeatmapSlice(
+        statepointPath: string,
+        tallyId: number,
+        plane: OpenMCHeatmapPlane,
+        sliceIndex: number,
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCHeatmapData>;
     
     /** Stop a running visualization server */
     stopServer(port: number): Promise<void>;
@@ -653,6 +696,8 @@ export interface XSPlotData {
     temperature?: number;
     /** Reaction rates if flux was provided */
     reactionRates?: XSReactionRate[];
+    /** Warning messages for unavailable reactions */
+    warnings?: string[];
     /** Error message if any */
     error?: string;
 }

@@ -26,7 +26,9 @@ import {
     XSPlotRequest,
     XSPlotData,
     XSGroupStructuresResponse,
-    PythonConfig
+    PythonConfig,
+    OpenMCHeatmapData,
+    OpenMCHeatmapPlane
 } from '../../common/visualizer-protocol';
 import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
@@ -467,6 +469,27 @@ export class OpenMCService {
         }
 
         return multiData;
+    }
+
+    /**
+     * Get 2D heatmap slice data for a mesh tally.
+     */
+    async getHeatmapSlice(
+        statepointUri: URI,
+        tallyId: number,
+        plane: OpenMCHeatmapPlane,
+        sliceIndex: number,
+        scoreIndex?: number,
+        nuclideIndex?: number
+    ): Promise<OpenMCHeatmapData> {
+        return this.openmcBackend.getHeatmapSlice(
+            statepointUri.path.toString(),
+            tallyId,
+            plane,
+            sliceIndex,
+            scoreIndex,
+            nuclideIndex
+        );
     }
 
     /**
