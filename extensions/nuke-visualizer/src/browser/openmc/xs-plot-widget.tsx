@@ -268,6 +268,27 @@ export class XSPlotWidget extends ReactWidget {
             }
         }
         
+        // Display notification for Chain Decay mode
+        if (this.plotMode === 'chain-decay') {
+            const hasChainData = data.curves.some(c => c.chainDecay);
+            if (hasChainData) {
+                const cd = data.curves.find(c => c.chainDecay)?.chainDecay;
+                if (cd) {
+                    const daughterCount = cd.daughterNuclides?.length || 0;
+                    const timeStr = cd.decayTime === 0 ? 'fresh' : 
+                        cd.decayTime < 3600 ? `${cd.decayTime}s` :
+                        cd.decayTime < 86400 ? `${(cd.decayTime/3600).toFixed(1)}h` :
+                        cd.decayTime < 31536000 ? `${(cd.decayTime/86400).toFixed(1)}d` :
+                        `${(cd.decayTime/31536000).toFixed(1)}y`;
+                    this.messageService.info(
+                        `Chain Decay: ${cd.parentNuclide} at ${timeStr} with ${daughterCount} daughter(s) included`
+                    );
+                }
+            } else {
+                this.messageService.warn(`Chain decay data not available. Check that decay chain data exists for ${this.chainDecayParent}.`);
+            }
+        }
+        
         this.update();
     }
 
@@ -987,6 +1008,35 @@ export class XSPlotWidget extends ReactWidget {
                             }
                         });
                     }
+                    
+                    // Add derivative for chain decay cumulative XS if available and enabled
+                    if (this.showDerivative && cd.derivative) {
+                        const d = cd.derivative;
+                        if (d.dXdE && d.dXdE.length > 0) {
+                            const yValues = d.logLogDerivative && d.logLogDerivative.length > 0 
+                                ? d.logLogDerivative 
+                                : d.dXdE;
+                            const energyValues = d.energy && d.energy.length > 0 
+                                ? d.energy 
+                                : curve.energy;
+                            
+                            traces.push({
+                                x: energyValues,
+                                y: yValues,
+                                type: 'scatter',
+                                mode: 'lines',
+                                name: `${curve.label} (Chain Slope)`,
+                                line: { 
+                                    width: 1,
+                                    dash: 'dot',
+                                    color: 'rgba(0, 150, 0, 0.7)'  // Green for chain decay derivative
+                                },
+                                yaxis: 'y2',
+                                hovertemplate: `<b>${curve.label} (Chain Slope)</b><br>Energy: %{x:.4e} eV<br>dXS/dE: %{y:.4e}<extra></extra>`,
+                                showlegend: true
+                            });
+                        }
+                    }
                 }
             }
 
@@ -1131,8 +1181,10 @@ export class XSPlotWidget extends ReactWidget {
             }
         });
 
-        // Check if any curve has derivative data and derivative view is enabled
-        const hasDerivativeData = this.showDerivative && this.data.curves.some(c => c.derivative);
+        // Check if any curve has derivative data (including chain decay) and derivative view is enabled
+        const hasDerivativeData = this.showDerivative && this.data.curves.some(c => 
+            c.derivative || (c.chainDecay?.derivative)
+        );
         
         const layout: Partial<Plotly.Layout> = {
             xaxis: {
@@ -1290,6 +1342,7 @@ export class XSPlotWidget extends ReactWidget {
                     },
                     includeUncertainty: false,
                     includeIntegrals: this.showIntegrals,
+                    includeDerivative: this.showDerivative,
                     groupStructure: this.groupStructure
                 };
                 const timeStr = this.chainDecayTime === 0 ? 't=0' : 
@@ -1316,7 +1369,8 @@ export class XSPlotWidget extends ReactWidget {
                         temperatures: this.tempComparisonTemps
                     },
                     energyRegion: this.energyRegion,
-                    includeUncertainty: this.showUncertainty
+                    includeUncertainty: this.showUncertainty,
+                    includeDerivative: this.showDerivative
                 };
                 title = `Temperature Comparison: ${this.tempComparisonNuclide} MT=${this.tempComparisonReaction}`;
             } else if (this.plotMode === 'materials') {

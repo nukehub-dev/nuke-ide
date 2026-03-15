@@ -601,6 +601,8 @@ export interface XSChainDecayData {
     contributions: Record<string, number[]>;
     /** Half-lives of tracked nuclides (seconds) */
     halfLives: Record<string, number>;
+    /** Derivative/slope data for cumulative XS (if calculated) */
+    derivative?: XSDerivativeData;
 }
 
 /** Uncertainty/error data for cross-section */

@@ -2286,15 +2286,26 @@ def cmd_xs_plot(args):
                 for nuc, xs in contributions.items():
                     cumulative += xs
                 
+                cumulative_list = cumulative.tolist()
                 chain_data = {
                     "parentNuclide": parent_nuclide,
                     "decayTime": decay_time,
                     "daughterNuclides": daughter_nuclides,
                     "branchingRatios": branching_ratios,
-                    "cumulativeXS": cumulative.tolist(),
+                    "cumulativeXS": cumulative_list,
                     "contributions": {k: v.tolist() for k, v in contributions.items()},
                     "halfLives": half_lives
                 }
+                
+                # Calculate derivative for cumulative XS if derivative calculation is enabled
+                if include_derivative:
+                    print(f"[XS Plot] Calculating derivative for chain decay cumulative XS", file=sys.stderr)
+                    # Create a temporary curve-like dict for derivative calculation
+                    temp_curve = {
+                        "energy": curve.get("energy", []),
+                        "xs": cumulative_list
+                    }
+                    chain_data["derivative"] = calculate_derivative(temp_curve)
                 
                 print(f"[XS Plot] Chain decay calculated: {parent_nuclide} -> {daughter_nuclides}", file=sys.stderr)
                 

@@ -522,7 +522,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         const result = spawnSync(pythonCommand, args, {
             encoding: 'utf8',
-            maxBuffer: 20 * 1024 * 1024,  // Increased for larger datasets
+            maxBuffer: 50 * 1024 * 1024,  // 50MB buffer for large derivative datasets
             timeout: 120000  // Increased for complex calculations
         });
 
