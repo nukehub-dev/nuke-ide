@@ -1830,6 +1830,32 @@ def cmd_depletion_data(args):
         return 1
 
 
+def cmd_geometry(args):
+    """Get geometry hierarchy from OpenMC geometry file."""
+    try:
+        from openmc_geometry_parser import parse_geometry
+        result = parse_geometry(args.file)
+        print(json.dumps(result))
+        return 0 if 'error' not in result else 1
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+def cmd_visualize_geometry(args):
+    """Visualize OpenMC geometry in 3D."""
+    try:
+        from openmc_geometry_viz import visualize_geometry
+        return visualize_geometry(args.file, args.port, args.highlight)
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def cmd_xs_plot(args):
     """Generate cross-section plot data using openmc.data."""
     try:
@@ -3547,6 +3573,16 @@ def main():
     depletion_data_parser.add_argument('material_index', type=int, help='Material index')
     depletion_data_parser.add_argument('--nuclides', help='Comma-separated nuclide names to filter')
     
+    # Geometry hierarchy command
+    geometry_parser = subparsers.add_parser('geometry', help='Get geometry hierarchy from OpenMC geometry file')
+    geometry_parser.add_argument('file', help='Path to geometry.xml or model directory')
+    
+    # Geometry visualization command
+    viz_geometry_parser = subparsers.add_parser('visualize-geometry', help='Visualize OpenMC geometry in 3D')
+    viz_geometry_parser.add_argument('file', help='Path to geometry.xml')
+    viz_geometry_parser.add_argument('--port', type=int, default=8090, help='Server port')
+    viz_geometry_parser.add_argument('--highlight', type=int, help='Cell ID to highlight')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -3571,6 +3607,8 @@ def main():
         'depletion-summary': cmd_depletion_summary,
         'depletion-materials': cmd_depletion_materials,
         'depletion-data': cmd_depletion_data,
+        'geometry': cmd_geometry,
+        'visualize-geometry': cmd_visualize_geometry,
     }
     
     if args.command in commands:

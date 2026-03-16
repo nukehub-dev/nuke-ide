@@ -40,6 +40,8 @@ import { OpenMCHeatmapWidget } from './openmc/openmc-heatmap-widget';
 import { XSPlotWidget } from './openmc/xs-plot-widget';
 import { OpenMCDepletionWidget } from './openmc/openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './openmc/openmc-depletion-compare-widget';
+import { OpenMCGeometryTreeWidget } from './openmc/openmc-geometry-tree';
+import { OpenMCGeometry3DWidget } from './openmc/openmc-geometry-3d-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -184,6 +186,26 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         id: OpenMCDepletionCompareWidget.ID,
         createWidget: (options?: { id?: string }) => {
             const widget = context.container.get<OpenMCDepletionCompareWidget>(OpenMCDepletionCompareWidget);
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
+    })).inSingletonScope();
+
+    // Bind geometry tree widget
+    bind(OpenMCGeometryTreeWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCGeometryTreeWidget.ID,
+        createWidget: () => context.container.get<OpenMCGeometryTreeWidget>(OpenMCGeometryTreeWidget),
+    })).inSingletonScope();
+
+    // Bind geometry 3D widget
+    bind(OpenMCGeometry3DWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCGeometry3DWidget.ID,
+        createWidget: (options?: { id?: string }) => {
+            const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
             if (options?.id) {
                 widget.id = options.id;
             }

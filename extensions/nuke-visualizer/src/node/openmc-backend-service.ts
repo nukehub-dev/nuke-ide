@@ -799,6 +799,79 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Geometry Hierarchy Viewer ===
+
+    async getGeometryHierarchy(filePath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'geometry', filePath];
+
+        console.log(`[OpenMC] Running geometry command for ${filePath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024  // 10MB for large geometry files
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Geometry command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to load geometry hierarchy');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse geometry data: ${e}`);
+            throw e;
+        }
+    }
+
+    async visualizeGeometry(
+        filePath: string,
+        highlightCellId?: number
+    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
+        const port = await this.findFreePort(8090);
+        this.reservedPorts.add(port);
+
+        try {
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
+            const scriptPath = this.findOpenMCScript();
+
+            const args: string[] = [
+                scriptPath,
+                'visualize-geometry',
+                filePath,
+                '--port', port.toString()
+            ];
+
+            if (highlightCellId !== undefined) {
+                args.push('--highlight', highlightCellId.toString());
+            }
+
+            const process = this.startPythonProcess(pythonCommand, args, port);
+
+            // Wait for server to be ready
+            await this.waitForServer(port, process);
+
+            return {
+                success: true,
+                port,
+                url: `http://127.0.0.1:${port}`
+            };
+
+        } catch (error) {
+            this.reservedPorts.delete(port);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
         const tally = tallies.find(t => t.id === tallyId);

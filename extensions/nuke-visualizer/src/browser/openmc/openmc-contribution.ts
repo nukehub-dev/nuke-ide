@@ -47,6 +47,8 @@ import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
 import { OpenMCDepletionWidget } from './openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget';
+import { OpenMCGeometryTreeWidget, GeometryView3DRequest } from './openmc-geometry-tree';
+import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -122,6 +124,13 @@ export namespace OpenMCCommands {
         category: OPENMC_CATEGORY,
         label: 'Compare Depletion Results',
         iconClass: 'codicon codicon-git-compare'
+    };
+    
+    export const VIEW_GEOMETRY_HIERARCHY: Command = {
+        id: 'openmc.view-geometry-hierarchy',
+        category: OPENMC_CATEGORY,
+        label: 'View Geometry Hierarchy...',
+        iconClass: 'codicon codicon-repo'
     };
 }
 
@@ -223,6 +232,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             return 150;
         }
         
+        // Handle OpenMC geometry.xml files
+        if (name === 'geometry.xml') {
+            return 200;
+        }
+        
         return 0;
     }
 
@@ -304,6 +318,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         } else if (name.includes('depletion') && name.endsWith('.h5')) {
             // Open depletion viewer
             await this.openDepletionFile(uri.toString(), uri.path.base);
+        } else if (name === 'geometry.xml') {
+            // Open geometry hierarchy viewer
+            await this.openGeometryHierarchy(uri);
         }
         
         // Return a dummy widget - actual visualization is handled by VisualizerWidget
@@ -410,6 +427,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 }
             }
         });
+        
+        registry.registerCommand(OpenMCCommands.VIEW_GEOMETRY_HIERARCHY, {
+            execute: () => this.viewGeometryHierarchyCommand()
+        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
@@ -459,6 +480,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerMenuAction(['openmc'], {
             commandId: OpenMCCommands.COMPARE_DEPLETION.id,
             order: '8'
+        });
+        
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
+            order: '9'
         });
 
         // Add context menu for OpenMC files
@@ -1104,6 +1130,110 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         } catch (error) {
             this.messageService.error(`Failed to open comparison: ${error}`);
         }
+    }
+
+    private geometry3DWidget: OpenMCGeometry3DWidget | null = null;
+
+    private async openGeometryHierarchy(uri: URI): Promise<void> {
+        const progress = await this.messageService.showProgress({
+            text: 'Loading geometry hierarchy...',
+            options: { cancelable: false }
+        });
+        
+        try {
+            const hierarchy = await this.openmcService.getGeometryHierarchy(uri);
+            
+            if (hierarchy.error) {
+                this.messageService.error(`Failed to load geometry: ${hierarchy.error}`);
+                return;
+            }
+            
+            // Get or create the geometry tree widget
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(
+                OpenMCGeometryTreeWidget.ID
+            );
+            
+            // Update the widget state
+            widget.setGeometry(uri, hierarchy);
+            
+            // Add to right sidebar if not already there
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'right' });
+            }
+            
+            // Activate the widget
+            await this.shell.activateWidget(widget.id);
+
+            // Listen for 3D view requests
+            if (!(widget as any)._view3DHandlerSet) {
+                (widget as any)._view3DHandlerSet = true;
+                widget.onView3D(async (request: GeometryView3DRequest) => {
+                    await this.showGeometry3D(request);
+                });
+            }
+            
+            this.messageService.info(
+                `Loaded geometry: ${hierarchy.totalCells} cells, ${hierarchy.totalSurfaces} surfaces`
+            );
+        } catch (error) {
+            this.messageService.error(`Failed to load geometry hierarchy: ${error}`);
+        } finally {
+            progress.cancel();
+        }
+    }
+
+    private async showGeometry3D(request: GeometryView3DRequest): Promise<void> {
+        // Get or create the 3D widget
+        let widget = this.geometry3DWidget;
+        if (!widget || widget.isDisposed) {
+            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(
+                OpenMCGeometry3DWidget.ID,
+                { id: `${OpenMCGeometry3DWidget.ID}:${request.fileUri.toString()}` } as any
+            );
+            this.geometry3DWidget = widget;
+        }
+
+        widget.setGeometry(request.fileUri);
+        widget.setLoading(true);
+
+        if (!widget.isAttached) {
+            await this.shell.addWidget(widget, { area: 'main' });
+        }
+        await this.shell.activateWidget(widget.id);
+
+        try {
+            const result = await this.openmcService.visualizeGeometry(
+                request.fileUri,
+                request.highlightCellId
+            );
+
+            if (result.success && result.url && result.port) {
+                widget.setServerInfo(result.url, result.port);
+                if (request.highlightCellId !== undefined) {
+                    widget.setHighlightedCell(request.highlightCellId);
+                }
+            } else {
+                widget.setError(result.error || 'Failed to start 3D visualization server');
+            }
+        } catch (error) {
+            widget.setError(`Error: ${error}`);
+        }
+    }
+
+    private async viewGeometryHierarchyCommand(): Promise<void> {
+        // Open file dialog to select geometry.xml or model directory
+        const fileUri = await this.fileDialogService.showOpenDialog({
+            title: 'Select OpenMC Geometry File',
+            openLabel: 'Open',
+            canSelectFiles: true,
+            canSelectFolders: true,
+            canSelectMany: false
+        });
+        
+        if (!fileUri) return;
+        
+        const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        await this.openGeometryHierarchy(uri);
     }
 
     private async getDepletionFiles(): Promise<QuickPickValue<string>[]> {

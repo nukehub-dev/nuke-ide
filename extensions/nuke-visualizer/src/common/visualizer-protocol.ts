@@ -417,6 +417,19 @@ export interface OpenMCBackendService {
         nuclides?: string[],
         includeActivity?: boolean
     ): Promise<OpenMCDepletionResponse>;
+    
+    // === Geometry Hierarchy Viewer ===
+    
+    /** Get geometry hierarchy from OpenMC geometry file */
+    getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
+    
+    /** Visualize geometry in 3D */
+    visualizeGeometry(filePath: string, highlightCellId?: number): Promise<{
+        success: boolean;
+        port?: number;
+        url?: string;
+        error?: string;
+    }>;
 }
 
 // === Color Map Presets ===
@@ -1030,4 +1043,175 @@ export interface DepletionTimeStep {
     burnup?: number;
     /** Power level in Watts (if available) */
     power?: number;
+}
+
+// ============================================================================
+// Geometry Hierarchy Viewer Types
+// ============================================================================
+
+/** Type of surface in OpenMC CSG geometry */
+export type OpenMCSurfaceType = 
+    | 'sphere' | 'x-cylinder' | 'y-cylinder' | 'z-cylinder'
+    | 'x-plane' | 'y-plane' | 'z-plane' | 'plane'
+    | 'x-cone' | 'y-cone' | 'z-cone'
+    | 'x-torus' | 'y-torus' | 'z-torus'
+    | 'quadric' | 'cylinder' | 'sphere-general' | 'unknown';
+
+/** Surface definition in OpenMC geometry */
+export interface OpenMCSurface {
+    /** Surface ID */
+    id: number;
+    /** Surface type */
+    type: OpenMCSurfaceType;
+    /** Surface coefficients (e.g., [x0, y0, z0, r] for sphere) */
+    coefficients: number[];
+    /** Boundary condition ('vacuum', 'reflective', 'periodic', 'white', 'transmission') */
+    boundary?: string;
+    /** Human-readable description */
+    description?: string;
+}
+
+/** Fill type for a cell */
+export type OpenMCFillType = 'material' | 'universe' | 'lattice' | 'void';
+
+/** Cell definition in OpenMC geometry */
+export interface OpenMCCell {
+    /** Cell ID */
+    id: number;
+    /** Cell name (if defined) */
+    name?: string;
+    /** Region specification (CSG expression) */
+    region?: string;
+    /** Fill type */
+    fillType: OpenMCFillType;
+    /** Fill ID (material ID, universe ID, or lattice ID) */
+    fillId?: number;
+    /** Material name (if fillType is 'material') */
+    materialName?: string;
+    /** List of surface IDs referenced in region */
+    surfaces: number[];
+    /** Temperature in Kelvin (for multigroup calculations) */
+    temperature?: number;
+    /** Cell density in g/cm³ (if specified) */
+    density?: number;
+}
+
+/** Lattice type */
+export type OpenMCLatticeType = 'rect' | 'hex' | 'x-hex' | 'y-hex';
+
+/** Lattice definition */
+export interface OpenMCLattice {
+    /** Lattice ID */
+    id: number;
+    /** Lattice name */
+    name?: string;
+    /** Lattice type */
+    type: OpenMCLatticeType;
+    /** Lower-left corner coordinates */
+    lowerLeft?: number[];
+    /** Pitch (cell dimensions) */
+    pitch?: number[];
+    /** Universe array dimensions [nx, ny] or [nx, ny, nz] */
+    dimensions: number[];
+    /** Universe IDs filling the lattice */
+    universes: number[][][];
+    /** Outer universe ID (for positions outside lattice) */
+    outer?: number;
+}
+
+/** Universe definition */
+export interface OpenMCUniverse {
+    /** Universe ID */
+    id: number;
+    /** Universe name (if defined) */
+    name?: string;
+    /** Root universe flag (the top-level geometry universe) */
+    isRoot: boolean;
+    /** Cells in this universe */
+    cells: OpenMCCell[];
+    /** Number of cells */
+    nCells: number;
+}
+
+/** Complete geometry hierarchy */
+export interface OpenMCGeometryHierarchy {
+    /** Path to geometry.xml or model file */
+    filePath: string;
+    /** All universes in the geometry */
+    universes: OpenMCUniverse[];
+    /** All surfaces defined */
+    surfaces: OpenMCSurface[];
+    /** All lattices defined */
+    lattices: OpenMCLattice[];
+    /** Root universe ID */
+    rootUniverseId: number;
+    /** Total number of cells */
+    totalCells: number;
+    /** Total number of surfaces */
+    totalSurfaces: number;
+    /** Total number of materials referenced */
+    totalMaterials: number;
+    /** Error message if parsing failed */
+    error?: string;
+}
+
+/** Geometry tree selection event */
+export interface GeometrySelection {
+    /** Type of selected item */
+    type: 'universe' | 'cell' | 'surface' | 'lattice';
+    /** ID of the selected item */
+    id: number;
+    /** Parent universe ID (for cells) */
+    parentId?: number;
+    /** Optional action */
+    action?: 'select' | 'highlight' | 'focus';
+}
+
+/** Cell properties for detail view */
+export interface OpenMCCellProperties {
+    /** Cell ID */
+    id: number;
+    /** Cell name */
+    name?: string;
+    /** Region expression */
+    region: string;
+    /** Parsed region tokens */
+    regionTokens?: string[];
+    /** Fill information */
+    fill: {
+        type: OpenMCFillType;
+        id?: number;
+        name?: string;
+    };
+    /** Surfaces used in this cell with their operators */
+    surfaceOperations: Array<{
+        surfaceId: number;
+        operator: 'intersection' | 'union' | 'complement';
+    }>;
+    /** Bounding box if calculable */
+    bounds?: {
+        xmin: number; xmax: number;
+        ymin: number; ymax: number;
+        zmin: number; zmax: number;
+    };
+    /** Temperature */
+    temperature?: number;
+    /** Density */
+    density?: number;
+}
+
+/** Request for geometry hierarchy */
+export interface OpenMCGeometryRequest {
+    /** Path to geometry file (geometry.xml, model XML, or Python script) */
+    filePath: string;
+    /** Whether to include detailed cell region parsing */
+    includeDetails?: boolean;
+}
+
+/** Response for geometry hierarchy request */
+export interface OpenMCGeometryResponse {
+    /** Hierarchy data */
+    hierarchy?: OpenMCGeometryHierarchy;
+    /** Error message if failed */
+    error?: string;
 }

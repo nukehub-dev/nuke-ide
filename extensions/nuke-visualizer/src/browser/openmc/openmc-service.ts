@@ -844,4 +844,31 @@ export class OpenMCService {
     isDepletionFile(fileName: string): boolean {
         return fileName.includes('depletion') && fileName.endsWith('.h5');
     }
+
+    // === Geometry Hierarchy Viewer ===
+
+    /**
+     * Get geometry hierarchy from OpenMC geometry file.
+     */
+    async getGeometryHierarchy(fileUri: URI): Promise<any> {
+        try {
+            const result = await this.openmcBackend.getGeometryHierarchy(fileUri.path.toString());
+            return result;
+        } catch (error) {
+            this.messageService.error(`Failed to load geometry hierarchy: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Visualize geometry in 3D.
+     */
+    async visualizeGeometry(fileUri: URI, highlightCellId?: number): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
+        try {
+            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId);
+        } catch (error) {
+            this.messageService.error(`Failed to visualize geometry: ${error}`);
+            return { success: false, error: String(error) };
+        }
+    }
 }
