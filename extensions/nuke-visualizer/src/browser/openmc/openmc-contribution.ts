@@ -31,10 +31,14 @@ import {
     Widget,
     FrontendApplication
 } from '@theia/core/lib/browser';
+import { SelectionService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import URI from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { WidgetManager } from '@theia/core/lib/browser';
+import { NavigatorDiff } from '@theia/navigator/lib/browser/navigator-diff';
+import { DiffUris } from '@theia/core/lib/browser/diff-uris';
 import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
 import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
@@ -42,6 +46,7 @@ import { OpenMCPlotWidget } from './openmc-plot-widget';
 import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
 import { OpenMCDepletionWidget } from './openmc-depletion-widget';
+import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -104,6 +109,20 @@ export namespace OpenMCCommands {
         label: 'View Depletion Results...',
         iconClass: 'codicon codicon-flame'
     };
+    
+    export const COMPARE_DEPLETION: Command = {
+        id: 'openmc.compare-depletion',
+        category: OPENMC_CATEGORY,
+        label: 'Compare Depletion Results...',
+        iconClass: 'codicon codicon-git-compare'
+    };
+    
+    export const COMPARE_DEPLETION_WITH: Command = {
+        id: 'openmc.compare-depletion-with',
+        category: OPENMC_CATEGORY,
+        label: 'Compare Depletion Results',
+        iconClass: 'codicon codicon-git-compare'
+    };
 }
 
 @injectable()
@@ -136,8 +155,17 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     @inject(FileService)
     protected readonly fileService: FileService;
 
+    @inject(SelectionService)
+    protected readonly selectionService: SelectionService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
     @inject(PlotlyService)
     protected readonly plotlyService: PlotlyService;
+
+    @inject(NavigatorDiff)
+    protected readonly navigatorDiff: NavigatorDiff;
     
     private tallyTreeWidget: OpenMCTallyTreeWidget | undefined;
 
@@ -162,6 +190,17 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     canHandle(uri: URI, options?: WidgetOpenerOptions): number {
+        // Handle diff URIs (comparison between files)
+        if (DiffUris.isDiffUri(uri)) {
+            const [uriA, uriB] = DiffUris.decode(uri);
+            const isDepletionA = uriA?.path.base.includes('depletion') && uriA?.path.base.endsWith('.h5');
+            const isDepletionB = uriB?.path.base.includes('depletion') && uriB?.path.base.endsWith('.h5');
+            
+            if (isDepletionA && isDepletionB) {
+                return 1000; // Very high priority to catch and override default text diff
+            }
+        }
+
         const name = uri.path.base.toLowerCase();
         
         // Handle statepoint files
@@ -188,6 +227,35 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     async open(uri: URI, options?: WidgetOpenerOptions): Promise<Widget> {
+        // Handle comparison URIs (e.g., diff://...)
+        if (DiffUris.isDiffUri(uri)) {
+            const [uriA, uriB] = DiffUris.decode(uri);
+            if (uriA && uriB) {
+                try {
+                    const progress = await this.messageService.showProgress({
+                        text: 'Loading comparison data...',
+                        options: { cancelable: false }
+                    });
+                    try {
+                        const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
+                            OpenMCDepletionCompareWidget.ID,
+                            { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
+                        );
+                        await widget.setComparisonFiles(uriA, uriA.path.base, uriB, uriB.path.base);
+                        if (!widget.isAttached) {
+                            this.shell.addWidget(widget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(widget.id);
+                        return widget;
+                    } finally {
+                        progress.cancel();
+                    }
+                } catch (error) {
+                    this.messageService.error(`Failed to open comparison: ${error}`);
+                }
+            }
+        }
+
         const name = uri.path.base.toLowerCase();
         
         if (name.startsWith('statepoint') && name.endsWith('.h5')) {
@@ -280,6 +348,68 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerCommand(OpenMCCommands.OPEN_DEPLETION_VIEWER, {
             execute: () => this.openDepletionViewerCommand()
         });
+        
+        registry.registerCommand(OpenMCCommands.COMPARE_DEPLETION, {
+            execute: () => this.compareDepletionCommand()
+        });
+        
+        registry.registerCommand(OpenMCCommands.COMPARE_DEPLETION_WITH, {
+            execute: async () => {
+                const selection = this.selectionService.selection;
+                
+                // Handle multiple selection (exactly 2 files)
+                if (Array.isArray(selection) && selection.length === 2) {
+                    const uriA = selection[0] instanceof URI ? selection[0] : (selection[0] as any).uri;
+                    const uriB = selection[1] instanceof URI ? selection[1] : (selection[1] as any).uri;
+                    
+                    if (uriA && uriB) {
+                        const isDepletionA = uriA.path.base.includes('depletion') && uriA.path.base.endsWith('.h5');
+                        const isDepletionB = uriB.path.base.includes('depletion') && uriB.path.base.endsWith('.h5');
+                        
+                        if (isDepletionA && isDepletionB) {
+                            try {
+                                const progress = await this.messageService.showProgress({
+                                    text: 'Loading comparison data...',
+                                    options: { cancelable: false }
+                                });
+                                try {
+                                    const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
+                                        OpenMCDepletionCompareWidget.ID,
+                                        { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
+                                    );
+                                    await widget.setComparisonFiles(uriA, uriA.path.base, uriB, uriB.path.base);
+                                    if (!widget.isAttached) {
+                                        this.shell.addWidget(widget, { area: 'main' });
+                                    }
+                                    this.shell.activateWidget(widget.id);
+                                    return;
+                                } finally {
+                                    progress.cancel();
+                                }
+                            } catch (error) {
+                                this.messageService.error(`Failed to open comparison: ${error}`);
+                            }
+                        }
+                    }
+                }
+                
+                // Fallback to single selection behavior
+                let uri: URI | undefined;
+                if (Array.isArray(selection) && selection.length > 0) {
+                    uri = selection[0] instanceof URI ? selection[0] : (selection[0] as any).uri;
+                } else if (selection instanceof URI) {
+                    uri = selection;
+                } else if (selection && 'uri' in selection) {
+                    uri = (selection as any).uri;
+                }
+                
+                if (uri) {
+                    this.compareDepletionWithCommand(uri);
+                } else {
+                    this.messageService.error('No file selected');
+                }
+            }
+        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
@@ -325,6 +455,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
             order: '7'
         });
+        
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.COMPARE_DEPLETION.id,
+            order: '8'
+        });
 
         // Add context menu for OpenMC files
         registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
@@ -333,11 +468,18 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             order: '1'
         });
         
-        // Add context menu for depletion files
-        registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
+        // Add context menu for depletion files (top level for better visibility)
+        registry.registerMenuAction(['explorer-context-menu'], {
             commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
             when: 'resourceFilename =~ /depletion.*\\.h5/',
-            order: '2'
+            order: '2_openmc_depletion'
+        });
+        
+        // Add compare option to context menu for depletion files (top level)
+        registry.registerMenuAction(["explorer-context-menu"], {
+            commandId: OpenMCCommands.COMPARE_DEPLETION_WITH.id,
+            when: "resourceFilename =~ /depletion.*\\.h5/",
+            order: "3_openmc_compare"
         });
     }
 
@@ -730,27 +872,44 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     private async openDepletionViewerCommand(): Promise<void> {
-        // Find depletion results files
+        // Find depletion results files in workspace
         const files = await this.getDepletionFiles();
         
+        // Add "Browse..." option to select file from anywhere
+        const options: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse for file...', description: 'Select depletion file from any location' },
+            { type: 'separator', label: 'Workspace Files' } as any,
+            ...files
+        ];
+        
         if (files.length === 0) {
-            this.messageService.error('No depletion_results.h5 files found in workspace');
-            return;
+            // Remove separator if no files
+            options.splice(1, 1);
         }
 
-        // If only one file, open it directly
-        if (files.length === 1) {
-            await this.openDepletionFile(files[0].value, files[0].label);
-            return;
-        }
-
-        // Otherwise show picker
-        const selection = await this.quickInput.showQuickPick(files, {
-            title: 'Select Depletion Results File',
-            placeholder: 'Choose a depletion_results.h5 file'
+        const selection = await this.quickInput.showQuickPick(options, {
+            title: 'Open Depletion Results',
+            placeholder: files.length > 0 ? 'Choose a file or browse...' : 'Browse for depletion file...'
         });
 
-        if (selection) {
+        if (!selection) return;
+
+        if (selection.value === '__browse__') {
+            // Open file dialog
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Depletion Results File',
+                openLabel: 'Open',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false
+            });
+            
+            if (fileUri) {
+                const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                const fileName = uri.path.base;
+                await this.openDepletionFile(uri.toString(), fileName);
+            }
+        } else {
             await this.openDepletionFile(selection.value, selection.label);
         }
     }
@@ -770,6 +929,180 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             this.shell.activateWidget(widget.id);
         } catch (error) {
             this.messageService.error(`Failed to open depletion file: ${error}`);
+        }
+    }
+
+    private async compareDepletionCommand(): Promise<void> {
+        // Get depletion files from workspace
+        const workspaceFiles = await this.getDepletionFiles();
+        
+        // Build options with browse
+        const options: QuickPickValue<string>[] = [
+            { value: '__browse_a__', label: '$(folder-opened) Browse for Case A...', description: 'Select file from any location' }
+        ];
+        
+        if (workspaceFiles.length > 0) {
+            options.push({ type: 'separator', label: 'Workspace Files' } as any, ...workspaceFiles);
+        }
+
+        // Select Case A
+        const selectionA = await this.quickInput.showQuickPick(options, {
+            title: 'Select Case A (Reference)',
+            placeholder: 'Choose file or browse...'
+        });
+
+        if (!selectionA) return;
+
+        let uriA: URI;
+        let labelA: string;
+        
+        if (selectionA.value === '__browse_a__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Case A (Reference)',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false
+            });
+            if (!fileUri) return;
+            uriA = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            labelA = uriA.path.base;
+        } else {
+            uriA = new URI(selectionA.value);
+            labelA = selectionA.label;
+        }
+
+        // Build options for Case B
+        const optionsB: QuickPickValue<string>[] = [
+            { value: '__browse_b__', label: '$(folder-opened) Browse for Case B...', description: 'Select file from any location' }
+        ];
+        
+        const remainingFiles = workspaceFiles.filter(f => f.value !== uriA.toString());
+        if (remainingFiles.length > 0) {
+            optionsB.push({ type: 'separator', label: 'Workspace Files' } as any, ...remainingFiles);
+        }
+
+        // Select Case B
+        const selectionB = await this.quickInput.showQuickPick(optionsB, {
+            title: 'Select Case B (Comparison)',
+            placeholder: 'Choose file or browse...'
+        });
+
+        if (!selectionB) return;
+
+        let uriB: URI;
+        let labelB: string;
+        
+        if (selectionB.value === '__browse_b__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Case B (Comparison)',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false
+            });
+            if (!fileUri) return;
+            uriB = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            labelB = uriB.path.base;
+        } else {
+            uriB = new URI(selectionB.value);
+            labelB = selectionB.label;
+        }
+
+        // Open comparison widget
+        try {
+            const progress = await this.messageService.showProgress({
+                text: 'Loading comparison data...',
+                options: { cancelable: false }
+            });
+            try {
+                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
+                    OpenMCDepletionCompareWidget.ID,
+                    { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
+                );
+
+                await widget.setComparisonFiles(uriA, labelA, uriB, labelB);
+
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            } finally {
+                progress.cancel();
+            }
+        } catch (error) {
+            this.messageService.error(`Failed to open comparison: ${error}`);
+        }
+    }
+
+    private async compareDepletionWithCommand(uriA: URI): Promise<void> {
+        // Use the provided file as Case A
+        const labelA = uriA.path.base;
+        
+        // Get files for Case B selection
+        const workspaceFiles = await this.getDepletionFiles();
+        
+        // Build options for Case B
+        const options: QuickPickValue<string>[] = [
+            { value: '__browse_b__', label: '$(folder-opened) Browse for Case B...', description: 'Select file from any location' }
+        ];
+        
+        // Filter out Case A from workspace files
+        const remainingFiles = workspaceFiles.filter(f => f.value !== uriA.toString());
+        if (remainingFiles.length > 0) {
+            options.push({ type: 'separator', label: 'Workspace Files' } as any, ...remainingFiles);
+        }
+
+        // Select Case B
+        const selectionB = await this.quickInput.showQuickPick(options, {
+            title: `Compare "${labelA}" with...`,
+            placeholder: 'Choose second depletion file'
+        });
+
+        if (!selectionB) return;
+
+        let uriB: URI;
+        let labelB: string;
+        
+        if (selectionB.value === '__browse_b__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Case B (Comparison)',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false
+            });
+            if (!fileUri) return;
+            uriB = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            labelB = uriB.path.base;
+        } else {
+            uriB = new URI(selectionB.value);
+            labelB = selectionB.label;
+        }
+
+        // Open comparison widget
+        try {
+            const progress = await this.messageService.showProgress({
+                text: 'Loading comparison data...',
+                options: { cancelable: false }
+            });
+            try {
+                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
+                    OpenMCDepletionCompareWidget.ID,
+                    { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
+                );
+
+                await widget.setComparisonFiles(uriA, labelA, uriB, labelB);
+
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            } finally {
+                progress.cancel();
+            }
+        } catch (error) {
+            this.messageService.error(`Failed to open comparison: ${error}`);
         }
     }
 
