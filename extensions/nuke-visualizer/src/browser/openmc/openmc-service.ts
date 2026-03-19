@@ -871,4 +871,19 @@ export class OpenMCService {
             return { success: false, error: String(error) };
         }
     }
+
+    // === Material Explorer ===
+
+    /**
+     * Get materials from materials.xml file.
+     */
+    async getMaterials(fileUri: URI): Promise<any> {
+        try {
+            const result = await this.openmcBackend.getMaterials(fileUri.path.toString());
+            return result;
+        } catch (error) {
+            this.messageService.error(`Failed to load materials: ${error}`);
+            throw error;
+        }
+    }
 }

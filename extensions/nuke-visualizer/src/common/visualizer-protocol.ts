@@ -430,6 +430,11 @@ export interface OpenMCBackendService {
         url?: string;
         error?: string;
     }>;
+    
+    // === Material Explorer ===
+    
+    /** Parse materials.xml and return material definitions */
+    getMaterials(filePath: string): Promise<OpenMCMaterialsResponse>;
 }
 
 // === Color Map Presets ===
@@ -1212,6 +1217,66 @@ export interface OpenMCGeometryRequest {
 export interface OpenMCGeometryResponse {
     /** Hierarchy data */
     hierarchy?: OpenMCGeometryHierarchy;
+    /** Error message if failed */
+    error?: string;
+}
+
+// === Material Explorer Types ===
+
+/** Represents a nuclide in a material */
+export interface OpenMCMaterialNuclide {
+    /** Nuclide name (e.g., 'U235', 'O16') */
+    name: string;
+    /** Fraction value */
+    fraction: number;
+    /** Fraction type: 'wo' (weight) or 'ao' (atomic) */
+    fractionType: string;
+}
+
+/** Represents S(α,β) thermal scattering data */
+export interface OpenMCMaterialThermalScattering {
+    /** Thermal scattering name (e.g., 'c_H_in_H2O') */
+    name: string;
+    /** Fraction (usually 1.0) */
+    fraction: number;
+}
+
+/** Represents an OpenMC material */
+export interface OpenMCMaterial {
+    /** Material ID */
+    id: number;
+    /** Material name */
+    name: string;
+    /** Density value */
+    density: number;
+    /** Density unit: 'g/cm3', 'kg/m3', 'atom/b-cm', or 'sum' */
+    densityUnit: string;
+    /** List of nuclides in the material */
+    nuclides: OpenMCMaterialNuclide[];
+    /** List of S(α,β) thermal scattering data */
+    thermalScattering: OpenMCMaterialThermalScattering[];
+    /** Whether material is depletable */
+    isDepletable: boolean;
+    /** Optional volume in cm³ */
+    volume?: number;
+    /** Optional temperature in K */
+    temperature?: number;
+    /** Total number of nuclides */
+    totalNuclides: number;
+}
+
+/** Response for materials request */
+export interface OpenMCMaterialsResponse {
+    /** Total number of materials */
+    totalMaterials: number;
+    /** Total number of nuclides across all materials */
+    totalNuclides: number;
+    /** Number of depletable materials */
+    depletableMaterials: number;
+    /** Number of materials with thermal scattering */
+    materialsWithThermalScattering: number;
+    /** List of materials */
+    materials: OpenMCMaterial[];
     /** Error message if failed */
     error?: string;
 }

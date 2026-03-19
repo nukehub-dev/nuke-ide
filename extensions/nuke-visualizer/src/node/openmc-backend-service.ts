@@ -872,6 +872,36 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Material Explorer ===
+
+    async getMaterials(filePath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'materials', filePath];
+
+        console.log(`[OpenMC] Running materials command for ${filePath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024  // 10MB for large materials files
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Materials command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to load materials');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse materials data: ${e}`);
+            throw e;
+        }
+    }
+
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
         const tally = tallies.find(t => t.id === tallyId);

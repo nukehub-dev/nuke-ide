@@ -49,6 +49,7 @@ import { OpenMCDepletionWidget } from './openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget';
 import { OpenMCGeometryTreeWidget, GeometryView3DRequest } from './openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
+import { OpenMCMaterialExplorerWidget } from './openmc-material-explorer';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -131,6 +132,13 @@ export namespace OpenMCCommands {
         category: OPENMC_CATEGORY,
         label: 'View Geometry Hierarchy...',
         iconClass: 'codicon codicon-repo'
+    };
+    
+    export const VIEW_MATERIALS: Command = {
+        id: 'openmc.view-materials',
+        category: OPENMC_CATEGORY,
+        label: 'View Materials...',
+        iconClass: 'codicon codicon-flask'
     };
 }
 
@@ -237,6 +245,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             return 200;
         }
         
+        // Handle OpenMC materials.xml files
+        if (name === 'materials.xml') {
+            return 200;
+        }
+        
         return 0;
     }
 
@@ -321,6 +334,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         } else if (name === 'geometry.xml') {
             // Open geometry hierarchy viewer
             await this.openGeometryHierarchy(uri);
+        } else if (name === 'materials.xml') {
+            // Open materials explorer
+            await this.openMaterialsExplorer(uri);
         }
         
         // Return a dummy widget - actual visualization is handled by VisualizerWidget
@@ -431,6 +447,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerCommand(OpenMCCommands.VIEW_GEOMETRY_HIERARCHY, {
             execute: () => this.viewGeometryHierarchyCommand()
         });
+        
+        registry.registerCommand(OpenMCCommands.VIEW_MATERIALS, {
+            execute: () => this.viewMaterialsCommand()
+        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
@@ -486,6 +506,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
             order: '9'
         });
+        
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.VIEW_MATERIALS.id,
+            order: '10'
+        });
 
         // Add context menu for OpenMC files
         registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
@@ -506,6 +531,13 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.COMPARE_DEPLETION_WITH.id,
             when: "resourceFilename =~ /depletion.*\\.h5/",
             order: "3_openmc_compare"
+        });
+        
+        // Add context menu for materials.xml files
+        registry.registerMenuAction(['explorer-context-menu'], {
+            commandId: OpenMCCommands.VIEW_MATERIALS.id,
+            when: "resourceFilename == materials.xml",
+            order: '4_openmc_materials'
         });
     }
 
@@ -1234,6 +1266,43 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         
         const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
         await this.openGeometryHierarchy(uri);
+    }
+    
+    private async viewMaterialsCommand(): Promise<void> {
+        // Open file dialog to select materials.xml
+        const fileUri = await this.fileDialogService.showOpenDialog({
+            title: 'Select OpenMC Materials File',
+            openLabel: 'Open',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'XML Files': ['xml'],
+                'All Files': ['*']
+            }
+        });
+        
+        if (!fileUri) return;
+        
+        const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        await this.openMaterialsExplorer(uri);
+    }
+    
+    private async openMaterialsExplorer(uri: URI): Promise<void> {
+        try {
+            // Create and open the materials explorer widget
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCMaterialExplorerWidget>(
+                OpenMCMaterialExplorerWidget.ID,
+                { uri: uri.toString() }
+            );
+            
+            await this.shell.addWidget(widget, { area: 'main' });
+            await this.shell.activateWidget(widget.id);
+            
+            this.messageService.info(`Opened materials from ${uri.path.base}`);
+        } catch (error) {
+            this.messageService.error(`Failed to open materials: ${error}`);
+        }
     }
 
     private async getDepletionFiles(): Promise<QuickPickValue<string>[]> {

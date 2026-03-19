@@ -42,6 +42,7 @@ import { OpenMCDepletionWidget } from './openmc/openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './openmc/openmc-depletion-compare-widget';
 import { OpenMCGeometryTreeWidget } from './openmc/openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc/openmc-geometry-3d-widget';
+import { OpenMCMaterialExplorerWidget } from './openmc/openmc-material-explorer';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -206,6 +207,22 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         id: OpenMCGeometry3DWidget.ID,
         createWidget: (options?: { id?: string }) => {
             const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
+    })).inSingletonScope();
+
+    // Bind material explorer widget
+    bind(OpenMCMaterialExplorerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCMaterialExplorerWidget.ID,
+        createWidget: (options?: { uri?: string; id?: string }) => {
+            const widget = context.container.get<OpenMCMaterialExplorerWidget>(OpenMCMaterialExplorerWidget);
+            if (options?.uri) {
+                widget.setFileUri(new URI(options.uri));
+            }
             if (options?.id) {
                 widget.id = options.id;
             }

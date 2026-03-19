@@ -1012,6 +1012,42 @@ def cmd_list_group_structures(args):
         return 1
 
 
+def cmd_list_thermal_materials(args):
+    """List available thermal scattering materials from cross_sections.xml."""
+    try:
+        import openmc.data
+        
+        cross_sections_path = args.cross_sections
+        
+        # Try to load cross_sections library
+        try:
+            if cross_sections_path:
+                library = openmc.data.DataLibrary.from_xml(cross_sections_path)
+            else:
+                library = openmc.data.DataLibrary.from_xml()
+        except Exception as e:
+            print(json.dumps({"error": f"Could not load cross_sections.xml: {e}", "materials": []}))
+            return 1
+        
+        # Get thermal scattering materials
+        materials = []
+        for entry in library.libraries:
+            if entry.get('type') == 'thermal':
+                materials.append(entry.get('material', ''))
+        
+        # Remove duplicates and sort
+        materials = sorted(set(m for m in materials if m))
+        
+        print(json.dumps({"materials": materials}))
+        return 0
+    except ImportError:
+        print(json.dumps({"error": "OpenMC not installed", "materials": []}))
+        return 1
+    except Exception as e:
+        print(json.dumps({"error": str(e), "materials": []}))
+        return 1
+
+
 def cmd_depletion_summary(args):
     """Get summary of depletion results."""
     try:
@@ -1156,6 +1192,20 @@ def cmd_xs_plot(args):
         return 1
 
 
+def cmd_materials(args):
+    """Parse and return materials from materials.xml file."""
+    try:
+        from openmc_materials_parser import parse_materials_file
+        result = parse_materials_file(args.file)
+        print(json.dumps(result))
+        return 0 if 'error' not in result else 1
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='OpenMC visualization server for NukeIDE')
     subparsers = parser.add_subparsers(dest='command')
@@ -1229,6 +1279,10 @@ def main():
     # List group structures command
     list_groups_parser = subparsers.add_parser('list-group-structures', help='List available group structures')
     
+    # List thermal materials command
+    list_thermal_parser = subparsers.add_parser('list-thermal-materials', help='List available thermal scattering materials')
+    list_thermal_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
+    
     # Depletion commands
     depletion_summary_parser = subparsers.add_parser('depletion-summary', help='Get depletion summary')
     depletion_summary_parser.add_argument('file', help='Path to depletion_results.h5')
@@ -1259,6 +1313,10 @@ def main():
     xs_plot_parser.add_argument('--energy-max', type=float, help='Maximum energy in eV')
     xs_plot_parser.add_argument('--cross-sections', help='Path to cross_sections.xml')
     
+    # Materials command
+    materials_parser = subparsers.add_parser('materials', help='Parse materials.xml file')
+    materials_parser.add_argument('file', help='Path to materials.xml')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -1278,12 +1336,14 @@ def main():
         'heatmap-all': cmd_heatmap_all,
         'check': cmd_check,
         'list-group-structures': cmd_list_group_structures,
+        'list-thermal-materials': cmd_list_thermal_materials,
         'depletion-summary': cmd_depletion_summary,
         'depletion-materials': cmd_depletion_materials,
         'depletion-data': cmd_depletion_data,
         'geometry': cmd_geometry,
         'visualize-geometry': cmd_visualize_geometry,
         'xs-plot': cmd_xs_plot,
+        'materials': cmd_materials,
     }
     
     handler = commands.get(args.command)
