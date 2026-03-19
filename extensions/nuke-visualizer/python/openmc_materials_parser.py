@@ -273,6 +273,68 @@ def parse_materials_file(file_path: str) -> Dict[str, Any]:
     return parser.get_material_summary()
 
 
+def get_material_cell_linkage(materials_path: str, geometry_path: str) -> Dict[str, Any]:
+    """Get mapping of materials to cells that use them.
+    
+    Args:
+        materials_path: Path to materials.xml file
+        geometry_path: Path to geometry.xml file
+        
+    Returns:
+        Dictionary mapping material IDs to list of cells
+    """
+    try:
+        # Parse materials
+        materials_parser = OpenMCMaterialsParser()
+        if not materials_parser.parse(materials_path):
+            return {'error': 'Failed to parse materials.xml'}
+        
+        # Parse geometry
+        import xml.etree.ElementTree as ET
+        
+        tree = ET.parse(geometry_path)
+        root = tree.getroot()
+        
+        # Build material ID to name mapping
+        material_names = {m.id: m.name for m in materials_parser.materials_list}
+        
+        # Find cells that reference each material
+        material_cells: Dict[int, List[Dict]] = {}
+        
+        for cell_elem in root.findall('cell'):
+            cell_id = int(cell_elem.get('id'))
+            cell_name = cell_elem.get('name', '')
+            material_attr = cell_elem.get('material')
+            universe_id = int(cell_elem.get('universe', '0'))
+            
+            if material_attr and material_attr != 'void':
+                try:
+                    mat_id = int(material_attr)
+                    if mat_id not in material_cells:
+                        material_cells[mat_id] = []
+                    
+                    material_cells[mat_id].append({
+                        'id': cell_id,
+                        'name': cell_name or f'Cell {cell_id}',
+                        'universe': universe_id
+                    })
+                except ValueError:
+                    pass  # Skip non-integer material references
+        
+        # Convert to response format
+        result = {
+            'linkage': {
+                str(mat_id): cells for mat_id, cells in material_cells.items()
+            },
+            'materialNames': material_names
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'error': str(e)}
+
+
 if __name__ == '__main__':
     import sys
     import json

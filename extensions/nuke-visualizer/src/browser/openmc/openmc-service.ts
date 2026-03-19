@@ -872,6 +872,59 @@ export class OpenMCService {
         }
     }
 
+    /**
+     * Open geometry in a new Visualizer widget (for Material Explorer cell linkage).
+     */
+    async openGeometryViewer(fileUri: URI, highlightCellId?: number): Promise<VisualizerWidget | null> {
+        const available = await this.checkAvailability();
+        if (!available) {
+            return null;
+        }
+
+        try {
+            const progress = await this.messageService.showProgress({
+                text: highlightCellId ? `Loading geometry and highlighting cell ${highlightCellId}...` : 'Loading geometry...',
+                options: { cancelable: false }
+            });
+
+            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId);
+
+            progress.cancel();
+
+            if (!result.success || !result.port || !result.url) {
+                throw new Error(result.error || 'Unknown error loading geometry');
+            }
+
+            // Create unique suffix for geometry visualization
+            const uniqueSuffix = highlightCellId 
+                ? `geometry:highlight:${highlightCellId}:${Date.now()}`
+                : `geometry:${Date.now()}`;
+            
+            const label = highlightCellId 
+                ? `OpenMC Geometry (Cell ${highlightCellId})`
+                : 'OpenMC Geometry';
+            
+            const widget = await this.createVisualizerWidget(
+                fileUri,
+                result.port,
+                result.url,
+                label,
+                uniqueSuffix
+            );
+
+            this.messageService.info(highlightCellId 
+                ? `Loaded geometry with cell ${highlightCellId} highlighted`
+                : 'Loaded geometry visualization'
+            );
+            return widget;
+
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to visualize geometry: ${msg}`);
+            return null;
+        }
+    }
+
     // === Material Explorer ===
 
     /**
@@ -884,6 +937,34 @@ export class OpenMCService {
         } catch (error) {
             this.messageService.error(`Failed to load materials: ${error}`);
             throw error;
+        }
+    }
+    
+    /**
+     * Get mapping of materials to cells that use them.
+     */
+    async getMaterialCellLinkage(materialsUri: URI, geometryUri: URI): Promise<any> {
+        try {
+            const result = await this.openmcBackend.getMaterialCellLinkage(
+                materialsUri.path.toString(),
+                geometryUri.path.toString()
+            );
+            return result;
+        } catch (error) {
+            this.messageService.error(`Failed to load material-cell linkage: ${error}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * Check if a file exists.
+     */
+    async checkFileExists(uri: URI): Promise<boolean> {
+        try {
+            const stat = await this.fileService.resolve(uri);
+            return stat.isFile;
+        } catch {
+            return false;
         }
     }
 }

@@ -618,3 +618,136 @@
 .material-details > * {
     animation: fadeIn 0.3s ease-out;
 }
+/* Cell Linkage Section */
+.cell-linkage-section {
+    margin-bottom: 28px;
+    padding: 16px;
+    background: var(--theia-panel-background);
+    border-radius: 8px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.cell-linkage-section h4 {
+    margin: 0 0 14px 0;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cell-count-badge {
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.cell-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cell-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.cell-item:hover {
+    border-color: var(--theia-focus-border);
+    background: var(--theia-list-hover-background);
+}
+
+.cell-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.cell-id {
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-text-link-foreground);
+    background: var(--theia-badge-background);
+    padding: 3px 8px;
+    border-radius: 4px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.cell-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cell-universe {
+    font-size: 11px;
+    color: var(--theia-description-foreground);
+    background: var(--theia-sideBarSectionHeader-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--theia-code-font-family);
+}
+
+.cell-highlight-btn {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cell-highlight-btn:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.cell-highlight-btn i {
+    font-size: 11px;
+}
+
+.no-cells-message {
+    padding: 16px;
+    text-align: center;
+    color: var(--theia-description-foreground);
+    font-size: 13px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    border: 1px dashed var(--theia-panel-border);
+}
+
+.geometry-not-found {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.geometry-not-found i {
+    color: var(--theia-description-foreground);
+}

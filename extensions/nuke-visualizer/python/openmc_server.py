@@ -1206,6 +1206,20 @@ def cmd_materials(args):
         return 1
 
 
+def cmd_material_cell_linkage(args):
+    """Get mapping of materials to cells that use them."""
+    try:
+        from openmc_materials_parser import get_material_cell_linkage
+        result = get_material_cell_linkage(args.materials_file, args.geometry_file)
+        print(json.dumps(result))
+        return 0 if 'error' not in result else 1
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='OpenMC visualization server for NukeIDE')
     subparsers = parser.add_subparsers(dest='command')
@@ -1317,6 +1331,11 @@ def main():
     materials_parser = subparsers.add_parser('materials', help='Parse materials.xml file')
     materials_parser.add_argument('file', help='Path to materials.xml')
     
+    # Material-cell linkage command
+    linkage_parser = subparsers.add_parser('material-cell-linkage', help='Get material-cell mapping')
+    linkage_parser.add_argument('materials_file', help='Path to materials.xml')
+    linkage_parser.add_argument('geometry_file', help='Path to geometry.xml')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -1344,6 +1363,7 @@ def main():
         'visualize-geometry': cmd_visualize_geometry,
         'xs-plot': cmd_xs_plot,
         'materials': cmd_materials,
+        'material-cell-linkage': cmd_material_cell_linkage,
     }
     
     handler = commands.get(args.command)

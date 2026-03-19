@@ -435,6 +435,9 @@ export interface OpenMCBackendService {
     
     /** Parse materials.xml and return material definitions */
     getMaterials(filePath: string): Promise<OpenMCMaterialsResponse>;
+    
+    /** Get mapping of materials to cells that use them */
+    getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<OpenMCMaterialCellLinkageResponse>;
 }
 
 // === Color Map Presets ===
@@ -1277,6 +1280,26 @@ export interface OpenMCMaterialsResponse {
     materialsWithThermalScattering: number;
     /** List of materials */
     materials: OpenMCMaterial[];
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Cell that uses a material */
+export interface OpenMCMaterialCell {
+    /** Cell ID */
+    id: number;
+    /** Cell name */
+    name: string;
+    /** Universe ID */
+    universe: number;
+}
+
+/** Response for material-cell linkage request */
+export interface OpenMCMaterialCellLinkageResponse {
+    /** Mapping of material IDs to cells */
+    linkage: { [materialId: string]: OpenMCMaterialCell[] };
+    /** Mapping of material IDs to names */
+    materialNames: { [materialId: number]: string };
     /** Error message if failed */
     error?: string;
 }

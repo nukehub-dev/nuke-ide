@@ -42,6 +42,9 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     private fileUri: URI | null = null;
     private sortBy: 'id' | 'name' | 'density' = 'id';
     private sortAsc = true;
+    private materialCells: { [materialId: string]: Array<{ id: number; name: string; universe: number }> } = {};
+    private geometryUri: URI | null = null;
+    private linkedCells: Array<{ id: number; name: string; universe: number }> = [];
 
     @postConstruct()
     protected init(): void {
@@ -56,6 +59,8 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     setFileUri(uri: URI): void {
         this.fileUri = uri;
         this.title.label = `Materials: ${uri.path.base}`;
+        // Look for geometry.xml in the same directory
+        this.geometryUri = uri.parent.resolve('geometry.xml');
         this.loadMaterials();
     }
 
@@ -79,6 +84,12 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                 if (this.materials.length > 0 && !this.selectedMaterial) {
                     this.selectedMaterial = this.materials[0];
                 }
+                // Load cell linkage if geometry.xml exists
+                await this.loadCellLinkage();
+                // Update linked cells for selected material
+                if (this.selectedMaterial) {
+                    this.linkedCells = this.materialCells[this.selectedMaterial.id.toString()] || [];
+                }
             }
         } catch (err) {
             this.error = err instanceof Error ? err.message : String(err);
@@ -86,6 +97,31 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         } finally {
             this.isLoading = false;
             this.update();
+        }
+    }
+    
+    private async loadCellLinkage(): Promise<void> {
+        if (!this.fileUri || !this.geometryUri) {
+            return;
+        }
+        
+        try {
+            // Check if geometry.xml exists
+            const exists = await this.openmcService.checkFileExists(this.geometryUri);
+            if (!exists) {
+                return;
+            }
+            
+            const result = await this.openmcService.getMaterialCellLinkage(this.fileUri, this.geometryUri);
+            if (!result.error) {
+                this.materialCells = result.linkage || {};
+                // Update linked cells for currently selected material
+                if (this.selectedMaterial) {
+                    this.linkedCells = this.materialCells[this.selectedMaterial.id.toString()] || [];
+                }
+            }
+        } catch (err) {
+            console.log('[MaterialExplorer] Could not load cell linkage:', err);
         }
     }
 
@@ -129,6 +165,33 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             this.sortAsc = true;
         }
         this.update();
+    }
+
+    private async highlightCell(cellId: number): Promise<void> {
+        if (!this.geometryUri) {
+            this.messageService.warn('No geometry.xml found. Cannot highlight cell.');
+            return;
+        }
+        
+        try {
+            // Check if geometry file exists
+            const exists = await this.openmcService.checkFileExists(this.geometryUri);
+            if (!exists) {
+                this.messageService.warn('geometry.xml not found.');
+                return;
+            }
+            
+            // Open the geometry viewer with the cell highlighted
+            const widget = await this.openmcService.openGeometryViewer(this.geometryUri, cellId);
+            
+            if (!widget) {
+                this.messageService.error('Failed to open Geometry Viewer');
+            }
+            // Widget is automatically opened and activated by openGeometryViewer
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to highlight cell: ${msg}`);
+        }
     }
 
     private renderToolbar(): React.ReactNode {
@@ -189,6 +252,8 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                             className={`material-item ${this.selectedMaterial?.id === material.id ? 'selected' : ''}`}
                             onClick={() => {
                                 this.selectedMaterial = material;
+                                // Update linked cells for selected material
+                                this.linkedCells = this.materialCells[material.id.toString()] || [];
                                 this.update();
                             }}
                         >
@@ -243,6 +308,53 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                         </div>
                     );
                 })}
+            </div>
+        );
+    }
+
+    private renderCellLinkageSection(): React.ReactNode {
+        if (!this.selectedMaterial) return null;
+
+        return (
+            <div className='cell-linkage-section'>
+                <h4>📦 Cell Usage
+                    {this.linkedCells.length > 0 && (
+                        <span className='cell-count-badge'>{this.linkedCells.length}</span>
+                    )}
+                </h4>
+                {this.linkedCells.length === 0 ? (
+                    <div className='no-cells-message'>
+                        {this.geometryUri ? (
+                            <span>No cells found using this material</span>
+                        ) : (
+                            <span className='geometry-not-found'>
+                                <i className='fa fa-info-circle'></i>
+                                {' '}Open geometry.xml to see cell usage
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <div className='cell-list'>
+                        {this.linkedCells.map(cell => (
+                            <div key={cell.id} className='cell-item'>
+                                <div className='cell-info'>
+                                    <span className='cell-id'>#{cell.id}</span>
+                                    <span className='cell-name' title={cell.name}>
+                                        {cell.name}
+                                    </span>
+                                    <span className='cell-universe'>U:{cell.universe}</span>
+                                </div>
+                                <button
+                                    className='cell-highlight-btn'
+                                    title='Highlight cell in Geometry Viewer'
+                                    onClick={() => this.highlightCell(cell.id)}
+                                >
+                                    <i className='fa fa-crosshairs'></i>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         );
     }
@@ -313,6 +425,8 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                         </div>
                     </div>
                 )}
+
+                {this.renderCellLinkageSection()}
 
                 {this.renderNuclideBarChart(m.nuclides)}
 

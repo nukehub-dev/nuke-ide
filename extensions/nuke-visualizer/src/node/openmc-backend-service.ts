@@ -901,6 +901,37 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             throw e;
         }
     }
+    
+    /**
+     * Get mapping of materials to cells that use them.
+     */
+    async getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'material-cell-linkage', materialsPath, geometryPath];
+
+        console.log(`[OpenMC] Running material-cell-linkage command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Material-cell linkage command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get material-cell linkage');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse material-cell linkage: ${e}`);
+            throw e;
+        }
+    }
 
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
