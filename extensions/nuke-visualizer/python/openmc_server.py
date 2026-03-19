@@ -717,44 +717,20 @@ def cmd_visualize_mesh(args):
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    # Appearance Section
-                    vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                    
                     # Background Color Picker
-                    from trame.widgets import html
-                    with vuetify.VRow(dense=True, align="center", classes="mb-2"):
-                        with vuetify.VCol(cols=8):
-                            vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
-                        with vuetify.VCol(cols=4, classes="text-right"):
-                            with html.Div(
-                                style="display: inline-block; padding: 3px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px;"
-                            ):
-                                html.Input(
-                                    type="color",
-                                    value=("background_color_hex",),
-                                    input="background_color_hex = $event.target.value;",
-                                    style="width: 36px; height: 24px; border: 2px solid rgba(255,255,255,0.9); border-radius: 4px; cursor: pointer; padding: 0; display: block;",
-                                )
-                    
-                    # Color presets
-                    with vuetify.VRow(dense=True, classes="mb-2"):
-                        colors = [
-                            ("#000000", "black"),
-                            ("#1a1a26", "dark blue"),
-                            ("#2d3748", "navy"),
-                            ("#4a5568", "slate"),
-                            ("#1a202c", "dark"),
-                            ("#ffffff", "white"),
-                        ]
-                        for hex_color, tooltip in colors:
-                            with vuetify.VCol(cols=2):
-                                vuetify.VBtn(
-                                    "",
-                                    click=lambda hex_c=hex_color: setattr(state, 'background_color_hex', hex_c),
-                                    small=True, depressed=True,
-                                    style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
-                                    classes="mx-auto d-block"
-                                )
+                    with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
+                        vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
+                        vuetify.VColorPicker(
+                            v_model=("background_color_hex", "#1a1a26"),
+                            hide_inputs=True,
+                            hide_mode_switch=True,
+                            show_swatches=True,
+                            swatches_max_height=100,
+                            mode="hexa",
+                            elevation=0,
+                            classes="ma-0 pa-0",
+                            style="background: transparent; max-width: 100%;",
+                        )
                     
                     vuetify.VDivider(classes="my-4")
                     
@@ -1347,24 +1323,20 @@ def cmd_visualize_source(args):
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    # Appearance Section
-                    vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                    
                     # Background Color Picker
-                    from trame.widgets import html
-                    with vuetify.VRow(dense=True, align="center", classes="mb-2"):
-                        with vuetify.VCol(cols=8):
-                            vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
-                        with vuetify.VCol(cols=4, classes="text-right"):
-                            with html.Div(
-                                style="display: inline-block; padding: 3px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px;"
-                            ):
-                                html.Input(
-                                    type="color",
-                                    value=("background_color_hex",),
-                                    input="background_color_hex = $event.target.value;",
-                                    style="width: 36px; height: 24px; border: 2px solid rgba(255,255,255,0.9); border-radius: 4px; cursor: pointer; padding: 0; display: block;",
-                                )
+                    with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
+                        vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
+                        vuetify.VColorPicker(
+                            v_model=("background_color_hex", "#1a1a26"),
+                            hide_inputs=True,
+                            hide_mode_switch=True,
+                            show_swatches=True,
+                            swatches_max_height=100,
+                            mode="hexa",
+                            elevation=0,
+                            classes="ma-0 pa-0",
+                            style="background: transparent; max-width: 100%;",
+                        )
                     
                     # Show 3D Axis Indicator
                     vuetify.VCheckbox(

@@ -844,11 +844,6 @@ def create_app(file_path=None, port=None, theme='dark'):
             print(f"Error capturing screenshot: {e}")
             return {'success': False, 'error': str(e)}
     
-    @server.controller.add("set_bg_color_from_btn")
-    def set_bg_color_from_btn(hex_color):
-        """Dedicated controller to update color state from UI buttons."""
-        state.background_color_hex = hex_color
-    
     @server.controller.add("toggle_controls")
     def toggle_controls():
         """Toggle control panel visibility."""
@@ -1059,49 +1054,19 @@ def create_app(file_path=None, port=None, theme='dark'):
                 
                 vuetify.VDivider(classes="my-4")
                 
-                # Appearance Section
-                vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                
-                # Background Color Picker - using native HTML5 color input
-                with vuetify.VRow(dense=True, align="center", classes="mb-2"):
-                    with vuetify.VCol(cols=8):
-                        vuetify.VSubheader(
-                            "Background Color",
-                            classes="pa-0 text-body-2"
-                        )
-                    with vuetify.VCol(cols=4, classes="text-right"):
-                        # Native HTML5 color picker with styled wrapper
-                        with html.Div(
-                            style="display: inline-block; padding: 3px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px;"
-                        ):
-                            html.Input(
-                                type="color",
-                                value=("background_color_hex",),
-                                input="background_color_hex = $event.target.value;",
-                                style="width: 36px; height: 24px; border: 2px solid rgba(255,255,255,0.9); border-radius: 4px; cursor: pointer; padding: 0; display: block;",
-                            )
-                
-                # Quick color presets
-                with vuetify.VRow(dense=True, classes="mb-2"):
-                    colors = [
-                        ("#000000", "black"),
-                        ("#1a1a26", "dark blue"),
-                        ("#2d3748", "navy"),
-                        ("#4a5568", "slate"),
-                        ("#1a202c", "dark"),
-                        ("#ffffff", "white"),
-                    ]
-                    for hex_color, tooltip in colors:
-                        with vuetify.VCol(cols=2):
-                            vuetify.VBtn(
-                                "",
-                                # Use Trame's native method binding syntax to pass parameters
-                                click=(server.controller.set_bg_color_from_btn, f"['{hex_color}']"),
-                                small=True,
-                                depressed=True,  # Remove shadow
-                                style=f"background-color: {hex_color}; min-width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); box-shadow: none;",
-                                classes="mx-auto d-block"
-                            )
+                # Background Color Picker - using VColorPicker like openmc_geometry_viz.py
+                with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
+                    vuetify.VColorPicker(
+                        v_model=("background_color_hex", "#1a1a26"),
+                        hide_inputs=True,
+                        hide_mode_switch=True,
+                        show_swatches=True,
+                        swatches_max_height=100,
+                        mode="hexa",
+                        elevation=0,
+                        classes="ma-0 pa-0",
+                        style="background: transparent; max-width: 100%;",
+                    )
                 
                 vuetify.VDivider(classes="my-4")
                 

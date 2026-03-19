@@ -1589,24 +1589,6 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                         vuetify.VIcon("mdi-chevron-left")
                 vuetify.VDivider(classes="mb-4")
                 
-                # Background Color
-                vuetify.VSubheader("Background", classes="text-subtitle-1 mb-2")
-                
-                with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                    vuetify.VColorPicker(
-                        v_model=("background_color_hex", "#1a1a26"),
-                        hide_inputs=True,
-                        hide_mode_switch=True,
-                        show_swatches=True,
-                        swatches_max_height=100,
-                        mode="hexa",
-                        elevation=0,
-                        classes="ma-0 pa-0",
-                        style="background: transparent; max-width: 100%;",
-                    )
-                
-                vuetify.VDivider(classes="my-4")
-                
                 # Cell Opacity
                 vuetify.VSlider(
                     label="Cell Opacity",
@@ -1683,7 +1665,23 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                             small=True,
                             text=True
                         )
-        
+
+                vuetify.VDivider(classes="my-4")
+
+                with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
+                    vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
+                    vuetify.VColorPicker(
+                        v_model=("background_color_hex", "#1a1a26"),
+                        hide_inputs=True,
+                        hide_mode_switch=True,
+                        show_swatches=True,
+                        swatches_max_height=100,
+                        mode="hexa",
+                        elevation=0,
+                        classes="ma-0 pa-0",
+                        style="background: transparent; max-width: 100%;",
+                    )
+
         with vuetify.VMain():
             # Toggle button when controls are hidden
             with vuetify.VContainer(
