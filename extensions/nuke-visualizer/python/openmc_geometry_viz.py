@@ -13,6 +13,13 @@ from dataclasses import dataclass
 import tempfile
 import os
 
+# Import common utilities
+from visualizer_common import (
+    hex_to_rgb, get_data_bounds, calculate_camera_position,
+    create_update_view, create_reset_camera_controller,
+    create_set_camera_view_controller, UIComponents
+)
+
 
 @dataclass
 class Surface:
@@ -1217,7 +1224,8 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
     simple.Hide(surf_reader)
     
     view = simple.GetActiveViewOrCreate('RenderView')
-    view.Background = [0.1, 0.1, 0.15]
+    bg_rgb = hex_to_rgb(state.background_color_hex)
+    view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]  # Fallback to dark blue
     view.UseColorPaletteForBackground = 0
     pipeline['view'] = view
     
@@ -1257,17 +1265,8 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
     state.selected_cell_id = highlight_cell
     state.background_color_hex = "#1a1a26"  # Dark blue default
     
-    def update_view(push_camera=False):
-        """Update the view after state changes."""
-        try:
-            v = pipeline.get('view')
-            view_widget = pipeline.get('view_widget')
-            if v: simple.Render(v)
-            if view_widget:
-                if push_camera: state.camera_update_counter += 1
-                else: view_widget.update()
-        except Exception as e:
-            print(f"Error updating view: {e}")
+    # Create update view function using common utility
+    update_view = create_update_view(pipeline, state, simple)
     
     @state.change("show_cells")
     def on_show_cells(show_cells, **kwargs):
@@ -1420,11 +1419,8 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                 return False
             
             extract = cell_extracts[cell_id]
-            # Get bounds of the cell
             bounds = extract.GetDataInformation().GetBounds()
             if bounds and len(bounds) >= 6:
-                xmin, xmax, ymin, ymax, zmin, zmax = bounds
-                # Reset camera to focus on these bounds
                 v.ResetCamera(bounds)
                 simple.Render(v)
                 return True
@@ -1436,106 +1432,43 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
     def on_selected_cell_change(selected_cell_id, **kwargs):
         """Auto-show selected cell when dropdown changes and zoom to it."""
         if selected_cell_id is not None:
-            # Show only the selected cell
             state.cell_visibility = {str(c['id']): str(c['id']) == str(selected_cell_id) 
                                       for c in state.cell_info}
             update_cell_visibility()
-            # Zoom to the selected cell
             zoom_to_cell(selected_cell_id)
         else:
-            # If cleared, show all cells
             state.cell_visibility = {str(c['id']): True for c in state.cell_info}
             update_cell_visibility()
         update_view(push_camera=True)
     
     @state.change("background_color_hex")
     def on_background_color_change(background_color_hex, **kwargs):
-        """Handle background color change."""
-        try:
-            v = pipeline.get('view')
-            if v and background_color_hex:
-                # Convert hex to RGB
-                hex_color = background_color_hex.lstrip('#')
-                if len(hex_color) >= 6:
-                    r = int(hex_color[0:2], 16) / 255.0
-                    g = int(hex_color[2:4], 16) / 255.0
-                    b = int(hex_color[4:6], 16) / 255.0
-                    v.UseColorPaletteForBackground = 0
-                    v.Background = [r, g, b]
-                    simple.Render(v)
-                    update_view()
-        except Exception as e:
-            print(f"Error changing background color: {e}")
+        """Handle background color change using common utility."""
+        from visualizer_common import StateHandlers
+        StateHandlers.create_background_handler(pipeline, state)(background_color_hex, **kwargs)
+        update_view()
     
     # Initialize extract block filter (show all cells initially)
     update_cell_visibility()
     
-    # Camera functions
-    def get_data_bounds():
-        """Get bounds of the geometry."""
-        try:
-            return cell_reader.GetDataInformation().GetBounds()
-        except:
-            return [-1, 1, -1, 1, -1, 1]
+    # Use common utilities for camera functions
+    reset_camera = create_reset_camera_controller(pipeline, update_view)
     
-    def calculate_camera_position(view_type, bounds):
-        """Calculate camera position for different views."""
-        xmin, xmax, ymin, ymax, zmin, zmax = bounds
-        cx = (xmin + xmax) / 2
-        cy = (ymin + ymax) / 2
-        cz = (zmin + zmax) / 2
-        dx = xmax - xmin
-        dy = ymax - ymin
-        dz = zmax - zmin
-        diagonal = (dx*dx + dy*dy + dz*dz) ** 0.5
-        distance = diagonal * 1.5 if diagonal > 0 else 5
-        
-        if view_type == 'isometric':
-            return [cx + distance * 0.7, cy + distance * 0.7, cz + distance * 0.7], [cx, cy, cz], [0, 0, 1]
-        elif view_type == 'front':
-            return [cx, cy - distance, cz], [cx, cy, cz], [0, 0, 1]
-        elif view_type == 'back':
-            return [cx, cy + distance, cz], [cx, cy, cz], [0, 0, 1]
-        elif view_type == 'left':
-            return [cx - distance, cy, cz], [cx, cy, cz], [0, 0, 1]
-        elif view_type == 'right':
-            return [cx + distance, cy, cz], [cx, cy, cz], [0, 0, 1]
-        elif view_type == 'top':
-            return [cx, cy, cz + distance], [cx, cy, cz], [0, 1, 0]
-        elif view_type == 'bottom':
-            return [cx, cy, cz - distance], [cx, cy, cz], [0, -1, 0]
-        return [cx + distance, cy, cz], [cx, cy, cz], [0, 0, 1]
-    
-    @server.controller.add("reset_camera")
-    def reset_camera():
-        """Reset camera to default position."""
-        try:
-            v = pipeline.get('view')
-            if v:
-                simple.ResetCamera(v)
-                simple.Render(v)
-            update_view(push_camera=True)
-            return True
-        except Exception as e:
-            print(f"Error resetting camera: {e}")
-            return False
-    
-    @server.controller.add("set_camera_view")
     def set_camera_view(view_type):
-        """Set camera to preset view."""
+        """Set camera to preset view using common utility."""
         try:
-            v = pipeline.get('view')
-            if not v:
+            view = pipeline.get('view')
+            if not view:
                 return False
             
-            bounds = get_data_bounds()
+            bounds = get_data_bounds(cell_reader)
             position, focal_point, view_up = calculate_camera_position(view_type, bounds)
             
-            v.CameraPosition = position
-            v.CameraFocalPoint = focal_point
-            v.CameraViewUp = view_up
+            view.CameraPosition = position
+            view.CameraFocalPoint = focal_point
+            view.CameraViewUp = view_up
             
-            simple.Render(v)
+            simple.Render(view)
             update_view(push_camera=True)
             return True
         except Exception as e:
@@ -1569,37 +1502,25 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
             state.cell_visibility = {str(c['id']): str(c['id']) == str(selected_id) for c in state.cell_info}
         return True
     
-    # UI
+    # UI using common components
     with VAppLayout(server) as layout:
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
-            app=True,
-            width=300,
-            dark=True
+            app=True, width=300, dark=True
         ):
             with vuetify.VContainer():
                 # Header with hide button
                 with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                     vuetify.VSubheader("OpenMC Geometry", classes="text-h6 pa-0")
-                    with vuetify.VBtn(
-                        click=toggle_controls,
-                        small=True,
-                        icon=True
-                    ):
+                    with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
                         vuetify.VIcon("mdi-chevron-left")
                 vuetify.VDivider(classes="mb-4")
                 
-                # Cell Opacity
-                vuetify.VSlider(
-                    label="Cell Opacity",
-                    v_model=("opacity", 0.7),
-                    min=0, max=1, step=0.1,
-                    dense=True
-                )
+                # Cell Opacity using common slider
+                UIComponents.opacity_slider(vuetify, ("opacity", 0.7))
                 
-                # Cell Selection - Auto-shows when selected
+                # Cell Selection
                 vuetify.VDivider(classes="my-4")
-                
                 vuetify.VSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
                 
                 vuetify.VSelect(
@@ -1612,7 +1533,6 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                     outlined=True,
                     classes="mb-2",
                     clearable=True,
-
                 )
                 
                 vuetify.VDivider(classes="my-4")
@@ -1622,65 +1542,23 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                 
                 with vuetify.VRow(dense=True):
                     with vuetify.VCol(cols=6):
-                        vuetify.VBtn(
-                            "Reset",
-                            click=reset_camera,
-                            block=True,
-                            small=True,
-                            outlined=True,
-                            classes="mb-2"
-                        )
+                        vuetify.VBtn("Reset", click=reset_camera,
+                                    block=True, small=True, outlined=True, classes="mb-2")
                     with vuetify.VCol(cols=6):
-                        vuetify.VBtn(
-                            "Isometric",
-                            click=lambda: set_camera_view('isometric'),
-                            block=True,
-                            small=True,
-                            outlined=True,
-                            classes="mb-2"
-                        )
+                        vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'),
+                                    block=True, small=True, outlined=True, classes="mb-2")
                 
                 with vuetify.VRow(dense=True):
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn(
-                            "Front",
-                            click=lambda: set_camera_view('front'),
-                            block=True,
-                            small=True,
-                            text=True
-                        )
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn(
-                            "Side",
-                            click=lambda: set_camera_view('right'),
-                            block=True,
-                            small=True,
-                            text=True
-                        )
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn(
-                            "Top",
-                            click=lambda: set_camera_view('top'),
-                            block=True,
-                            small=True,
-                            text=True
-                        )
-
+                    for label, view_type in [("Front", "front"), ("Side", "right"), ("Top", "top")]:
+                        with vuetify.VCol(cols=4):
+                            vuetify.VBtn(label, click=lambda vt=view_type: set_camera_view(vt),
+                                        block=True, small=True, text=True)
+                
                 vuetify.VDivider(classes="my-4")
-
+                
+                # Background Color using common component
                 with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                    vuetify.VSubheader("Background Color", classes="pa-0 text-body-2")
-                    vuetify.VColorPicker(
-                        v_model=("background_color_hex", "#1a1a26"),
-                        hide_inputs=True,
-                        hide_mode_switch=True,
-                        show_swatches=True,
-                        swatches_max_height=100,
-                        mode="hexa",
-                        elevation=0,
-                        classes="ma-0 pa-0",
-                        style="background: transparent; max-width: 100%;",
-                    )
+                    UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
 
         with vuetify.VMain():
             # Toggle button when controls are hidden
