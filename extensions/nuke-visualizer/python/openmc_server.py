@@ -2716,6 +2716,62 @@ def cmd_material_cell_linkage(args):
         return 1
 
 
+def cmd_check_overlaps(args):
+    """Check for geometry overlaps."""
+    try:
+        from overlap_integration import check_overlaps
+        
+        # Parse bounding box if provided
+        bounds = None
+        if args.bounds:
+            try:
+                bounds = json.loads(args.bounds)
+            except json.JSONDecodeError as e:
+                print(json.dumps({"error": f"Invalid bounds JSON: {e}"}))
+                return 1
+        
+        result = check_overlaps(
+            geometry_path=args.geometry,
+            sample_points=args.samples,
+            tolerance=args.tolerance,
+            bounds=bounds,
+            parallel=args.parallel
+        )
+        print(json.dumps(result))
+        return 0 if result.get('error') is None else 1
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"overlaps": [], "totalOverlaps": 0, "error": str(e)}))
+        return 1
+
+
+def cmd_overlap_viz(args):
+    """Get visualization data for overlaps."""
+    try:
+        from overlap_integration import get_overlap_viz_data
+        
+        # Parse overlaps JSON
+        try:
+            overlaps = json.loads(args.overlaps)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": f"Invalid overlaps JSON: {e}"}))
+            return 1
+        
+        result = get_overlap_viz_data(
+            geometry_path=args.geometry,
+            overlaps=overlaps,
+            marker_size=args.marker_size
+        )
+        print(json.dumps(result))
+        return 0 if result.get('error') is None else 1
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"markers": [], "overlappingCellIds": [], "error": str(e)}))
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='OpenMC visualization server for NukeIDE')
     subparsers = parser.add_subparsers(dest='command')
@@ -2847,6 +2903,19 @@ def main():
     linkage_parser.add_argument('materials_file', help='Path to materials.xml')
     linkage_parser.add_argument('geometry_file', help='Path to geometry.xml')
     
+    # Overlap checker commands
+    overlaps_parser = subparsers.add_parser('check-overlaps', help='Check for geometry overlaps')
+    overlaps_parser.add_argument('geometry', help='Path to geometry.xml or Python model')
+    overlaps_parser.add_argument('--samples', type=int, default=100000, help='Number of sample points')
+    overlaps_parser.add_argument('--tolerance', type=float, default=1e-6, help='Numerical tolerance')
+    overlaps_parser.add_argument('--bounds', help='Bounding box as JSON {"min": [x,y,z], "max": [x,y,z]}')
+    overlaps_parser.add_argument('--parallel', action='store_true', help='Use parallel processing')
+    
+    overlap_viz_parser = subparsers.add_parser('overlap-viz', help='Get overlap visualization data')
+    overlap_viz_parser.add_argument('geometry', help='Path to geometry.xml')
+    overlap_viz_parser.add_argument('--overlaps', required=True, help='Overlaps JSON array')
+    overlap_viz_parser.add_argument('--marker-size', type=float, default=1.0, help='Marker size in cm')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -2876,6 +2945,8 @@ def main():
         'list-nuclides': cmd_list_nuclides,
         'materials': cmd_materials,
         'material-cell-linkage': cmd_material_cell_linkage,
+        'check-overlaps': cmd_check_overlaps,
+        'overlap-viz': cmd_overlap_viz,
     }
     
     handler = commands.get(args.command)

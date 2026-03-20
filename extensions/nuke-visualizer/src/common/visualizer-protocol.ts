@@ -438,6 +438,14 @@ export interface OpenMCBackendService {
     
     /** Get mapping of materials to cells that use them */
     getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<OpenMCMaterialCellLinkageResponse>;
+    
+    // === Geometry Overlap Checker ===
+    
+    /** Run overlap check on geometry */
+    checkOverlaps(request: OpenMCOverlapRequest): Promise<OpenMCOverlapResponse>;
+    
+    /** Get visualization data for overlaps (markers, highlights) */
+    getOverlapVisualization(geometryPath: string, overlaps: OpenMCOverlap[]): Promise<OpenMCOverlapVizData>;
 }
 
 // === Color Map Presets ===
@@ -1302,4 +1310,89 @@ export interface OpenMCMaterialCellLinkageResponse {
     materialNames: { [materialId: number]: string };
     /** Error message if failed */
     error?: string;
+}
+
+// ============================================================================
+// Geometry Overlap Checker Types
+// ============================================================================
+
+/** Overlap detection result at a specific coordinate */
+export interface OpenMCOverlap {
+    /** Coordinates where overlap was detected */
+    coordinates: [number, number, number];
+    /** IDs of overlapping cells */
+    cellIds: number[];
+    /** Names of overlapping cells (if available) */
+    cellNames: string[];
+    /** Number of overlapping cells */
+    overlapCount: number;
+}
+
+/** Overlap check progress update */
+export interface OpenMCOverlapProgress {
+    /** Number of sample points checked so far */
+    checked: number;
+    /** Total number of sample points to check */
+    total: number;
+    /** Progress percentage (0-100) */
+    percentage: number;
+    /** Overlaps found so far */
+    currentOverlaps: OpenMCOverlap[];
+    /** Whether the check is complete */
+    complete: boolean;
+    /** Error message if check failed */
+    error?: string;
+}
+
+/** Bounding box for limiting overlap check region */
+export interface OpenMCBoundingBox {
+    /** Minimum coordinates [xmin, ymin, zmin] */
+    min: [number, number, number];
+    /** Maximum coordinates [xmax, ymax, zmax] */
+    max: [number, number, number];
+}
+
+/** Request for overlap check */
+export interface OpenMCOverlapRequest {
+    /** Path to geometry.xml or model file */
+    geometryPath: string;
+    /** Number of sample points to check (default: 100000) */
+    samplePoints?: number;
+    /** Numerical tolerance for overlap detection (default: 1e-6) */
+    tolerance?: number;
+    /** Bounding box to limit check region (optional) */
+    bounds?: OpenMCBoundingBox;
+    /** Whether to use parallel processing */
+    parallel?: boolean;
+}
+
+/** Response for overlap check */
+export interface OpenMCOverlapResponse {
+    /** List of all detected overlaps */
+    overlaps: OpenMCOverlap[];
+    /** Total number of overlaps found */
+    totalOverlaps: number;
+    /** Number of sample points checked */
+    samplesChecked: number;
+    /** Time taken for check in seconds */
+    elapsedTime?: number;
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Export format for overlap reports */
+export type OverlapExportFormat = 'csv' | 'json';
+
+/** Overlap visualization data for 3D viewer */
+export interface OpenMCOverlapVizData {
+    /** VTK visualization data as base64 or URL */
+    vtkData?: string;
+    /** List of overlap coordinates for markers */
+    markers: {
+        coordinates: [number, number, number];
+        cellIds: number[];
+        radius: number;
+    }[];
+    /** Cell IDs that have overlaps (for highlighting) */
+    overlappingCellIds: number[];
 }

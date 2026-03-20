@@ -956,6 +956,80 @@ export class OpenMCService {
         }
     }
     
+    // === Geometry Overlap Checker ===
+
+    /**
+     * Check for geometry overlaps.
+     */
+    async checkOverlaps(
+        geometryUri: URI,
+        options: {
+            samplePoints?: number;
+            tolerance?: number;
+            bounds?: { min: [number, number, number]; max: [number, number, number] };
+            parallel?: boolean;
+        } = {}
+    ): Promise<{ overlaps: any[]; totalOverlaps: number; error?: string }> {
+        const available = await this.checkOpenMCPythonAvailable();
+        if (!available) {
+            return { overlaps: [], totalOverlaps: 0, error: 'OpenMC Python module not available' };
+        }
+
+        try {
+            const progress = await this.messageService.showProgress({
+                text: 'Checking for geometry overlaps...',
+                options: { cancelable: false }
+            });
+
+            const request = {
+                geometryPath: geometryUri.path.toString(),
+                samplePoints: options.samplePoints || 100000,
+                tolerance: options.tolerance || 1e-6,
+                bounds: options.bounds,
+                parallel: options.parallel || false
+            };
+
+            const result = await this.openmcBackend.checkOverlaps(request);
+            progress.cancel();
+
+            if (result.error) {
+                this.messageService.error(`Overlap check failed: ${result.error}`);
+                return { overlaps: [], totalOverlaps: 0, error: result.error };
+            }
+
+            const overlapCount = result.totalOverlaps || result.overlaps?.length || 0;
+            if (overlapCount > 0) {
+                this.messageService.warn(`Found ${overlapCount} geometry overlap(s)`);
+            } else {
+                this.messageService.info('No geometry overlaps found');
+            }
+
+            return {
+                overlaps: result.overlaps || [],
+                totalOverlaps: overlapCount
+            };
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to check overlaps: ${msg}`);
+            return { overlaps: [], totalOverlaps: 0, error: msg };
+        }
+    }
+
+    /**
+     * Get visualization data for overlaps.
+     */
+    async getOverlapVisualization(geometryUri: URI, overlaps: any[]): Promise<any> {
+        try {
+            return await this.openmcBackend.getOverlapVisualization(
+                geometryUri.path.toString(),
+                overlaps
+            );
+        } catch (error) {
+            this.messageService.error(`Failed to get overlap visualization: ${error}`);
+            throw error;
+        }
+    }
+    
     /**
      * Check if a file exists.
      */

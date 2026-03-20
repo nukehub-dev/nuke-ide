@@ -933,6 +933,84 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Geometry Overlap Checker ===
+
+    async checkOverlaps(request: any): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args: string[] = [
+            scriptPath,
+            'check-overlaps',
+            request.geometryPath,
+            '--samples', (request.samplePoints || 100000).toString(),
+            '--tolerance', (request.tolerance || 1e-6).toString()
+        ];
+
+        if (request.bounds) {
+            args.push('--bounds', JSON.stringify(request.bounds));
+        }
+
+        if (request.parallel) {
+            args.push('--parallel');
+        }
+
+        console.log(`[OpenMC] Running overlap check on ${request.geometryPath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 300000,  // 5 minute timeout for large geometries
+            maxBuffer: 50 * 1024 * 1024  // 50MB for large result sets
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Overlap check command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to check overlaps');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse overlap results: ${e}`);
+            throw e;
+        }
+    }
+
+    async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args: string[] = [
+            scriptPath,
+            'overlap-viz',
+            geometryPath,
+            '--overlaps', JSON.stringify(overlaps),
+            '--marker-size', '1.0'
+        ];
+
+        console.log(`[OpenMC] Getting overlap visualization data`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Overlap viz command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get overlap visualization');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse overlap viz data: ${e}`);
+            throw e;
+        }
+    }
+
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
         const tally = tallies.find(t => t.id === tallyId);

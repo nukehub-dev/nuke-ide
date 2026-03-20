@@ -43,6 +43,7 @@ import { OpenMCDepletionCompareWidget } from './openmc/openmc-depletion-compare-
 import { OpenMCGeometryTreeWidget } from './openmc/openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc/openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './openmc/openmc-material-explorer';
+import { OpenMCOverlapWidget } from './openmc/openmc-overlap-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -222,6 +223,22 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             const widget = context.container.get<OpenMCMaterialExplorerWidget>(OpenMCMaterialExplorerWidget);
             if (options?.uri) {
                 widget.setFileUri(new URI(options.uri));
+            }
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
+    })).inSingletonScope();
+
+    // Bind overlap checker widget
+    bind(OpenMCOverlapWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCOverlapWidget.ID,
+        createWidget: (options?: { geometryUri?: string; id?: string }) => {
+            const widget = context.container.get<OpenMCOverlapWidget>(OpenMCOverlapWidget);
+            if (options?.geometryUri) {
+                widget.setGeometryUri(new URI(options.geometryUri));
             }
             if (options?.id) {
                 widget.id = options.id;

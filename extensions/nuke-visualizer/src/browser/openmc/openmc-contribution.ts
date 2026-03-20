@@ -50,6 +50,7 @@ import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget'
 import { OpenMCGeometryTreeWidget, GeometryView3DRequest } from './openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './openmc-material-explorer';
+import { OpenMCOverlapWidget } from './openmc-overlap-widget';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -139,6 +140,13 @@ export namespace OpenMCCommands {
         category: OPENMC_CATEGORY,
         label: 'View Materials...',
         iconClass: 'codicon codicon-flask'
+    };
+    
+    export const CHECK_OVERLAPS: Command = {
+        id: 'openmc.check-overlaps',
+        category: OPENMC_CATEGORY,
+        label: 'Check Geometry Overlaps...',
+        iconClass: 'codicon codicon-search'
     };
 }
 
@@ -451,6 +459,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         registry.registerCommand(OpenMCCommands.VIEW_MATERIALS, {
             execute: () => this.viewMaterialsCommand()
         });
+        
+        registry.registerCommand(OpenMCCommands.CHECK_OVERLAPS, {
+            execute: () => this.checkOverlapsCommand()
+        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
@@ -511,6 +523,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.VIEW_MATERIALS.id,
             order: '10'
         });
+        
+        registry.registerMenuAction(['openmc'], {
+            commandId: OpenMCCommands.CHECK_OVERLAPS.id,
+            order: '11'
+        });
 
         // Add context menu for OpenMC files
         registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
@@ -538,6 +555,13 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             commandId: OpenMCCommands.VIEW_MATERIALS.id,
             when: "resourceFilename == materials.xml",
             order: '4_openmc_materials'
+        });
+        
+        // Add context menu for geometry.xml files
+        registry.registerMenuAction(['explorer-context-menu'], {
+            commandId: OpenMCCommands.CHECK_OVERLAPS.id,
+            when: "resourceFilename == geometry.xml",
+            order: '5_openmc_overlaps'
         });
     }
 
@@ -1302,6 +1326,47 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             this.messageService.info(`Opened materials from ${uri.path.base}`);
         } catch (error) {
             this.messageService.error(`Failed to open materials: ${error}`);
+        }
+    }
+
+    private async checkOverlapsCommand(): Promise<void> {
+        // Open file dialog to select geometry file
+        const fileUri = await this.fileDialogService.showOpenDialog({
+            title: 'Select OpenMC Geometry File',
+            openLabel: 'Check Overlaps',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'XML Files': ['xml'],
+                'Python Files': ['py'],
+                'All Files': ['*']
+            }
+        });
+        
+        if (!fileUri) return;
+        
+        const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        await this.openOverlapChecker(uri);
+    }
+    
+    private async openOverlapChecker(uri: URI): Promise<void> {
+        try {
+            // Create and open the overlap checker widget
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCOverlapWidget>(
+                OpenMCOverlapWidget.ID,
+                { geometryUri: uri.toString() }
+            );
+            
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'main' });
+            }
+            
+            await this.shell.activateWidget(widget.id);
+            
+            this.messageService.info(`Opened overlap checker for ${uri.path.base}`);
+        } catch (error) {
+            this.messageService.error(`Failed to open overlap checker: ${error}`);
         }
     }
 
