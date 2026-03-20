@@ -1118,7 +1118,16 @@ def cmd_visualize_geometry(args):
     """Visualize OpenMC geometry in 3D."""
     try:
         from openmc_geometry_viz import visualize_geometry
-        return visualize_geometry(args.file, args.port, args.highlight)
+        
+        highlight_ids = None
+        if args.highlight:
+            # Handle both single int and comma-separated string
+            if isinstance(args.highlight, str):
+                highlight_ids = [int(x.strip()) for x in args.highlight.split(',')]
+            else:
+                highlight_ids = [int(args.highlight)]
+                
+        return visualize_geometry(args.file, args.port, highlight_ids, args.overlaps)
     except Exception as e:
         import traceback
         traceback.print_exc(file=sys.stderr)
@@ -2868,7 +2877,8 @@ def main():
     visualize_geometry_parser = subparsers.add_parser('visualize-geometry', help='Visualize OpenMC geometry')
     visualize_geometry_parser.add_argument('file', help='Path to geometry.xml')
     visualize_geometry_parser.add_argument('--port', type=int, help='Server port')
-    visualize_geometry_parser.add_argument('--highlight', type=int, help='Cell ID to highlight')
+    visualize_geometry_parser.add_argument('--highlight', help='Cell ID(s) to highlight (comma-separated)')
+    visualize_geometry_parser.add_argument('--overlaps', help='Path to JSON file with overlap markers')
     
     # XS Plot command
     xs_parser = subparsers.add_parser('xs-plot', help='Plot cross-sections')

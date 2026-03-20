@@ -184,18 +184,21 @@ class OpenMCGeometryVisualizer:
             self.bounds['zmin'] = min(zvals) - 0.1
             self.bounds['zmax'] = max(zvals) + 0.1
     
-    def create_vtk_geometry(self, highlight_cell_id: Optional[int] = None) -> vtk.vtkMultiBlockDataSet:
+    def create_vtk_geometry(self, highlight_cell_ids: Optional[List[int]] = None) -> vtk.vtkMultiBlockDataSet:
         """
         Create VTK representation of the geometry.
         
         Args:
-            highlight_cell_id: Optional cell ID to highlight
+            highlight_cell_ids: Optional list of cell IDs to highlight
             
         Returns:
             VTK MultiBlock dataset with geometry
         """
         multi_block = vtk.vtkMultiBlockDataSet()
         
+        if highlight_cell_ids is None:
+            highlight_cell_ids = []
+            
         # Create a block for each cell
         cell_count = 0
         for cell_id, cell in self.cells.items():
@@ -221,11 +224,11 @@ class OpenMCGeometryVisualizer:
                     materials.SetValue(i, mat_id)
                 cell_polydata.GetCellData().AddArray(materials)
                 
-                # Add highlight array if this is the highlighted cell
+                # Add highlight array if this is one of the highlighted cells
                 highlight = vtk.vtkIntArray()
                 highlight.SetName("highlight")
                 highlight.SetNumberOfValues(cell_polydata.GetNumberOfCells())
-                is_highlighted = 1 if highlight_cell_id == cell_id else 0
+                is_highlighted = 1 if cell_id in highlight_cell_ids else 0
                 for i in range(cell_polydata.GetNumberOfCells()):
                     highlight.SetValue(i, is_highlighted)
                 cell_polydata.GetCellData().AddArray(highlight)
@@ -234,6 +237,39 @@ class OpenMCGeometryVisualizer:
                 multi_block.GetMetaData(cell_count).Set(vtk.vtkCompositeDataSet.NAME(), f"Cell_{cell_id}")
                 cell_count += 1
         
+        return multi_block
+
+    def create_markers_vtk(self, markers: List[Dict]) -> vtk.vtkMultiBlockDataSet:
+        """Create VTK markers for overlap locations."""
+        multi_block = vtk.vtkMultiBlockDataSet()
+        
+        # Calculate a reasonable radius based on geometry bounds if not provided
+        default_radius = 1.0
+        if self.bounds:
+            diagonal = np.sqrt(
+                (self.bounds['xmax'] - self.bounds['xmin'])**2 +
+                (self.bounds['ymax'] - self.bounds['ymin'])**2 +
+                (self.bounds['zmax'] - self.bounds['zmin'])**2
+            )
+            if diagonal > 0:
+                default_radius = diagonal * 0.02  # 2% of diagonal
+        
+        for i, marker in enumerate(markers):
+            coords = marker.get('coordinates', [0, 0, 0])
+            radius = marker.get('radius', default_radius)
+            if radius == 1.0: # If it was our default 1.0, use the dynamic one
+                radius = default_radius
+            
+            sphere = vtk.vtkSphereSource()
+            sphere.SetCenter(coords[0], coords[1], coords[2])
+            sphere.SetRadius(radius)
+            sphere.SetThetaResolution(16)
+            sphere.SetPhiResolution(16)
+            sphere.Update()
+            
+            multi_block.SetBlock(i, sphere.GetOutput())
+            multi_block.GetMetaData(i).Set(vtk.vtkCompositeDataSet.NAME(), f"Marker_{i}")
+            
         return multi_block
     
     def _create_cell_geometry(self, cell: Cell) -> Optional[vtk.vtkPolyData]:
@@ -1075,14 +1111,15 @@ class OpenMCGeometryVisualizer:
         return transform_filter.GetOutput()
 
 
-def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Optional[int] = None):
+def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Optional[List[int]] = None, overlaps_file: Optional[str] = None):
     """
     Start a visualization server for OpenMC geometry.
     
     Args:
         geometry_file: Path to geometry.xml
         port: Server port
-        highlight_cell: Cell ID to highlight
+        highlight_cells: List of cell IDs to highlight
+        overlaps_file: Path to JSON file containing overlap markers
     """
     try:
         from trame.app import get_server
@@ -1101,15 +1138,43 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
         print("Failed to parse geometry")
         return 1
     
+    # Load overlap markers if provided
+    overlap_markers = []
+    if overlaps_file and os.path.exists(overlaps_file):
+        try:
+            with open(overlaps_file, 'r') as f:
+                data = json.load(f)
+                overlap_markers = data.get('markers', [])
+                if not overlap_markers and 'overlaps' in data:
+                    # Convert from OverlapResult format to marker format
+                    for o in data['overlaps']:
+                        overlap_markers.append({
+                            'coordinates': o['coordinates'],
+                            'cellIds': o['cellIds'],
+                            'radius': 1.0  # Default radius
+                        })
+        except Exception as e:
+            print(f"Error loading overlaps: {e}")
+
     # Create VTK data
-    cell_data = viz.create_vtk_geometry(highlight_cell)
+    cell_data = viz.create_vtk_geometry(highlight_cells)
     surface_data = viz.create_surface_geometry()
+    marker_data = viz.create_markers_vtk(overlap_markers) if overlap_markers else None
     
     # Write to temporary files
     with tempfile.NamedTemporaryFile(suffix='.vtm', delete=False) as tmp:
         cell_file = tmp.name
     with tempfile.NamedTemporaryFile(suffix='.vtm', delete=False) as tmp:
         surf_file = tmp.name
+    
+    marker_file = None
+    if marker_data:
+        with tempfile.NamedTemporaryFile(suffix='.vtm', delete=False) as tmp:
+            marker_file = tmp.name
+        writer3 = vtk.vtkXMLMultiBlockDataWriter()
+        writer3.SetFileName(marker_file)
+        writer3.SetInputData(marker_data)
+        writer3.Write()
     
     writer1 = vtk.vtkXMLMultiBlockDataWriter()
     writer1.SetFileName(cell_file)
@@ -1158,461 +1223,261 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cell: Opt
                 'surf_selectors': surf_selectors
             })
             
-            # If highlight_cell is specified, only show that cell initially
-            if highlight_cell is not None:
-                cell_visibility[str(cell_id)] = (cell_id == highlight_cell)
+            # If highlight_cells are specified, only show those cells initially
+            # This makes the "overlap reason" much clearer by hiding irrelevant geometry
+            if highlight_cells is not None and len(highlight_cells) > 0:
+                cell_visibility[str(cell_id)] = (cell_id in highlight_cells)
             else:
                 cell_visibility[str(cell_id)] = True  # Default all visible
         except (ValueError, IndexError):
             continue
     
-    # Build surface index -> cell IDs mapping (for reverse lookup)
-    surface_to_cells: Dict[int, set] = {}
-    for cell in viz.cells.values():
-        for surf_id in cell.surfaces.keys():
-            if surf_id not in surface_to_cells:
-                surface_to_cells[surf_id] = set()
-            surface_to_cells[surf_id].add(cell.id)
-    
-    # Get all surface IDs from surface_data
-    all_surf_ids = set()
-    num_surf_blocks = surface_data.GetNumberOfBlocks()
-    for i in range(num_surf_blocks):
-        meta = surface_data.GetMetaData(i)
-        if meta and meta.Has(vtk.vtkCompositeDataSet.NAME()):
-            block_name = meta.Get(vtk.vtkCompositeDataSet.NAME())
-            try:
-                surf_id = int(block_name.split('_')[1])
-                all_surf_ids.add(surf_id)
-            except:
-                continue
-    
-    # Build surface ID -> block name mapping
-    surf_id_to_block = {}
-    for i in range(num_surf_blocks):
-        meta = surface_data.GetMetaData(i)
-        if meta and meta.Has(vtk.vtkCompositeDataSet.NAME()):
-            block_name = meta.Get(vtk.vtkCompositeDataSet.NAME())
-            try:
-                surf_id = int(block_name.split('_')[1])
-                surf_id_to_block[surf_id] = block_name
-            except:
-                continue
-    
-    # Pipeline storage (non-serializable objects)
+    # Pipeline storage
     pipeline = {
         'cell_reader': None,
         'surf_reader': None,
+        'marker_reader': None,
         'cell_extracts': {},  # cell_id -> extract filter
         'cell_displays': {},  # cell_id -> display object
-        'surf_extracts': {},  # surf_id -> extract filter
-        'surf_displays': {},  # surf_id -> display object
+        'marker_display': None,
         'view': None,
         'view_widget': None,
-        'cell_lut': None,
-        'surf_id_to_block': surf_id_to_block,  # For looking up surface block names
+        'material_lut': None,
     }
     
     # Load in ParaView
     cell_reader = simple.XMLMultiBlockDataReader(FileName=cell_file)
-    surf_reader = simple.XMLMultiBlockDataReader(FileName=surf_file)
     pipeline['cell_reader'] = cell_reader
-    pipeline['surf_reader'] = surf_reader
-    
-    # Hide the original readers
     simple.Hide(cell_reader)
-    simple.Hide(surf_reader)
+
+    if marker_file:
+        marker_reader = simple.XMLMultiBlockDataReader(FileName=marker_file)
+        pipeline['marker_reader'] = marker_reader
+        simple.Hide(marker_reader)
     
     view = simple.GetActiveViewOrCreate('RenderView')
     bg_rgb = hex_to_rgb(state.background_color_hex)
-    view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]  # Fallback to dark blue
+    view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]
     view.UseColorPaletteForBackground = 0
     pipeline['view'] = view
     
-    # Create categorical LUT for materials (color by material instead of cell_id)
-    material_lut = simple.GetColorTransferFunction('material')
-    pipeline['material_lut'] = material_lut
-    material_lut.InterpretValuesAsCategories = 1
-    # Use distinct colors for materials
-    material_lut.IndexedColors = [
-        0.9, 0.3, 0.3,  # Red
-        0.3, 0.9, 0.3,  # Green
-        0.3, 0.3, 0.9,  # Blue
-        0.9, 0.9, 0.3,  # Yellow
-        0.9, 0.3, 0.9,  # Magenta
-        0.3, 0.9, 0.9,  # Cyan
-        0.9, 0.6, 0.3,  # Orange
-        0.6, 0.3, 0.9,  # Purple
-        0.9, 0.9, 0.9,  # White
-        0.5, 0.5, 0.5,  # Gray
+    # Large set of distinct colors for cells
+    distinct_colors = [
+        [0.3, 0.5, 0.9],  # Blue
+        [0.3, 0.9, 0.5],  # Green
+        [0.9, 0.5, 0.3],  # Orange
+        [0.9, 0.3, 0.9],  # Magenta
+        [0.3, 0.9, 0.9],  # Cyan
+        [0.9, 0.9, 0.3],  # Yellow
+        [0.6, 0.4, 0.8],  # Purple
+        [0.4, 0.8, 0.6],  # Mint
+        [0.8, 0.6, 0.4],  # Brown
+        [0.5, 0.5, 0.5],  # Gray
+        [0.2, 0.7, 0.2],  # Dark Green
+        [0.1, 0.5, 0.8],  # Royal Blue
+        [0.8, 0.1, 0.5],  # Pink
+        [0.8, 0.8, 0.1],  # Gold
+        [0.1, 0.8, 0.8],  # Sky Blue
     ]
-    
-    # Initial render and camera reset
-    simple.Render(view)
-    simple.ResetCamera()
-    
-    # Trigger initial visibility setup (creates extracts for visible cells)
-    # This is deferred to ensure state is fully initialized
+    pipeline['color_palette'] = distinct_colors
     
     # State
-    state.show_cells = True  # Always show cells (no checkbox needed)
-    state.show_surfaces = False  # Disabled
-    state.opacity = 0.7
+    state.opacity = 0.5  # Lower default opacity to see internal overlaps better
     state.show_controls = True
-    state.camera_update_counter = 0
+    state.show_overlaps = True if overlap_markers else False
     state.cell_info = cell_info
     state.cell_visibility = cell_visibility
-    state.selected_cell_id = highlight_cell
-    state.background_color_hex = "#1a1a26"  # Dark blue default
+    state.highlight_cell_ids = highlight_cells if highlight_cells else []
+    state.selected_cell_id = highlight_cells[0] if highlight_cells else None
+    state.background_color_hex = "#1a1a26"
+    state.camera_update_counter = 0
     
-    # Create update view function using common utility
     update_view = create_update_view(pipeline, state, simple)
     
-    @state.change("show_cells")
-    def on_show_cells(show_cells, **kwargs):
-        update_cell_visibility()
-        update_view()
-    
-    @state.change("show_surfaces")
-    def on_show_surfaces(show_surfaces, **kwargs):
-        update_cell_visibility()
-        update_view()
-    
-    @state.change("opacity")
-    def on_opacity(opacity, **kwargs):
-        for disp in pipeline['cell_displays'].values():
-            disp.Opacity = float(opacity)
-        update_view()
-    
     def update_cell_visibility(visibility=None):
-        """Update which cells and surfaces are visible based on cell_visibility state.
-        
-        Uses hard reset approach to fix wireframe flushing issues:
-        1. Hide everything first (guarantees clean slate)
-        2. Force render (flushes ParaView pipeline)
-        3. Show only what's needed
-        4. Force final render
-        """
         try:
             if visibility is None:
                 visibility = state.cell_visibility
-                
-            cell_displays = pipeline.get('cell_displays', {})
-            surf_displays = pipeline.get('surf_displays', {})
-            view = pipeline.get('view')
             
-            # Convert keys to strings for matching
             visibility_keys = {str(k): v for k, v in visibility.items()}
-            
-            # Calculate what should be visible
-            active_surf_ids = set()
-            visible_count = 0
             visible_cell_ids = set()
             
             for cell in state.cell_info:
-                cell_id = cell['id']
-                cell_id_str = str(cell_id)
-                is_visible = visibility_keys.get(cell_id_str, False)
-                
-                if is_visible and state.show_cells:
-                    visible_count += 1
-                    visible_cell_ids.add(cell_id)
-                    # Collect surfaces for this visible cell
-                    if 'surf_selectors' in cell:
-                        for s_sel in cell['surf_selectors']:
-                            try:
-                                s_id = int(s_sel.split('_')[1])
-                                active_surf_ids.add(s_id)
-                            except: continue
+                if visibility_keys.get(str(cell['id']), False):
+                    visible_cell_ids.add(cell['id'])
             
-            # Determine which surfaces to show
-            show_all_surfaces = (visible_count == len(state.cell_info))
-            surf_ids_to_show = set()
-            if state.show_surfaces and visible_count > 0:
-                if show_all_surfaces:
-                    surf_ids_to_show = set(surf_displays.keys())
-                else:
-                    surf_ids_to_show = active_surf_ids
-            
-            # RECREATE EXTRACTS ON DEMAND - guarantees clean state
-            cell_reader = pipeline['cell_reader']
-            surf_reader = pipeline['surf_reader']
-            surf_id_to_block = pipeline['surf_id_to_block']
-            
-            # STEP 1: Delete old cell extracts and displays
+            # Recreate extracts
             for cell_id, extract in list(pipeline['cell_extracts'].items()):
-                try:
-                    simple.Delete(extract)
-                except:
-                    pass
+                simple.Delete(extract)
             pipeline['cell_extracts'].clear()
             pipeline['cell_displays'].clear()
             
-            # STEP 2: Delete old surface extracts and displays
-            for surf_id, extract in list(pipeline['surf_extracts'].items()):
-                try:
-                    simple.Delete(extract)
-                except:
-                    pass
-            pipeline['surf_extracts'].clear()
-            pipeline['surf_displays'].clear()
-            
-            # STEP 3: Force render to flush
-            view.Modified()
-            simple.Render(view)
-            
-            # STEP 4: Create new extracts for visible cells
             for cell in state.cell_info:
                 cell_id = cell['id']
                 if cell_id in visible_cell_ids:
-                    extract = simple.ExtractBlock(Input=cell_reader)
+                    extract = simple.ExtractBlock(Input=pipeline['cell_reader'])
                     extract.Selectors = [cell['selector']]
                     pipeline['cell_extracts'][cell_id] = extract
                     
                     disp = simple.Show(extract, view)
                     disp.Representation = 'Surface'
                     disp.Opacity = float(state.opacity)
-                    # Color by material instead of cell_id
-                    simple.ColorBy(disp, ('CELLS', 'material'))
+                    
+                    # COLORING LOGIC:
+                    # Disable scalar mapping to use DiffuseColor/AmbientColor directly
+                    disp.MapScalars = 0
+                    
+                    if cell_id in state.highlight_cell_ids:
+                        # Highlight overlapping cells as RED
+                        target_color = [1.0, 0.0, 0.0]  # Bright Red
+                        disp.DiffuseColor = target_color
+                        disp.AmbientColor = target_color
+                        disp.Ambient = 0.3
+                    else:
+                        # Assign deterministic color from palette
+                        palette = pipeline['color_palette']
+                        target_color = palette[cell_id % len(palette)]
+                        disp.DiffuseColor = target_color
+                        disp.AmbientColor = target_color
+                        disp.Ambient = 0.1
+                    
                     pipeline['cell_displays'][cell_id] = disp
-            
-            # NOTE: Surface wireframe disabled to avoid rendering issues
-            # The wireframes were persisting between cell selections.
-            # To re-enable, uncomment the block below and fix the flushing issue.
-            
-            # STEP 5: Create new extracts for visible surfaces (DISABLED)
-            # for surf_id in surf_ids_to_show:
-            #     if surf_id in surf_id_to_block:
-            #         block_name = surf_id_to_block[surf_id]
-            #         extract = simple.ExtractBlock(Input=surf_reader)
-            #         extract.Selectors = [f"/Root/{block_name}"]
-            #         pipeline['surf_extracts'][surf_id] = extract
-            #         
-            #         disp = simple.Show(extract, view)
-            #         disp.Representation = 'Wireframe'
-            #         disp.Opacity = 0.3
-            #         disp.Ambient = 1.0
-            #         disp.Diffuse = 0.0
-            #         pipeline['surf_displays'][surf_id] = disp
-            
-            # STEP 6: Final render
-            view.Modified()
+
+            # Markers visibility
+            if pipeline.get('marker_reader'):
+                if state.show_overlaps:
+                    if not pipeline.get('marker_display'):
+                        disp = simple.Show(pipeline['marker_reader'], view)
+                        disp.Representation = 'Surface'
+                        disp.DiffuseColor = [1.0, 1.0, 0.0]  # Bright Yellow for markers to contrast with Red cells
+                        disp.Opacity = 1.0
+                        disp.Ambient = 0.5
+                        pipeline['marker_display'] = disp
+                    else:
+                        simple.Show(pipeline['marker_reader'], view)
+                else:
+                    if pipeline.get('marker_display'):
+                        simple.Hide(pipeline['marker_reader'], view)
+
             simple.Render(view)
-                
         except Exception as e:
             print(f"Error updating visibility: {e}")
-            import traceback
-            traceback.print_exc()
-    
+
     @state.change("cell_visibility")
     def on_cell_visibility_change(cell_visibility, **kwargs):
-        """Handle cell visibility toggle."""
         update_cell_visibility(cell_visibility)
         update_view()
-    
-    def zoom_to_cell(cell_id):
-        """Zoom camera to fit a specific cell."""
-        try:
-            v = pipeline.get('view')
-            cell_extracts = pipeline.get('cell_extracts', {})
-            if not v or cell_id not in cell_extracts:
-                return False
-            
-            extract = cell_extracts[cell_id]
-            bounds = extract.GetDataInformation().GetBounds()
-            if bounds and len(bounds) >= 6:
-                v.ResetCamera(bounds)
-                simple.Render(v)
-                return True
-        except Exception as e:
-            print(f"Error zooming to cell: {e}")
-        return False
-    
-    @state.change("selected_cell_id")
-    def on_selected_cell_change(selected_cell_id, **kwargs):
-        """Auto-show selected cell when dropdown changes and zoom to it."""
-        if selected_cell_id is not None:
-            state.cell_visibility = {str(c['id']): str(c['id']) == str(selected_cell_id) 
-                                      for c in state.cell_info}
-            update_cell_visibility()
-            zoom_to_cell(selected_cell_id)
-        else:
-            state.cell_visibility = {str(c['id']): True for c in state.cell_info}
-            update_cell_visibility()
-        update_view(push_camera=True)
-    
+
+    @state.change("show_overlaps")
+    def on_show_overlaps(show_overlaps, **kwargs):
+        update_cell_visibility()
+        update_view()
+
+    @state.change("opacity")
+    def on_opacity(opacity, **kwargs):
+        for disp in pipeline['cell_displays'].values():
+            disp.Opacity = float(opacity)
+        update_view()
+
     @state.change("background_color_hex")
     def on_background_color_change(background_color_hex, **kwargs):
-        """Handle background color change using common utility."""
-        from visualizer_common import StateHandlers
-        StateHandlers.create_background_handler(pipeline, state)(background_color_hex, **kwargs)
+        rgb = hex_to_rgb(background_color_hex)
+        if rgb:
+            view.Background = rgb
         update_view()
-    
-    # Initialize extract block filter (show all cells initially)
+
+    @state.change("selected_cell_id")
+    def on_selected_cell_change(selected_cell_id, **kwargs):
+        if selected_cell_id is not None:
+            # Show ONLY the selected cell
+            state.cell_visibility = {str(c['id']): (c['id'] == selected_cell_id) for c in state.cell_info}
+            # Also highlight it in RED
+            state.highlight_cell_ids = [selected_cell_id]
+        else:
+            # Show ALL cells
+            state.cell_visibility = {str(c['id']): True for c in state.cell_info}
+            # Clear highlights
+            state.highlight_cell_ids = highlight_cells if highlight_cells else []
+            
+        update_cell_visibility()
+        simple.ResetCamera()
+        update_view(push_camera=True)
+
+    # Initial setup
     update_cell_visibility()
+    simple.ResetCamera()
     
-    # Use common utilities for camera functions
+    # Controllers
     reset_camera = create_reset_camera_controller(pipeline, update_view)
     
     def set_camera_view(view_type):
-        """Set camera to preset view using common utility."""
-        try:
-            view = pipeline.get('view')
-            if not view:
-                return False
-            
-            bounds = get_data_bounds(cell_reader)
-            position, focal_point, view_up = calculate_camera_position(view_type, bounds)
-            
-            view.CameraPosition = position
-            view.CameraFocalPoint = focal_point
-            view.CameraViewUp = view_up
-            
-            simple.Render(view)
-            update_view(push_camera=True)
-            return True
-        except Exception as e:
-            print(f"Error setting camera view: {e}")
-            return False
-    
-    @server.controller.add("toggle_controls")
-    def toggle_controls():
-        """Toggle control panel visibility."""
-        state.show_controls = not state.show_controls
-        return state.show_controls
-    
-    # Cell visibility controller functions
-    @server.controller.add("show_all_cells")
-    def show_all_cells():
-        """Show all cells."""
-        state.cell_visibility = {str(c['id']): True for c in state.cell_info}
-        return True
-    
-    @server.controller.add("hide_all_cells")
-    def hide_all_cells():
-        """Hide all cells."""
-        state.cell_visibility = {str(c['id']): False for c in state.cell_info}
-        return True
-    
-    @server.controller.add("show_only_selected_cell")
-    def show_only_selected_cell():
-        """Show only the selected cell."""
-        selected_id = state.selected_cell_id
-        if selected_id is not None:
-            state.cell_visibility = {str(c['id']): str(c['id']) == str(selected_id) for c in state.cell_info}
-        return True
-    
-    # UI using common components
+        bounds = get_data_bounds(pipeline['cell_reader'])
+        pos, focal, up = calculate_camera_position(view_type, bounds)
+        view.CameraPosition, view.CameraFocalPoint, view.CameraViewUp = pos, focal, up
+        update_view(push_camera=True)
+
+    # UI
     with VAppLayout(server) as layout:
-        with vuetify.VNavigationDrawer(
-            v_model=("show_controls", True),
-            app=True, width=300, dark=True
-        ):
+        with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
             with vuetify.VContainer():
-                # Header with hide button
-                with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
-                    vuetify.VSubheader("OpenMC Geometry", classes="text-h6 pa-0")
-                    with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
-                        vuetify.VIcon("mdi-chevron-left")
+                vuetify.VSubheader("OpenMC Geometry", classes="text-h6 pa-0")
                 vuetify.VDivider(classes="mb-4")
                 
-                # Cell Opacity using common slider
                 UIComponents.opacity_slider(vuetify, ("opacity", 0.7))
                 
-                # Cell Selection
+                if overlap_markers:
+                    vuetify.VCheckbox(v_model=("show_overlaps", True), label="Show Overlap Markers", color="error")
+                
                 vuetify.VDivider(classes="my-4")
                 vuetify.VSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
-                
                 vuetify.VSelect(
                     v_model=("selected_cell_id", None),
-                    items=("cell_info", []),
-                    item_text="name",
-                    item_value="id",
-                    label="Select Cell to View",
-                    dense=True,
-                    outlined=True,
-                    classes="mb-2",
-                    clearable=True,
+                    items=("cell_info", []), item_text="name", item_value="id",
+                    label="Select Cell to View", dense=True, outlined=True, clearable=True
                 )
                 
                 vuetify.VDivider(classes="my-4")
-                
-                # Camera Section
                 vuetify.VSubheader("Camera", classes="text-subtitle-1 mb-2")
-                
                 with vuetify.VRow(dense=True):
                     with vuetify.VCol(cols=6):
-                        vuetify.VBtn("Reset", click=reset_camera,
-                                    block=True, small=True, outlined=True, classes="mb-2")
+                        vuetify.VBtn("Reset", click=reset_camera, block=True, small=True, outlined=True)
                     with vuetify.VCol(cols=6):
-                        vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'),
-                                    block=True, small=True, outlined=True, classes="mb-2")
-                
-                with vuetify.VRow(dense=True):
-                    for label, view_type in [("Front", "front"), ("Side", "right"), ("Top", "top")]:
-                        with vuetify.VCol(cols=4):
-                            vuetify.VBtn(label, click=lambda vt=view_type: set_camera_view(vt),
-                                        block=True, small=True, text=True)
+                        vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'), block=True, small=True, outlined=True)
                 
                 vuetify.VDivider(classes="my-4")
-                
-                # Background Color using common component
-                with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                    UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
+                UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
 
         with vuetify.VMain():
-            # Toggle button when controls are hidden
-            with vuetify.VContainer(
-                v_if=("!show_controls",),
-                classes="ma-2 pa-0",
-                style="position: absolute; top: 0; left: 0; z-index: 100;"
-            ):
-                with vuetify.VBtn(
-                    click=toggle_controls,
-                    small=True,
-                    fab=True,
-                    color="primary"
-                ):
-                    vuetify.VIcon("mdi-chevron-right")
+            view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
+            state.view_widget = view_widget
             
-            # Main visualization view
-            view_widget = pv_widgets.VtkRemoteView(
-                view,
-                interactive_ratio=1,
-                style="width: 100%; height: 100%; position: absolute; top: 0; left 0;",
-            )
-            pipeline['view_widget'] = view_widget
-            
-            # Watch for camera update counter changes
             @state.change("camera_update_counter")
             def on_camera_update(camera_update_counter, **kwargs):
-                try:
-                    simple.Render(view)
-                    view_widget.update()
-                except Exception as e:
-                    print(f"Warning: camera update failed: {e}")
-    
-    print(f"Starting OpenMC geometry server on port {port}")
+                simple.Render(view)
+                view_widget.update()
+
     server.start(port=port, debug=False, open_browser=False)
     
-    # Cleanup temp files
-    try:
-        os.remove(cell_file)
-        os.remove(surf_file)
-    except:
-        pass
+    # Cleanup
+    for f in [cell_file, surf_file, marker_file]:
+        if f and os.path.exists(f): os.remove(f)
     
     return 0
 
-
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) < 2:
-        print("Usage: python openmc_geometry_viz.py <geometry.xml> [port] [highlight_cell_id]")
-        sys.exit(1)
+    import argparse
     
-    geometry_file = sys.argv[1]
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8090
-    highlight = int(sys.argv[3]) if len(sys.argv) > 3 else None
+    parser = argparse.ArgumentParser(description='Visualize OpenMC geometry in 3D')
+    parser.add_argument('geometry', help='Path to geometry.xml')
+    parser.add_argument('--port', type=int, default=8090, help='Server port')
+    parser.add_argument('--highlight', help='Comma-separated cell IDs to highlight')
+    parser.add_argument('--overlaps', help='Path to JSON file with overlap markers')
     
-    sys.exit(visualize_geometry(geometry_file, port, highlight))
+    args = parser.parse_args()
+    
+    highlight_ids = None
+    if args.highlight:
+        highlight_ids = [int(x.strip()) for x in args.highlight.split(',')]
+        
+    sys.exit(visualize_geometry(args.geometry, args.port, highlight_ids, args.overlaps))

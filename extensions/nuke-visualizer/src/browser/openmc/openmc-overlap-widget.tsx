@@ -24,7 +24,6 @@ import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './openmc-service';
 import { OpenMCOverlap } from '../../common/visualizer-protocol';
-import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
 
 @injectable()
 export class OpenMCOverlapWidget extends ReactWidget {
@@ -325,6 +324,21 @@ export class OpenMCOverlapWidget extends ReactWidget {
                     </h3>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
+                            onClick={() => this.visualizeAllIn3D()}
+                            title="Visualize all overlaps in 3D with markers"
+                            style={{
+                                padding: '4px 12px',
+                                fontSize: '12px',
+                                background: 'var(--theia-button-background)',
+                                color: 'var(--theia-button-foreground)',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            🌐 Visualize All 3D
+                        </button>
+                        <button
                             onClick={() => this.exportResults('json')}
                             style={{
                                 padding: '4px 12px',
@@ -337,20 +351,6 @@ export class OpenMCOverlapWidget extends ReactWidget {
                             }}
                         >
                             💾 Export JSON
-                        </button>
-                        <button
-                            onClick={() => this.exportResults('csv')}
-                            style={{
-                                padding: '4px 12px',
-                                fontSize: '12px',
-                                background: 'var(--theia-button-secondary-background)',
-                                color: 'var(--theia-button-secondary-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            📊 Export CSV
                         </button>
                         <button
                             onClick={() => this.clearResults()}
@@ -517,44 +517,31 @@ export class OpenMCOverlapWidget extends ReactWidget {
         this.update();
     }
 
+    protected async visualizeAllIn3D(): Promise<void> {
+        if (!this.geometryUri || this.overlaps.length === 0) {
+            return;
+        }
+
+        try {
+            // Open the geometry viewer with the overlaps array directly
+            // The backend will handle creating a temporary file for the Python server
+            await this.openmcService.openGeometryViewer(this.geometryUri, undefined, this.overlaps);
+            
+            this.messageService.info(`Loaded 3D view with ${this.overlaps.length} overlap markers`);
+        } catch (error) {
+            this.messageService.error(`Failed to visualize overlaps: ${error}`);
+        }
+    }
+
     protected async viewOverlapIn3D(overlap: OpenMCOverlap): Promise<void> {
         if (!this.geometryUri) {
             this.messageService.warn('No geometry file selected');
             return;
         }
 
-        const [x, y, z] = overlap.coordinates;
-        this.messageService.info(`Opening 3D view at overlap location (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})...`);
-
         try {
-            // Get or create the 3D widget
-            const widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(
-                OpenMCGeometry3DWidget.ID,
-                { id: `${OpenMCGeometry3DWidget.ID}:${this.geometryUri.toString()}` }
-            );
-
-            widget.setGeometry(this.geometryUri);
-            widget.setLoading(true);
-
-            if (!widget.isAttached) {
-                await this.shell.addWidget(widget, { area: 'main' });
-            }
-            await this.shell.activateWidget(widget.id);
-
-            // Call the backend to visualize geometry
-            const result = await this.openmcService.visualizeGeometry(
-                this.geometryUri,
-                overlap.cellIds[0] // Highlight the first overlapping cell
-            );
-
-            if (result.success && result.url && result.port) {
-                widget.setServerInfo(result.url, result.port);
-                widget.setHighlightedCell(overlap.cellIds[0]);
-                this.messageService.info(`3D view loaded. Overlap at: (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) cm`);
-            } else {
-                widget.setError(result.error || 'Failed to load 3D view');
-                this.messageService.error(`Failed to load 3D view: ${result.error}`);
-            }
+            // Just use the first overlapping cell as highlight
+            await this.openmcService.openGeometryViewer(this.geometryUri, overlap.cellIds[0]);
         } catch (error) {
             this.messageService.error(`Error opening 3D view: ${error}`);
         }

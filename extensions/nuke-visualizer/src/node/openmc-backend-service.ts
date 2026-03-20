@@ -831,11 +831,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async visualizeGeometry(
         filePath: string,
-        highlightCellId?: number
+        highlightCellId?: number,
+        overlaps?: any[]
     ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
         const port = await this.findFreePort(8090);
         this.reservedPorts.add(port);
 
+        let overlapsPath: string | undefined;
         try {
             const pythonInfo = await this.detectPythonCommand();
             const pythonCommand = pythonInfo.command;
@@ -850,6 +852,20 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             if (highlightCellId !== undefined) {
                 args.push('--highlight', highlightCellId.toString());
+            }
+
+            if (overlaps && overlaps.length > 0) {
+                const tempDir = os.tmpdir();
+                overlapsPath = path.join(tempDir, `overlaps_${Date.now()}.json`);
+                const overlapData = {
+                    geometryPath: filePath,
+                    overlaps: overlaps.map(o => ({
+                        coordinates: o.coordinates,
+                        cellIds: o.cellIds
+                    }))
+                };
+                fs.writeFileSync(overlapsPath, JSON.stringify(overlapData));
+                args.push('--overlaps', overlapsPath);
             }
 
             const process = this.startPythonProcess(pythonCommand, args, port);

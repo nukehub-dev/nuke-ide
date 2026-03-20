@@ -164,29 +164,41 @@
 
 .geometry-actions {
     margin-bottom: 8px;
+    display: flex;
+    gap: 8px;
 }
 
-.view-3d-btn {
+.view-3d-btn, .overlap-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    width: 100%;
+    flex: 1;
     padding: 6px 10px;
     background: var(--theia-button-background);
     color: var(--theia-button-foreground);
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     transition: background 0.2s;
 }
 
-.view-3d-btn:hover {
+.view-3d-btn:hover, .overlap-btn:hover {
     background: var(--theia-button-hoverBackground);
 }
 
-.view-3d-btn i {
+.overlap-btn {
+    background: var(--theia-button-secondary-background);
+    color: var(--theia-button-secondary-foreground);
+}
+
+.overlap-btn:hover {
+    background: var(--theia-button-secondary-hoverBackground);
+}
+
+.view-3d-btn i, .overlap-btn i {
     font-size: 14px;
 }
 

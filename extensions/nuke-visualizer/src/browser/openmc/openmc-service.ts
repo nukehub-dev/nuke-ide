@@ -863,9 +863,9 @@ export class OpenMCService {
     /**
      * Visualize geometry in 3D.
      */
-    async visualizeGeometry(fileUri: URI, highlightCellId?: number): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
+    async visualizeGeometry(fileUri: URI, highlightCellId?: number, overlaps?: any[]): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
         try {
-            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId);
+            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId, overlaps);
         } catch (error) {
             this.messageService.error(`Failed to visualize geometry: ${error}`);
             return { success: false, error: String(error) };
@@ -875,19 +875,23 @@ export class OpenMCService {
     /**
      * Open geometry in a new Visualizer widget (for Material Explorer cell linkage).
      */
-    async openGeometryViewer(fileUri: URI, highlightCellId?: number): Promise<VisualizerWidget | null> {
+    async openGeometryViewer(fileUri: URI, highlightCellId?: number, overlaps?: any[]): Promise<VisualizerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
+            const progressText = overlaps && overlaps.length > 0
+                ? 'Loading geometry with overlap markers...'
+                : (highlightCellId ? `Loading geometry and highlighting cell ${highlightCellId}...` : 'Loading geometry...');
+                
             const progress = await this.messageService.showProgress({
-                text: highlightCellId ? `Loading geometry and highlighting cell ${highlightCellId}...` : 'Loading geometry...',
+                text: progressText,
                 options: { cancelable: false }
             });
 
-            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId);
+            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId, overlaps);
 
             progress.cancel();
 
@@ -896,13 +900,19 @@ export class OpenMCService {
             }
 
             // Create unique suffix for geometry visualization
-            const uniqueSuffix = highlightCellId 
-                ? `geometry:highlight:${highlightCellId}:${Date.now()}`
-                : `geometry:${Date.now()}`;
+            let uniqueSuffix = `geometry:${Date.now()}`;
+            if (overlaps && overlaps.length > 0) {
+                uniqueSuffix = `geometry:overlaps:${Date.now()}`;
+            } else if (highlightCellId) {
+                uniqueSuffix = `geometry:highlight:${highlightCellId}:${Date.now()}`;
+            }
             
-            const label = highlightCellId 
-                ? `OpenMC Geometry (Cell ${highlightCellId})`
-                : 'OpenMC Geometry';
+            let label = 'OpenMC Geometry';
+            if (overlaps && overlaps.length > 0) {
+                label = 'OpenMC Geometry Overlaps';
+            } else if (highlightCellId) {
+                label = `OpenMC Geometry (Cell ${highlightCellId})`;
+            }
             
             const widget = await this.createVisualizerWidget(
                 fileUri,

@@ -9,6 +9,7 @@ Reference: https://docs.openmc.org/en/stable/pythonapi/generated/openmc.Geometry
 import json
 import sys
 import time
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, asdict
@@ -87,7 +88,6 @@ class OverlapChecker:
     def _load_geometry(self) -> None:
         """Load geometry from XML or Python file."""
         import openmc
-        import os
         
         path = Path(self.geometry_path)
         
@@ -101,13 +101,11 @@ class OverlapChecker:
             
             if path.suffix == '.py':
                 # Load from Python script
-                # Execute the script in a controlled environment
                 import importlib.util
                 spec = importlib.util.spec_from_file_location("openmc_model", path)
                 module = importlib.util.module_from_spec(spec)
                 
-                # Create a namespace with openmc imported
-                namespace = {'openmc': openmc, '__file__': str(path)}
+                # Execute the script
                 spec.loader.exec_module(module)
                 
                 # Try to find the geometry object
@@ -154,7 +152,6 @@ class OverlapChecker:
             List of detected overlaps
         """
         import openmc
-        import os
         
         if self.geometry is None:
             raise ValueError("Geometry not loaded")
@@ -168,94 +165,48 @@ class OverlapChecker:
         
         try:
             # Determine bounding box for sampling
-            if bounds is None:
-                # Use geometry bounds
-                bbox = self.geometry.bounding_box
-                if bbox is None or any(np.isinf(bbox[0])) or any(np.isinf(bbox[1])):
-                    # Default bounding box if geometry has unbounded regions
-                    bounds = BoundingBox(
-                        min=(-100.0, -100.0, -100.0),
-                        max=(100.0, 100.0, 100.0)
-                    )
-                else:
-                    bounds = BoundingBox(
-                        min=tuple(bbox[0]),
-                        max=tuple(bbox[1])
-                    )
+            sampling_bounds = None
+            if bounds:
+                sampling_bounds = (bounds.min, bounds.max)
             
-            # Generate sample points
-            rng = np.random.default_rng(seed=42)  # For reproducibility
-            
-            xmin, ymin, zmin = bounds.min
-            xmax, ymax, zmax = bounds.max
-            
-            samples = rng.uniform(
-                low=[xmin, ymin, zmin],
-                high=[xmax, ymax, zmax],
-                size=(sample_points, 3)
-            )
-            
-            # Check each sample point
-            batch_size = max(1, sample_points // 100)  # Report progress every 1%
-            
-            for i, point in enumerate(samples):
-                # Find all cells containing this point
-                cells_found = []
-                cell_names = []
+            # Use OpenMC's optimized find_overlaps method
+            try:
+                # OpenMC 0.13.0+ find_overlaps returns a list of (cell1, cell2, point)
+                raw_overlaps = self.geometry.find_overlaps(
+                    n_samples=sample_points,
+                    tolerance=tolerance,
+                    bbox=sampling_bounds
+                )
                 
-                # Get the root universe
-                root_univ = self.geometry.root_universe
-                
-                # Use OpenMC's find_cell method
-                try:
-                    # Try the newer API first
-                    result = root_univ.find_cell(point, tolerant=True)
-                    if result:
-                        cell = result[0] if isinstance(result, tuple) else result
-                        cells_found.append(cell.id)
-                        cell_names.append(getattr(cell, 'name', f'Cell {cell.id}'))
-                except Exception:
-                    # Fallback: manual search through cells
-                    for cell in root_univ.cells.values():
-                        try:
-                            if hasattr(cell, 'region') and cell.region:
-                                # Check if point is in cell's region
-                                if self._point_in_cell(point, cell):
-                                    cells_found.append(cell.id)
-                                    cell_names.append(getattr(cell, 'name', f'Cell {cell.id}'))
-                        except Exception:
-                            continue
-                
-                # Check for overlaps (more than one cell at point)
-                if len(cells_found) > 1:
+                # Convert to our format
+                for cell1, cell2, point in raw_overlaps:
                     overlap = OverlapResult(
                         coordinates=tuple(point.tolist()),
-                        cell_ids=cells_found,
-                        cell_names=cell_names
+                        cell_ids=[cell1.id, cell2.id],
+                        cell_names=[
+                            getattr(cell1, 'name', f'Cell {cell1.id}'),
+                            getattr(cell2, 'name', f'Cell {cell2.id}')
+                        ]
                     )
                     overlaps_found.append(overlap)
                 
-                # Report progress
-                if progress_callback and (i + 1) % batch_size == 0:
+                # Final progress update
+                if progress_callback:
                     progress = OverlapProgress(
-                        checked=i + 1,
+                        checked=sample_points,
                         total=sample_points,
-                        percentage=round((i + 1) / sample_points * 100, 1),
-                        current_overlaps=overlaps_found.copy(),
-                        complete=False
+                        percentage=100.0,
+                        current_overlaps=overlaps_found,
+                        complete=True
                     )
                     progress_callback(progress)
-            
-            # Final progress update
-            if progress_callback:
-                progress = OverlapProgress(
-                    checked=sample_points,
-                    total=sample_points,
-                    percentage=100.0,
-                    current_overlaps=overlaps_found,
-                    complete=True
+                    
+            except Exception as e:
+                print(f"[OverlapChecker] Warning: Built-in find_overlaps failed: {e}. Falling back to manual search.", file=sys.stderr)
+                # Fallback to manual search
+                overlaps_found = self._find_overlaps_manual(
+                    sample_points, tolerance, bounds, progress_callback
                 )
-                progress_callback(progress)
             
             elapsed = time.time() - start_time
             print(f"[OverlapChecker] Found {len(overlaps_found)} overlaps in {elapsed:.1f}s", 
@@ -278,37 +229,80 @@ class OverlapChecker:
         finally:
             # Restore original working directory
             os.chdir(original_cwd)
-    
-    def _point_in_cell(self, point: np.ndarray, cell) -> bool:
-        """
-        Check if a point is inside a cell using its region expression.
+
+    def _find_overlaps_manual(
+        self,
+        sample_points: int,
+        tolerance: float,
+        bounds: Optional[BoundingBox],
+        progress_callback: Optional[Callable[[OverlapProgress], None]]
+    ) -> List[OverlapResult]:
+        """Manual overlap search as a fallback."""
+        overlaps_found = []
         
-        This is a simplified implementation. For complex regions, 
-        OpenMC's built-in methods are preferred.
-        """
-        try:
-            if hasattr(cell, 'region') and cell.region:
-                # Use the region's __contains__ method if available
-                return point in cell.region
-        except Exception:
-            pass
-        return False
-    
+        # Determine bounding box
+        if bounds is None:
+            bbox = self.geometry.bounding_box
+            if bbox is None or any(np.isinf(bbox[0])) or any(np.isinf(bbox[1])):
+                bounds = BoundingBox(min=(-100.0, -100.0, -100.0), max=(100.0, 100.0, 100.0))
+            else:
+                bounds = BoundingBox(min=tuple(bbox[0]), max=tuple(bbox[1]))
+        
+        # Generate sample points
+        rng = np.random.default_rng(seed=42)
+        xmin, ymin, zmin = bounds.min
+        xmax, ymax, zmax = bounds.max
+        
+        samples = rng.uniform(
+            low=[xmin, ymin, zmin],
+            high=[xmax, ymax, zmax],
+            size=(sample_points, 3)
+        )
+        
+        batch_size = max(1, sample_points // 100)
+        root_univ = self.geometry.root_universe
+        
+        for i, point in enumerate(samples):
+            cells_found = []
+            cell_names = []
+            
+            try:
+                # Find all cells containing this point
+                # This fallback is limited as find_cell only returns one cell.
+                # A true manual check would iterate through all cells.
+                for cell_id, cell in root_univ.cells.items():
+                    if point in cell:
+                        cells_found.append(cell_id)
+                        cell_names.append(getattr(cell, 'name', f'Cell {cell_id}'))
+            except Exception:
+                continue
+                
+            if len(cells_found) > 1:
+                overlap = OverlapResult(
+                    coordinates=tuple(point.tolist()),
+                    cell_ids=cells_found,
+                    cell_names=cell_names
+                )
+                overlaps_found.append(overlap)
+            
+            if progress_callback and (i + 1) % batch_size == 0:
+                progress = OverlapProgress(
+                    checked=i + 1,
+                    total=sample_points,
+                    percentage=round((i + 1) / sample_points * 100, 1),
+                    current_overlaps=overlaps_found.copy(),
+                    complete=False
+                )
+                progress_callback(progress)
+                
+        return overlaps_found
+
     def get_overlap_viz_data(
         self,
         overlaps: List[OverlapResult],
         marker_size: float = 1.0
     ) -> Dict:
-        """
-        Generate visualization data for overlaps.
-        
-        Args:
-            overlaps: List of overlap results
-            marker_size: Size of overlap markers in cm
-            
-        Returns:
-            Dictionary with visualization data
-        """
+        """Generate visualization data for overlaps."""
         markers = []
         overlapping_cell_ids = set()
         
@@ -324,55 +318,6 @@ class OverlapChecker:
             'markers': markers,
             'overlappingCellIds': list(overlapping_cell_ids)
         }
-    
-    def export_overlaps(
-        self,
-        overlaps: List[OverlapResult],
-        format: str = 'json',
-        output_path: Optional[str] = None
-    ) -> str:
-        """
-        Export overlap results to file.
-        
-        Args:
-            overlaps: List of overlap results
-            format: 'json' or 'csv'
-            output_path: Output file path (optional, returns string if not provided)
-            
-        Returns:
-            Path to output file or data string
-        """
-        if format == 'json':
-            data = {
-                'geometryPath': self.geometry_path,
-                'totalOverlaps': len(overlaps),
-                'overlaps': [o.to_dict() for o in overlaps]
-            }
-            json_str = json.dumps(data, indent=2)
-            
-            if output_path:
-                with open(output_path, 'w') as f:
-                    f.write(json_str)
-                return output_path
-            return json_str
-            
-        elif format == 'csv':
-            lines = ['x,y,z,cell_ids,cell_names,overlap_count']
-            for o in overlaps:
-                x, y, z = o.coordinates
-                cell_ids = ';'.join(map(str, o.cell_ids))
-                cell_names = ';'.join(o.cell_names)
-                lines.append(f'{x},{y},{z},"{cell_ids}","{cell_names}",{len(o.cell_ids)}')
-            
-            csv_str = '\n'.join(lines)
-            
-            if output_path:
-                with open(output_path, 'w') as f:
-                    f.write(csv_str)
-                return output_path
-            return csv_str
-        else:
-            raise ValueError(f"Unknown export format: {format}")
 
 
 def check_overlaps(
@@ -382,46 +327,45 @@ def check_overlaps(
     bounds: Optional[Dict] = None,
     parallel: bool = False
 ) -> Dict:
-    """
-    Check for overlaps in OpenMC geometry.
-    
-    Args:
-        geometry_path: Path to geometry.xml or model file
-        sample_points: Number of sample points
-        tolerance: Numerical tolerance
-        bounds: Bounding box dict with 'min' and 'max' keys
-        parallel: Whether to use parallel processing
-        
-    Returns:
-        Dictionary with overlap results
-    """
-    import os
-    
+    """Check for overlaps in OpenMC geometry."""
     try:
         # Check if materials.xml exists in the same directory as geometry.xml
         geom_path = Path(geometry_path)
         materials_path = geom_path.parent / 'materials.xml'
-        settings_path = geom_path.parent / 'settings.xml'
         
         # If materials.xml doesn't exist, we need to create a dummy one
-        # OpenMC requires materials.xml to load geometry
         created_dummy_files = []
         
         if not materials_path.exists() and geom_path.suffix != '.py':
             print(f"[OverlapChecker] Creating dummy materials.xml at {materials_path}", file=sys.stderr)
-            dummy_materials = '''<?xml version="1.0"?>
-<materials>
-  <material id="1" name="dummy">
-    <density value="1.0" units="g/cm3"/>
-    <nuclide name="H1" ao="1.0"/>
-  </material>
-</materials>'''
-            materials_path.write_text(dummy_materials)
+            
+            # Scan geometry.xml for all referenced material IDs
+            material_ids = set(['1']) # Always include 1 as default
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(geom_path)
+                root = tree.getroot()
+                for cell in root.iter('cell'):
+                    mat = cell.get('material')
+                    if mat and mat != 'void':
+                        material_ids.add(mat)
+            except Exception as e:
+                print(f"[OverlapChecker] Warning: Could not parse geometry.xml to find material IDs: {e}", file=sys.stderr)
+            
+            # Create materials.xml with all found IDs
+            mats_xml = ['<?xml version="1.0"?>', '<materials>']
+            for m_id in sorted(list(material_ids), key=lambda x: int(x) if x.isdigit() else x):
+                mats_xml.append(f'  <material id="{m_id}" name="dummy_{m_id}">')
+                mats_xml.append('    <density value="1.0" units="g/cm3"/>')
+                mats_xml.append('    <nuclide name="H1" ao="1.0"/>')
+                mats_xml.append('  </material>')
+            mats_xml.append('</materials>')
+            
+            materials_path.write_text('\n'.join(mats_xml))
             created_dummy_files.append(materials_path)
         
         try:
             checker = OverlapChecker(geometry_path)
-            
             bbox = BoundingBox.from_dict(bounds) if bounds else None
             
             overlaps = checker.find_overlaps(
@@ -462,21 +406,10 @@ def get_overlap_viz_data(
     overlaps: List[Dict],
     marker_size: float = 1.0
 ) -> Dict:
-    """
-    Get visualization data for overlaps.
-    
-    Args:
-        geometry_path: Path to geometry file
-        overlaps: List of overlap dictionaries
-        marker_size: Size of markers
-        
-    Returns:
-        Visualization data dictionary
-    """
+    """Get visualization data for overlaps."""
     try:
         checker = OverlapChecker(geometry_path)
         
-        # Convert dict overlaps to OverlapResult objects
         overlap_results = []
         for o in overlaps:
             overlap_results.append(OverlapResult(
@@ -486,7 +419,6 @@ def get_overlap_viz_data(
             ))
         
         return checker.get_overlap_viz_data(overlap_results, marker_size)
-        
     except Exception as e:
         import traceback
         traceback.print_exc(file=sys.stderr)
@@ -498,24 +430,18 @@ def get_overlap_viz_data(
 
 
 if __name__ == '__main__':
-    # Simple CLI for testing
     import argparse
     
     parser = argparse.ArgumentParser(description='Check for geometry overlaps')
     parser.add_argument('geometry', help='Path to geometry.xml or model file')
-    parser.add_argument('--samples', type=int, default=10000,
-                       help='Number of sample points')
-    parser.add_argument('--tolerance', type=float, default=1e-6,
-                       help='Numerical tolerance')
+    parser.add_argument('--samples', type=int, default=10000, help='Number of sample points')
+    parser.add_argument('--tolerance', type=float, default=1e-6, help='Numerical tolerance')
     parser.add_argument('--output', help='Output file for results')
     
     args = parser.parse_args()
     
-    print(f"Checking overlaps in {args.geometry}...", file=sys.stderr)
-    
     def progress_callback(progress: OverlapProgress):
-        print(f"Progress: {progress.percentage}% ({progress.checked}/{progress.total}) - "
-              f"Found {len(progress.current_overlaps)} overlaps", file=sys.stderr)
+        print(f"Progress: {progress.percentage}% ({progress.checked}/{progress.total}) - Found {len(progress.current_overlaps)} overlaps", file=sys.stderr)
     
     checker = OverlapChecker(args.geometry)
     overlaps = checker.find_overlaps(
@@ -524,12 +450,6 @@ if __name__ == '__main__':
         progress_callback=progress_callback
     )
     
-    print(f"\nFound {len(overlaps)} overlaps:", file=sys.stderr)
-    for o in overlaps:
-        print(f"  @ ({o.coordinates[0]:.3f}, {o.coordinates[1]:.3f}, {o.coordinates[2]:.3f}): "
-              f"Cells {o.cell_ids}", file=sys.stderr)
-    
-    # Output JSON
     result = {
         'overlaps': [o.to_dict() for o in overlaps],
         'totalOverlaps': len(overlaps)
@@ -538,6 +458,5 @@ if __name__ == '__main__':
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(result, f, indent=2)
-        print(f"\nResults saved to {args.output}", file=sys.stderr)
     else:
         print(json.dumps(result, indent=2))

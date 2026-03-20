@@ -20,7 +20,9 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import { Emitter, Event } from '@theia/core';
+import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCService } from './openmc-service';
+import { OpenMCOverlapWidget } from './openmc-overlap-widget';
 import { 
     OpenMCGeometryHierarchy, 
     OpenMCUniverse, 
@@ -49,6 +51,12 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
 
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
+
+    @inject(WidgetManager)
+    protected readonly widgetManager!: WidgetManager;
+
+    @inject(ApplicationShell)
+    protected readonly shell!: ApplicationShell;
 
     private geometryUri: URI | null = null;
     private hierarchy: OpenMCGeometryHierarchy | null = null;
@@ -133,6 +141,14 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                         >
                             <i className={codicon('globe')}></i>
                             View 3D
+                        </button>
+                        <button 
+                            className="overlap-btn"
+                            onClick={() => this.checkOverlaps()}
+                            title="Check for Geometry Overlaps"
+                        >
+                            <i className={codicon('search')}></i>
+                            Check Overlaps
                         </button>
                     </div>
                     
@@ -477,6 +493,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private highlightCellIn3D(cellId: number): void {
         if (this.geometryUri) {
             this._onView3D.fire({ fileUri: this.geometryUri, highlightCellId: cellId });
+        }
+    }
+
+    private async checkOverlaps(): Promise<void> {
+        if (this.geometryUri) {
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCOverlapWidget>(OpenMCOverlapWidget.ID);
+            widget.setGeometryUri(this.geometryUri);
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'right', rank: 500 });
+            }
+            this.shell.activateWidget(widget.id);
         }
     }
 
