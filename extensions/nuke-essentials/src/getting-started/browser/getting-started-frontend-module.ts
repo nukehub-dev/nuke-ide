@@ -15,15 +15,19 @@
 // *****************************************************************************
 
 import { GettingStartedContribution } from './getting-started-contribution';
+import { EmptyMainPanelContribution } from './empty-main-panel-contribution';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { GettingStartedWidget } from './getting-started-widget';
 import { WidgetFactory, FrontendApplicationContribution, bindViewContribution, noopWidgetStatusBarContribution, WidgetStatusBarContribution } from '@theia/core/lib/browser';
 import { bindGettingStartedPreferences } from './getting-started-preferences';
+import { QuoteService } from '../../common/quote-protocol';
+import { QuoteFrontendService } from '../common/quote-frontend-service';
 import '../../../src/getting-started/style.css';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     bindViewContribution(bind, GettingStartedContribution);
     bind(FrontendApplicationContribution).toService(GettingStartedContribution);
+    bind(FrontendApplicationContribution).to(EmptyMainPanelContribution).inSingletonScope();
     bind(WidgetStatusBarContribution).toConstantValue(noopWidgetStatusBarContribution(GettingStartedWidget));
     bind(GettingStartedWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(context => ({
@@ -31,4 +35,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         createWidget: () => context.container.get<GettingStartedWidget>(GettingStartedWidget),
     })).inSingletonScope();
     bindGettingStartedPreferences(bind);
+
+    // Bind quote service
+    bind(QuoteService).to(QuoteFrontendService).inSingletonScope();
 });

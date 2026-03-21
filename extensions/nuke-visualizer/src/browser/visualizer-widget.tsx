@@ -136,94 +136,224 @@ export class VisualizerWidget extends ReactWidget {
                           statusLower.includes('initializing') || statusLower.includes('converting') ||
                           statusLower === 'initializing...' || statusLower.includes('server started'));
         const hasWarning = this.warningMessage !== null;
+        
+        // Inject global styles for animations
+        const globalStyles = `
+            @keyframes visualizer-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            @keyframes visualizer-pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+            @keyframes visualizer-fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes visualizer-shimmer {
+                0% { background-position: -200% 0; }
+                100% { background-position: 200% 0; }
+            }
+        `;
+        
         return (
             <div className='visualizer-container' style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <style>{globalStyles}</style>
                 {!this.serverUrl && (
                     <div style={{ 
-                        padding: '20px', 
+                        padding: '24px', 
                         textAlign: 'center',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        height: '100%'
+                        height: '100%',
+                        animation: 'visualizer-fadeIn 0.3s ease-out'
                     }}>
                         {isLoading && (
-                        <div style={{ marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            {/* Inline spinner with all necessary styles */}
+                        <div style={{ 
+                            marginBottom: '32px', 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center',
+                            padding: '32px',
+                            background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
+                            borderRadius: '12px',
+                            border: '1px solid var(--theia-panel-border)'
+                        }}>
+                            {/* Animated spinner with gradient */}
                             <div style={{ 
-                                width: '50px', 
-                                height: '50px', 
-                                border: '4px solid var(--theia-scrollbarSlider-background, rgba(100,100,100,0.3))',
-                                borderTop: '4px solid var(--theia-focusBorder, #007fd4)',
-                                borderRadius: '50%',
-                                animation: 'spin 1s linear infinite',
-                                marginBottom: '15px'
-                            }}></div>
-                            <style>{`
-                                @keyframes spin {
-                                    0% { transform: rotate(0deg); }
-                                    100% { transform: rotate(360deg); }
-                                }
-                            `}</style>
-                            <div style={{ 
-                                fontSize: '14px', 
-                                color: 'var(--theia-descriptionForeground)'
+                                width: '56px', 
+                                height: '56px', 
+                                position: 'relative',
+                                marginBottom: '20px'
                             }}>
-                                Starting visualization server...
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: '0',
+                                    borderRadius: '50%',
+                                    border: '3px solid transparent',
+                                    borderTopColor: 'var(--theia-focusBorder, #007fd4)',
+                                    borderRightColor: 'var(--theia-focusBorder, #007fd4)',
+                                    animation: 'visualizer-spin 1s linear infinite'
+                                }}></div>
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: '6px',
+                                    borderRadius: '50%',
+                                    border: '3px solid transparent',
+                                    borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
+                                    borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
+                                    animation: 'visualizer-spin 1.5s linear infinite reverse'
+                                }}></div>
+                            </div>
+                            <div style={{ 
+                                fontSize: '15px', 
+                                fontWeight: 500,
+                                color: 'var(--theia-foreground)',
+                                marginBottom: '8px'
+                            }}>
+                                {this.statusMessage || 'Starting visualization server...'}
+                            </div>
+                            <div style={{
+                                fontSize: '12px',
+                                color: 'var(--theia-descriptionForeground)',
+                                animation: 'visualizer-pulse 2s ease-in-out infinite'
+                            }}>
+                                Please wait
                             </div>
                         </div>
                     )}
                     {hasWarning && (
                         <div style={{ 
                             color: 'var(--theia-foreground)',
-                            backgroundColor: 'var(--theia-inputValidation-warningBackground, #fffbe6)',
+                            backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
                             border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                            padding: '15px',
-                            borderRadius: '4px',
+                            padding: '16px 20px',
+                            borderRadius: '8px',
                             marginBottom: '20px',
-                            maxWidth: '600px',
-                            textAlign: 'left'
+                            maxWidth: '640px',
+                            textAlign: 'left',
+                            animation: 'visualizer-fadeIn 0.3s ease-out',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
                         }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: 'var(--theia-warningForeground, #b58900)' }}>Warning</div>
-                            <div style={{ fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' }}>{this.warningMessage}</div>
+                            <div style={{ 
+                                fontWeight: 600, 
+                                marginBottom: '10px', 
+                                color: 'var(--theia-warningForeground, #b58900)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                fontSize: '14px'
+                            }}>
+                                <span className='codicon codicon-warning' style={{ fontSize: '16px' }} />
+                                Warning
+                            </div>
+                            <div style={{ 
+                                fontFamily: 'var(--theia-code-font-family, monospace)', 
+                                fontSize: '12px', 
+                                whiteSpace: 'pre-wrap',
+                                lineHeight: '1.5',
+                                opacity: 0.9
+                            }}>{this.warningMessage}</div>
                         </div>
                     )}
                     {isError && (
                         <div style={{ 
                             color: 'var(--theia-errorForeground)',
-                            backgroundColor: 'var(--theia-inputValidation-errorBackground)',
-                            border: '1px solid var(--theia-inputValidation-errorBorder)',
-                            padding: '15px',
-                            borderRadius: '4px',
+                            backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
+                            border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
+                            padding: '16px 20px',
+                            borderRadius: '8px',
                             marginBottom: '20px',
-                            maxWidth: '600px',
-                            textAlign: 'left'
+                            maxWidth: '640px',
+                            textAlign: 'left',
+                            animation: 'visualizer-fadeIn 0.3s ease-out',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
                         }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Error</div>
-                            <div style={{ fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' }}>{this.statusMessage}</div>
+                            <div style={{ 
+                                fontWeight: 600, 
+                                marginBottom: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                fontSize: '14px'
+                            }}>
+                                <span className='codicon codicon-error' style={{ fontSize: '16px' }} />
+                                Error
+                            </div>
+                            <div style={{ 
+                                fontFamily: 'var(--theia-code-font-family, monospace)', 
+                                fontSize: '12px', 
+                                whiteSpace: 'pre-wrap',
+                                lineHeight: '1.5',
+                                opacity: 0.9
+                            }}>{this.statusMessage}</div>
                         </div>
                         )}
-                        {!isError && (
-                        <p>{this.statusMessage}</p>
+                        {!isLoading && !isError && !hasWarning && (
+                        <div style={{
+                            padding: '24px',
+                            background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.05))',
+                            borderRadius: '8px',
+                            border: '1px solid var(--theia-panel-border)',
+                            animation: 'visualizer-fadeIn 0.3s ease-out'
+                        }}>
+                            <p style={{ 
+                                margin: 0,
+                                fontSize: '14px',
+                                color: 'var(--theia-foreground)'
+                            }}>{this.statusMessage}</p>
+                        </div>
                         )}
                         {this.currentFile && (
-
-                            <p style={{ fontSize: '12px', marginTop: '10px' }}>File: {this.currentFile}</p>
+                            <div style={{ 
+                                marginTop: '16px',
+                                padding: '8px 16px',
+                                background: 'var(--theia-badge-background, rgba(100,100,100,0.2))',
+                                borderRadius: '16px',
+                                fontSize: '12px',
+                                color: 'var(--theia-badge-foreground)',
+                                fontFamily: 'var(--theia-code-font-family, monospace)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}>
+                                <span className='codicon codicon-file' />
+                                <span style={{ 
+                                    maxWidth: '400px',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                }}>{this.currentFile}</span>
+                            </div>
                         )}
                         {isError && (
-                            <div style={{ marginTop: '20px', display: 'flex', gap: '10px', flexDirection: 'column', alignItems: 'center' }}>
+                            <div style={{ marginTop: '24px', display: 'flex', gap: '12px', flexDirection: 'column', alignItems: 'center' }}>
                                 <button 
                                     style={{ 
-                                        padding: '8px 16px',
+                                        padding: '10px 20px',
                                         backgroundColor: 'var(--theia-button-background)',
                                         color: 'var(--theia-button-foreground)',
                                         border: '1px solid var(--theia-button-border)',
-                                        borderRadius: '3px',
+                                        borderRadius: '6px',
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '6px'
+                                        gap: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(-1px)';
+                                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
                                     }}
                                     onClick={() => this.retry()}
                                 >
@@ -232,15 +362,24 @@ export class VisualizerWidget extends ReactWidget {
                                 </button>
                                 <button 
                                     style={{ 
-                                        padding: '8px 16px',
-                                        backgroundColor: 'var(--theia-button-secondaryBackground, #0e639c)',
-                                        color: 'var(--theia-button-secondaryForeground, #fff)',
+                                        padding: '10px 20px',
+                                        backgroundColor: 'var(--theia-button-secondaryBackground, transparent)',
+                                        color: 'var(--theia-button-secondaryForeground)',
                                         border: '1px solid var(--theia-button-border)',
-                                        borderRadius: '3px',
+                                        borderRadius: '6px',
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '6px'
+                                        gap: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'var(--theia-button-hoverBackground, rgba(100,100,100,0.1))';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'var(--theia-button-secondaryBackground, transparent)';
                                     }}
                                     onClick={() => this.openSettings()}
                                 >
@@ -252,24 +391,35 @@ export class VisualizerWidget extends ReactWidget {
                     </div>
                 )}
                 {this.serverUrl && (
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', animation: 'visualizer-fadeIn 0.3s ease-out' }}>
                         {this.warningMessage && (
                             <div style={{ 
                                 color: 'var(--theia-foreground)',
-                                backgroundColor: 'var(--theia-inputValidation-warningBackground, #fffbe6)',
+                                backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
                                 border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                                padding: '8px 12px',
-                                borderRadius: '4px',
-                                marginBottom: '8px',
+                                padding: '10px 16px',
+                                borderRadius: '6px',
+                                margin: '8px 8px 0 8px',
                                 fontSize: '12px',
-                                textAlign: 'left'
+                                textAlign: 'left',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '8px'
                             }}>
-                                <div style={{ fontWeight: 'bold', marginBottom: '4px', color: 'var(--theia-warningForeground, #b58900)' }}>⚠️ Warning</div>
-                                <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{this.warningMessage}</div>
+                                <span className='codicon codicon-warning' style={{ 
+                                    color: 'var(--theia-warningForeground, #b58900)',
+                                    marginTop: '2px',
+                                    flexShrink: 0
+                                }} />
+                                <div style={{ 
+                                    fontFamily: 'var(--theia-code-font-family, monospace)',
+                                    whiteSpace: 'pre-wrap',
+                                    flex: 1
+                                }}>{this.warningMessage}</div>
                             </div>
                         )}
                         <iframe
-                            key={`${this.serverUrl}-${this.currentLoadId}`} // Force re-render when URL or load session changes
+                            key={`${this.serverUrl}-${this.currentLoadId}`}
                             src={this.serverUrl}
                             style={{ width: '100%', height: '100%', border: 'none', flex: 1 }}
                             title="Visualizer Visualization"

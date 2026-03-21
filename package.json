@@ -10,7 +10,8 @@
   },
   "scripts": {
     "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
-    "build:browser": "yarn --cwd applications/browser bundle",
+    "generate:preload": "node scripts/generate-preload.js",
+    "build:browser": "yarn generate:preload && yarn --cwd applications/browser bundle",
     "build:electron": "yarn --cwd applications/electron bundle",
     "prepare": "lerna run prepare",
     "postinstall": "theia check:theia-version",

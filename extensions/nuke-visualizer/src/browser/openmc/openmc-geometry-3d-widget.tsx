@@ -21,6 +21,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
+import './openmc-geometry-tree.css';
 
 @injectable()
 export class OpenMCGeometry3DWidget extends ReactWidget {

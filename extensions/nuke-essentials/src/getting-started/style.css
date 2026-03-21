@@ -183,3 +183,89 @@ body {
 .gs-quote-author {
     text-align: right;
 }
+
+/* ============================================================================
+ * Empty Main Content Panel - NukeIDE Logo & Keyboard Shortcuts
+ * ============================================================================ */
+
+/* Enable container queries on main panel */
+#theia-main-content-panel {
+    container-type: size;
+    container-name: main-panel;
+}
+
+/* Empty state base styles */
+.nukeide-empty-state {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 0;
+    animation: nukeide-fadeIn 0.4s ease;
+}
+
+/* Hide by default (shown via container query when wide enough) */
+@container main-panel (max-width: 499px) {
+    .nukeide-empty-state {
+        display: none !important;
+    }
+}
+
+@keyframes nukeide-fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Logo styling */
+.nukeide-empty-state svg {
+    opacity: 0.15;
+    margin-bottom: 40px;
+    fill: var(--theia-foreground, #ccc);
+}
+
+/* Shortcuts styling */
+.nukeide-empty-state .empty-state-shortcuts {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    font-family: var(--theia-ui-font-family);
+    font-size: 13px;
+}
+
+.nukeide-empty-state .shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 300px;
+    color: var(--theia-descriptionForeground, #888);
+    opacity: 0.8;
+}
+
+.nukeide-empty-state .shortcut-keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+}
+
+.nukeide-empty-state .key-badge {
+    font-family: var(--theia-code-font-family, monospace);
+    background: var(--theia-badge-background, rgba(100,100,100,0.2));
+    color: var(--theia-badge-foreground, #ccc);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--theia-panel-border, rgba(255,255,255,0.1));
+}
+
+.nukeide-empty-state .key-separator {
+    color: var(--theia-descriptionForeground, #888);
+    opacity: 0.5;
+    padding: 0 2px;
+}

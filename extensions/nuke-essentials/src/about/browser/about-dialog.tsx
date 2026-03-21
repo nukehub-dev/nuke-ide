@@ -1,3 +1,19 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0.
+//
+// This Source Code may also be made available under the following Secondary
+// Licenses when the conditions for such availability set forth in the Eclipse
+// Public License v. 2.0 are satisfied: GNU General Public License, version 2
+// with the GNU Classpath Exception which is available at
+// https://www.gnu.org/software/classpath/license.html.
+//
+// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
+// *****************************************************************************
+
 import { CommandService, nls } from '@theia/core';
 import { AboutDialog, AboutDialogProps, ABOUT_CONTENT_CLASS } from '@theia/core/lib/browser/about-dialog';
 import { FrontendApplicationConfigProvider } from '@theia/core/lib/browser/frontend-application-config-provider';
@@ -5,6 +21,7 @@ import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import { VSCODE_DEFAULT_API_VERSION } from '@theia/plugin-ext-vscode/lib/common/plugin-vscode-types';
+import { codicon } from '@theia/core/lib/browser';
 
 @injectable()
 export class NukeAboutDialog extends AboutDialog {
@@ -40,9 +57,9 @@ export class NukeAboutDialog extends AboutDialog {
     }
 
     protected renderContent(): React.ReactNode {
-        return <div className={ABOUT_CONTENT_CLASS}>
+        return <div className={`${ABOUT_CONTENT_CLASS} about-content`}>
             {this.renderHeader()}
-            <hr className="about-hr" />
+            {this.renderInfoCards()}
             {this.renderVersions()}
         </div>;
     }
@@ -51,58 +68,62 @@ export class NukeAboutDialog extends AboutDialog {
         const applicationInfo = this.applicationInfo;
         const applicationName = FrontendApplicationConfigProvider.get().applicationName;
 
-        return <div className="about-paragraph about-flex-grid">
-            <div className="about-flex-grid-column">
-                <div className="about-logo"></div>
+        return (
+            <div className="about-header">
+                <div className="about-logo">
+                </div>
+
+                <div className="about-title-section">
+                    <div className="about-title">{applicationName}</div>
+                    <div className="about-version">v{applicationInfo?.version || '0.0.0'}</div>
+                </div>
             </div>
-            <div className="about-flex-grid-column">
-                <h1>
-                    {applicationName}
-                    <span className="about-sub-header">
-                        {applicationInfo && ` ${applicationInfo.version}`}
-                    </span>
-                </h1>
-                {this.renderCopyright()}
-            </div>
-        </div>;
+        );
     }
 
-    protected renderCopyright(): React.ReactNode {
-        return <>
-            <div className="about-paragraph">
-                © 2023-2026 <a href={'mailto:info@nukehub.org'}>
-                    NukeHub
-                </a>
+    protected renderInfoCards(): React.ReactNode {
+        const links = [
+            { icon: 'globe', label: 'Website', url: 'https://nukehub.org' },
+            { icon: 'github', label: 'GitHub', url: 'https://github.com/nukehub-dev' },
+            { icon: 'comment-discussion', label: 'Community', url: 'https://talk.nukehub.org' },
+        ];
+
+        return (
+            <div className="about-links-section">
+                <div className="about-section-label">Links</div>
+                <div className="about-links-container">
+                    {links.map((link, index) => (
+                        <button
+                            key={index}
+                            onClick={() => this.openUrl(link.url)}
+                            className="about-link-button"
+                        >
+                            <span className={codicon(link.icon)} />
+                            {link.label}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="about-license-card">
+                    <span className={codicon('law')} />
+                    <div>
+                        <div className="about-license-text">BSD-2-Clause License</div>
+                        <div className="about-copyright">© 2023-2026 NukeHub</div>
+                    </div>
+                </div>
             </div>
-            <div className="about-paragraph">
-                <div>
-                    <i className="fa fa-link" /> <a href="#" onClick={() => this.openUrl('https://nukehub.org')}>
-                        {'https://nukehub.org'}
-                    </a>
-                </div>
-                <div>
-                    <i className="fa fa-github" /> <a href="#" onClick={() => this.openUrl('https://github.com/nukehub-dev')}>
-                        {'https://github.com/nukehub-dev'}
-                    </a>
-                </div>
-                <div>
-                    <i className="fa fa-comments" /> <a href="#" onClick={() => this.openUrl('https://talk.nukehub.org')}>
-                        {'https://talk.nukehub.org'}
-                    </a>
-                </div>
-            </div>
-            <div className="about-paragraph">
-                <div>
-                    <i className="fa fa-copyright" /> <span>License: BSD-2-Clause</span>
-                </div>
-            </div>
-        </>;
+        );
     }
-    
 
     protected renderVersions(): React.ReactNode {
-        return <div className="about-paragraph">
-            <div>{nls.localize('nuke-ide/about/vsCodeApiVersion', 'VSCode API Version')}: {VSCODE_DEFAULT_API_VERSION}</div>
-        </div>;
+        return (
+            <div className="about-version-card">
+                <div className="about-version-label">
+                    <span className={codicon('versions')} />
+                    VSCode API Version
+                </div>
+                <div className="about-version-value">{VSCODE_DEFAULT_API_VERSION}</div>
+            </div>
+        );
     }
 }

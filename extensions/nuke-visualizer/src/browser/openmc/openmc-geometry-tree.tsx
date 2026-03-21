@@ -271,10 +271,10 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         return (
             <div 
                 key={cellKey}
-                className={`cell-item ${isSelected ? 'selected' : ''}`}
+                className={`geometry-cell-item ${isSelected ? 'selected' : ''}`}
             >
                 <div 
-                    className="cell-header"
+                    className="geometry-cell-header"
                     onClick={() => this.selectCell(cell.id, universeId)}
                 >
                     <button 
@@ -284,8 +284,8 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                         <i className={codicon(isExpanded ? 'chevron-down' : 'chevron-right')}></i>
                     </button>
                     <i className={codicon(icon)}></i>
-                    <span className="cell-id">Cell {cell.id}</span>
-                    {cell.name && <span className="cell-name">{cell.name}</span>}
+                    <span className="geometry-cell-id">Cell {cell.id}</span>
+                    {cell.name && <span className="geometry-cell-name">{cell.name}</span>}
                 </div>
                 
                 {isExpanded && (

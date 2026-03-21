@@ -1,0 +1,121 @@
+# NukeIDE Loading Screen Tips
+# Edit this file to customize the tips shown during startup
+
+settings:
+  # How long each tip displays (in milliseconds)
+  tipDuration: 8000
+
+# Tips are shown randomly during the loading screen
+tips:
+  # Productivity Tips
+  - text: Use keyboard shortcuts to speed up development! Try Ctrl+P for quick file navigation.
+    category: productivity
+    icon: ⌨️
+
+  - text: Save your work frequently. Auto-save can be enabled in preferences.
+    category: productivity
+    icon: 💾
+
+  - text: Break complex problems into smaller, manageable tasks.
+    category: productivity
+    icon: 🧩
+
+  - text: Automate your workflows using Python scripts for efficiency.
+    category: productivity
+    icon: 🐍
+
+  # Health & Wellness
+  - text: Dark mode helps reduce eye strain during long coding sessions.
+    category: health
+    icon: 👁️
+
+  - text: Take regular breaks to stay productive and avoid burnout.
+    category: health
+    icon: ☕
+
+  # Best Practices
+  - text: Keep your code clean and well-commented for better readability.
+    category: best-practice
+    icon: ✨
+
+  - text: Use version control to track changes and collaborate with others.
+    category: best-practice
+    icon: 🌿
+
+  - text: Test your code before committing to ensure it works as intended.
+    category: best-practice
+    icon: 🧪
+
+  - text: Document your code to make it easier to understand and maintain.
+    category: best-practice
+    icon: 📝
+
+  # Debugging
+  - text: Use debugging tools to find and fix issues in your code quickly.
+    category: debugging
+    icon: 🐛
+
+  # IDE Features
+  - text: Press F1 to open the Command Palette for quick access to all commands.
+    category: ide
+    icon: 🎨
+
+  - text: Use Ctrl+Shift+P to quickly search and execute commands.
+    category: ide
+    icon: 🔍
+
+  - text: Split editors side-by-side to compare files or reference code.
+    category: ide
+    icon: 📑
+
+  # Nuclear Engineering Tips
+  - text: OpenMC can be used for Monte Carlo neutron transport simulations.
+    category: nuclear
+    icon: ⚛️
+
+  - text: DAGMC allows detailed geometry modeling for nuclear simulations.
+    category: nuclear
+    icon: 🔷
+
+  - text: PyNE provides essential nuclear data manipulation tools.
+    category: nuclear
+    icon: 🧬
+
+  - text: MOOSE framework is powerful for multiphysics simulations.
+    category: nuclear
+    icon: 🦌
+
+  - text: Proper meshing is crucial for accurate reactor simulations.
+    category: nuclear
+    icon: 🔲
+
+  - text: Validate your nuclear models against experimental data.
+    category: nuclear
+    icon: ✅
+
+  - text: Use nuclear data libraries like ENDF for accurate calculations.
+    category: nuclear
+    icon: 📚
+
+  # Performance
+  - text: Parallel computing can significantly speed up simulations.
+    category: performance
+    icon: 🚀
+
+  - text: Use Cardinal's parallel meshes to scale simulations on HPC systems.
+    category: performance
+    icon: 💻
+
+  # Cardinal Specific
+  - text: Cardinal integrates high-res thermal-hydraulics and radiation feedback.
+    category: nuclear
+    icon: 🔥
+
+  - text: Cardinal couples NekRS and OpenMC to MOOSE for multiphysics.
+    category: nuclear
+    icon: 🔗
+
+  # Paramak
+  - text: Paramak enables easy, parameter-driven Tokamak neutronics models.
+    category: nuclear
+    icon: 🌀

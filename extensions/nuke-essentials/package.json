@@ -53,7 +53,8 @@
       "frontend": "lib/about/browser/about-frontend-module"
     },
     {
-      "frontend": "lib/getting-started/browser/getting-started-frontend-module"
+      "frontend": "lib/getting-started/browser/getting-started-frontend-module",
+      "backend": "lib/node/quote-backend-module"
     },
     {
       "frontend": "lib/ai-chat/browser/nuke-ai-chat-frontend-module"

@@ -334,18 +334,18 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                         )}
                     </div>
                 ) : (
-                    <div className='cell-list'>
+                    <div className='material-cell-list'>
                         {this.linkedCells.map(cell => (
-                            <div key={cell.id} className='cell-item'>
-                                <div className='cell-info'>
-                                    <span className='cell-id'>#{cell.id}</span>
-                                    <span className='cell-name' title={cell.name}>
+                            <div key={cell.id} className='material-cell-item'>
+                                <div className='material-cell-info'>
+                                    <span className='material-cell-id'>#{cell.id}</span>
+                                    <span className='material-cell-name' title={cell.name}>
                                         {cell.name}
                                     </span>
-                                    <span className='cell-universe'>U:{cell.universe}</span>
+                                    <span className='material-cell-universe'>U:{cell.universe}</span>
                                 </div>
                                 <button
-                                    className='cell-highlight-btn'
+                                    className='material-cell-highlight-btn'
                                     title='Highlight cell in Geometry Viewer'
                                     onClick={() => this.highlightCell(cell.id)}
                                 >

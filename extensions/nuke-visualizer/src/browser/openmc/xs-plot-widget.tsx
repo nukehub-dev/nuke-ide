@@ -361,13 +361,58 @@ export class XSPlotWidget extends ReactWidget {
                         {this.isLoading ? (
                             <div style={{
                                 display: 'flex',
+                                flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 height: '100%',
-                                color: '#888'
+                                animation: 'xs-fadeIn 0.3s ease-out'
                             }}>
-                                <span className={codicon('loading')} style={{ marginRight: '8px' }} />
-                                Loading cross-section data...
+                                <style>{`
+                                    @keyframes xs-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                                    @keyframes xs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+                                    @keyframes xs-fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                                `}</style>
+                                {/* Animated dual-ring spinner */}
+                                <div style={{ 
+                                    width: '56px', 
+                                    height: '56px', 
+                                    position: 'relative',
+                                    marginBottom: '20px'
+                                }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        inset: '0',
+                                        borderRadius: '50%',
+                                        border: '3px solid transparent',
+                                        borderTopColor: 'var(--theia-focusBorder, #007fd4)',
+                                        borderRightColor: 'var(--theia-focusBorder, #007fd4)',
+                                        animation: 'xs-spin 1s linear infinite'
+                                    }}></div>
+                                    <div style={{
+                                        position: 'absolute',
+                                        inset: '6px',
+                                        borderRadius: '50%',
+                                        border: '3px solid transparent',
+                                        borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
+                                        borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
+                                        animation: 'xs-spin 1.5s linear infinite reverse'
+                                    }}></div>
+                                </div>
+                                <div style={{ 
+                                    fontSize: '15px', 
+                                    fontWeight: 500,
+                                    color: 'var(--theia-foreground, #cccccc)',
+                                    marginBottom: '8px'
+                                }}>
+                                    Loading cross-section data...
+                                </div>
+                                <div style={{
+                                    fontSize: '12px',
+                                    color: 'var(--theia-descriptionForeground, #888)',
+                                    animation: 'xs-pulse 2s ease-in-out infinite'
+                                }}>
+                                    Please wait
+                                </div>
                             </div>
                         ) : this.errorMessage ? (
                             <div style={{

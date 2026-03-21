@@ -1,0 +1,108 @@
+# NukeIDE Welcome Page Quotes
+# Famous quotes from scientists and nuclear pioneers
+
+quotes:
+  # Physics & Science
+  - text: "The unleashed power of the atom has changed everything save our modes of thinking and we thus drift toward unparalleled catastrophe."
+    author: "Albert Einstein"
+    category: "physics"
+    source: "May 1946 telegram"
+    
+  - text: "The history of science shows that theories are perishable. With every new truth that is revealed we get a better understanding of Nature and our conceptions and views are modified."
+    author: "Nikola Tesla"
+    category: "science"
+    source: "The Electrical Experimenter, May 1919"
+    
+  - text: "The scientists of today think deeply instead of clearly. One must be sane to think clearly, but one can think deeply and be quite insane."
+    author: "Nikola Tesla"
+    category: "science"
+    
+  - text: "Nothing in life is to be feared, it is only to be understood. Now is the time to understand more, so that we may fear less."
+    author: "Marie Curie"
+    category: "science"
+    
+  - text: "We knew the world would not be the same. A few people laughed, a few people cried. Most people were silent."
+    author: "J. Robert Oppenheimer"
+    category: "physics"
+    source: "1965 NBC News broadcast"
+    
+  - text: "I am become Death, the destroyer of worlds."
+    author: "J. Robert Oppenheimer"
+    category: "physics"
+    source: "1965 NBC News broadcast"
+    
+  - text: "The release of atomic power has changed everything except our way of thinking... the solution to this problem lies in the heart of mankind."
+    author: "Albert Einstein"
+    category: "physics"
+    
+  - text: "In science there is only physics; all the rest is stamp collecting."
+    author: "Ernest Rutherford"
+    category: "science"
+    
+  - text: "Energy is the currency of the universe."
+    author: "Michio Kaku"
+    category: "physics"
+    
+  # Nuclear Energy
+  - text: "Nuclear power is one of the safest, most reliable, and sustainable forms of energy available."
+    author: "Patrick Moore"
+    category: "nuclear"
+    
+  - text: "The atom bomb was no 'great decision.' It was merely another powerful weapon in the arsenal of righteousness."
+    author: "Harry S. Truman"
+    category: "nuclear"
+    source: "Letter explaining his stance on the bomb"
+    
+  - text: "Nuclear power will help provide the electricity that our growing economy needs without increasing emissions."
+    author: "Lamar Alexander"
+    category: "nuclear"
+    
+  # Engineering & Computing
+  - text: "Software is eating the world."
+    author: "Marc Andreessen"
+    category: "technology"
+    source: "2011 Wall Street Journal essay"
+    
+  - text: "Any sufficiently advanced technology is indistinguishable from magic."
+    author: "Arthur C. Clarke"
+    category: "technology"
+    source: "Clarke's Third Law"
+    
+  - text: "The best way to predict the future is to invent it."
+    author: "Alan Kay"
+    category: "technology"
+    source: "Xerox PARC"
+    
+  - text: "Learning never exhausts the mind."
+    author: "Leonardo da Vinci"
+    category: "engineering"
+    
+  - text: "Engineering is the art of directing the great sources of power in nature for the use and convenience of man."
+    author: "Thomas Tredgold"
+    category: "engineering"
+    source: "1828 Institution of Civil Engineers charter"
+    
+  # Innovation & Discovery
+  - text: "The important thing is not to stop questioning. Curiosity has its own reason for existing."
+    author: "Albert Einstein"
+    category: "discovery"
+    source: "1955 LIFE magazine interview"
+    
+  - text: "Research is what I'm doing when I don't know what I'm doing."
+    author: "Wernher von Braun"
+    category: "research"
+    
+  - text: "The first principle is that you must not fool yourself—and you are the easiest person to fool."
+    author: "Richard Feynman"
+    category: "science"
+    source: "1974 Caltech commencement address"
+    
+  - text: "Science is the great antidote to the poison of enthusiasm and superstition."
+    author: "Adam Smith"
+    category: "science"
+    source: "The Wealth of Nations"
+    
+  - text: "Ignorance more frequently begets confidence than does knowledge: it is those who know little, and not those who know much, who so positively assert that this or that problem will never be solved by science."
+    author: "Charles Darwin"
+    category: "discovery"
+    source: "On the Origin of Species"

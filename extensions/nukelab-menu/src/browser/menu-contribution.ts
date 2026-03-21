@@ -7,7 +7,7 @@ import URI from "@theia/core/lib/common/uri";
 export const LabCommands = {
   OPEN_LAB_HOME: {
     id: "lab.openHome",
-    label: "Lab Home",
+    label: "Lab Homepage ↗",
   },
   JUPYTER_LAB: {
     id: "lab.jupyterlab",
@@ -59,12 +59,12 @@ export class LabMenu {
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.JUPYTER_LAB.id,
       label: LabCommands.JUPYTER_LAB.label,
-      order: '1'
+      order: 'zz'
     });
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: LabCommands.LOGOUT.id,
       label: LabCommands.LOGOUT.label,
-      order: '2'
+      order: 'zzz'
     });
     // Add to Theia's Settings Menu (FILE_SETTINGS_SUBMENU)
     menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU, {
