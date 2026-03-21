@@ -19,7 +19,6 @@ import { injectable, postConstruct, inject } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
-import { ThemeService } from '@theia/core/lib/browser/theming';
 import { OpenMCHeatmapData, OpenMCHeatmapPlane } from '../../common/visualizer-protocol';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
@@ -59,9 +58,6 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     private referenceSliceIndex: number = 0;  // Reference slice for comparison
     private differenceData: OpenMCHeatmapData | null = null;  // Computed difference data
 
-    @inject(ThemeService)
-    protected readonly themeService: ThemeService;
-
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
 
@@ -75,9 +71,6 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
         // Ensure the widget can be focused
         this.node.tabIndex = 0;
-
-        // Listen for theme changes to re-render the plot
-        this.themeService.onDidColorThemeChange(() => this.update());
 
         this.update();
     }
@@ -316,10 +309,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         this.update();
     };
 
-    protected getCurrentTheme(): 'dark' | 'light' {
-        const themeId = this.themeService.getCurrentTheme().id;
-        return themeId.indexOf('light') !== -1 ? 'light' : 'dark';
-    }
+
 
     protected render(): React.ReactNode {
         if (this.errorMessage) {
@@ -330,18 +320,14 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             return this.renderEmpty();
         }
 
-        const theme = this.getCurrentTheme();
-        const bgColor = theme === 'dark' ? '#1e1e1e' : '#ffffff';
-        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
-
         return (
             <div className="openmc-heatmap" style={{
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                backgroundColor: bgColor,
-                color: textColor,
-                fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
+                backgroundColor: 'var(--theia-editor-background)',
+                color: 'var(--theia-foreground)',
+                fontFamily: 'var(--theia-ui-font-family)',
                 overflow: 'hidden'
             }}>
                 {/* Header */}
@@ -350,16 +336,16 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '10px 20px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#333' : '#eee'}`
+                    borderBottom: '1px solid var(--theia-panel-border)'
                 }}>
-                    <h3 style={{ margin: 0, color: theme === 'dark' ? '#fff' : '#000' }}>{this.titleText}</h3>
-                    <div style={{ fontSize: '12px', color: '#888' }}>
+                    <h3 style={{ margin: 0, color: 'var(--theia-foreground)' }}>{this.titleText}</h3>
+                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
                         {this.scoreName && this.nuclideName ? `${this.scoreName} (${this.nuclideName})` : ''}
                     </div>
                 </div>
 
                 {/* Controls */}
-                {this.renderControls(theme)}
+                {this.renderControls()}
 
                 {/* Plot Area */}
                 <div style={{ flex: 1, position: 'relative', minHeight: '350px', overflow: 'hidden' }}>
@@ -369,14 +355,13 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             top: '50%',
                             left: '50%',
                             transform: 'translate(-50%, -50%)',
-                            color: '#888'
+                            color: 'var(--theia-descriptionForeground)'
                         }}>
                             Loading...
                         </div>
                     ) : (
                         this.renderHeatmap(
-                            this.isDifferenceMode && this.differenceData ? this.differenceData : this.data, 
-                            theme
+                            this.isDifferenceMode && this.differenceData ? this.differenceData : this.data
                         )
                     )}
                 </div>
@@ -391,7 +376,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#888',
+                color: 'var(--theia-descriptionForeground)',
                 padding: '20px'
             }}>
                 <div>No heatmap data to display</div>
@@ -400,7 +385,6 @@ export class OpenMCHeatmapWidget extends ReactWidget {
     }
 
     private renderError(): React.ReactNode {
-        const theme = this.getCurrentTheme();
         return (
             <div style={{
                 height: '100%',
@@ -408,7 +392,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: theme === 'dark' ? '#ff6b6b' : '#d32f2f',
+                color: 'var(--theia-errorForeground)',
                 padding: '20px',
                 textAlign: 'center'
             }}>
@@ -418,17 +402,17 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         );
     }
 
-    private renderControls(theme: 'dark' | 'light'): React.ReactNode {
+    private renderControls(): React.ReactNode {
         if (!this.data) return null;
 
         const { plane, total_slices, slice_label } = this.data;
         // Use pendingSliceIndex for responsive slider (updates immediately on user interaction)
         const displaySliceIndex = this.pendingSliceIndex;
-        const bgColor = theme === 'dark' ? '#2d2d2d' : '#f5f5f5';
-        const borderColor = theme === 'dark' ? '#444' : '#ddd';
-        const buttonBg = theme === 'dark' ? '#3c3c3c' : '#e0e0e0';
-        const buttonActiveBg = theme === 'dark' ? '#0e639c' : '#007acc';
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+        const bgColor = 'var(--theia-sideBar-background)';
+        const borderColor = 'var(--theia-panel-border)';
+        const buttonBg = 'var(--theia-button-secondaryBackground)';
+        const buttonActiveBg = 'var(--theia-button-background)';
+        const textColor = 'var(--theia-foreground)'
 
         const planes: { key: OpenMCHeatmapPlane; label: string }[] = [
             { key: 'xy', label: 'XY (Z slice)' },
@@ -459,7 +443,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                 borderRadius: '4px',
                                 cursor: this.isLoading ? 'not-allowed' : 'pointer',
                                 backgroundColor: plane === key ? buttonActiveBg : buttonBg,
-                                color: plane === key ? '#fff' : textColor,
+                                color: plane === key ? 'var(--theia-button-foreground)' : textColor,
                                 fontSize: '12px',
                                 opacity: this.isLoading ? 0.6 : 1
                             }}
@@ -517,7 +501,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: buttonBg,
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
                             cursor: this.isLoading ? 'not-allowed' : 'pointer'
                         }}
@@ -567,9 +551,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         alignItems: 'center', 
                         gap: '8px',
                         padding: '4px 10px',
-                        backgroundColor: this.isDifferenceMode ? (theme === 'dark' ? '#3d2818' : '#fff3e0') : 'transparent',
+                        backgroundColor: this.isDifferenceMode ? 'var(--theia-warningBackground)' : 'transparent',
                         borderRadius: '4px',
-                        border: this.isDifferenceMode ? `1px solid ${theme === 'dark' ? '#ff9800' : '#ff9800'}` : 'none'
+                        border: this.isDifferenceMode ? '1px solid var(--theia-warningForeground)' : 'none'
                     }}>
                         <label style={{ 
                             display: 'flex', 
@@ -578,7 +562,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             fontSize: '12px',
                             cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer',
                             opacity: this.isAutoPlaying ? 0.6 : 1,
-                            color: this.isDifferenceMode ? '#ff9800' : textColor,
+                            color: this.isDifferenceMode ? 'var(--theia-warningForeground)' : textColor,
                             fontWeight: this.isDifferenceMode ? 'bold' : 'normal'
                         }}>
                             <input
@@ -591,7 +575,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         </label>
                         {this.isDifferenceMode && (
                             <>
-                                <span style={{ fontSize: '11px', color: '#888' }}>Ref:</span>
+                                <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>Ref:</span>
                                 <select
                                     value={this.referenceSliceIndex}
                                     onChange={(e) => this.handleReferenceSliceChange(parseInt(e.target.value))}
@@ -601,7 +585,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                         fontSize: '11px',
                                         borderRadius: '4px',
                                         border: `1px solid ${borderColor}`,
-                                        backgroundColor: buttonBg,
+                                        backgroundColor: 'var(--theia-input-background)',
                                         color: textColor,
                                         cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
                                     }}
@@ -631,23 +615,23 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             fontSize: '11px',
                             padding: '4px 10px',
                             backgroundColor: this.isDifferenceMode 
-                                ? (theme === 'dark' ? '#3d2818' : '#fff3e0')
-                                : (theme === 'dark' ? '#252525' : '#e8e8e8'),
+                                ? 'var(--theia-warningBackground)'
+                                : 'var(--theia-input-background)',
                             borderRadius: '4px',
-                            border: this.isDifferenceMode ? `1px solid ${theme === 'dark' ? '#ff9800' : '#ff9800'}` : 'none'
+                            border: this.isDifferenceMode ? '1px solid var(--theia-warningForeground)' : 'none'
                         }}>
                             {this.isDifferenceMode && (
-                                <span style={{ color: '#ff9800', fontWeight: 'bold' }}>
+                                <span style={{ color: 'var(--theia-warningForeground)', fontWeight: 'bold' }}>
                                     Δ:
                                 </span>
                             )}
-                            <span style={{ color: theme === 'dark' ? '#ff6b6b' : '#d32f2f' }}>
+                            <span style={{ color: 'var(--theia-errorForeground)' }}>
                                 Min: {minVal.toExponential(3)}
                             </span>
-                            <span style={{ color: theme === 'dark' ? '#4caf50' : '#2e7d32' }}>
+                            <span style={{ color: 'var(--theia-successForeground, #4caf50)' }}>
                                 Max: {maxVal.toExponential(3)}
                             </span>
-                            <span style={{ color: theme === 'dark' ? '#2196f3' : '#1565c0' }}>
+                            <span style={{ color: 'var(--theia-infoForeground, #2196f3)' }}>
                                 Mean: {meanVal.toExponential(3)}
                             </span>
                         </div>
@@ -665,8 +649,8 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                 fontSize: '12px',
                                 borderRadius: '4px',
                                 border: 'none',
-                                backgroundColor: '#2196f3',
-                                color: 'white',
+                                backgroundColor: 'var(--theia-button-background)',
+                                color: 'var(--theia-button-foreground)',
                                 cursor: this.isLoading ? 'not-allowed' : 'pointer',
                                 opacity: this.isLoading ? 0.6 : 1
                             }}
@@ -676,7 +660,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         </button>
                     )}
                     {this.isLoadingAllSlices && (
-                        <span style={{ fontSize: '12px', color: '#888' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
                             Loading {this.data?.total_slices} slices...
                         </span>
                     )}
@@ -690,8 +674,8 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                     fontSize: '12px',
                                     borderRadius: '4px',
                                     border: 'none',
-                                    backgroundColor: this.isAutoPlaying ? '#ff6b6b' : '#4caf50',
-                                    color: 'white',
+                                    backgroundColor: this.isAutoPlaying ? 'var(--theia-errorForeground)' : 'var(--theia-successBackground, #4caf50)',
+                                    color: 'var(--theia-button-foreground)',
                                     cursor: this.isLoading ? 'not-allowed' : 'pointer'
                                 }}
                             >
@@ -706,7 +690,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                     fontSize: '11px',
                                     borderRadius: '4px',
                                     border: `1px solid ${borderColor}`,
-                                    backgroundColor: buttonBg,
+                                    backgroundColor: 'var(--theia-input-background)',
                                     color: textColor,
                                     cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
                                 }}
@@ -722,8 +706,14 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         );
     }
 
-    private renderHeatmap(data: OpenMCHeatmapData, theme: 'dark' | 'light'): React.ReactNode {
+    private renderHeatmap(data: OpenMCHeatmapData): React.ReactNode {
         const { values, x_coords, y_coords, x_label, y_label, slice_position, slice_label } = data;
+
+        // Get computed colors for Plotly (CSS variables don't work in Canvas/SVG)
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#3c3c3c');
+        const warningColor = this.getCssColor('--theia-warningForeground', '#cca700');
 
         // Calculate value range for color scale
         const allValues = values.flat();
@@ -769,30 +759,30 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             colorbar: {
                 title: {
                     text: colorbarTitle,
-                    font: { color: theme === 'dark' ? '#ccc' : '#333' }
+                    font: { color: fgColor }
                 },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' }
+                tickfont: { color: fgColor }
             },
             hovertemplate: hoverTemplate
         };
 
         const layout: Partial<Plotly.Layout> = {
             xaxis: {
-                title: { text: x_label, font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
-                zerolinecolor: theme === 'dark' ? '#444' : '#ddd'
+                title: { text: x_label, font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
+                zerolinecolor: gridColor
             },
             yaxis: {
-                title: { text: y_label, font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
-                zerolinecolor: theme === 'dark' ? '#444' : '#ddd',
+                title: { text: y_label, font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
+                zerolinecolor: gridColor,
                 scaleanchor: 'x',  // Keep aspect ratio square
                 scaleratio: 1
             },
-            paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
-            plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
             margin: { t: 50, r: 30, b: 50, l: 60 },
             annotations: [{
                 x: 0.5,
@@ -805,7 +795,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 showarrow: false,
                 font: {
                     size: this.isDifferenceMode ? 13 : 14,
-                    color: this.isDifferenceMode ? '#ff9800' : (theme === 'dark' ? '#ccc' : '#333'),
+                    color: this.isDifferenceMode ? warningColor : fgColor,
                     weight: this.isDifferenceMode ? 700 : 400
                 }
             }],
@@ -818,7 +808,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
         };
 
-        return <PlotlyComponent data={[trace]} layout={layout} config={config} theme={theme} />;
+        return <PlotlyComponent data={[trace]} layout={layout} config={config} />;
     }
 
     protected onAfterShow(msg: Message): void {
@@ -853,5 +843,14 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             this.autoPlayInterval = null;
         }
         super.onCloseRequest(msg);
+    }
+
+    /**
+     * Helper to get computed color from CSS variable
+     */
+    private getCssColor(variable: string, fallback: string): string {
+        if (typeof window === 'undefined') return fallback;
+        const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
+        return computed || fallback;
     }
 }

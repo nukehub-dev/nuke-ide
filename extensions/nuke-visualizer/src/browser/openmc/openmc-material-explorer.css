@@ -106,8 +106,8 @@
 }
 
 .material-explorer-container .material-explorer-toolbar .stats span.depletable-stat {
-    background: linear-gradient(135deg, #f39c12, #e67e22);
-    color: white;
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
 }
 
 /* ============================================================================
@@ -347,13 +347,13 @@
 }
 
 .material-explorer-container .badge.depletable {
-    background: linear-gradient(135deg, #f39c12, #e67e22);
-    color: white;
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
 }
 
 .material-explorer-container .badge.thermal {
-    background: linear-gradient(135deg, #3498db, #2980b9);
-    color: white;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
 }
 
 /* Properties Grid */
@@ -495,7 +495,7 @@
 
 .material-explorer-container .nuclide-bar-row .nuclide-bar {
     height: 100%;
-    background: linear-gradient(90deg, #3498db, #2980b9);
+    background: var(--theia-progressBar-background);
     border-radius: 4px;
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     min-width: 4px;

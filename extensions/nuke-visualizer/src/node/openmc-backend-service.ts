@@ -313,7 +313,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         const args = [
             scriptPath, 'spatial', statepointPath, tallyId.toString(), 
-            '--axis', axis,
+            axis,
             '--score-index', scoreIndex.toString(),
             '--nuclide-index', nuclideIndex.toString()
         ];
@@ -356,8 +356,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         const args = [
             scriptPath, 'heatmap', statepointPath, tallyId.toString(),
-            '--plane', plane,
-            '--slice-index', sliceIndex.toString(),
+            plane,
+            sliceIndex.toString(),
             '--score-index', scoreIndex.toString(),
             '--nuclide-index', nuclideIndex.toString()
         ];
@@ -399,7 +399,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         const args = [
             scriptPath, 'heatmap-all', statepointPath, tallyId.toString(),
-            '--plane', plane,
+            plane,
             '--score-index', scoreIndex.toString(),
             '--nuclide-index', nuclideIndex.toString()
         ];

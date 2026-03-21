@@ -18,7 +18,6 @@ import * as React from 'react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { ThemeService } from '@theia/core/lib/browser/theming';
 import { 
     OpenMCDepletionSummary,
     OpenMCDepletionMaterial,
@@ -61,9 +60,6 @@ export class OpenMCDepletionWidget extends ReactWidget {
     // UI state
     private showAllNuclides: boolean = false;
     private searchFilter: string = '';
-
-    @inject(ThemeService)
-    protected readonly themeService: ThemeService;
 
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
@@ -165,22 +161,20 @@ export class OpenMCDepletionWidget extends ReactWidget {
             return this.renderEmpty();
         }
 
-        const theme = this.getCurrentTheme();
-
         return (
             <div style={{ 
                 height: '100%', 
                 display: 'flex', 
                 flexDirection: 'column',
-                backgroundColor: theme === 'dark' ? '#1e1e1e' : '#ffffff'
+                backgroundColor: 'var(--theia-editor-background)'
             }}>
                 {/* Header */}
-                {this.renderHeader(theme)}
+                {this.renderHeader()}
                 
                 {/* Main Content */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                     {/* Sidebar */}
-                    {this.renderSidebar(theme)}
+                    {this.renderSidebar()}
                     
                     {/* Plot Area */}
                     <div style={{ flex: 1, padding: '10px', overflow: 'auto' }}>
@@ -190,12 +184,12 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                color: '#888'
+                                color: 'var(--theia-descriptionForeground)'
                             }}>
                                 Loading depletion data...
                             </div>
                         ) : (
-                            this.renderPlot(theme)
+                            this.renderPlot()
                         )}
                     </div>
                 </div>
@@ -203,15 +197,15 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
-    private renderHeader(theme: 'dark' | 'light'): React.ReactNode {
-        const bgColor = theme === 'dark' ? '#2d2d2d' : '#f5f5f5';
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderHeader(): React.ReactNode {
+        const bgColor = 'var(--theia-sideBar-background)';
+        const textColor = 'var(--theia-foreground)';
         
         return (
             <div style={{
                 padding: '10px 20px',
                 backgroundColor: bgColor,
-                borderBottom: `1px solid ${theme === 'dark' ? '#444' : '#ddd'}`,
+                borderBottom: '1px solid var(--theia-panel-border)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '20px'
@@ -221,7 +215,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 </div>
                 
                 {this.summary && (
-                    <div style={{ fontSize: '12px', color: '#888', display: 'flex', gap: '15px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', display: 'flex', gap: '15px' }}>
                         <span>{this.summary.nMaterials} materials</span>
                         <span>{this.summary.nSteps} time steps</span>
                         <span>{this.summary.nNuclides} nuclides</span>
@@ -231,10 +225,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
-    private renderSidebar(theme: 'dark' | 'light'): React.ReactNode {
-        const bgColor = theme === 'dark' ? '#252526' : '#f3f3f3';
-        const borderColor = theme === 'dark' ? '#444' : '#ddd';
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderSidebar(): React.ReactNode {
+        const bgColor = 'var(--theia-sideBar-background)';
+        const borderColor = 'var(--theia-panel-border)';
+        const textColor = 'var(--theia-foreground)';
 
         return (
             <div style={{
@@ -263,7 +257,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor
                         }}
                     >
@@ -292,7 +286,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
                             marginBottom: '10px'
                         }}
@@ -317,7 +311,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
                             marginBottom: '5px'
                         }}
@@ -329,14 +323,14 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         <option value="step">Time Step</option>
                     </select>
                     {!this.summary?.burnup && this.xAxisType === 'burnup' && (
-                        <div style={{ fontSize: '10px', color: '#ff9800', marginBottom: '10px' }}>
+                        <div style={{ fontSize: '10px', color: 'var(--theia-warningForeground)', marginBottom: '10px' }}>
                             ⚠️ No burnup data - showing Time instead
                         </div>
                     )}
 
                     <label style={{ 
                         fontSize: '12px', 
-                        color: this.plotType === 'stacked' ? '#888' : textColor, 
+                        color: this.plotType === 'stacked' ? 'var(--theia-descriptionForeground)' : textColor, 
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: '8px', 
@@ -374,9 +368,9 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                         padding: '4px 8px',
                                         fontSize: '10px',
                                         borderRadius: '4px',
-                                        border: `1px solid ${isActive ? '#4caf50' : borderColor}`,
-                                        backgroundColor: isActive ? (theme === 'dark' ? '#2e7d32' : '#4caf50') : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
-                                        color: isActive ? '#fff' : textColor,
+                                        border: `1px solid ${isActive ? 'var(--theia-successBackground, #4caf50)' : borderColor}`,
+                                        backgroundColor: isActive ? 'var(--theia-successBackground, #4caf50)' : 'var(--theia-button-secondaryBackground)',
+                                        color: isActive ? 'var(--theia-button-foreground)' : textColor,
                                         cursor: 'pointer',
                                         fontWeight: isActive ? 'bold' : 'normal'
                                     }}
@@ -406,14 +400,14 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                     fontSize: '11px',
                                     borderRadius: '4px',
                                     border: `1px solid ${borderColor}`,
-                                    backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                                    backgroundColor: 'var(--theia-input-background)',
                                     color: textColor
                                 }}
                             />
                         </div>
                         
                         <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
-                            {this.renderNuclideList(theme)}
+                            {this.renderNuclideList()}
                         </div>
                     </div>
                 ) : (
@@ -421,12 +415,12 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     <div style={{ flex: 1, padding: '15px', overflow: 'auto' }}>
                         <div style={{
                             padding: '12px',
-                            backgroundColor: theme === 'dark' ? '#3d2818' : '#fff3e0',
+                            backgroundColor: 'var(--theia-warningBackground)',
                             borderRadius: '6px',
-                            border: `1px solid ${theme === 'dark' ? '#ff9800' : '#ffb74d'}`,
+                            border: '1px solid var(--theia-warningForeground)',
                             marginBottom: '15px'
                         }}>
-                            <div style={{ fontSize: '12px', color: '#ff9800', fontWeight: 'bold', marginBottom: '6px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--theia-warningForeground)', fontWeight: 'bold', marginBottom: '6px' }}>
                                 ℹ️ Total Radioactivity
                             </div>
                             <div style={{ fontSize: '11px', color: textColor, lineHeight: '1.4' }}>
@@ -444,7 +438,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             gap: '8px', 
                             cursor: 'pointer',
                             padding: '10px',
-                            backgroundColor: theme === 'dark' ? '#2d2d2d' : '#f5f5f5',
+                            backgroundColor: 'var(--theia-input-background)',
                             borderRadius: '4px'
                         }}>
                             <input
@@ -454,7 +448,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             />
                             <span>
                                 Show Individual Nuclide Contributions<br/>
-                                <span style={{ fontSize: '10px', color: '#888' }}>
+                                <span style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
                                     Display breakdown curves for top contributors
                                 </span>
                             </span>
@@ -462,10 +456,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         
                         {this.showActivityNuclides && this.activityData && (
                             <div style={{ marginTop: '15px' }}>
-                                <div style={{ fontSize: '11px', color: '#888', marginBottom: '8px' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
                                     Top contributors by final {this.plotType === 'activity' ? 'activity' : 'decay heat'}:
                                 </div>
-                                {this.renderActivityNuclideList(theme)}
+                                {this.renderActivityNuclideList()}
                             </div>
                         )}
                     </div>
@@ -474,8 +468,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
-    private renderNuclideList(theme: 'dark' | 'light'): React.ReactNode {
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderNuclideList(): React.ReactNode {
+        const textColor = 'var(--theia-foreground)';
         
         // Filter nuclides based on search
         const filteredNuclides = this.nuclideData.filter(n => {
@@ -538,7 +532,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             borderRadius: '4px',
                             border: 'none',
                             backgroundColor: 'transparent',
-                            color: '#2196f3',
+                            color: 'var(--theia-textLink-foreground)',
                             cursor: 'pointer',
                             marginTop: '5px'
                         }}
@@ -550,11 +544,11 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
-    private renderActivityNuclideList(theme: 'dark' | 'light'): React.ReactNode {
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderActivityNuclideList(): React.ReactNode {
+        const textColor = 'var(--theia-foreground)';
         
         if (!this.activityData || !this.activityData.nuclides) {
-            return <div style={{ fontSize: '11px', color: '#888' }}>No activity data available</div>;
+            return <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>No activity data available</div>;
         }
         
         // Sort nuclides by final activity/decay heat
@@ -589,19 +583,19 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                 padding: '4px 8px',
                                 fontSize: '11px',
                                 color: textColor,
-                                backgroundColor: idx % 2 === 0 ? (theme === 'dark' ? '#252525' : '#f5f5f5') : 'transparent',
+                                backgroundColor: idx % 2 === 0 ? 'var(--theia-input-background)' : 'transparent',
                                 borderRadius: '3px'
                             }}
                         >
                             <span>{idx + 1}. {nuc.nuclide}</span>
-                            <span style={{ color: '#888' }}>
+                            <span style={{ color: 'var(--theia-descriptionForeground)' }}>
                                 {value < 0.01 ? value.toExponential(2) : value.toFixed(2)} {unit}
                             </span>
                         </div>
                     );
                 })}
                 {sortedNuclides.length > 15 && (
-                    <div style={{ fontSize: '10px', color: '#888', textAlign: 'center', marginTop: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', textAlign: 'center', marginTop: '8px' }}>
                         ... and {sortedNuclides.length - 15} more nuclides
                     </div>
                 )}
@@ -634,7 +628,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
         this.update();
     }
 
-    private renderPlot(theme: 'dark' | 'light'): React.ReactNode {
+    private renderPlot(): React.ReactNode {
         if (!this.summary || this.selectedNuclides.size === 0) {
             return (
                 <div style={{
@@ -642,12 +636,17 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#888'
+                    color: 'var(--theia-descriptionForeground)'
                 }}>
                     {this.selectedNuclides.size === 0 ? 'Select nuclides to plot' : 'No data available'}
                 </div>
             );
         }
+
+        // Get computed colors for Plotly (CSS variables don't work in Canvas/SVG)
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#3c3c3c');
 
         // Get x-axis data
         let xValues: number[];
@@ -810,24 +809,24 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
         const layout: any = {
             xaxis: {
-                title: { text: xLabel, font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
+                title: { text: xLabel, font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
                 type: 'linear'
             },
             yaxis: {
-                title: { text: this.getYAxisLabel(), font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
+                title: { text: this.getYAxisLabel(), font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
                 type: this.plotType === 'stacked' ? 'linear' : this.scaleType,
                 range: this.plotType === 'stacked' ? [0, 100] : undefined
             },
-            paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
-            plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
             margin: { t: 30, r: 30, b: 50, l: 70 },
             legend: {
-                font: { color: theme === 'dark' ? '#ccc' : '#333' },
-                bgcolor: theme === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)'
+                font: { color: fgColor },
+                bgcolor: bgColor
             },
             hovermode: 'closest'
         };
@@ -838,7 +837,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
         };
 
-        return <PlotlyComponent data={traces} layout={layout} config={config} theme={theme} />;
+        return <PlotlyComponent data={traces} layout={layout} config={config} />;
     }
 
     private getYAxisLabel(): string {
@@ -866,7 +865,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#888',
+                color: 'var(--theia-descriptionForeground)',
                 padding: '20px'
             }}>
                 <div>No depletion file selected</div>
@@ -875,7 +874,6 @@ export class OpenMCDepletionWidget extends ReactWidget {
     }
 
     private renderError(): React.ReactNode {
-        const theme = this.getCurrentTheme();
         return (
             <div style={{
                 height: '100%',
@@ -883,7 +881,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: theme === 'dark' ? '#ff6b6b' : '#d32f2f',
+                color: 'var(--theia-errorForeground)',
                 padding: '20px',
                 textAlign: 'center'
             }}>
@@ -893,8 +891,13 @@ export class OpenMCDepletionWidget extends ReactWidget {
         );
     }
 
-    private getCurrentTheme(): 'dark' | 'light' {
-        const themeId = this.themeService.getCurrentTheme().id;
-        return themeId.indexOf('light') !== -1 ? 'light' : 'dark';
+    /**
+     * Helper to get computed color from CSS variable
+     */
+    private getCssColor(variable: string, fallback: string): string {
+        if (typeof window === 'undefined') return fallback;
+        const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
+        return computed || fallback;
     }
+
 }

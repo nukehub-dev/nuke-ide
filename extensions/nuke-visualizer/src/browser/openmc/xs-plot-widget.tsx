@@ -302,26 +302,15 @@ export class XSPlotWidget extends ReactWidget {
         this.update();
     }
 
-    protected getCurrentTheme(): 'dark' | 'light' {
-        const themeId = this.themeService.getCurrentTheme().id;
-        return themeId.indexOf('light') !== -1 ? 'light' : 'dark';
-    }
-
     protected render(): React.ReactNode {
-        const theme = this.getCurrentTheme();
-        const bgColor = theme === 'dark' ? '#1e1e1e' : '#ffffff';
-        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
-        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
-        const borderColor = theme === 'dark' ? '#3c3c3c' : '#e0e0e0';
-
         return (
             <div className="xs-plot" style={{
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'row',
-                backgroundColor: bgColor,
-                color: textColor,
-                fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
+                backgroundColor: 'var(--theia-editor-background)',
+                color: 'var(--theia-foreground)',
+                fontFamily: 'var(--theia-ui-font-family)',
                 overflow: 'hidden'
             }}>
                 {/* Sidebar with controls */}
@@ -329,13 +318,13 @@ export class XSPlotWidget extends ReactWidget {
                     width: '320px',
                     minWidth: '320px',
                     maxWidth: '320px',
-                    backgroundColor: panelBg,
-                    borderRight: `1px solid ${borderColor}`,
+                    backgroundColor: 'var(--theia-sideBar-background)',
+                    borderRight: '1px solid var(--theia-panel-border)',
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'auto'
                 }}>
-                    {this.renderControls(theme)}
+                    {this.renderControls()}
                 </div>
 
                 {/* Main plot area */}
@@ -350,10 +339,10 @@ export class XSPlotWidget extends ReactWidget {
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         padding: '10px 20px',
-                        borderBottom: `1px solid ${borderColor}`
+                        borderBottom: '1px solid var(--theia-panel-border)'
                     }}>
-                        <h3 style={{ margin: 0, color: theme === 'dark' ? '#fff' : '#000' }}>{this.titleText}</h3>
-                        <div style={{ fontSize: '12px', color: '#888' }}>
+                        <h3 style={{ margin: 0, color: 'var(--theia-foreground)' }}>{this.titleText}</h3>
+                        <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
                             {this.data ? `${this.data.curves.length} curves` : 'No data'}
                         </div>
                     </div>
@@ -421,7 +410,7 @@ export class XSPlotWidget extends ReactWidget {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 height: '100%',
-                                color: '#ff6b6b',
+                                color: 'var(--theia-errorForeground)',
                                 padding: '20px',
                                 textAlign: 'center'
                             }}>
@@ -429,7 +418,7 @@ export class XSPlotWidget extends ReactWidget {
                                     <span className={codicon('error')} />
                                 </div>
                                 <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>Error Loading Cross-Sections</p>
-                                <p style={{ fontSize: '12px', color: '#cc5252', maxWidth: '400px' }}>
+                                <p style={{ fontSize: '12px', color: 'var(--theia-errorForeground)', maxWidth: '400px' }}>
                                     {this.errorMessage}
                                 </p>
                                 <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexDirection: 'column', alignItems: 'center' }}>
@@ -437,8 +426,8 @@ export class XSPlotWidget extends ReactWidget {
                                         onClick={() => this.openSettings()}
                                         style={{
                                             padding: '8px 16px',
-                                            backgroundColor: '#0e639c',
-                                            color: 'white',
+                                            backgroundColor: 'var(--theia-button-background)',
+                                            color: 'var(--theia-button-foreground)',
                                             border: 'none',
                                             borderRadius: '3px',
                                             cursor: 'pointer',
@@ -451,7 +440,7 @@ export class XSPlotWidget extends ReactWidget {
                                         <span className={codicon('settings-gear')} />
                                         Configure Cross-Section Path
                                     </button>
-                                    <p style={{ fontSize: '11px', color: '#888' }}>
+                                    <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
                                         Or set OPENMC_CROSS_SECTIONS environment variable
                                     </p>
                                 </div>
@@ -470,12 +459,12 @@ export class XSPlotWidget extends ReactWidget {
                                     minHeight: this.showIntegrals ? '150px' : '100%',
                                     overflow: 'hidden' 
                                 }}>
-                                    {this.renderPlot(theme)}
+                                    {this.renderPlot()}
                                 </div>
                                 {this.showIntegrals && (
                                     <>
-                                        {this.renderResizeHandle(theme)}
-                                        {this.renderIntegralsPanel(theme)}
+                                        {this.renderResizeHandle()}
+                                        {this.renderIntegralsPanel()}
                                     </>
                                 )}
                             </div>
@@ -486,7 +475,7 @@ export class XSPlotWidget extends ReactWidget {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 height: '100%',
-                                color: '#888',
+                                color: 'var(--theia-descriptionForeground)',
                                 padding: '20px',
                                 textAlign: 'center'
                             }}>
@@ -503,8 +492,8 @@ export class XSPlotWidget extends ReactWidget {
                                         onClick={() => this.openSettings()}
                                         style={{
                                             padding: '8px 16px',
-                                            backgroundColor: '#0e639c',
-                                            color: 'white',
+                                            backgroundColor: 'var(--theia-button-background)',
+                                            color: 'var(--theia-button-foreground)',
                                             border: 'none',
                                             borderRadius: '3px',
                                             cursor: 'pointer',
@@ -526,51 +515,51 @@ export class XSPlotWidget extends ReactWidget {
         );
     }
 
-    private renderControls(theme: 'dark' | 'light'): React.ReactNode {
-        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
-        const accentColor = '#0e639c';
-        const checkboxBg = theme === 'dark' ? '#3c3c3c' : '#ffffff';
-        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
+    private renderControls(): React.ReactNode {
+        const textColor = 'var(--theia-foreground)';
+        const accentColor = 'var(--theia-button-background)';
+        const checkboxBg = 'var(--theia-input-background)';
+        const panelBg = 'var(--theia-sideBar-background)';
 
         return (
             <>
                 {/* Mode Selection */}
                 <div style={{
                     padding: '10px 15px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                    borderBottom: '1px solid var(--theia-panel-border)',
                     backgroundColor: panelBg
                 }}>
-                    <h4 style={{ margin: '0 0 8px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
                         <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
                         Plot Mode
                     </h4>
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        {this.renderModeButton('nuclides', 'Nuclides', theme)}
-                        {this.renderModeButton('materials', 'Materials', theme)}
-                        {this.renderModeButton('temp-comparison', 'Temp', theme)}
-                        {this.renderModeButton('library-comparison', 'Libraries', theme)}
-                        {this.renderModeButton('thermal-scattering', 'S(α,β)', theme)}
-                        {this.renderModeButton('chain-decay', 'Chain', theme)}
+                        {this.renderModeButton('nuclides', 'Nuclides')}
+                        {this.renderModeButton('materials', 'Materials')}
+                        {this.renderModeButton('temp-comparison', 'Temp')}
+                        {this.renderModeButton('library-comparison', 'Libraries')}
+                        {this.renderModeButton('thermal-scattering', 'S(α,β)')}
+                        {this.renderModeButton('chain-decay', 'Chain')}
                     </div>
                 </div>
 
                 {/* Plot Mode Specific Controls */}
-                {this.plotMode === 'nuclides' && this.renderNuclideControls(theme, textColor, checkboxBg)}
-                {this.plotMode === 'materials' && this.renderMaterialControls(theme, textColor, checkboxBg)}
-                {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(theme, textColor, checkboxBg)}
-                {this.plotMode === 'library-comparison' && this.renderLibraryComparisonControls(theme, textColor, checkboxBg)}
-                {this.plotMode === 'thermal-scattering' && this.renderThermalScatteringControls(theme, textColor, checkboxBg)}
-                {this.plotMode === 'chain-decay' && this.renderChainDecayControls(theme, textColor, checkboxBg)}
+                {this.plotMode === 'nuclides' && this.renderNuclideControls(textColor, checkboxBg)}
+                {this.plotMode === 'materials' && this.renderMaterialControls(textColor, checkboxBg)}
+                {this.plotMode === 'temp-comparison' && this.renderTempComparisonControls(textColor, checkboxBg)}
+                {this.plotMode === 'library-comparison' && this.renderLibraryComparisonControls(textColor, checkboxBg)}
+                {this.plotMode === 'thermal-scattering' && this.renderThermalScatteringControls(textColor, checkboxBg)}
+                {this.plotMode === 'chain-decay' && this.renderChainDecayControls(textColor, checkboxBg)}
 
                 {/* Reactions Section */}
                 <div style={{
                     padding: '15px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                    borderBottom: '1px solid var(--theia-panel-border)',
                     flex: 1,
                     overflow: 'auto',
                     minHeight: '150px'
                 }}>
-                    <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                         <span className={codicon('list-flat')} style={{ marginRight: '6px' }} />
                         Reactions
                     </h4>
@@ -585,7 +574,7 @@ export class XSPlotWidget extends ReactWidget {
                                     borderRadius: '3px',
                                     cursor: 'pointer',
                                     backgroundColor: reaction.selected
-                                        ? (theme === 'dark' ? 'rgba(14, 99, 156, 0.2)' : 'rgba(14, 99, 156, 0.1)')
+                                        ? 'var(--theia-button-background)'
                                         : 'transparent',
                                     fontSize: '12px'
                                 }}
@@ -599,12 +588,19 @@ export class XSPlotWidget extends ReactWidget {
                                 <span style={{
                                     flex: 1,
                                     color: reaction.selected
-                                        ? (theme === 'dark' ? '#4fc1ff' : '#007acc')
-                                        : textColor
+                                        ? 'var(--theia-button-foreground)'
+                                        : 'var(--theia-foreground)'
                                 }}>
                                     {reaction.label}
                                 </span>
-                                <span style={{ fontSize: '10px', color: '#888', marginLeft: '4px' }}>
+                                <span style={{ 
+                                    fontSize: '10px', 
+                                    color: reaction.selected
+                                        ? 'var(--theia-button-foreground)'
+                                        : 'var(--theia-descriptionForeground)',
+                                    marginLeft: '4px',
+                                    opacity: reaction.selected ? 0.9 : 1
+                                }}>
                                     MT={reaction.mt}
                                 </span>
                             </label>
@@ -615,9 +611,9 @@ export class XSPlotWidget extends ReactWidget {
                 {/* Energy Region Presets */}
                 <div style={{
                     padding: '15px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                    borderBottom: '1px solid var(--theia-panel-border)'
                 }}>
-                    <h4 style={{ margin: '0 0 10px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <h4 style={{ margin: '0 0 10px 0', color: 'var(--theia-foreground)' }}>
                         <span className={codicon('globe')} style={{ marginRight: '6px' }} />
                         Energy Region
                     </h4>
@@ -631,9 +627,9 @@ export class XSPlotWidget extends ReactWidget {
                                     fontSize: '11px',
                                     backgroundColor: this.energyRegion === region
                                         ? accentColor
-                                        : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
+                                        : 'var(--theia-button-secondaryBackground)',
                                     color: this.energyRegion === region
-                                        ? 'white'
+                                        ? 'var(--theia-button-foreground)'
                                         : textColor,
                                     border: 'none',
                                     borderRadius: '3px',
@@ -648,7 +644,7 @@ export class XSPlotWidget extends ReactWidget {
                     </div>
                     <div style={{ 
                         fontSize: '10px', 
-                        color: '#888', 
+                        color: 'var(--theia-descriptionForeground)', 
                         marginTop: '8px',
                         textAlign: 'center'
                     }}>
@@ -659,15 +655,15 @@ export class XSPlotWidget extends ReactWidget {
                 {/* Settings */}
                 <div style={{
                     padding: '15px',
-                    borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                    borderBottom: '1px solid var(--theia-panel-border)'
                 }}>
-                    <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                         <span className={codicon('settings')} style={{ marginRight: '6px' }} />
                         Settings
                     </h4>
                     {this.plotMode !== 'temp-comparison' && (
                         <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                                 Temperature (K)
                             </label>
                             <input
@@ -679,7 +675,7 @@ export class XSPlotWidget extends ReactWidget {
                                     padding: '4px 8px',
                                     backgroundColor: checkboxBg,
                                     color: textColor,
-                                    border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                    border: '1px solid var(--theia-input-border)',
                                     borderRadius: '3px',
                                     fontSize: '12px',
                                     boxSizing: 'border-box'
@@ -738,7 +734,7 @@ export class XSPlotWidget extends ReactWidget {
                     
                     {/* Group Structure Selector */}
                     <div style={{ marginTop: '12px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '4px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                             Group Structure (Multigroup)
                         </label>
                         <select
@@ -749,7 +745,7 @@ export class XSPlotWidget extends ReactWidget {
                                 padding: '4px 8px',
                                 backgroundColor: checkboxBg,
                                 color: textColor,
-                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                border: '1px solid var(--theia-input-border)',
                                 borderRadius: '3px',
                                 fontSize: '12px',
                                 boxSizing: 'border-box'
@@ -767,18 +763,18 @@ export class XSPlotWidget extends ReactWidget {
                             )}
                         </select>
                         {this.groupStructure !== 'continuous' && (
-                            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px', fontStyle: 'italic' }}>
+                            <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', fontStyle: 'italic' }}>
                                 {`Collapse to ${this.groupStructure} structure using flux-weighting`}
                             </div>
                         )}
                         {!this.groupStructuresMetadata.openmc_available && this.availableGroupStructures.length === 0 && (
-                            <div style={{ fontSize: '10px', color: '#e67e22', marginTop: '4px' }}>
+                            <div style={{ fontSize: '10px', color: 'var(--theia-warningForeground)', marginTop: '4px' }}>
                                 <i className={codicon('warning')} style={{ marginRight: '4px', verticalAlign: 'middle' }}></i>
                                 OpenMC built-ins not available. Add a group_structures.yaml to your project.
                             </div>
                         )}
                         {this.groupStructuresMetadata.sources.length > 0 && (
-                            <div style={{ fontSize: '9px', color: '#888', marginTop: '2px' }}>
+                            <div style={{ fontSize: '9px', color: 'var(--theia-descriptionForeground)', marginTop: '2px' }}>
                                 Sources: {this.groupStructuresMetadata.sources.join(', ')}
                             </div>
                         )}
@@ -793,7 +789,7 @@ export class XSPlotWidget extends ReactWidget {
                             width: '100%',
                             padding: '8px 16px',
                             backgroundColor: accentColor,
-                            color: 'white',
+                            color: 'var(--theia-button-foreground)',
                             border: 'none',
                             borderRadius: '3px',
                             cursor: this.isLoading ? 'wait' : 'pointer',
@@ -815,7 +811,16 @@ export class XSPlotWidget extends ReactWidget {
         );
     }
 
-    private renderPlot(theme: 'dark' | 'light'): React.ReactNode {
+    /**
+     * Helper to get computed color from CSS variable
+     */
+    private getCssColor(variable: string, fallback: string): string {
+        if (typeof window === 'undefined') return fallback;
+        const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
+        return computed || fallback;
+    }
+
+    private renderPlot(): React.ReactNode {
         if (!this.data || !this.data.curves || this.data.curves.length === 0) {
             return null;
         }
@@ -824,6 +829,11 @@ export class XSPlotWidget extends ReactWidget {
             showResonanceRegions: this.showResonanceRegions, 
             showResonances: this.showResonances 
         });
+
+        // Get computed colors for Plotly (CSS variables don't work in Canvas/SVG)
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#3c3c3c');
 
         const traces: Partial<Plotly.Data>[] = [];
         const shapes: Partial<Plotly.Shape>[] = [];
@@ -1233,16 +1243,18 @@ export class XSPlotWidget extends ReactWidget {
         
         const layout: Partial<Plotly.Layout> = {
             xaxis: {
-                title: { text: 'Energy [eV]' },
+                title: { text: 'Energy [eV]', font: { color: fgColor } },
                 type: 'log',
                 showgrid: true,
-                gridcolor: theme === 'dark' ? '#333' : '#eee'
+                gridcolor: gridColor,
+                tickfont: { color: fgColor }
             },
             yaxis: {
-                title: { text: 'Cross-Section [barns]' },
+                title: { text: 'Cross-Section [barns]', font: { color: fgColor } },
                 type: 'log',
                 showgrid: true,
-                gridcolor: theme === 'dark' ? '#333' : '#eee',
+                gridcolor: gridColor,
+                tickfont: { color: fgColor },
                 // Make room for secondary y-axis if needed
                 domain: hasDerivativeData ? [0, 0.85] : [0, 1]
             },
@@ -1263,21 +1275,22 @@ export class XSPlotWidget extends ReactWidget {
             legend: {
                 x: 1,
                 y: 1,
-                bgcolor: theme === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
-                font: { color: theme === 'dark' ? '#ccc' : '#333' }
+                bgcolor: bgColor,
+                bordercolor: gridColor,
+                borderwidth: 1,
+                font: { color: fgColor }
             },
             shapes: shapes,
             annotations: annotations,
-            paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
-            plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
-            font: { color: theme === 'dark' ? '#ccc' : '#333' }
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
+            font: { color: fgColor }
         };
 
         return (
             <PlotlyComponent
                 data={traces}
                 layout={layout}
-                theme={theme}
             />
         );
     }
@@ -1527,10 +1540,9 @@ export class XSPlotWidget extends ReactWidget {
     }
 
     private renderSetupDialog(): React.ReactNode {
-        const theme = this.getCurrentTheme();
-        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
-        const bgColor = theme === 'dark' ? '#1e1e1e' : '#ffffff';
-        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
+        const textColor = 'var(--theia-foreground)';
+        const bgColor = 'var(--theia-editor-background)';
+        const panelBg = 'var(--theia-sideBar-background)';
 
         return (
             <div style={{
@@ -1547,7 +1559,7 @@ export class XSPlotWidget extends ReactWidget {
                 <div style={{ fontSize: '64px', marginBottom: '24px' }}>
                     <span className={codicon('database')} />
                 </div>
-                <h2 style={{ marginBottom: '16px', color: theme === 'dark' ? '#fff' : '#000' }}>
+                <h2 style={{ marginBottom: '16px', color: 'var(--theia-foreground)' }}>
                     Setup Cross-Section Library
                 </h2>
                 <p style={{ fontSize: '14px', marginBottom: '24px', maxWidth: '500px' }}>
@@ -1563,7 +1575,7 @@ export class XSPlotWidget extends ReactWidget {
                     maxWidth: '500px',
                     textAlign: 'left'
                 }}>
-                    <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                         Where to get cross-section data:
                     </h4>
                     <ul style={{ fontSize: '12px', lineHeight: '1.8', margin: 0, paddingLeft: '20px' }}>
@@ -1593,9 +1605,9 @@ export class XSPlotWidget extends ReactWidget {
                             width: '100%',
                             padding: '10px 12px',
                             fontSize: '13px',
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '4px',
                             boxSizing: 'border-box'
                         }}
@@ -1607,8 +1619,8 @@ export class XSPlotWidget extends ReactWidget {
                             style={{
                                 flex: 1,
                                 padding: '10px 16px',
-                                backgroundColor: this.crossSectionsPath ? '#0e639c' : '#555',
-                                color: 'white',
+                                backgroundColor: this.crossSectionsPath ? 'var(--theia-button-background)' : 'var(--theia-button-disabledBackground)',
+                                color: 'var(--theia-button-foreground)',
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: this.crossSectionsPath ? 'pointer' : 'not-allowed',
@@ -1627,7 +1639,7 @@ export class XSPlotWidget extends ReactWidget {
                                 padding: '10px 16px',
                                 backgroundColor: 'transparent',
                                 color: textColor,
-                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                border: '1px solid var(--theia-input-border)',
                                 borderRadius: '4px',
                                 cursor: 'pointer',
                                 fontSize: '13px'
@@ -1638,7 +1650,7 @@ export class XSPlotWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <p style={{ fontSize: '11px', color: '#888', marginTop: '16px' }}>
+                <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '16px' }}>
                     You can also set this later in Preferences → Nuke Visualizer
                 </p>
             </div>
@@ -1662,7 +1674,7 @@ export class XSPlotWidget extends ReactWidget {
 
     // ===== Mode Selection UI =====
 
-    private renderModeButton(mode: XSPlotMode, label: string, theme: 'dark' | 'light'): React.ReactNode {
+    private renderModeButton(mode: XSPlotMode, label: string): React.ReactNode {
         const isActive = this.plotMode === mode;
         return (
             <button
@@ -1672,9 +1684,9 @@ export class XSPlotWidget extends ReactWidget {
                     padding: '6px 4px',
                     fontSize: '11px',
                     backgroundColor: isActive
-                        ? '#0e639c'
-                        : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
-                    color: isActive ? 'white' : (theme === 'dark' ? '#ccc' : '#333'),
+                        ? 'var(--theia-button-background)'
+                        : 'var(--theia-button-secondaryBackground)',
+                    color: isActive ? 'var(--theia-button-foreground)' : 'var(--theia-foreground)',
                     border: 'none',
                     borderRadius: '3px',
                     cursor: 'pointer',
@@ -1701,7 +1713,7 @@ export class XSPlotWidget extends ReactWidget {
 
     // ===== Nuclide Controls =====
 
-    private renderNuclideControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderNuclideControls(textColor: string, checkboxBg: string): React.ReactNode {
         const searchLower = this.nuclideSearchFilter.toLowerCase();
         const filteredNuclides = this.availableNuclides.filter(n => 
             n.toLowerCase().includes(searchLower)
@@ -1710,9 +1722,9 @@ export class XSPlotWidget extends ReactWidget {
         return (
             <div style={{
                 padding: '15px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                borderBottom: '1px solid var(--theia-panel-border)'
             }}>
-                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                     <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
                     Nuclides
                 </h4>
@@ -1728,7 +1740,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '6px 8px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '12px',
                             boxSizing: 'border-box'
@@ -1742,8 +1754,8 @@ export class XSPlotWidget extends ReactWidget {
                             right: 0,
                             maxHeight: '150px',
                             overflow: 'auto',
-                            backgroundColor: theme === 'dark' ? '#2d2d30' : '#ffffff',
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            backgroundColor: 'var(--theia-editor-background)',
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             zIndex: 100,
                             marginTop: '2px'
@@ -1767,7 +1779,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Selected ({this.selectedNuclides.length}):
                     </div>
                     <div style={{ 
@@ -1784,8 +1796,8 @@ export class XSPlotWidget extends ReactWidget {
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     padding: '2px 6px',
-                                    backgroundColor: theme === 'dark' ? '#094771' : '#e5f3ff',
-                                    color: theme === 'dark' ? '#fff' : '#0066bf',
+                                    backgroundColor: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
                                     borderRadius: '3px',
                                     fontSize: '11px',
                                     gap: '4px'
@@ -1812,7 +1824,7 @@ export class XSPlotWidget extends ReactWidget {
                         height: '50px',
                         backgroundColor: checkboxBg,
                         color: textColor,
-                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                        border: '1px solid var(--theia-input-border)',
                         borderRadius: '3px',
                         padding: '6px',
                         fontSize: '12px',
@@ -1849,13 +1861,13 @@ export class XSPlotWidget extends ReactWidget {
 
     // ===== Material Controls =====
 
-    private renderMaterialControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderMaterialControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
             <div style={{
                 padding: '15px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                borderBottom: '1px solid var(--theia-panel-border)'
             }}>
-                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                     <span className={codicon('symbol-struct')} style={{ marginRight: '6px' }} />
                     Materials
                 </h4>
@@ -1867,7 +1879,7 @@ export class XSPlotWidget extends ReactWidget {
                                 key={idx}
                                 style={{
                                     padding: '8px',
-                                    backgroundColor: theme === 'dark' ? '#2d2d30' : '#f5f5f5',
+                                    backgroundColor: 'var(--theia-input-background)',
                                     borderRadius: '3px',
                                     marginBottom: '6px',
                                     fontSize: '12px'
@@ -1875,11 +1887,11 @@ export class XSPlotWidget extends ReactWidget {
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <strong>{mat.name}</strong>
-                                    <span onClick={() => this.removeMaterial(idx)} style={{ cursor: 'pointer', color: '#ff6b6b' }}>
+                                    <span onClick={() => this.removeMaterial(idx)} style={{ cursor: 'pointer', color: 'var(--theia-errorForeground)' }}>
                                         ×
                                     </span>
                                 </div>
-                                <div style={{ fontSize: '10px', color: '#888' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
                                     {mat.components.map(c => `${c.nuclide} (${(c.fraction * 100).toFixed(1)}%)`).join(', ')}
                                 </div>
                             </div>
@@ -1889,9 +1901,9 @@ export class XSPlotWidget extends ReactWidget {
 
                 <div style={{
                     padding: '10px',
-                    backgroundColor: theme === 'dark' ? '#1e1e1e' : '#fafafa',
+                    backgroundColor: 'var(--theia-input-background)',
                     borderRadius: '3px',
-                    border: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                    border: '1px solid var(--theia-input-border)'
                 }}>
                     <input
                         type="text"
@@ -1904,7 +1916,7 @@ export class XSPlotWidget extends ReactWidget {
                             marginBottom: '8px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '12px',
                             boxSizing: 'border-box'
@@ -1912,7 +1924,7 @@ export class XSPlotWidget extends ReactWidget {
                     />
 
                     <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>Components:</div>
+                        <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>Components:</div>
                         {this.currentMaterial.components.map((comp, idx) => (
                             <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
                                 <select
@@ -1924,7 +1936,7 @@ export class XSPlotWidget extends ReactWidget {
                                         fontSize: '11px',
                                         backgroundColor: checkboxBg,
                                         color: textColor,
-                                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                        border: '1px solid var(--theia-input-border)',
                                         borderRadius: '3px',
                                         boxSizing: 'border-box'
                                     }}
@@ -1948,7 +1960,7 @@ export class XSPlotWidget extends ReactWidget {
                                         fontSize: '11px',
                                         backgroundColor: checkboxBg,
                                         color: textColor,
-                                        border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                        border: '1px solid var(--theia-input-border)',
                                         borderRadius: '3px',
                                         boxSizing: 'border-box'
                                     }}
@@ -1957,8 +1969,8 @@ export class XSPlotWidget extends ReactWidget {
                                     onClick={() => this.removeComponent(idx)}
                                     style={{
                                         padding: '4px 8px',
-                                        backgroundColor: '#ff6b6b',
-                                        color: 'white',
+                                        backgroundColor: 'var(--theia-errorForeground)',
+                                        color: 'var(--theia-button-foreground)',
                                         border: 'none',
                                         borderRadius: '3px',
                                         cursor: 'pointer',
@@ -1973,7 +1985,7 @@ export class XSPlotWidget extends ReactWidget {
                             onClick={() => this.addComponent()}
                             style={{
                                 padding: '4px 8px',
-                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
                                 color: textColor,
                                 border: 'none',
                                 borderRadius: '3px',
@@ -1992,9 +2004,9 @@ export class XSPlotWidget extends ReactWidget {
                             width: '100%',
                             padding: '6px',
                             backgroundColor: this.currentMaterial.components.length > 0 && this.currentMaterial.name
-                                ? '#0e639c'
-                                : '#666',
-                            color: 'white',
+                                ? 'var(--theia-button-background)'
+                                : 'var(--theia-button-disabledBackground)',
+                            color: 'var(--theia-button-foreground)',
                             border: 'none',
                             borderRadius: '3px',
                             cursor: this.currentMaterial.components.length > 0 && this.currentMaterial.name
@@ -2050,22 +2062,22 @@ export class XSPlotWidget extends ReactWidget {
 
     // ===== Temperature Comparison Controls =====
 
-    private renderTempComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderTempComparisonControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
             <div style={{
                 padding: '15px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`
+                borderBottom: '1px solid var(--theia-panel-border)'
             }}>
-                <h4 style={{ margin: '0 0 12px 0', color: theme === 'dark' ? '#fff' : '#000' }}>
+                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
                     <span className={codicon('flame')} style={{ marginRight: '6px' }} />
                     Temperature Comparison
                 </h4>
-                <div style={{ fontSize: '11px', color: '#888', marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '12px' }}>
                     Visualize Doppler broadening effects.
                 </div>
 
                 <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Nuclide
                     </label>
                     <select
@@ -2076,7 +2088,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '6px 8px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '12px',
                             boxSizing: 'border-box'
@@ -2089,7 +2101,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Reaction
                     </label>
                     <select
@@ -2100,7 +2112,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '6px 8px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '12px',
                             boxSizing: 'border-box'
@@ -2113,7 +2125,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Temperatures (K)
                     </label>
                     <input
@@ -2126,7 +2138,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '6px 8px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '12px',
                             boxSizing: 'border-box'
@@ -2142,7 +2154,7 @@ export class XSPlotWidget extends ReactWidget {
                             style={{
                                 padding: '4px 8px',
                                 fontSize: '10px',
-                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
                                 color: textColor,
                                 border: 'none',
                                 borderRadius: '3px',
@@ -2200,24 +2212,24 @@ export class XSPlotWidget extends ReactWidget {
 
     // ===== Library Comparison Controls =====
 
-    private renderLibraryComparisonControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderLibraryComparisonControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
             <div style={{
                 padding: '10px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                borderBottom: '1px solid var(--theia-panel-border)',
                 boxSizing: 'border-box',
                 width: '100%'
             }}>
-                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
                     <span className={codicon('book')} style={{ marginRight: '6px' }} />
                     Library Comparison
                 </h4>
-                <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '6px' }}>
                     Compare nuclide data across different libraries.
                 </div>
 
                 <div style={{ marginBottom: '6px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Nuclide
                     </label>
                     <select
@@ -2228,7 +2240,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2241,7 +2253,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Reaction
                     </label>
                     <select
@@ -2252,7 +2264,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2265,7 +2277,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Temperature (K)
                     </label>
                     <input
@@ -2277,7 +2289,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2286,7 +2298,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Libraries ({this.libraryComparisonLibraries.length}):
                     </label>
                     
@@ -2304,7 +2316,7 @@ export class XSPlotWidget extends ReactWidget {
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
                                         padding: '4px 6px',
-                                        backgroundColor: theme === 'dark' ? '#2d2d30' : '#f5f5f5',
+                                        backgroundColor: 'var(--theia-input-background)',
                                         borderRadius: '3px',
                                         marginBottom: '3px',
                                         fontSize: '10px'
@@ -2315,7 +2327,7 @@ export class XSPlotWidget extends ReactWidget {
                                     </div>
                                     <span 
                                         onClick={() => this.removeLibrary(idx)} 
-                                        style={{ cursor: 'pointer', color: '#ff6b6b', marginLeft: '6px', flexShrink: 0 }}
+                                        style={{ cursor: 'pointer', color: 'var(--theia-errorForeground)', marginLeft: '6px', flexShrink: 0 }}
                                     >
                                         ×
                                     </span>
@@ -2326,9 +2338,9 @@ export class XSPlotWidget extends ReactWidget {
 
                     <div style={{
                         padding: '8px',
-                        backgroundColor: theme === 'dark' ? '#1e1e1e' : '#fafafa',
+                        backgroundColor: 'var(--theia-input-background)',
                         borderRadius: '3px',
-                        border: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                        border: '1px solid var(--theia-input-border)',
                         boxSizing: 'border-box'
                     }}>
                         <input
@@ -2342,7 +2354,7 @@ export class XSPlotWidget extends ReactWidget {
                                 marginBottom: '4px',
                                 backgroundColor: checkboxBg,
                                 color: textColor,
-                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                border: '1px solid var(--theia-input-border)',
                                 borderRadius: '3px',
                                 fontSize: '11px',
                                 boxSizing: 'border-box'
@@ -2359,7 +2371,7 @@ export class XSPlotWidget extends ReactWidget {
                                 marginBottom: '4px',
                                 backgroundColor: checkboxBg,
                                 color: textColor,
-                                border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                                border: '1px solid var(--theia-input-border)',
                                 borderRadius: '3px',
                                 fontSize: '10px',
                                 boxSizing: 'border-box'
@@ -2372,9 +2384,9 @@ export class XSPlotWidget extends ReactWidget {
                                 width: '100%',
                                 padding: '4px',
                                 backgroundColor: this.currentLibrary.name && this.currentLibrary.path
-                                    ? '#0e639c'
-                                    : '#666',
-                                color: 'white',
+                                    ? 'var(--theia-button-background)'
+                                    : 'var(--theia-button-disabledBackground)',
+                                color: 'var(--theia-button-foreground)',
                                 border: 'none',
                                 borderRadius: '3px',
                                 cursor: this.currentLibrary.name && this.currentLibrary.path
@@ -2388,31 +2400,31 @@ export class XSPlotWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
+                <div style={{ fontSize: '9px', color: 'var(--theia-descriptionForeground)', fontStyle: 'italic' }}>
                     Tip: Add libraries with cross_sections.xml paths.
                 </div>
             </div>
         );
     }
 
-    private renderThermalScatteringControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderThermalScatteringControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
             <div style={{
                 padding: '10px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                borderBottom: '1px solid var(--theia-panel-border)',
                 boxSizing: 'border-box',
                 width: '100%'
             }}>
-                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
                     <span className={codicon('flame')} style={{ marginRight: '6px' }} />
                     S(α,β) Thermal Scattering
                 </h4>
-                <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
                     Plot thermal neutron scattering cross-sections.
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Thermal Scattering Material
                     </label>
                     <select
@@ -2423,7 +2435,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2436,7 +2448,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Temperatures (K)
                     </label>
                     <input
@@ -2449,7 +2461,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2465,7 +2477,7 @@ export class XSPlotWidget extends ReactWidget {
                             style={{
                                 padding: '3px 6px',
                                 fontSize: '10px',
-                                backgroundColor: theme === 'dark' ? '#3c3c3c' : '#e0e0e0',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
                                 color: textColor,
                                 border: 'none',
                                 borderRadius: '3px',
@@ -2477,7 +2489,7 @@ export class XSPlotWidget extends ReactWidget {
                     ))}
                 </div>
 
-                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '8px' }}>
+                <div style={{ fontSize: '9px', color: 'var(--theia-descriptionForeground)', fontStyle: 'italic', marginTop: '8px' }}>
                     {this.availableThermalMaterials.length} thermal scattering material(s) available in your library.
                     {this.availableThermalMaterials.length === 0 && ' Check cross-section path.'}
                 </div>
@@ -2485,24 +2497,24 @@ export class XSPlotWidget extends ReactWidget {
         );
     }
 
-    private renderChainDecayControls(theme: 'dark' | 'light', textColor: string, checkboxBg: string): React.ReactNode {
+    private renderChainDecayControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
             <div style={{
                 padding: '10px',
-                borderBottom: `1px solid ${theme === 'dark' ? '#3c3c3c' : '#e0e0e0'}`,
+                borderBottom: '1px solid var(--theia-panel-border)',
                 boxSizing: 'border-box',
                 width: '100%'
             }}>
-                <h4 style={{ margin: '0 0 6px 0', color: theme === 'dark' ? '#fff' : '#000', fontSize: '12px' }}>
+                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
                     <span className={codicon('git-branch')} style={{ marginRight: '6px' }} />
                     Chain Decay/Buildup
                 </h4>
-                <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
                     Calculate cumulative cross-sections for decay chains.
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Parent Nuclide
                     </label>
                     <select
@@ -2513,7 +2525,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2526,7 +2538,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Decay Time (seconds)
                     </label>
                     <input
@@ -2540,7 +2552,7 @@ export class XSPlotWidget extends ReactWidget {
                             padding: '4px 6px',
                             backgroundColor: checkboxBg,
                             color: textColor,
-                            border: `1px solid ${theme === 'dark' ? '#555' : '#ccc'}`,
+                            border: '1px solid var(--theia-input-border)',
                             borderRadius: '3px',
                             fontSize: '11px',
                             boxSizing: 'border-box'
@@ -2556,8 +2568,8 @@ export class XSPlotWidget extends ReactWidget {
                                     style={{
                                         padding: '2px 6px',
                                         fontSize: '9px',
-                                        backgroundColor: this.chainDecayTime === t ? '#0e639c' : (theme === 'dark' ? '#3c3c3c' : '#e0e0e0'),
-                                        color: this.chainDecayTime === t ? 'white' : textColor,
+                                        backgroundColor: this.chainDecayTime === t ? 'var(--theia-button-background)' : 'var(--theia-button-secondaryBackground)',
+                                        color: this.chainDecayTime === t ? 'var(--theia-button-foreground)' : textColor,
                                         border: 'none',
                                         borderRadius: '3px',
                                         cursor: 'pointer'
@@ -2583,7 +2595,7 @@ export class XSPlotWidget extends ReactWidget {
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
-                    <label style={{ display: 'block', fontSize: '10px', color: '#888', marginBottom: '2px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Max Chain Depth: {this.chainDecayMaxDepth}
                     </label>
                     <input
@@ -2596,16 +2608,16 @@ export class XSPlotWidget extends ReactWidget {
                     />
                 </div>
 
-                <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '8px' }}>
+                <div style={{ fontSize: '9px', color: 'var(--theia-descriptionForeground)', fontStyle: 'italic', marginTop: '8px' }}>
                     Shows cumulative XS including daughter contributions weighted by decay abundance.
                 </div>
             </div>
         );
     }
 
-    private renderResizeHandle(theme: 'dark' | 'light'): React.ReactNode {
-        const handleColor = theme === 'dark' ? '#555' : '#ccc';
-        const handleHoverColor = theme === 'dark' ? '#777' : '#999';
+    private renderResizeHandle(): React.ReactNode {
+        const handleColor = 'var(--theia-panel-border)';
+        const handleHoverColor = 'var(--theia-input-border)';
         
         return (
             <div
@@ -2624,7 +2636,7 @@ export class XSPlotWidget extends ReactWidget {
                 <div style={{
                     width: '30px',
                     height: '2px',
-                    backgroundColor: theme === 'dark' ? '#888' : '#666',
+                    backgroundColor: 'var(--theia-descriptionForeground)',
                     borderRadius: '1px'
                 }} />
             </div>
@@ -2656,15 +2668,15 @@ export class XSPlotWidget extends ReactWidget {
         document.addEventListener('mouseup', handleMouseUp);
     }
 
-    private renderIntegralsPanel(theme: 'dark' | 'light'): React.ReactNode {
+    private renderIntegralsPanel(): React.ReactNode {
         if (!this.data || !this.data.curves || this.data.curves.length === 0) {
             return null;
         }
 
-        const panelBg = theme === 'dark' ? '#252526' : '#f3f3f3';
-        const borderColor = theme === 'dark' ? '#3c3c3c' : '#e0e0e0';
-        const textColor = theme === 'dark' ? '#cccccc' : '#333333';
-        const headerColor = theme === 'dark' ? '#fff' : '#000';
+        const panelBg = 'var(--theia-sideBar-background)';
+        const borderColor = 'var(--theia-panel-border)';
+        const textColor = 'var(--theia-foreground)';
+        const headerColor = 'var(--theia-foreground)';
 
         return (
             <div style={{
@@ -2700,7 +2712,7 @@ export class XSPlotWidget extends ReactWidget {
                         return (
                             <div key={idx} style={{
                                 padding: '8px',
-                                backgroundColor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
+                                backgroundColor: 'var(--theia-editor-background)',
                                 borderRadius: '3px',
                                 border: `1px solid ${borderColor}`,
                                 fontSize: '11px'

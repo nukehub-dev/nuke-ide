@@ -18,7 +18,6 @@ import * as React from 'react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { ThemeService } from '@theia/core/lib/browser/theming';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
 import URI from '@theia/core/lib/common/uri';
@@ -52,9 +51,6 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     // UI state
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
-
-    @inject(ThemeService)
-    protected readonly themeService: ThemeService;
 
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
@@ -168,22 +164,20 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
             return this.renderEmpty();
         }
 
-        const theme = this.getCurrentTheme();
-
         return (
             <div style={{ 
                 height: '100%', 
                 display: 'flex', 
                 flexDirection: 'column',
-                backgroundColor: theme === 'dark' ? '#1e1e1e' : '#ffffff'
+                backgroundColor: 'var(--theia-editor-background)'
             }}>
                 {/* Header */}
-                {this.renderHeader(theme)}
+                {this.renderHeader()}
                 
                 {/* Main Content */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                     {/* Sidebar */}
-                    {this.renderSidebar(theme)}
+                    {this.renderSidebar()}
                     
                     {/* Plot Area */}
                     <div style={{ flex: 1, padding: '10px', overflow: 'auto' }}>
@@ -193,12 +187,12 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                color: '#888'
+                                color: 'var(--theia-descriptionForeground)'
                             }}>
                                 Loading comparison data...
                             </div>
                         ) : (
-                            this.renderPlot(theme)
+                            this.renderPlot()
                         )}
                     </div>
                 </div>
@@ -206,15 +200,15 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         );
     }
 
-    private renderHeader(theme: 'dark' | 'light'): React.ReactNode {
-        const bgColor = theme === 'dark' ? '#2d2d2d' : '#f5f5f5';
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderHeader(): React.ReactNode {
+        const bgColor = 'var(--theia-sideBar-background)';
+        const textColor = 'var(--theia-foreground)';
         
         return (
             <div style={{
                 padding: '10px 20px',
                 backgroundColor: bgColor,
-                borderBottom: `1px solid ${theme === 'dark' ? '#444' : '#ddd'}`,
+                borderBottom: '1px solid var(--theia-panel-border)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '20px'
@@ -224,7 +218,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                 </div>
                 
                 {this.caseA && this.caseB && (
-                    <div style={{ fontSize: '12px', color: '#888', display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', display: 'flex', gap: '15px', alignItems: 'center' }}>
                         <span style={{ color: '#1f77b4', fontWeight: 'bold' }}>Case A: {this.caseA.fileName}</span>
                         <span>vs</span>
                         <span style={{ color: '#ff7f0e', fontWeight: 'bold' }}>Case B: {this.caseB.fileName}</span>
@@ -234,10 +228,10 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         );
     }
 
-    private renderSidebar(theme: 'dark' | 'light'): React.ReactNode {
-        const bgColor = theme === 'dark' ? '#252526' : '#f3f3f3';
-        const borderColor = theme === 'dark' ? '#444' : '#ddd';
-        const textColor = theme === 'dark' ? '#ccc' : '#333';
+    private renderSidebar(): React.ReactNode {
+        const bgColor = 'var(--theia-sideBar-background)';
+        const borderColor = 'var(--theia-panel-border)';
+        const textColor = 'var(--theia-foreground)';
         const commonNuclides = this.getCommonNuclides();
 
         return (
@@ -263,7 +257,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
                             marginBottom: '10px'
                         }}
@@ -285,7 +279,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                             fontSize: '12px',
                             borderRadius: '4px',
                             border: `1px solid ${borderColor}`,
-                            backgroundColor: theme === 'dark' ? '#3c3c3c' : '#fff',
+                            backgroundColor: 'var(--theia-input-background)',
                             color: textColor,
                             marginBottom: '10px'
                         }}
@@ -300,10 +294,10 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     {this.plotType === 'normalized' && this.selectedNuclides.size > 0 && (
                         <div style={{
                             padding: '10px',
-                            backgroundColor: theme === 'dark' ? '#1e3a5f' : '#e3f2fd',
+                            backgroundColor: 'var(--theia-infoBackground, #1e3a5f)',
                             borderRadius: '4px',
                             fontSize: '10px',
-                            color: theme === 'dark' ? '#90caf9' : '#1565c0'
+                            color: 'var(--theia-infoForeground, #90caf9)'
                         }}>
                             <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>ℹ️ Normalized Mode:</div>
                             <div>Each case normalized to its own initial value</div>
@@ -332,14 +326,14 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                         <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                             Common Nuclides ({this.selectedNuclides.size} / {commonNuclides.length})
                         </label>
-                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+                        <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
                             Only nuclides present in both cases are shown
                         </div>
                     </div>
                     
                     <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
                         {commonNuclides.length === 0 ? (
-                            <div style={{ fontSize: '11px', color: '#888', textAlign: 'center', padding: '20px' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', textAlign: 'center', padding: '20px' }}>
                                 No common nuclides found
                             </div>
                         ) : (
@@ -378,7 +372,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         );
     }
 
-    private renderPlot(theme: 'dark' | 'light'): React.ReactNode {
+    private renderPlot(): React.ReactNode {
         if (!this.caseA?.nuclideData || !this.caseB?.nuclideData || this.selectedNuclides.size === 0) {
             return (
                 <div style={{
@@ -386,12 +380,17 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#888'
+                    color: 'var(--theia-descriptionForeground)'
                 }}>
                     {this.selectedNuclides.size === 0 ? 'Select nuclides to compare' : 'No data available'}
                 </div>
             );
         }
+
+        // Get computed colors for Plotly (CSS variables don't work in Canvas/SVG)
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#3c3c3c');
 
         // Get x-axis data for both cases
         let xValuesA: number[], xValuesB: number[];
@@ -508,23 +507,23 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
         const layout: any = {
             xaxis: {
-                title: { text: xLabel, font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
+                title: { text: xLabel, font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
                 type: 'linear'
             },
             yaxis: {
-                title: { text: this.getYAxisLabel(), font: { color: theme === 'dark' ? '#ccc' : '#333' } },
-                tickfont: { color: theme === 'dark' ? '#ccc' : '#333' },
-                gridcolor: theme === 'dark' ? '#444' : '#ddd',
+                title: { text: this.getYAxisLabel(), font: { color: fgColor } },
+                tickfont: { color: fgColor },
+                gridcolor: gridColor,
                 type: 'linear'
             },
-            paper_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
-            plot_bgcolor: theme === 'dark' ? '#1e1e1e' : '#ffffff',
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
             margin: { t: 30, r: 30, b: 50, l: 70 },
             legend: {
-                font: { color: theme === 'dark' ? '#ccc' : '#333' },
-                bgcolor: theme === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
+                font: { color: fgColor },
+                bgcolor: bgColor,
                 orientation: 'h',
                 y: -0.2
             },
@@ -537,7 +536,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
         };
 
-        return <PlotlyComponent data={traces} layout={layout} config={config} theme={theme} />;
+        return <PlotlyComponent data={traces} layout={layout} config={config} />;
     }
 
     private getYAxisLabel(): string {
@@ -559,7 +558,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#888',
+                color: 'var(--theia-descriptionForeground)',
                 padding: '20px'
             }}>
                 <div>No comparison files selected</div>
@@ -568,7 +567,6 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     }
 
     private renderError(): React.ReactNode {
-        const theme = this.getCurrentTheme();
         return (
             <div style={{
                 height: '100%',
@@ -576,7 +574,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: theme === 'dark' ? '#ff6b6b' : '#d32f2f',
+                color: 'var(--theia-errorForeground)',
                 padding: '20px',
                 textAlign: 'center'
             }}>
@@ -586,8 +584,13 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         );
     }
 
-    private getCurrentTheme(): 'dark' | 'light' {
-        const themeId = this.themeService.getCurrentTheme().id;
-        return themeId.indexOf('light') !== -1 ? 'light' : 'dark';
+    /**
+     * Helper to get computed color from CSS variable
+     */
+    private getCssColor(variable: string, fallback: string): string {
+        if (typeof window === 'undefined') return fallback;
+        const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
+        return computed || fallback;
     }
+
 }
