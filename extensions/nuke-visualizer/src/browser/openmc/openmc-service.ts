@@ -863,9 +863,9 @@ export class OpenMCService {
     /**
      * Visualize geometry in 3D.
      */
-    async visualizeGeometry(fileUri: URI, highlightCellId?: number, overlaps?: any[]): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
+    async visualizeGeometry(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
         try {
-            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId, overlaps);
+            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
         } catch (error) {
             this.messageService.error(`Failed to visualize geometry: ${error}`);
             return { success: false, error: String(error) };
@@ -875,23 +875,26 @@ export class OpenMCService {
     /**
      * Open geometry in a new Visualizer widget (for Material Explorer cell linkage).
      */
-    async openGeometryViewer(fileUri: URI, highlightCellId?: number, overlaps?: any[]): Promise<VisualizerWidget | null> {
+    async openGeometryViewer(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<VisualizerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            const progressText = overlaps && overlaps.length > 0
-                ? 'Loading geometry with overlap markers...'
-                : (highlightCellId ? `Loading geometry and highlighting cell ${highlightCellId}...` : 'Loading geometry...');
+            const hasOverlaps = overlaps && overlaps.length > 0;
+            const hasHighlights = highlightCellIds && highlightCellIds.length > 0;
+
+            const progressText = hasOverlaps
+                ? `Loading geometry with ${overlaps.length} overlap markers...`
+                : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
                 
             const progress = await this.messageService.showProgress({
                 text: progressText,
                 options: { cancelable: false }
             });
 
-            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellId, overlaps);
+            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
 
             progress.cancel();
 
@@ -901,17 +904,19 @@ export class OpenMCService {
 
             // Create unique suffix for geometry visualization
             let uniqueSuffix = `geometry:${Date.now()}`;
-            if (overlaps && overlaps.length > 0) {
+            if (hasOverlaps) {
                 uniqueSuffix = `geometry:overlaps:${Date.now()}`;
-            } else if (highlightCellId) {
-                uniqueSuffix = `geometry:highlight:${highlightCellId}:${Date.now()}`;
+            } else if (hasHighlights) {
+                uniqueSuffix = `geometry:highlight:${highlightCellIds.join('_')}:${Date.now()}`;
             }
             
             let label = 'OpenMC Geometry';
-            if (overlaps && overlaps.length > 0) {
+            if (hasOverlaps) {
                 label = 'OpenMC Geometry Overlaps';
-            } else if (highlightCellId) {
-                label = `OpenMC Geometry (Cell ${highlightCellId})`;
+            } else if (hasHighlights) {
+                label = highlightCellIds.length === 1 
+                    ? `OpenMC Geometry (Cell ${highlightCellIds[0]})`
+                    : `OpenMC Geometry (${highlightCellIds.length} cells)`;
             }
             
             const widget = await this.createVisualizerWidget(
@@ -922,8 +927,8 @@ export class OpenMCService {
                 uniqueSuffix
             );
 
-            this.messageService.info(highlightCellId 
-                ? `Loaded geometry with cell ${highlightCellId} highlighted`
+            this.messageService.info(hasHighlights 
+                ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted`
                 : 'Loaded geometry visualization'
             );
             return widget;
@@ -1040,6 +1045,19 @@ export class OpenMCService {
         }
     }
     
+    /**
+     * Stop a running visualization server.
+     */
+    async stopServer(port: number | null): Promise<void> {
+        if (port) {
+            try {
+                await this.openmcBackend.stopServer(port);
+            } catch (error) {
+                console.error(`[OpenMC] Error stopping server on port ${port}:`, error);
+            }
+        }
+    }
+
     /**
      * Check if a file exists.
      */

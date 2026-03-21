@@ -182,7 +182,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             }
             
             // Open the geometry viewer with the cell highlighted
-            const widget = await this.openmcService.openGeometryViewer(this.geometryUri, cellId);
+            const widget = await this.openmcService.openGeometryViewer(this.geometryUri, [cellId]);
             
             if (!widget) {
                 this.messageService.error('Failed to open Geometry Viewer');

@@ -1,0 +1,20 @@
+/* OpenMC Geometry Overlap Checker Styles */
+
+/* Main widget container - no scroll, flex layout */
+.openmc-overlap-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Scrollable content area */
+.openmc-overlap-widget > div:last-child {
+    flex: 1;
+    overflow: auto;
+}
+
+/* Ensure no nested scroll within overlap items */
+.openmc-overlap-widget .overlap-item {
+    flex-shrink: 0;
+}

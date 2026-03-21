@@ -831,7 +831,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async visualizeGeometry(
         filePath: string,
-        highlightCellId?: number,
+        highlightCellIds?: number[],
         overlaps?: any[]
     ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
         const port = await this.findFreePort(8090);
@@ -850,8 +850,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 '--port', port.toString()
             ];
 
-            if (highlightCellId !== undefined) {
-                args.push('--highlight', highlightCellId.toString());
+            if (highlightCellIds && highlightCellIds.length > 0) {
+                args.push('--highlight', highlightCellIds.join(','));
             }
 
             if (overlaps && overlaps.length > 0) {

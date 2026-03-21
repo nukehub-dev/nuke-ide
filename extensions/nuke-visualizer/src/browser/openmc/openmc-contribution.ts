@@ -1260,7 +1260,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         try {
             const result = await this.openmcService.visualizeGeometry(
                 request.fileUri,
-                request.highlightCellId
+                request.highlightCellId !== undefined ? [request.highlightCellId] : undefined
             );
 
             if (result.success && result.url && result.port) {

@@ -424,7 +424,7 @@ export interface OpenMCBackendService {
     getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
     
     /** Visualize geometry in 3D */
-    visualizeGeometry(filePath: string, highlightCellId?: number, overlaps?: any[]): Promise<{
+    visualizeGeometry(filePath: string, highlightCellIds?: number[], overlaps?: any[]): Promise<{
         success: boolean;
         port?: number;
         url?: string;

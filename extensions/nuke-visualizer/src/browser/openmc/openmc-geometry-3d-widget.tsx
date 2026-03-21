@@ -23,6 +23,8 @@ import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
+import { OpenMCService } from './openmc-service';
+
 @injectable()
 export class OpenMCGeometry3DWidget extends ReactWidget {
     static readonly ID = 'openmc-geometry-3d-widget';
@@ -30,6 +32,9 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
 
     @inject(MessageService)
     protected readonly messageService!: MessageService;
+
+    @inject(OpenMCService)
+    protected readonly openmcService!: OpenMCService;
 
     private geometryUri: URI | null = null;
     private serverUrl: string | null = null;
@@ -144,8 +149,10 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
     protected onCloseRequest(msg: Message): void {
         // Stop the server when widget is closed
         if (this.serverPort) {
-            // Emit event to stop server
-            this.dispose();
+            console.log(`[OpenMC3D] Closing widget, stopping server on port ${this.serverPort}`);
+            this.openmcService.stopServer(this.serverPort).catch((err: any) => {
+                console.error(`[OpenMC3D] Failed to stop server on port ${this.serverPort}:`, err);
+            });
         }
         super.onCloseRequest(msg);
     }
