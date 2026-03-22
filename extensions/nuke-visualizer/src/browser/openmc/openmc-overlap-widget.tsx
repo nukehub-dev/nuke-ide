@@ -622,9 +622,16 @@ export class OpenMCOverlapWidget extends ReactWidget {
         try {
             // Open the geometry viewer with the overlaps array directly
             // The backend will handle creating a temporary file for the Python server
+            // Overlaps are limited to 1000 for performance
+            const MAX_DISPLAY = 1000;
+            const displayCount = Math.min(this.overlaps.length, MAX_DISPLAY);
             await this.openmcService.openGeometryViewer(this.geometryUri, undefined, this.overlaps);
             
-            this.messageService.info(`Loaded 3D view with ${this.overlaps.length} overlap markers`);
+            if (this.overlaps.length > MAX_DISPLAY) {
+                this.messageService.info(`Loaded 3D view with ${displayCount} of ${this.overlaps.length} overlap markers (limited for performance)`);
+            } else {
+                this.messageService.info(`Loaded 3D view with ${displayCount} overlap markers`);
+            }
         } catch (error) {
             this.messageService.error(`Failed to visualize overlaps: ${error}`);
         }

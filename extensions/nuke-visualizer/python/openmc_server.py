@@ -450,7 +450,7 @@ def cmd_visualize_mesh(args):
                         vuetify.VIcon("mdi-chevron-right")
                 
                 view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
-                state.view_widget = view_widget
+                pipeline['view_widget'] = view_widget
         
         # Add controllers
         @server.controller.add("view_update")
@@ -473,7 +473,8 @@ def cmd_visualize_mesh(args):
         def on_camera_update(camera_update_counter, **kwargs):
             try:
                 simple.Render(view)
-                view_widget.update()
+                if pipeline.get('view_widget'):
+                    pipeline['view_widget'].update()
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
         
@@ -570,7 +571,7 @@ def cmd_visualize_source(args):
         def update_view(push_camera=False):
             try:
                 simple.Render(view)
-                vw = state.view_widget
+                vw = pipeline.get('view_widget')
                 if vw:
                     if push_camera:
                         state.camera_update_counter = state.camera_update_counter + 1 if hasattr(state, 'camera_update_counter') else 1
@@ -771,7 +772,7 @@ def cmd_visualize_source(args):
                         vuetify.VIcon("mdi-chevron-right")
                 
                 view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
-                state.view_widget = view_widget
+                pipeline['view_widget'] = view_widget
         
         # Add controllers
         @server.controller.add("view_update")
@@ -794,7 +795,8 @@ def cmd_visualize_source(args):
         def on_camera_update(camera_update_counter, **kwargs):
             try:
                 simple.Render(view)
-                view_widget.update()
+                if pipeline.get('view_widget'):
+                    pipeline['view_widget'].update()
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
         
@@ -849,7 +851,7 @@ def cmd_visualize_overlay(args):
         def update_view(push_camera=False):
             try:
                 simple.Render(view)
-                vw = state.view_widget
+                vw = pipeline.get('view_widget')
                 if vw:
                     if push_camera:
                         state.camera_update_counter = (state.camera_update_counter + 1) if hasattr(state, 'camera_update_counter') else 1
@@ -901,7 +903,7 @@ def cmd_visualize_overlay(args):
                                 block=True, outlined=True)
             
             with vuetify.VMain():
-                state.view_widget = pv_widgets.VtkRemoteView(view)
+                pipeline['view_widget'] = pv_widgets.VtkRemoteView(view)
         
         print(f"Starting OpenMC overlay server on port {port}", file=sys.stderr)
         server.start(port=port, debug=False, open_browser=False)

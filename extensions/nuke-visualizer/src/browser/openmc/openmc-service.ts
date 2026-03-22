@@ -884,9 +884,15 @@ export class OpenMCService {
         try {
             const hasOverlaps = overlaps && overlaps.length > 0;
             const hasHighlights = highlightCellIds && highlightCellIds.length > 0;
+            
+            // Overlaps are limited to 1000 for performance on backend
+            const MAX_OVERLAPS = 1000;
+            const overlapDisplayCount = hasOverlaps ? Math.min(overlaps.length, MAX_OVERLAPS) : 0;
 
             const progressText = hasOverlaps
-                ? `Loading geometry with ${overlaps.length} overlap markers...`
+                ? (overlaps.length > MAX_OVERLAPS 
+                    ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
+                    : `Loading geometry with ${overlaps.length} overlap markers...`)
                 : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
                 
             const progress = await this.messageService.showProgress({

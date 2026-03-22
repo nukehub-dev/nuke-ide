@@ -20,7 +20,8 @@ from visualizer_common import (
     create_update_view, create_reset_camera_controller,
     create_set_camera_view_controller, UIComponents,
     init_common_state, StateHandlers, 
-    create_capture_screenshot_controller, save_screenshot_with_timestamp
+    create_capture_screenshot_controller, save_screenshot_with_timestamp,
+    GLOBAL_STYLES, DISTINCT_COLORS
 )
 
 
@@ -246,6 +247,13 @@ class OpenMCGeometryVisualizer:
         """Create VTK markers for overlap locations."""
         multi_block = vtk.vtkMultiBlockDataSet()
         
+        # Limit markers to prevent performance issues
+        MAX_MARKERS = 1000
+        total_markers = len(markers)
+        if total_markers > MAX_MARKERS:
+            print(f"Warning: Too many overlaps ({total_markers}). Showing first {MAX_MARKERS} markers.")
+            markers = markers[:MAX_MARKERS]
+        
         # Calculate a reasonable radius based on geometry bounds if not provided
         default_radius = 1.0
         if self.bounds:
@@ -266,8 +274,8 @@ class OpenMCGeometryVisualizer:
             sphere = vtk.vtkSphereSource()
             sphere.SetCenter(coords[0], coords[1], coords[2])
             sphere.SetRadius(radius)
-            sphere.SetThetaResolution(16)
-            sphere.SetPhiResolution(16)
+            sphere.SetThetaResolution(8)  # Reduced for performance
+            sphere.SetPhiResolution(8)
             sphere.Update()
             
             multi_block.SetBlock(i, sphere.GetOutput())
@@ -1253,10 +1261,15 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                     for s_id in cell.surfaces:
                         surf_selectors.append(f"/Root/Surface_{s_id}")
                 
+                # Deterministic color for UI consistency
+                color = DISTINCT_COLORS[cell_id % len(DISTINCT_COLORS)]
+                hex_color = '#%02x%02x%02x' % (int(color[0]*255), int(color[1]*255), int(color[2]*255))
+
                 cell_info.append({
                     'id': cell_id,
                     'name': cell_name,
                     'material': cell_material,
+                    'color': hex_color,
                     'index': i,
                     'selector': f"/Root/{block_name}",
                     'surf_selectors': surf_selectors
@@ -1305,32 +1318,16 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
         pipeline['view'] = view
         
         # Large set of distinct colors for cells
-        distinct_colors = [
-            [0.3, 0.5, 0.9],  # Blue
-            [0.3, 0.9, 0.5],  # Green
-            [0.9, 0.5, 0.3],  # Orange
-            [0.9, 0.3, 0.9],  # Magenta
-            [0.3, 0.9, 0.9],  # Cyan
-            [0.9, 0.9, 0.3],  # Yellow
-            [0.6, 0.4, 0.8],  # Purple
-            [0.4, 0.8, 0.6],  # Mint
-            [0.8, 0.6, 0.4],  # Brown
-            [0.5, 0.5, 0.5],  # Gray
-            [0.2, 0.7, 0.2],  # Dark Green
-            [0.1, 0.5, 0.8],  # Royal Blue
-            [0.8, 0.1, 0.5],  # Pink
-            [0.8, 0.8, 0.1],  # Gold
-            [0.1, 0.8, 0.8],  # Sky Blue
-        ]
-        pipeline['color_palette'] = distinct_colors
+        pipeline['color_palette'] = DISTINCT_COLORS
         
         # State overrides/initialization
         state.show_overlaps = True if overlap_markers else False
         state.cell_info = cell_info
         state.cell_visibility = cell_visibility
-        state.highlight_cell_ids = highlight_cells if highlight_cells else []
+        # Only use RED highlight (highlight_cell_ids) if we are in overlap detection mode
+        state.highlight_cell_ids = highlight_cells if (overlaps_file and highlight_cells) else []
+        # Initially select the highlighted cells
         state.selected_cell_ids = highlight_cells if highlight_cells else []
-        state.isolate_selection = False if highlight_cells is None else True
         
         update_view = create_update_view(pipeline, state, simple)
         
@@ -1372,24 +1369,20 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                         # Disable scalar mapping to use DiffuseColor/AmbientColor directly
                         disp.MapScalars = 0
                         
+                        # Assign deterministic color from palette
+                        palette = pipeline['color_palette']
+                        target_color = palette[cell_id % len(palette)]
+                        
                         if cell_id in state.highlight_cell_ids:
                             # Highlight overlapping cells as RED (Error)
                             target_color = [1.0, 0.0, 0.0]  # Bright Red
-                            disp.DiffuseColor = target_color
-                            disp.AmbientColor = target_color
                             disp.Ambient = max(0.4, float(state.ambient_light))
                         elif cell_id in state.selected_cell_ids:
-                            # User selected cells as YELLOW/GOLD
-                            target_color = [1.0, 0.9, 0.0]  # Yellow
-                            disp.DiffuseColor = target_color
-                            disp.AmbientColor = target_color
-                            disp.Ambient = max(0.3, float(state.ambient_light))
-                        else:
-                            # Assign deterministic color from palette
-                            palette = pipeline['color_palette']
-                            target_color = palette[cell_id % len(palette)]
-                            disp.DiffuseColor = target_color
-                            disp.AmbientColor = target_color
+                            # User selected cells: keep original color but boost ambient to highlight
+                            disp.Ambient = max(0.35, float(state.ambient_light) + 0.15)
+                        
+                        disp.DiffuseColor = target_color
+                        disp.AmbientColor = target_color
                         
                         pipeline['cell_displays'][cell_id] = disp
 
@@ -1402,20 +1395,16 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                     if state.show_overlaps:
                         selected_ids = state.selected_cell_ids if state.selected_cell_ids else []
                         
-                        # Filter markers if requested
-                        if state.isolate_selection:
-                            if not selected_ids:
-                                # Isolate is on but nothing selected -> show nothing
-                                pipeline['marker_extract'].Selectors = []
-                            else:
-                                marker_selectors = []
-                                for i, marker in enumerate(overlap_markers):
-                                    if any(cid in selected_ids for cid in marker.get('cellIds', [])):
-                                        marker_selectors.append(f"/Root/Overlap_{i}")
-                                
-                                pipeline['marker_extract'].Selectors = marker_selectors
+                        # Filter markers if cells are selected
+                        if selected_ids and len(selected_ids) > 0:
+                            marker_selectors = []
+                            for i, marker in enumerate(overlap_markers):
+                                if any(cid in selected_ids for cid in marker.get('cellIds', [])):
+                                    marker_selectors.append(f"/Root/Overlap_{i}")
+                            
+                            pipeline['marker_extract'].Selectors = marker_selectors
                         else:
-                            # Show all markers
+                            # Show all markers when nothing is selected
                             pipeline['marker_extract'].Selectors = ["/Root"]
                         
                         # Show or hide based on whether we have anything to show
@@ -1470,9 +1459,9 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                 view.Background = rgb
             update_view()
 
-        @state.change("selected_cell_ids", "isolate_selection")
-        def on_selected_cells_change(selected_cell_ids, isolate_selection, **kwargs):
-            if isolate_selection and selected_cell_ids and len(selected_cell_ids) > 0:
+        @state.change("selected_cell_ids")
+        def on_selected_cells_change(selected_cell_ids, **kwargs):
+            if selected_cell_ids and len(selected_cell_ids) > 0:
                 # Show ONLY selected cells
                 state.cell_visibility = {str(c['id']): (c['id'] in selected_cell_ids) for c in state.cell_info}
             else:
@@ -1581,109 +1570,216 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
 
         # UI
         with VAppLayout(server) as layout:
+            # Custom CSS for better UI aesthetics
+            html.Style(GLOBAL_STYLES)
+
             with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
                 with vuetify.VContainer():
                     vuetify.VSubheader("OpenMC Geometry", classes="text-h6 pa-0")
                     vuetify.VDivider(classes="mb-4")
                     
-                    # Display Controls
-                    UIComponents.opacity_slider(vuetify, ("opacity", 0.5))
-                    UIComponents.representation_selector(vuetify)
+                    # Display Controls - Compact
+                    UIComponents.opacity_slider(vuetify, ("opacity", 0.5), classes="mb-2")
+                    UIComponents.representation_selector(vuetify, classes="mb-2")
                     
                     if overlap_markers:
-                        vuetify.VCheckbox(v_model=("show_overlaps", True), label="Show Overlap Markers", color="error")
+                        vuetify.VCheckbox(v_model=("show_overlaps", True), label="Show Overlap Markers", color="error", dense=True, hide_details=True, classes="mb-2")
                     
-                    vuetify.VDivider(classes="my-4")
+                    vuetify.VDivider(classes="my-3")
                     
-                    # Clipping Section
-                    vuetify.VSubheader("Clipping", classes="text-subtitle-1 mb-2")
-                    vuetify.VCheckbox(v_model=("clip_enabled", False), label="Enable Clip Plane", dense=True, classes="mb-2")
+                    # Clipping Section - Compact
+                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
+                        with vuetify.VCol(cols=6):
+                            vuetify.VSubheader("Clipping", classes="text-subtitle-1 pa-0")
+                        with vuetify.VCol(cols=6, classes="text-right"):
+                            vuetify.VCheckbox(
+                                v_model=("clip_enabled", False), 
+                                label="Enable", dense=True, hide_details=True,
+                                classes="mt-0 pt-0 d-inline-flex"
+                            )
                     
-                    with vuetify.VContainer(v_if=("clip_enabled",), classes="pl-4"):
-                        vuetify.VSubheader("Origin", classes="text-caption pa-0")
-                        with vuetify.VRow(dense=True):
+                    with vuetify.VContainer(v_if=("clip_enabled",), classes="pa-0"):
+                        # Origin in compact row
+                        with vuetify.VRow(dense=True, classes="mb-1"):
+                            with vuetify.VCol(cols=12):
+                                vuetify.VSubheader("Origin", classes="text-caption pa-0 mb-1")
+                        with vuetify.VRow(dense=True, classes="mb-2"):
                             for axis in ['x', 'y', 'z']:
                                 with vuetify.VCol(cols=4):
-                                    vuetify.VTextField(v_model=(f"clip_origin_{axis}", 0.0), label=axis.upper(), type="number", dense=True, outlined=True)
-                        
-                        vuetify.VSubheader("Normal", classes="text-caption pa-0 mt-2")
-                        with vuetify.VRow(dense=True):
+                                    vuetify.VTextField(
+                                        v_model=(f"clip_origin_{axis}", 0.0), 
+                                        label=axis.upper(), type="number", 
+                                        dense=True, outlined=True, hide_details=True
+                                    )
+                        # Normal in compact row
+                        with vuetify.VRow(dense=True, classes="mb-1"):
+                            with vuetify.VCol(cols=12):
+                                vuetify.VSubheader("Normal", classes="text-caption pa-0 mb-1")
+                        with vuetify.VRow(dense=True, classes="mb-1"):
                             for axis, default in [('x', 1.0), ('y', 0.0), ('z', 0.0)]:
                                 with vuetify.VCol(cols=4):
-                                    vuetify.VTextField(v_model=(f"clip_normal_{axis}", default), label=axis.upper(), type="number", dense=True, outlined=True)
-                        
-                        vuetify.VCheckbox(v_model=("clip_invert", False), label="Invert Clip", dense=True, classes="mt-2")
+                                    vuetify.VTextField(
+                                        v_model=(f"clip_normal_{axis}", default), 
+                                        label=axis.upper(), type="number", 
+                                        dense=True, outlined=True, hide_details=True
+                                    )
+                        vuetify.VCheckbox(v_model=("clip_invert", False), label="Invert", dense=True, hide_details=True, classes="mt-1")
                     
-                    vuetify.VDivider(classes="my-4")
+                    vuetify.VDivider(classes="my-3")
                     
-                    # Cell Selection
+                    # Cell Selection - Compact Design
                     vuetify.VSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
-                    vuetify.VSelect(
-                        v_model=("selected_cell_ids", []),
-                        items=("cell_info", []), item_text="name", item_value="id",
-                        label="Select Cells to View", dense=True, outlined=True, clearable=True,
-                        multiple=True, chips=True, deletable_chips=True
-                    )
-                    vuetify.VCheckbox(v_model=("isolate_selection", False), label="Isolate Selection", dense=True)
+                    with vuetify.VContainer(classes="pa-0"):
+                        # Quick cell selector with search
+                        with vuetify.VAutocomplete(
+                            v_model=("selected_cell_ids", []),
+                            items=("cell_info", []), item_text="name", item_value="id",
+                            label="Search & select cells", dense=True, outlined=True, clearable=True,
+                            multiple=True, deletable_chips=True,
+                            attach=True,
+                            hide_selected=True, auto_select_first=False,
+                            prepend_inner_icon="mdi-magnify",
+                            classes="mb-2"
+                        ):
+                            # Item slot: customize how each cell appears in the dropdown
+                            with vuetify.Template(v_slot_item="{ item }"):
+                                with vuetify.VListItemIcon(classes="mr-2"):
+                                    vuetify.VIcon("mdi-circle", small=True, v_bind_style="{ color: item.color }")
+                                with vuetify.VListItemContent():
+                                    vuetify.VListItemTitle("{{ item.name }}")
+                                    vuetify.VListItemSubtitle("ID: {{ item.id }} | Material: {{ item.material }}")
+                            
+                            # Selection slot: customize how selected chips look
+                            with vuetify.Template(v_slot_selection="{ item, index }"):
+                                with vuetify.VChip(
+                                    x_small=True,
+                                    close=True,
+                                    v_bind_style="{ borderLeft: '3px solid ' + item.color + ' !important' }",
+                                    classes="ma-1",
+                                    # Use JS to update state in trame on close
+                                    click_close="selected_cell_ids.splice(index, 1); set('selected_cell_ids', [...selected_cell_ids])"
+                                ):
+                                    html.Span("{{ item.name }}")
+
+                        # Quick action buttons
+                        with vuetify.VRow(dense=True, classes="mb-2"):
+                            with vuetify.VCol(cols=6):
+                                vuetify.VBtn(
+                                    "Clear All", 
+                                    click=lambda: setattr(state, 'selected_cell_ids', []),
+                                    block=True, x_small=True, text=True,
+                                    disabled=("selected_cell_ids.length === 0",)
+                                )
+                            with vuetify.VCol(cols=6):
+                                vuetify.VBtn(
+                                    "Select All",
+                                    click=lambda: setattr(state, 'selected_cell_ids', [c['id'] for c in state.cell_info]),
+                                    block=True, x_small=True, text=True
+                                )
                     
-                    vuetify.VDivider(classes="my-4")
+                    vuetify.VDivider(classes="my-3")
                     
-                    # Camera Section
-                    vuetify.VSubheader("Camera", classes="text-subtitle-1 mb-2")
+                    # Camera Section - Compact
+                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
+                        with vuetify.VCol(cols=6):
+                            vuetify.VSubheader("Camera", classes="text-subtitle-1 pa-0")
+                    
                     with vuetify.VRow(dense=True):
                         with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Reset", click=reset_camera, block=True, small=True, outlined=True, classes="mb-2")
+                            vuetify.VBtn("Reset", click=reset_camera, block=True, x_small=True, outlined=True)
                         with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'), block=True, small=True, outlined=True, classes="mb-2")
+                            vuetify.VBtn("Iso", click=lambda: set_camera_view('isometric'), block=True, x_small=True, outlined=True)
                     
-                    with vuetify.VRow(dense=True):
+                    with vuetify.VRow(dense=True, classes="mt-1"):
                         with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Front", click=lambda: set_camera_view('front'), block=True, small=True, text=True)
+                            vuetify.VBtn("Front", click=lambda: set_camera_view('front'), block=True, x_small=True, text=True)
                         with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Side", click=lambda: set_camera_view('right'), block=True, small=True, text=True)
+                            vuetify.VBtn("Side", click=lambda: set_camera_view('right'), block=True, x_small=True, text=True)
                         with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Top", click=lambda: set_camera_view('top'), block=True, small=True, text=True)
+                            vuetify.VBtn("Top", click=lambda: set_camera_view('top'), block=True, x_small=True, text=True)
                     
-                    vuetify.VDivider(classes="my-4")
+                    vuetify.VDivider(classes="my-3")
                     
-                    # Appearance Section
+                    # Appearance Section - Compact
                     vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
                     
-                    # Background Color Picker
-                    with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
+                    # Background Color - compact
+                    with vuetify.VContainer(classes="ma-0 pa-0 mb-3", style="overflow: hidden;"):
                         UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
                     
-                    vuetify.VCheckbox(v_model=("parallel_projection", False), label="Parallel Projection", dense=True, classes="mb-2")
+                    # Compact toggles in a grid
+                    with vuetify.VRow(dense=True, classes="mb-2"):
+                        with vuetify.VCol(cols=6):
+                            vuetify.VCheckbox(v_model=("show_orientation_axes", True), label="3D Axis", dense=True, hide_details=True)
+                        with vuetify.VCol(cols=6):
+                            vuetify.VCheckbox(v_model=("parallel_projection", False), label="Parallel Proj", dense=True, hide_details=True)
+                    with vuetify.VRow(dense=True, classes="mb-2"):
+                        with vuetify.VCol(cols=6):
+                            vuetify.VCheckbox(v_model=("show_bounding_box", False), label="Bounds", dense=True, hide_details=True)
+                        with vuetify.VCol(cols=6):
+                            vuetify.VCheckbox(v_model=("show_cube_axes", False), label="Grid", dense=True, hide_details=True)
                     
-                    UIComponents.point_size_slider(vuetify)
-                    UIComponents.line_width_slider(vuetify)
-                    UIComponents.ambient_light_slider(vuetify)
+                    # Compact sliders
+                    UIComponents.point_size_slider(vuetify, classes="mb-2 mt-2")
+                    UIComponents.line_width_slider(vuetify, classes="mb-2")
+                    UIComponents.ambient_light_slider(vuetify, classes="mb-2")
                     
-                    for toggle in UIComponents.appearance_toggles(vuetify):
-                        pass # Handled in loop
+                    vuetify.VDivider(classes="my-3")
                     
-                    vuetify.VDivider(classes="my-4")
-                    
-                    # Export Section
-                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
-                    vuetify.VBtn("Save Screenshot", click=save_screenshot, block=True, small=True, color="primary", classes="mb-2")
-                    with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
-                        vuetify.VSubheader(("screenshot_status",), classes="text-caption justify-center")
+                    # Export Section - Compact
+                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
+                        with vuetify.VCol(cols=6):
+                            vuetify.VSubheader("Export", classes="text-subtitle-1 pa-0")
+                    vuetify.VBtn("Save Screenshot", click=save_screenshot, block=True, x_small=True, color="primary", classes="mb-1")
+                    with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center pa-0"):
+                        vuetify.VSubheader(("screenshot_status",), classes="text-caption justify-center pa-0")
 
-            with vuetify.VMain():
+            with vuetify.VMain(style="position: relative;"):
                 # Toggle button when controls are hidden
                 with vuetify.VContainer(v_if=("!show_controls",), classes="ma-2 pa-0", style="position: absolute; top: 0; left: 0; z-index: 100;"):
                     with vuetify.VBtn(click=lambda: setattr(state, 'show_controls', True), small=True, fab=True, color="primary"):
                         vuetify.VIcon("mdi-chevron-right")
-                        
-                view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
-                state.view_widget = view_widget
+                
+                # View container with explicit sizing
+                with vuetify.VContainer(
+                    fluid=True,
+                    classes="pa-0 ma-0 fill-height",
+                    style="height: 100vh; width: 100%; position: relative;"
+                ):
+                    view_widget = pv_widgets.VtkRemoteView(
+                        view, 
+                        interactive_ratio=1,
+                        style="width: 100%; height: 100%;"
+                    )
+                    pipeline['view_widget'] = view_widget
+                    
+                    # Force initial render and update
+                    simple.Render(view)
+                    view_widget.update()
                 
                 @state.change("camera_update_counter")
                 def on_camera_update(camera_update_counter, **kwargs):
-                    simple.Render(view)
-                    view_widget.update()
+                    try:
+                        simple.Render(view)
+                        if pipeline.get('view_widget'):
+                            pipeline['view_widget'].update()
+                    except Exception as e:
+                        print(f"Camera update error: {e}", flush=True)
 
+        # Ensure initial view is properly rendered
+        update_view()
+        
+        # Trigger update after client connects (for VtkRemoteView)
+        @server.controller.add("on_client_connected")
+        def on_client_connected(**kwargs):
+            try:
+                print("Client connected, updating view...", flush=True)
+                simple.Render(view)
+                if pipeline.get('view_widget'):
+                    pipeline['view_widget'].update()
+            except Exception as e:
+                print(f"Error in on_client_connected: {e}", flush=True)
+        
         server.start(port=port, debug=False, open_browser=False, timeout=30)
         return 0
     except Exception as e:

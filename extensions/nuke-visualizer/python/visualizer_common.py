@@ -33,14 +33,23 @@ COLOR_MAPS = [
 # Common color maps for different visualization types
 COLOR_MAPS_SHORT = ['Plasma', 'Viridis', 'Inferno', 'Jet', 'Hot', 'Cool']
 
-# Background color presets (hex values)
-BG_COLOR_PRESETS = [
-    ("#000000", "black"),
-    ("#1a1a26", "dark blue"),
-    ("#2d3748", "navy"),
-    ("#4a5568", "slate"),
-    ("#1a202c", "dark"),
-    ("#ffffff", "white"),
+# Large set of distinct colors for cells and UI elements
+DISTINCT_COLORS = [
+    [0.3, 0.5, 0.9],  # Blue
+    [0.3, 0.9, 0.5],  # Green
+    [0.9, 0.5, 0.3],  # Orange
+    [0.9, 0.3, 0.9],  # Magenta
+    [0.3, 0.9, 0.9],  # Cyan
+    [0.9, 0.9, 0.3],  # Yellow
+    [0.6, 0.4, 0.8],  # Purple
+    [0.4, 0.8, 0.6],  # Mint
+    [0.8, 0.6, 0.4],  # Brown
+    [0.5, 0.5, 0.5],  # Gray
+    [0.2, 0.7, 0.2],  # Dark Green
+    [0.1, 0.5, 0.8],  # Royal Blue
+    [0.8, 0.1, 0.5],  # Pink
+    [0.8, 0.8, 0.1],  # Gold
+    [0.1, 0.8, 0.8],  # Sky Blue
 ]
 
 # Default state values
@@ -68,6 +77,77 @@ DEFAULT_STATE = {
 
 # View types for camera positioning
 VIEW_TYPES = ['isometric', 'front', 'back', 'left', 'right', 'top', 'bottom']
+
+# Common CSS styles for visualizer UIs
+GLOBAL_STYLES = """
+    /* Custom scrollbar for dropdowns */
+    .v-autocomplete__content::-webkit-scrollbar,
+    .v-menu__content::-webkit-scrollbar {
+        width: 8px;
+    }
+    .v-autocomplete__content::-webkit-scrollbar-track,
+    .v-menu__content::-webkit-scrollbar-track {
+        background: #1e1e2d;
+    }
+    .v-autocomplete__content::-webkit-scrollbar-thumb,
+    .v-menu__content::-webkit-scrollbar-thumb {
+        background: #3f3f5f;
+        border-radius: 4px;
+    }
+    .v-autocomplete__content::-webkit-scrollbar-thumb:hover,
+    .v-menu__content::-webkit-scrollbar-thumb:hover {
+        background: #5a5a8a;
+    }
+
+    /* Dropdown menu styling */
+    .v-autocomplete__content.v-menu__content,
+    .v-menu__content.menuable__content__active {
+        border-radius: 8px !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+        border: 1px solid #3f3f5f !important;
+        background-color: #1a1a26 !important;
+    }
+
+    /* List item improvements */
+    .v-list-item__subtitle {
+        font-size: 0.75rem !important;
+        opacity: 0.7;
+        margin-top: 2px;
+    }
+    .v-list-item--active {
+        background-color: rgba(63, 63, 95, 0.4) !important;
+    }
+
+    /* Chip styling */
+    .v-chip.v-size--small,
+    .v-chip.v-size--x-small {
+        border-radius: 4px !important;
+        font-weight: 500;
+        background-color: #2a2a3d !important;
+        border: 1px solid #3f3f5f !important;
+    }
+    .v-chip.v-size--x-small {
+        height: 20px !important;
+        font-size: 0.7rem !important;
+        padding: 0 6px !important;
+    }
+    
+    /* VAutocomplete improvements */
+    .v-autocomplete .v-input__prepend-inner {
+        margin-top: 4px !important;
+    }
+    .v-autocomplete.v-text-field--outlined .v-label {
+        top: 8px !important;
+    }
+    .v-autocomplete .v-select__selections {
+        padding-top: 4px !important;
+        padding-bottom: 4px !important;
+        min-height: 40px !important;
+    }
+    .v-autocomplete .v-chip {
+        margin: 2px 4px !important;
+    }
+"""
 
 
 # =============================================================================
@@ -285,7 +365,8 @@ class UIComponents:
             'step': 0.05,
             'thumb_label': True,
             'dense': True,
-            'classes': "mb-4"
+            'hide_details': True,
+            'classes': kwargs.pop('classes', 'mb-4')
         }
         defaults.update(kwargs)
         return vuetify.VSlider(v_model=v_model_binding, **defaults)
@@ -300,7 +381,7 @@ class UIComponents:
             'step': 0.5,
             'dense': True,
             'hide_details': True,
-            'classes': "mb-4"
+            'classes': kwargs.pop('classes', 'mb-4')
         }
         defaults.update(kwargs)
         return vuetify.VSlider(v_model=v_model_binding, **defaults)
@@ -315,7 +396,7 @@ class UIComponents:
             'step': 0.5,
             'dense': True,
             'hide_details': True,
-            'classes': "mb-4"
+            'classes': kwargs.pop('classes', 'mb-4')
         }
         defaults.update(kwargs)
         return vuetify.VSlider(v_model=v_model_binding, **defaults)
@@ -330,7 +411,7 @@ class UIComponents:
             'step': 0.05,
             'dense': True,
             'hide_details': True,
-            'classes': "mb-4"
+            'classes': kwargs.pop('classes', 'mb-4')
         }
         defaults.update(kwargs)
         return vuetify.VSlider(v_model=v_model_binding, **defaults)

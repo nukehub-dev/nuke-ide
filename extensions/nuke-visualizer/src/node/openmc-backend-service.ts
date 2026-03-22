@@ -855,11 +855,20 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             }
 
             if (overlaps && overlaps.length > 0) {
+                // Limit overlaps for performance
+                const MAX_OVERLAPS = 1000;
+                const limitedOverlaps = overlaps.length > MAX_OVERLAPS 
+                    ? overlaps.slice(0, MAX_OVERLAPS) 
+                    : overlaps;
+                if (overlaps.length > MAX_OVERLAPS) {
+                    console.log(`[OpenMC] Limiting overlaps from ${overlaps.length} to ${MAX_OVERLAPS} for performance`);
+                }
+                
                 const tempDir = os.tmpdir();
                 overlapsPath = path.join(tempDir, `overlaps_${Date.now()}.json`);
                 const overlapData = {
                     geometryPath: filePath,
-                    overlaps: overlaps.map(o => ({
+                    overlaps: limitedOverlaps.map(o => ({
                         coordinates: o.coordinates,
                         cellIds: o.cellIds
                     }))
@@ -870,8 +879,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             const process = this.startPythonProcess(pythonCommand, args, port);
 
-            // Wait for server to be ready
-            await this.waitForServer(port, process);
+            // Wait for server to be ready (longer timeout when overlaps present)
+            const serverTimeout = (overlaps && overlaps.length > 0) ? 60000 : 30000;
+            await this.waitForServer(port, process, serverTimeout);
 
             return {
                 success: true,
@@ -885,6 +895,15 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 success: false,
                 error: error instanceof Error ? error.message : String(error)
             };
+        } finally {
+            // Cleanup temp file
+            if (overlapsPath && fs.existsSync(overlapsPath)) {
+                try {
+                    fs.unlinkSync(overlapsPath);
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+            }
         }
     }
 
@@ -1064,12 +1083,12 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return process;
     }
 
-    private async waitForServer(port: number, process: RawProcess): Promise<void> {
+    private async waitForServer(port: number, process: RawProcess, timeoutMs: number = 30000): Promise<void> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 cleanup();
                 reject(new Error(`Server startup timeout on port ${port}`));
-            }, 30000);
+            }, timeoutMs);
 
             const portCheckInterval = setInterval(() => {
                 const socket = new net.Socket();
