@@ -21,6 +21,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import './openmc-tally-tree.css';
 import { Emitter, Event } from '@theia/core';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from './openmc-service';
 import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
@@ -29,7 +30,8 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
-    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides';
+    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides' | 'overlay-geometry';
+    geometryUri?: string;
 }
 
 @injectable()
@@ -39,6 +41,9 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
 
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService!: FileDialogService;
 
     private statepointUri: URI | null = null;
     private statepointInfo: OpenMCStatepointInfo | null = null;
@@ -55,9 +60,8 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.title.label = OpenMCTallyTreeWidget.LABEL;
         this.title.caption = OpenMCTallyTreeWidget.LABEL;
         this.title.iconClass = codicon('list-tree');
-        this.title.closable = true;
+        this.title.closable = false; // Don't allow closing the widget itself
         
-        // Ensure the widget can be focused
         this.node.tabIndex = 0;
         this.update();
     }
@@ -69,8 +73,57 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     setStatepoint(uri: URI, info: OpenMCStatepointInfo, tallies: OpenMCTallyInfo[]): void {
         this.statepointUri = uri;
         this.statepointInfo = info;
-        this.tallies = tallies; // Show all tallies now
+        this.tallies = tallies;
         this.update();
+    }
+
+    clearStatepoint(): void {
+        this.statepointUri = null;
+        this.statepointInfo = null;
+        this.tallies = [];
+        this.expandedTallies.clear();
+        this.update();
+    }
+
+    protected async handleBrowse(): Promise<void> {
+        try {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select OpenMC Statepoint File',
+                openLabel: 'Open',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'HDF5 Files': ['h5'],
+                    'All Files': ['*']
+                }
+            });
+            
+            if (fileUri) {
+                const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                await this.loadStatepoint(uri);
+            }
+        } catch (error) {
+            console.error('[TallyTree] Error browsing for file:', error);
+        }
+    }
+
+    protected async loadStatepoint(uri: URI): Promise<void> {
+        try {
+            await this.openmcService.loadStatepoint(uri);
+            const info = this.openmcService.getCurrentStatepoint();
+            const tallies = this.openmcService.getCurrentTallies();
+            if (info && tallies.length > 0) {
+                this.setStatepoint(uri, info, tallies);
+            }
+        } catch (error) {
+            console.error('[TallyTree] Error loading statepoint:', error);
+        }
+    }
+
+    protected handleClose(): void {
+        this.openmcService.clearStatepoint();
+        this.clearStatepoint();
     }
 
     protected render(): React.ReactNode {
@@ -78,8 +131,15 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
             return (
                 <div className="openmc-tally-tree empty">
                     <div className="placeholder">
-                        <i className="fa fa-cube"></i>
-                        <div>Open a statepoint file to view tallies</div>
+                        <i className={codicon('database')}></i>
+                        <div>No statepoint file loaded</div>
+                        <button 
+                            className="browse-file-btn"
+                            onClick={() => this.handleBrowse()}
+                        >
+                            <i className="fa fa-folder"></i>
+                            Browse Statepoint File
+                        </button>
                     </div>
                 </div>
             );
@@ -92,187 +152,249 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                 <div className="tree-header">
                     <div className="header-title">
                         <span className="file-name" title={fileName}>
-                            <i className="fa fa-file-code-o"></i>
+                            <i className={codicon('database')}></i>
                             {fileName}
                         </span>
                         <button 
                             className="close-btn" 
-                            onClick={() => this.close()}
-                            title="Close"
+                            onClick={() => this.handleClose()}
+                            title="Close Statepoint"
                         >
-                            <i className="fa fa-times"></i>
+                            <i className={codicon('close')}></i>
                         </button>
                     </div>
+                    
                     {this.statepointInfo.kEff !== undefined && (
-                        <div className="keff-info">
-                            k<sub>eff</sub>: {this.statepointInfo.kEff.toFixed(5)} ± {this.statepointInfo.kEffStd?.toFixed(5)}
-                        </div>
+                        <span className="keff-badge">
+                            <i className={codicon('flame')}></i>
+                            k<sub>eff</sub> = {this.statepointInfo.kEff.toFixed(5)} ± {this.statepointInfo.kEffStd?.toFixed(5)}
+                        </span>
                     )}
+                    
                     <div className="batches-info">
-                        {this.statepointInfo.batches} batches, {this.tallies.length} tallies
+                        {this.statepointInfo.batches} batches · {this.tallies.length} tallies
                     </div>
                 </div>
                 
                 <div className="tree-content">
-                    {this.tallies.map(tally => this.renderTally(tally))}
+                    {this.tallies.map(tally => this.renderTallyCard(tally))}
                 </div>
             </div>
         );
     }
 
-    private renderTally(tally: OpenMCTallyInfo): React.ReactNode {
+    private renderTallyCard(tally: OpenMCTallyInfo): React.ReactNode {
         const isExpanded = this.expandedTallies.has(tally.id);
         const meshFilter = tally.filters.find(f => f.type === 'mesh');
         const energyFilter = tally.filters.find(f => f.type === 'energy');
-        
-        // Detect mesh type label
-        const meshTypeLabel = meshFilter?.meshType === 'cylindrical' ? 'Cylindrical' : 'Regular (Cartesian)';
+        const cellFilter = tally.filters.find(f => f.type === 'cell');
         
         return (
-            <div key={tally.id} className="tally-item">
+            <div 
+                key={tally.id} 
+                className={`tally-card ${isExpanded ? 'expanded' : ''}`}
+            >
                 <div 
                     className="tally-header"
                     onClick={() => this.toggleTally(tally.id)}
                 >
-                    <i className={`fa fa-chevron-${isExpanded ? 'down' : 'right'}`}></i>
-                    <span className="tally-id">Tally {tally.id}</span>
-                    <span className="tally-name">{tally.name}</span>
-                    {meshFilter?.meshDimensions && (
-                        <span className="mesh-dims">
-                            {meshFilter.meshDimensions.join('×')}
-                        </span>
-                    )}
+                    <i className={`${codicon('chevron-right')} tally-expand-icon`}></i>
+                    <span className="tally-id-badge">Tally {tally.id}</span>
+                    <span className="tally-name" title={tally.name}>{tally.name}</span>
+                    
+                    <div className="tally-badges">
+                        {meshFilter && (
+                            <span className="tally-badge mesh" title="Mesh Tally">
+                                <i className="fa fa-th"></i>
+                            </span>
+                        )}
+                        {cellFilter && (
+                            <span className="tally-badge cell" title="Cell Filter">
+                                <i className={codicon('square')}></i>
+                            </span>
+                        )}
+                        {energyFilter && (
+                            <span className="tally-badge energy" title="Energy Filter">
+                                <i className={codicon('zap')}></i>
+                            </span>
+                        )}
+                    </div>
                 </div>
                 
                 {isExpanded && (
                     <div className="tally-details">
-                        {/* Scores */}
-                        {tally.scores.length > 0 && (
-                            <div className="detail-section">
-                                <div className="detail-label">Scores:</div>
-                                <div className="detail-items">
-                                    {tally.scores.map(score => (
-                                        <span key={score} className="detail-item score">{score}</span>
+                        {/* Info Grid */}
+                        <div className="info-grid">
+                            <div className="info-item">
+                                <span className="info-label">Scores</span>
+                                <span className="info-value scores">
+                                    {tally.scores.slice(0, 3).map(s => (
+                                        <span key={s} className="score-tag">{s}</span>
                                     ))}
-                                </div>
+                                    {tally.scores.length > 3 && (
+                                        <span className="score-tag">+{tally.scores.length - 3}</span>
+                                    )}
+                                </span>
                             </div>
-                        )}
-                        
-                        {/* Nuclides */}
-                        {tally.nuclides.length > 0 && tally.nuclides[0] !== 'total' && (
-                            <div className="detail-section">
-                                <div className="detail-label">Nuclides:</div>
-                                <div className="detail-items">
-                                    {tally.nuclides.map(nuclide => (
-                                        <span key={nuclide} className="detail-item nuclide">
-                                            {nuclide}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Filters */}
-                        <div className="detail-section">
-                            <div className="detail-label">Filters:</div>
-                            <div className="detail-items">
-                                {tally.filters.map((filter, idx) => (
-                                    <span key={idx} className="detail-item filter">
-                                        {filter.type} ({filter.bins} bins)
-                                    </span>
-                                ))}
+                            
+                            <div className="info-item">
+                                <span className="info-label">Nuclides</span>
+                                <span className="info-value">
+                                    {tally.nuclides.length > 0 && tally.nuclides[0] !== 'total' 
+                                        ? `${tally.nuclides.length} nuclides`
+                                        : 'Total'
+                                    }
+                                </span>
                             </div>
                         </div>
                         
                         {/* Mesh Info */}
-                        {meshFilter && (
-                            <div className="detail-section">
-                                <div className="detail-label">Mesh Info:</div>
-                                <div className="mesh-info">
-                                    <div className="mesh-row">
-                                        <span className="mesh-label">Type:</span>
-                                        <span className="mesh-value">{meshTypeLabel}</span>
-                                    </div>
-                                    {meshFilter.meshDimensions && (
-                                        <div className="mesh-row">
-                                            <span className="mesh-label">Dimensions:</span>
-                                            <span className="mesh-value">{meshFilter.meshDimensions.join(' × ')} cells</span>
+                        {meshFilter?.meshDimensions && (
+                            <div className="mesh-info-card">
+                                <div className="mesh-info-header">
+                                    <i className={codicon('layout')}></i>
+                                    {meshFilter.meshType === 'cylindrical' ? 'Cylindrical Mesh' : 'Cartesian Mesh'}
+                                </div>
+                                <div className="mesh-dims-grid">
+                                    {meshFilter.meshDimensions.map((dim, idx) => (
+                                        <div key={idx} className="mesh-dim-item">
+                                            <div className="mesh-dim-value">{dim}</div>
+                                            <div className="mesh-dim-label">
+                                                {meshFilter.meshType === 'cylindrical' 
+                                                    ? ['R', 'φ', 'Z'][idx] 
+                                                    : ['X', 'Y', 'Z'][idx]
+                                                }
+                                            </div>
                                         </div>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}
                         
-                        {/* Action Buttons */}
-                        <div className="tally-actions">
+                        {/* Actions */}
+                        <div className="actions-section">
+                            <div className="actions-label">Visualizations</div>
+                            
                             {tally.hasMesh && (
                                 <>
-                                    <button 
-                                        className="tally-action-btn visualize"
-                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
-                                        title="Visualize 3D Mesh Tally"
-                                    >
-                                        <i className="fa fa-cube"></i>
-                                        3D View
-                                    </button>
-                                    <button 
-                                        className="tally-action-btn heatmap"
-                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
-                                        title="2D Heatmap Slices"
-                                    >
-                                        <i className="fa fa-th"></i>
-                                        2D Heatmap
-                                    </button>
-                                    <div className="button-group">
+                                    {/* Primary Visualizations */}
+                                    <div className="action-group">
                                         <button 
-                                            className="tally-action-btn spatial"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
-                                            title="Plot 1D Spatial Distribution"
+                                            className="action-btn primary"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
+                                            title="Visualize 3D Mesh Tally"
                                         >
-                                            <i className="fa fa-line-chart"></i>
-                                            Spatial Plot
+                                            <i className="fa fa-cube"></i>
+                                            <span>3D View</span>
                                         </button>
-                                        {tally.scores.length > 1 && (
+                                        
+                                        <button 
+                                            className="action-btn accent"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-geometry')}
+                                            title="Overlay on DAGMC Geometry"
+                                        >
+                                            <i className={codicon('layers')}></i>
+                                            <span>Overlay</span>
+                                        </button>
+                                        
+                                        <button 
+                                            className="action-btn info"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
+                                            title="2D Heatmap Slices"
+                                        >
+                                            <i className="fa fa-th"></i>
+                                            <span>Heatmap</span>
+                                        </button>
+                                    </div>
+                                    
+                                    {/* Plot Actions */}
+                                    <div className="actions-label">Plots</div>
+                                    <div className="action-group small">
+                                        <div className="action-btn-group">
                                             <button 
-                                                className="tally-action-btn spatial-multi"
-                                                onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
-                                                title="Plot All Scores (Spatial)"
+                                                className="action-btn"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
+                                                title="Plot 1D Spatial Distribution"
                                             >
-                                                <i className="fa fa-plus"></i>
+                                                <i className={codicon('graph-line')}></i>
+                                                <span>Spatial</span>
                                             </button>
+                                            {tally.scores.length > 1 && (
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
+                                                    title="Plot All Scores"
+                                                >
+                                                    <i className={codicon('add')}></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        {energyFilter && (
+                                            <div className="action-btn-group">
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
+                                                    title="Plot Energy Spectrum"
+                                                >
+                                                    <i className="fa fa-area-chart"></i>
+                                                    <span>Spectrum</span>
+                                                </button>
+                                                {tally.scores.length > 1 && (
+                                                    <button 
+                                                        className="action-btn"
+                                                        onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                                        title="Plot All Scores"
+                                                    >
+                                                        <i className={codicon('add')}></i>
+                                                    </button>
+                                                )}
+                                                {tally.nuclides.length > 1 && (
+                                                    <button 
+                                                        className="action-btn"
+                                                        onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                        title="Plot All Nuclides"
+                                                    >
+                                                        <i className={codicon('organization')}></i>
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </>
                             )}
                             
-                            {energyFilter && (
-                                <div className="button-group">
-                                    <button 
-                                        className="tally-action-btn spectrum"
-                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
-                                        title="Plot Energy Spectrum"
-                                    >
-                                        <i className="fa fa-area-chart"></i>
-                                        Spectrum
-                                    </button>
-                                    {tally.scores.length > 1 && (
+                            {/* Non-mesh tallies with only energy filter */}
+                            {!tally.hasMesh && energyFilter && (
+                                <div className="action-group small">
+                                    <div className="action-btn-group">
                                         <button 
-                                            className="tally-action-btn spectrum-multi"
-                                            onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
-                                            title="Plot All Scores (Spectrum)"
+                                            className="action-btn"
+                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
+                                            title="Plot Energy Spectrum"
                                         >
-                                            <i className="fa fa-plus"></i>
+                                            <i className="fa fa-area-chart"></i>
+                                            <span>Spectrum</span>
                                         </button>
-                                    )}
-                                    {tally.nuclides.length > 1 && (
-                                        <button 
-                                            className="tally-action-btn spectrum-nuclide-multi"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
-                                            title="Plot All Nuclides (Spectrum)"
-                                        >
-                                            <i className="fa fa-users"></i>
-                                        </button>
-                                    )}
+                                        {tally.scores.length > 1 && (
+                                            <button 
+                                                className="action-btn"
+                                                onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                                title="Plot All Scores"
+                                            >
+                                                <i className="fa fa-plus"></i>
+                                            </button>
+                                        )}
+                                        {tally.nuclides.length > 1 && (
+                                            <button 
+                                                className="action-btn"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                title="Plot All Nuclides"
+                                            >
+                                                <i className="fa fa-users"></i>
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

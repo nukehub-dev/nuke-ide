@@ -6,6 +6,7 @@ Shared across visualizer_app.py, openmc_server.py, and openmc_geometry_viz.py.
 
 import os
 import socket
+import numpy as np
 from typing import List, Tuple, Dict, Any, Optional, Callable
 from dataclasses import dataclass, field
 
@@ -293,6 +294,7 @@ class VisualizerState:
     clip_normal_z: float = 0.0
     clip_invert: bool = False
     screenshot_status: str = ''
+    show_camera_gadget: bool = True
     has_timesteps: bool = False
     current_timestep: int = 0
     timestep_values: List = field(default_factory=list)
@@ -532,6 +534,37 @@ class UIComponents:
                 classes="mb-4"
             ),
         ]
+
+    @staticmethod
+    def compact_appearance_controls(vuetify, camera_gadget=True):
+        """Create a compact grid of appearance toggles."""
+        
+        # Appearance Section
+        vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
+        # Background Color
+        with vuetify.VContainer(classes="ma-0 pa-0 mb-3", style="overflow: hidden;"):
+            UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
+        
+        with vuetify.VContainer(classes="pa-0 ma-0"):
+            # Row 1: Orientation and Projection
+            with vuetify.VRow(dense=True, classes="mb-1"):
+                with vuetify.VCol(cols=6):
+                    vuetify.VCheckbox(v_model=("show_orientation_axes", True), label="3D Axis", dense=True, hide_details=True)
+                with vuetify.VCol(cols=6):
+                    vuetify.VCheckbox(v_model=("parallel_projection", False), label="Ortho", dense=True, hide_details=True)
+            
+            # Row 2: Bounding Box and Grid
+            with vuetify.VRow(dense=True, classes="mb-1"):
+                with vuetify.VCol(cols=6):
+                    vuetify.VCheckbox(v_model=("show_bounding_box", False), label="Bounds", dense=True, hide_details=True)
+                with vuetify.VCol(cols=6):
+                    vuetify.VCheckbox(v_model=("show_cube_axes", False), label="Grid", dense=True, hide_details=True)
+            
+            # Row 3: Camera Overlay
+            if camera_gadget:
+                with vuetify.VRow(dense=True, classes="mb-1"):
+                    with vuetify.VCol(cols=12):
+                        vuetify.VCheckbox(v_model=("show_camera_gadget", True), label="Camera", dense=True, hide_details=True)
     
     @staticmethod
     def screenshot_button(vuetify, callback, **kwargs):
@@ -559,6 +592,96 @@ class UIComponents:
         components.append(status)
         
         return components
+
+    @staticmethod
+    def navigation_pad(vuetify, pan_callback, zoom_callback, reset_callback=None, view_callback=None, tooltip_text=None):
+        """Create a navigation pad for Pan, Zoom and View presets."""
+        from trame.widgets import html
+        
+        # Helper for consistent styled tooltips
+        def btn_with_tooltip(icon_name, text, click_handler, **kwargs):
+            with vuetify.VTooltip(bottom=True, color="#283593", open_delay=500):
+                with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                    with vuetify.VBtn(icon=True, x_small=True, click=click_handler, v_on="on", v_bind="attrs", **kwargs):
+                        vuetify.VIcon(icon_name, color="white", small=kwargs.get("small", False))
+                html.Div(text, style="font-size: 0.75rem; font-weight: 500;")
+
+        with vuetify.VContainer(classes="pa-0 ma-0"):
+            # View Presets Row (Top)
+            if reset_callback and view_callback:
+                with vuetify.VRow(dense=True, justify="center", classes="ma-0 mb-1"):
+                    btn_with_tooltip("mdi-home", "Reset Camera", reset_callback, small=True)
+                    btn_with_tooltip("mdi-cube-outline", "Isometric View", lambda: view_callback('isometric'), small=True)
+                    btn_with_tooltip("mdi-axis-z-arrow", "Top View", lambda: view_callback('top'), small=True)
+                    btn_with_tooltip("mdi-axis-x-arrow", "Front View", lambda: view_callback('front'), small=True)
+                    btn_with_tooltip("mdi-axis-y-arrow", "Side View", lambda: view_callback('right'), small=True)
+                vuetify.VDivider(classes="mb-2", style="border-color: rgba(255,255,255,0.1) !important;")
+
+            # Pan controls in a 3x3 grid style
+            with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
+                btn_with_tooltip("mdi-chevron-up", "Pan Up", lambda: pan_callback('up'))
+            
+            with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
+                btn_with_tooltip("mdi-chevron-left", "Pan Left", lambda: pan_callback('left'))
+                
+                # Central icon with navigation guide tooltip
+                with vuetify.VTooltip(bottom=True, color="#1A237E"):
+                    with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                        vuetify.VIcon(
+                            "mdi-pan", 
+                            color="white",
+                            small=True, 
+                            classes="mx-2", 
+                            style="opacity: 0.9; cursor: help;",
+                            v_on="on",
+                            v_bind="attrs"
+                        )
+                    with html.Div(style="padding: 4px;"):
+                        html.Div("Navigation Guide", style="font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); margin-bottom: 4px;")
+                        html.Div("• Left Click: Rotate", style="font-size: 0.75rem;")
+                        html.Div("• Middle / Shift+Left: Pan", style="font-size: 0.75rem;")
+                        html.Div("• Scroll: Zoom", style="font-size: 0.75rem;")
+                
+                btn_with_tooltip("mdi-chevron-right", "Pan Right", lambda: pan_callback('right'))
+            
+            with vuetify.VRow(dense=True, justify="center", classes="ma-0 mb-2"):
+                btn_with_tooltip("mdi-chevron-down", "Pan Down", lambda: pan_callback('down'))
+            
+            # Zoom controls
+            with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
+                btn_with_tooltip("mdi-plus-circle-outline", "Zoom In", lambda: zoom_callback(0.8))
+                vuetify.VIcon("mdi-magnify", color="white", small=True, classes="mx-2", style="opacity: 0.5")
+                btn_with_tooltip("mdi-minus-circle-outline", "Zoom Out", lambda: zoom_callback(1.2))
+
+    @staticmethod
+    def create_canvas_gadget(vuetify, pan_callback, zoom_callback, reset_callback=None, view_callback=None):
+        """Create a floating camera navigation gadget for the canvas."""
+        from trame.widgets import html
+        with vuetify.VContainer(
+            v_if=("show_camera_gadget",),
+            classes="pa-2 ma-2", 
+            style="position: absolute; top: 0; right: 0; z-index: 100; background: rgba(30, 30, 45, 0.85); border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); width: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
+        ):
+            html.Div("Camera", classes="text-caption text-center mb-1", style="color: rgba(255,255,255,0.7); font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.65rem !important;")
+            
+            # Helper for styled tooltips
+            def nav_tooltip(icon_name, text, **kwargs):
+                with vuetify.VTooltip(bottom=True, color="#283593"):
+                    with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                        vuetify.VIcon(icon_name, color="white", v_on="on", v_bind="attrs", **kwargs)
+                    with html.Div(style="padding: 4px;"):
+                        html.Div(text, style="font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); margin-bottom: 4px; padding-bottom: 2px;")
+                        if "extra" in kwargs:
+                            html.Div(kwargs["extra"], style="font-size: 0.7rem; opacity: 0.9;")
+
+            UIComponents.navigation_pad(
+                vuetify, 
+                pan_callback, 
+                zoom_callback,
+                reset_callback=reset_callback,
+                view_callback=view_callback,
+                tooltip_text="Navigation Guide:\n• Left Click: Rotate\n• Middle/Shift+Left: Pan\n• Scroll: Zoom"
+            )
 
 
 # =============================================================================
@@ -795,6 +918,66 @@ def create_set_camera_view_controller(pipeline, state, update_view_func):
             print(f"Error setting camera view: {e}")
             return False
     return set_camera_view
+
+
+def create_pan_camera_controller(pipeline, update_view_func):
+    """Create pan camera controller function."""
+    def pan_camera(direction, distance_factor=0.15):
+        try:
+            view = pipeline.get('view')
+            if not view: return False
+            
+            pos = np.array(view.CameraPosition)
+            focal = np.array(view.CameraFocalPoint)
+            up = np.array(view.CameraViewUp)
+            
+            # Direction vector from focal to position
+            view_vec = pos - focal
+            dist = np.linalg.norm(view_vec)
+            view_vec = view_vec / dist if dist > 0 else np.array([0, 0, 1])
+            
+            # Right vector
+            right = np.cross(up, view_vec)
+            right_norm = np.linalg.norm(right)
+            right = right / right_norm if right_norm > 0 else np.array([1, 0, 0])
+            
+            # True up in view plane
+            true_up = np.cross(view_vec, right)
+            
+            move_vec = np.zeros(3)
+            step = dist * distance_factor if dist > 0 else 1.0
+            
+            if direction == 'up': move_vec = true_up * step
+            elif direction == 'down': move_vec = -true_up * step
+            elif direction == 'left': move_vec = -right * step
+            elif direction == 'right': move_vec = right * step
+            
+            view.CameraPosition = (pos + move_vec).tolist()
+            view.CameraFocalPoint = (focal + move_vec).tolist()
+            update_view_func(push_camera=True)
+            return True
+        except Exception as e:
+            print(f"Pan error: {e}")
+            return False
+    return pan_camera
+
+
+def create_zoom_camera_controller(pipeline, update_view_func):
+    """Create zoom camera controller function."""
+    def zoom_camera(factor):
+        try:
+            view = pipeline.get('view')
+            if not view: return False
+            pos = np.array(view.CameraPosition)
+            focal = np.array(view.CameraFocalPoint)
+            vec = pos - focal
+            view.CameraPosition = (focal + vec * factor).tolist()
+            update_view_func(push_camera=True)
+            return True
+        except Exception as e:
+            print(f"Zoom error: {e}")
+            return False
+    return zoom_camera
 
 
 def create_capture_screenshot_controller(pipeline):

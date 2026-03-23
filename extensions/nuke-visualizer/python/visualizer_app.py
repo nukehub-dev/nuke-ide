@@ -19,8 +19,11 @@ from visualizer_common import (
     find_free_port, check_trame_dependencies, COLOR_MAPS,
     init_common_state, VisualizerState, UIComponents, StateHandlers,
     create_update_view, create_reset_camera_controller,
-    create_set_camera_view_controller, create_capture_screenshot_controller,
-    save_screenshot_with_timestamp, hex_to_rgb, get_available_arrays
+    create_set_camera_view_controller, 
+    create_pan_camera_controller, create_zoom_camera_controller,
+    create_capture_screenshot_controller,
+    save_screenshot_with_timestamp, hex_to_rgb, get_available_arrays,
+    GLOBAL_STYLES
 )
 
 
@@ -259,6 +262,8 @@ def create_app(file_path=None, port=None, theme='dark'):
     # Controller functions
     reset_camera = create_reset_camera_controller(pipeline, update_view)
     set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+    pan_camera = create_pan_camera_controller(pipeline, update_view)
+    zoom_camera = create_zoom_camera_controller(pipeline, update_view)
     capture_screenshot = create_capture_screenshot_controller(pipeline)
     
     @server.controller.add("toggle_controls")
@@ -268,6 +273,9 @@ def create_app(file_path=None, port=None, theme='dark'):
     
     # UI setup
     with VAppLayout(server) as layout:
+        # Custom CSS for better UI aesthetics
+        html.Style(GLOBAL_STYLES)
+        
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
             app=True, width=320, clipped=True,
@@ -341,56 +349,13 @@ def create_app(file_path=None, port=None, theme='dark'):
                 
                 vuetify.VDivider(classes="my-4")
                 
-                # Camera Section
-                vuetify.VSubheader("Camera", classes="text-subtitle-1 mb-2")
-                
-                with vuetify.VRow(dense=True):
-                    with vuetify.VCol(cols=6):
-                        vuetify.VBtn("Reset", click=reset_camera,
-                                     block=True, small=True, outlined=True, classes="mb-2")
-                    with vuetify.VCol(cols=6):
-                        vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'),
-                                     block=True, small=True, outlined=True, classes="mb-2")
-                
-                with vuetify.VRow(dense=True):
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn("Front", click=lambda: set_camera_view('front'),
-                                     block=True, small=True, text=True)
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn("Side", click=lambda: set_camera_view('right'),
-                                     block=True, small=True, text=True)
-                    with vuetify.VCol(cols=4):
-                        vuetify.VBtn("Top", click=lambda: set_camera_view('top'),
-                                     block=True, small=True, text=True)
-                
-                vuetify.VDivider(classes="my-4")
-                
-                # Appearance Section
-                vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                
-                # Background Color Picker
-                with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                    UIComponents.background_color_picker(vuetify)
-                
-                vuetify.VDivider(classes="my-4")
-                
-                # Projection Mode
-                vuetify.VCheckbox(
-                    v_model=("parallel_projection", False),
-                    label="Parallel Projection (2D/Ortho)",
-                    dense=True, classes="mb-2"
-                )
-                
+                # Compact toggles in a grid
+                UIComponents.compact_appearance_controls(vuetify)
+                                
                 # Detail sliders
                 UIComponents.point_size_slider(vuetify)
                 UIComponents.line_width_slider(vuetify)
                 UIComponents.ambient_light_slider(vuetify)
-                
-                vuetify.VDivider(classes="my-4")
-                
-                # Appearance Toggles
-                for toggle in UIComponents.appearance_toggles(vuetify):
-                    pass  # Already added to layout
                 
                 vuetify.VDivider(classes="my-4")
                 
@@ -437,6 +402,9 @@ def create_app(file_path=None, port=None, theme='dark'):
             ):
                 with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
                     vuetify.VIcon("mdi-chevron-right")
+            
+            # Camera Navigation Gadget (Top Right)
+            UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
             
             # Main visualization view
             view_widget = pv_widgets.VtkRemoteView(

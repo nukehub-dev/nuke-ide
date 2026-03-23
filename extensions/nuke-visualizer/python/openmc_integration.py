@@ -9,6 +9,8 @@ Reference: https://docs.openmc.org/
 import h5py
 import numpy as np
 import sys
+import tempfile
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
@@ -656,32 +658,67 @@ class OpenMCReader:
             VTK polydata with source particles as points
         """
         with h5py.File(source_file, 'r') as f:
-            if 'source' not in f:
-                raise ValueError(f"No 'source' group found in {source_file}")
-            
-            source = f['source']
-            n_particles = source.attrs.get('n_particles', len(source['r']['x']))
-            
-            # Get positions
-            x = source['r']['x'][...]
-            y = source['r']['y'][...]
-            z = source['r']['z'][...]
-            
-            # Get energies if available
-            if 'E' in source:
-                energies = source['E'][...]
+            if 'source_bank' in f:
+                # Newer OpenMC format (0.13+): source_bank is a compound dataset
+                source_bank = f['source_bank']
+                n_particles = len(source_bank)
+                
+                # Extract compound data - source_bank has fields: r, u, E, time, wgt, delayed_group, surf_id, particle
+                # r is a compound type with x, y, z fields or array of shape (n, 3)
+                positions = source_bank['r']
+                
+                # Handle both possible formats
+                if positions.ndim == 2 and positions.shape[1] == 3:
+                    # Array format: (n_particles, 3)
+                    x = positions[:, 0]
+                    y = positions[:, 1]
+                    z = positions[:, 2]
+                elif positions.ndim == 1:
+                    # Structured array format
+                    if hasattr(positions[0], '__len__'):
+                        # Array of tuples/arrays
+                        x = np.array([p[0] for p in positions])
+                        y = np.array([p[1] for p in positions])
+                        z = np.array([p[2] for p in positions])
+                    else:
+                        # Flat array - reshape
+                        pos_flat = positions[...]
+                        if len(pos_flat) == n_particles * 3:
+                            pos_reshaped = pos_flat.reshape(n_particles, 3)
+                            x = pos_reshaped[:, 0]
+                            y = pos_reshaped[:, 1]
+                            z = pos_reshaped[:, 2]
+                        else:
+                            raise ValueError(f"Unexpected position data shape: {pos_flat.shape}")
+                else:
+                    raise ValueError(f"Unexpected position data dimensions: {positions.ndim}")
+                
+                energies = source_bank['E'][...]
+                weights = source_bank['wgt'][...]
+                
+            elif 'source' in f:
+                # Older OpenMC format: source is a group with r, E, wgt as sub-datasets
+                source = f['source']
+                n_particles = source.attrs.get('n_particles', len(source['r']['x']))
+                
+                # Get positions
+                x = source['r']['x'][...]
+                y = source['r']['y'][...]
+                z = source['r']['z'][...]
+                
+                # Get energies if available
+                energies = source['E'][...] if 'E' in source else np.ones_like(x)
+                
+                # Get weights if available
+                weights = source['wgt'][...] if 'wgt' in source else np.ones_like(x)
             else:
-                energies = np.ones_like(x)
-            
-            # Get weights
-            if 'wgt' in source:
-                weights = source['wgt'][...]
-            else:
-                weights = np.ones_like(x)
+                raise ValueError(f"No 'source' group or 'source_bank' dataset found in {source_file}. "
+                                 f"Available keys: {list(f.keys())}")
             
             # Create VTK points
             vtk_points = vtk.vtkPoints()
-            for i in range(min(len(x), n_particles)):
+            n_points = min(len(x), n_particles) if isinstance(n_particles, (int, np.integer)) else len(x)
+            for i in range(n_points):
                 vtk_points.InsertNextPoint(x[i], y[i], z[i])
             
             # Create polydata
@@ -710,7 +747,10 @@ class OpenMCReader:
     def visualize_tally_on_geometry(self, geometry_file: str, statepoint_file: str, 
                                      tally_id: int, score: str = None) -> Dict:
         """
-        Overlay tally results on geometry.
+        Overlay tally results on geometry by mapping tally values to geometry cells.
+        
+        For cell-based tallies: Maps tally values directly to DAGMC geometry cells
+        For mesh tallies: Falls back to showing mesh overlay (cannot map to geometry cells)
         
         Args:
             geometry_file: Path to geometry file (.h5m or .vtk)
@@ -721,6 +761,9 @@ class OpenMCReader:
         Returns:
             Dictionary with visualization objects
         """
+        import tempfile
+        import os
+        
         # Load geometry
         if geometry_file.endswith('.h5m'):
             from dagmc_converter import convert_h5m_to_vtk
@@ -732,49 +775,218 @@ class OpenMCReader:
         # Load tally
         tally = self.load_tally(statepoint_file, tally_id)
         
-        # Show geometry
-        geometry_display = simple.Show(geometry)
+        # Check if this is a cell-based tally (has cell filter)
+        has_cell_filter = any(f.get('type') == 'cell' for f in tally.filters)
         
-        # If mesh tally, create mesh visualization
-        if tally.has_mesh:
-            mesh_grid = self.create_mesh_tally_vtu(tally)
-            
-            # Convert VTK grid to ParaView source
-            # We need to write to a temporary file and read back
-            import tempfile
-            import os
-            
-            with tempfile.NamedTemporaryFile(suffix='.vtu', delete=False) as tmp:
-                tmp_path = tmp.name
-            
-            writer = vtk.vtkXMLUnstructuredGridWriter()
-            writer.SetFileName(tmp_path)
-            writer.SetInputData(mesh_grid)
-            writer.Write()
-            
-            mesh_source = simple.XMLUnstructuredGridReader(FileName=tmp_path)
-            mesh_display = simple.Show(mesh_source)
-            
-            # Color by tally mean
-            simple.ColorBy(mesh_display, ('CELLS', 'tally_mean'))
-            
-            # Apply color map
-            lut = simple.GetColorTransferFunction('tally_mean')
-            lut.ApplyPreset('Cool to Warm', True)
-            
+        if has_cell_filter:
+            # For cell tallies: Map tally values directly to geometry cells
+            result = self._apply_cell_tally_to_geometry(
+                geometry, tally, statepoint_file, score
+            )
+            return result
+        elif tally.has_mesh:
+            # For mesh tallies: Show both geometry and mesh
+            return self._show_mesh_overlay(geometry, tally)
+        else:
+            # No cell filter and no mesh - just show geometry
+            geometry_display = simple.Show(geometry)
             return {
                 'geometry': geometry,
                 'geometry_display': geometry_display,
-                'tally_source': mesh_source,
-                'tally_display': mesh_display,
                 'tally': tally,
-                'temp_file': tmp_path
+                'overlay_type': 'none'
             }
+    
+    def _apply_cell_tally_to_geometry(self, geometry, tally, statepoint_file: str, score: str = None) -> Dict:
+        """Apply cell tally values directly to geometry cells as cell data."""
+        import h5py
+        
+        # Re-read the statepoint to get the actual cell filter bins
+        with h5py.File(statepoint_file, 'r') as f:
+            tally_path = f'tallies/tally {tally.id}'
+            if tally_path not in f:
+                return self._show_mesh_overlay(geometry, tally)
+            
+            tally_group = f[tally_path]
+            
+            # Find the cell filter
+            cell_filter_id = None
+            filter_bins = None
+            
+            if 'filters' in tally_group:
+                filters_ref = tally_group['filters']
+                
+                # Get filter location
+                filters_location = None
+                if 'filters' in f:
+                    filters_location = f['filters']
+                elif 'filters' in f['tallies']:
+                    filters_location = f['tallies']['filters']
+                
+                if filters_location is not None:
+                    # Iterate through filters to find cell filter
+                    if isinstance(filters_ref, h5py.Dataset):
+                        filter_ids = filters_ref[...]
+                        for fid in filter_ids.flat:
+                            filter_key = f'filter {int(fid)}'
+                            if filter_key in filters_location:
+                                filter_obj = filters_location[filter_key]
+                                filter_type = ''
+                                if 'type' in filter_obj:
+                                    val = filter_obj['type'][()]
+                                    filter_type = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
+                                
+                                if filter_type == 'cell' or filter_type == "b'cell'":
+                                    cell_filter_id = int(fid)
+                                    if 'bins' in filter_obj:
+                                        filter_bins = filter_obj['bins'][...]
+                                    break
+                    else:
+                        # Group format
+                        for filter_key in filters_ref.keys():
+                            filter_obj = filters_ref[filter_key]
+                            filter_type = ''
+                            if 'type' in filter_obj:
+                                val = filter_obj['type'][()]
+                                filter_type = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
+                            
+                            if filter_type == 'cell' or filter_type == "b'cell'":
+                                if 'bins' in filter_obj:
+                                    filter_bins = filter_obj['bins'][...]
+                                break
+            
+            if filter_bins is None:
+                print("[Overlay] No cell filter bins found, falling back to mesh overlay", file=sys.stderr)
+                return self._show_mesh_overlay(geometry, tally)
+            
+            # Get cell IDs from filter
+            cell_ids = filter_bins.flatten().astype(int).tolist()
+            print(f"[Overlay] Found {len(cell_ids)} cells in cell filter: {cell_ids[:10]}...", file=sys.stderr)
+        
+        # Resolve score index
+        score_idx = 0
+        if score and tally.scores:
+            try:
+                score_idx = tally.scores.index(score)
+            except ValueError:
+                score_idx = 0
+        
+        # Create cell_id -> tally_value mapping
+        cell_tally_map = {}
+        for i, cell_id in enumerate(cell_ids):
+            if i < len(tally.mean):
+                # Extract value for this cell, score, and nuclide (use first nuclide)
+                if tally.mean.ndim >= 3:
+                    value = tally.mean.flat[i * len(tally.scores) * len(tally.nuclides) + score_idx * len(tally.nuclides)]
+                elif tally.mean.ndim == 2:
+                    value = tally.mean[i, score_idx]
+                else:
+                    value = tally.mean[i]
+                cell_tally_map[int(cell_id)] = float(value)
+        
+        print(f"[Overlay] Created tally map for {len(cell_tally_map)} cells", file=sys.stderr)
+        
+        # Convert geometry to VTK and add cell data
+        # Use ProgrammableFilter to add cell data
+        from paraview import servermanager
+        
+        # Create a programmable filter to add tally data
+        pf = simple.ProgrammableFilter(Input=geometry)
+        pf.Script = f'''
+        import vtk
+        import numpy as np
+        
+        # Cell ID to tally value mapping
+        cell_tally_map = {cell_tally_map}
+        
+        # Get input data
+        input_data = self.GetInputDataObject(0, 0)
+        output_data = self.GetOutputDataObject(0)
+        output_data.ShallowCopy(input_data)
+        
+        # Get number of cells
+        n_cells = output_data.GetNumberOfCells()
+        
+        # Create tally array
+        tally_array = vtk.vtkDoubleArray()
+        tally_array.SetName('tally_value')
+        tally_array.SetNumberOfValues(n_cells)
+        
+        # Get cell_id array if it exists
+        cell_id_array = output_data.GetCellData().GetArray('cell_id')
+        
+        # Fill tally values
+        for i in range(n_cells):
+            if cell_id_array:
+                geom_cell_id = int(cell_id_array.GetValue(i))
+            else:
+                # Fallback: assume cells are in order, OpenMC IDs are 1-based
+                geom_cell_id = i + 1
+            
+            tally_value = cell_tally_map.get(geom_cell_id, 0.0)
+            tally_array.SetValue(i, tally_value)
+        
+        # Add array to output
+        output_data.GetCellData().AddArray(tally_array)
+        output_data.GetCellData().SetActiveScalars('tally_value')
+        '''
+        
+        pf.UpdatePipeline()
+        
+        # Show the filtered geometry with tally colors
+        geometry_display = simple.Show(pf)
+        
+        # Color by tally value
+        simple.ColorBy(geometry_display, ('CELLS', 'tally_value'))
+        
+        # Apply color map
+        lut = simple.GetColorTransferFunction('tally_value')
+        lut.ApplyPreset('Cool to Warm', True)
+        
+        return {
+            'geometry': pf,
+            'geometry_display': geometry_display,
+            'tally': tally,
+            'overlay_type': 'cell',
+            'cell_tally_map': cell_tally_map,
+        }
+    
+    def _show_mesh_overlay(self, geometry, tally) -> Dict:
+        """Show mesh tally as a separate overlay (fallback for mesh tallies)."""
+        # Show geometry
+        geometry_display = simple.Show(geometry)
+        geometry_display.Opacity = 0.3  # Make geometry semi-transparent
+        
+        # Create mesh tally visualization
+        mesh_grid = self.create_mesh_tally_vtu(tally)
+        
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(suffix='.vtu', delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        writer = vtk.vtkXMLUnstructuredGridWriter()
+        writer.SetFileName(tmp_path)
+        writer.SetInputData(mesh_grid)
+        writer.Write()
+        
+        mesh_source = simple.XMLUnstructuredGridReader(FileName=tmp_path)
+        mesh_display = simple.Show(mesh_source)
+        
+        # Color by tally mean
+        simple.ColorBy(mesh_display, ('CELLS', 'tally_mean'))
+        
+        # Apply color map
+        lut = simple.GetColorTransferFunction('tally_mean')
+        lut.ApplyPreset('Cool to Warm', True)
         
         return {
             'geometry': geometry,
             'geometry_display': geometry_display,
-            'tally': tally
+            'tally_source': mesh_source,
+            'tally_display': mesh_display,
+            'tally': tally,
+            'overlay_type': 'mesh',
+            'temp_file': tmp_path
         }
 
 

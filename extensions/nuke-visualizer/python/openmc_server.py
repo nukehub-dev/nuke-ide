@@ -26,9 +26,11 @@ os.environ['VTK_USE_OFFSCREEN'] = '1'
 from visualizer_common import (
     find_free_port, COLOR_MAPS, COLOR_MAPS_SHORT, hex_to_rgb, get_data_bounds,
     calculate_camera_position, create_update_view, create_reset_camera_controller,
-    create_set_camera_view_controller, create_capture_screenshot_controller,
+    create_set_camera_view_controller, 
+    create_pan_camera_controller, create_zoom_camera_controller,
+    create_capture_screenshot_controller,
     save_screenshot_with_timestamp, UIComponents, StateHandlers,
-    init_common_state
+    init_common_state, GLOBAL_STYLES
 )
 
 from openmc_integration import OpenMCReader
@@ -318,6 +320,8 @@ def cmd_visualize_mesh(args):
         # Controllers
         reset_camera = create_reset_camera_controller(pipeline, update_view)
         set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+        pan_camera = create_pan_camera_controller(pipeline, update_view)
+        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
         capture_screenshot = create_capture_screenshot_controller(pipeline)
         
         def toggle_controls():
@@ -326,6 +330,8 @@ def cmd_visualize_mesh(args):
         
         # UI
         with VAppLayout(server) as layout:
+            from trame.widgets import html
+            html.Style(GLOBAL_STYLES)
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True), app=True, width=300, clipped=True,
                 color="#1e1e1e", dark=True
@@ -333,7 +339,6 @@ def cmd_visualize_mesh(args):
                 with vuetify.VContainer(classes="pa-3"):
                     # Header
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
-                        from trame.widgets import html
                         html.Div(f"Tally {tally.id}: {tally.name}", 
                                 classes="text-subtitle-1 font-weight-medium white--text")
                         with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
@@ -381,51 +386,13 @@ def cmd_visualize_mesh(args):
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    # Camera Section
-                    vuetify.VSubheader("Camera", classes="text-subtitle-1 mb-2")
-                    
-                    with vuetify.VRow(dense=True):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Reset", click=lambda: reset_camera(),
-                                        block=True, small=True, outlined=True, classes="mb-2")
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'),
-                                        block=True, small=True, outlined=True, classes="mb-2")
-                    
-                    with vuetify.VRow(dense=True):
-                        for label, view_type in [("Front", "front"), ("Side", "right"), ("Top", "top")]:
-                            with vuetify.VCol(cols=4):
-                                vuetify.VBtn(label, click=lambda vt=view_type: set_camera_view(vt),
-                                            block=True, small=True, text=True)
-                    
-                    vuetify.VDivider(classes="my-4")
-                    
-                    # Appearance Section
-                    vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                    
-                    # Background Color Picker
-                    with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                        UIComponents.background_color_picker(vuetify)
-                    
-                    vuetify.VDivider(classes="my-4")
-                    
-                    # Projection Mode
-                    vuetify.VCheckbox(
-                        v_model=("parallel_projection", False),
-                        label="Parallel Projection (2D/Ortho)",
-                        dense=True, classes="mb-2"
-                    )
+                    # Compact toggles in a grid
+                    UIComponents.compact_appearance_controls(vuetify)
                     
                     # Detail sliders
                     UIComponents.point_size_slider(vuetify)
                     UIComponents.line_width_slider(vuetify)
                     UIComponents.ambient_light_slider(vuetify)
-                    
-                    vuetify.VDivider(classes="my-4")
-                    
-                    # Toggles
-                    for toggle in UIComponents.appearance_toggles(vuetify):
-                        pass
                     
                     vuetify.VDivider(classes="my-4")
                     
@@ -448,6 +415,9 @@ def cmd_visualize_mesh(args):
                 ):
                     with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
                         vuetify.VIcon("mdi-chevron-right")
+                
+                # Camera Navigation Gadget (Top Right)
+                UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
                 
                 view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
                 pipeline['view_widget'] = view_widget
@@ -654,22 +624,26 @@ def cmd_visualize_source(args):
                 print(f"Error setting camera view: {e}", file=sys.stderr)
                 return False
         
-        def capture_screenshot(filename=None, width=None, height=None, transparent=False):
-            return create_capture_screenshot_controller(pipeline)(filename, width, height, transparent)
-        
         def toggle_controls():
             state.show_controls = not state.show_controls
             return state.show_controls
         
+        # Controllers
+        reset_camera = create_reset_camera_controller(pipeline, update_view)
+        set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+        pan_camera = create_pan_camera_controller(pipeline, update_view)
+        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
+        capture_screenshot = create_capture_screenshot_controller(pipeline)
+
         # UI setup
         with VAppLayout(server) as layout:
+            from trame.widgets import html
+            html.Style(GLOBAL_STYLES)
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True), app=True, width=320, clipped=True,
                 color="#1e1e1e", dark=True
             ):
                 with vuetify.VContainer(classes="pa-4"):
-                    from trame.widgets import html
-                    
                     # Header
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                         vuetify.VSubheader("OpenMC Source", classes="text-h6 pa-0")
@@ -711,43 +685,8 @@ def cmd_visualize_source(args):
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    # Camera Section
-                    vuetify.VSubheader("Camera", classes="text-subtitle-1 mb-2")
-                    
-                    with vuetify.VRow(dense=True):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Reset", click=lambda: (simple.ResetCamera(view), update_view(True)),
-                                        block=True, small=True, outlined=True, classes="mb-2")
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Isometric", click=lambda: set_camera_view('isometric'),
-                                        block=True, small=True, outlined=True, classes="mb-2")
-                    
-                    with vuetify.VRow(dense=True):
-                        for label, view_type in [("Front", "front"), ("Side", "right"), ("Top", "top")]:
-                            with vuetify.VCol(cols=4):
-                                vuetify.VBtn(label, click=lambda vt=view_type: set_camera_view(vt),
-                                            block=True, small=True, text=True)
-                    
-                    vuetify.VDivider(classes="my-4")
-                    
-                    # Appearance Section
-                    vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                    
-                    # Background Color Picker
-                    with vuetify.VContainer(classes="ma-0 pa-0 mb-4", style="overflow: hidden;"):
-                        UIComponents.background_color_picker(vuetify)
-                    
-                    vuetify.VCheckbox(
-                        v_model=("show_orientation_axes", True),
-                        label="Show 3D Axis Indicator",
-                        dense=True, classes="mb-2"
-                    )
-                    
-                    vuetify.VCheckbox(
-                        v_model=("show_cube_axes", False),
-                        label="Show Coordinate Grid",
-                        dense=True, classes="mb-4"
-                    )
+                    # Compact toggles in a grid
+                    UIComponents.compact_appearance_controls(vuetify)
                     
                     vuetify.VDivider(classes="my-4")
                     
@@ -770,6 +709,9 @@ def cmd_visualize_source(args):
                 ):
                     with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
                         vuetify.VIcon("mdi-chevron-right")
+                
+                # Camera Navigation Gadget (Top Right)
+                UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
                 
                 view_widget = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
                 pipeline['view_widget'] = view_widget
@@ -811,15 +753,15 @@ def cmd_visualize_source(args):
         return 1
 
 
-# [Rest of the file with non-visualization commands remains the same]
 def cmd_visualize_overlay(args):
-    """Overlay tally on geometry (simplified)."""
+    """Overlay tally on geometry with full interactive controls."""
     try:
         from trame.app import get_server
         from trame.widgets import paraview as pv_widgets
         from trame.widgets import vuetify2 as vuetify
         from trame.ui.vuetify2 import VAppLayout
         from paraview import simple
+        import vtk
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
         return 1
@@ -832,21 +774,74 @@ def cmd_visualize_overlay(args):
             args.geometry, args.statepoint, args.tally_id, args.score
         )
         tally = viz_data['tally']
+        overlay_type = viz_data.get('overlay_type', 'none')
         
         server = get_server(client_type="vue2", port=port)
         state = server.state
         
-        init_common_state(state, theme='dark', opacity=0.6)
-        state.color_map = args.colormap or 'Cool to Warm'
+        # Determine which display has the colored data
+        # For cell tallies: geometry_display has the tally colors
+        # For mesh tallies: tally_display has the mesh overlay
+        has_colored_data = overlay_type in ('cell', 'mesh')
+        color_array_name = 'tally_value' if overlay_type == 'cell' else 'tally_mean'
+        
+        # Initialize common state
+        init_common_state(state, theme='dark', 
+                         opacity=0.6 if overlay_type == 'mesh' else 1.0,
+                         color_by=f'Cell: {color_array_name}' if has_colored_data else 'Solid Color',
+                         show_scalar_bar=has_colored_data,
+                         color_map=args.colormap or 'Cool to Warm')
+        
+        # Store tally info for display
+        state.tally_id = tally.id
+        state.tally_name = tally.name
+        state.has_mesh = tally.has_mesh
+        state.overlay_type = overlay_type
+        state.current_score = args.score if args.score else (tally.scores[0] if tally.scores else 'total')
         
         view = simple.GetActiveViewOrCreate('RenderView')
         bg_rgb = hex_to_rgb(state.background_color_hex)
         view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]
         view.UseColorPaletteForBackground = 0
+        view.OrientationAxesVisibility = 1
+        
+        # Get available arrays for coloring from the colored display
+        available_arrays = ['Solid Color']
+        colored_display = viz_data.get('geometry_display') if overlay_type == 'cell' else viz_data.get('tally_display')
+        if colored_display:
+            try:
+                cell_data = colored_display.Input.CellData
+                for i in range(cell_data.GetNumberOfArrays()):
+                    array = cell_data.GetArray(i)
+                    if array and array.GetName():
+                        available_arrays.append(f"Cell: {array.GetName()}")
+            except Exception as e:
+                print(f"Warning: Could not get cell data arrays: {e}", file=sys.stderr)
+        state.available_arrays = available_arrays
+        
         simple.Render(view)
         simple.ResetCamera()
         
-        pipeline = {'view': view, 'view_widget': None}
+        # Setup pipeline
+        # For cell tally: only geometry_display exists, and it has the colors
+        # For mesh tally: both exist, tally_display has the colors
+        geometry_display = viz_data.get('geometry_display')
+        tally_display = viz_data.get('tally_display')
+        
+        # The 'primary_display' is the one with tally colors
+        primary_display = geometry_display if overlay_type == 'cell' else tally_display
+        
+        pipeline = {
+            'view': view, 
+            'view_widget': None,
+            'source': viz_data.get('geometry') if overlay_type == 'cell' else viz_data.get('tally_source'),
+            'display': primary_display,
+            'geometry': viz_data.get('geometry'),
+            'geometry_display': geometry_display,
+            'tally_source': viz_data.get('tally_source'),
+            'tally_display': tally_display,
+            'overlay_type': overlay_type
+        }
         
         def update_view(push_camera=False):
             try:
@@ -860,56 +855,353 @@ def cmd_visualize_overlay(args):
             except Exception as e:
                 print(f"Error updating view: {e}", file=sys.stderr)
         
+        # State change handlers
+        @state.change("color_by")
+        def on_color_by_change(color_by, **kwargs):
+            try:
+                if not primary_display:
+                    return
+                
+                if color_by == 'Solid Color':
+                    simple.ColorBy(primary_display, None)
+                elif color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                    simple.ColorBy(primary_display, ('POINTS', array_name))
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(state.color_map, True)
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                    simple.ColorBy(primary_display, ('CELLS', array_name))
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(state.color_map, True)
+                update_view()
+            except Exception as e:
+                print(f"Error updating color by: {e}", file=sys.stderr)
+        
+        @state.change("color_map")
+        def on_color_map_change(color_map, **kwargs):
+            try:
+                color_by = state.color_by
+                if color_by == 'Solid Color' or not primary_display:
+                    return
+                
+                array_name = None
+                if color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                
+                if array_name:
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(color_map, True)
+                update_view()
+            except Exception as e:
+                print(f"Error updating color map: {e}", file=sys.stderr)
+        
         @state.change("opacity")
         def on_opacity_change(opacity, **kwargs):
-            if 'tally_display' in viz_data:
-                viz_data['tally_display'].Opacity = float(opacity)
+            try:
+                # For cell tally: opacity affects geometry
+                # For mesh tally: opacity affects the mesh overlay
+                if overlay_type == 'cell' and geometry_display:
+                    geometry_display.Opacity = float(opacity)
+                elif overlay_type == 'mesh' and tally_display:
+                    tally_display.Opacity = float(opacity)
                 update_view()
+            except Exception as e:
+                print(f"Error updating opacity: {e}", file=sys.stderr)
+        
+        @state.change("representation")
+        def on_representation_change(representation, **kwargs):
+            try:
+                if primary_display:
+                    primary_display.Representation = representation
+                update_view()
+            except Exception as e:
+                print(f"Error updating representation: {e}", file=sys.stderr)
+        
+        @state.change("show_scalar_bar")
+        def on_scalar_bar_change(show_scalar_bar, **kwargs):
+            try:
+                color_by = state.color_by
+                if color_by == 'Solid Color' or not view:
+                    return
+                
+                array_name = None
+                if color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                
+                if array_name:
+                    lut = simple.GetColorTransferFunction(array_name)
+                    scalar_bar = simple.GetScalarBar(lut, view)
+                    if scalar_bar:
+                        scalar_bar.Visibility = 1 if show_scalar_bar else 0
+                update_view()
+            except Exception as e:
+                print(f"Error updating scalar bar: {e}", file=sys.stderr)
+        
+        @state.change("background_color_hex")
+        def on_background_change(background_color_hex, **kwargs):
+            try:
+                rgb = hex_to_rgb(background_color_hex)
+                if rgb and view:
+                    try:
+                        view.UseColorPaletteForBackground = 0
+                    except:
+                        pass
+                    view.Background = rgb
+                update_view()
+            except Exception as e:
+                print(f"Error updating background: {e}", file=sys.stderr)
+        
+        @state.change("show_orientation_axes")
+        def on_orientation_axes_change(show_orientation_axes, **kwargs):
+            try:
+                if view:
+                    view.OrientationAxesVisibility = 1 if show_orientation_axes else 0
+                update_view()
+            except Exception as e:
+                print(f"Error updating orientation axes: {e}", file=sys.stderr)
+        
+        @state.change("show_bounding_box")
+        def on_bounding_box_change(show_bounding_box, **kwargs):
+            try:
+                val = 1 if show_bounding_box else 0
+                if primary_display:
+                    primary_display.CenterAxesVisibility = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.CenterAxesVisibility = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating bounding box: {e}", file=sys.stderr)
+        
+        @state.change("show_cube_axes")
+        def on_cube_axes_change(show_cube_axes, **kwargs):
+            try:
+                val = 1 if show_cube_axes else 0
+                if hasattr(view, 'CubeAxesVisibility'):
+                    view.CubeAxesVisibility = val
+                elif hasattr(view, 'AxesGrid'):
+                    view.AxesGrid.Visibility = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating cube axes: {e}", file=sys.stderr)
         
         @state.change("ambient_light")
         def on_ambient_light_change(ambient_light, **kwargs):
-            for key in ['tally_display', 'geom_display']:
-                if key in viz_data:
-                    viz_data[key].Ambient = float(ambient_light)
-            update_view()
+            try:
+                val = float(ambient_light)
+                if primary_display:
+                    primary_display.Ambient = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.Ambient = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating ambient light: {e}", file=sys.stderr)
         
         @state.change("parallel_projection")
         def on_parallel_projection_change(parallel_projection, **kwargs):
-            view.CameraParallelProjection = 1 if parallel_projection else 0
-            update_view(True)
+            try:
+                if view:
+                    view.CameraParallelProjection = 1 if parallel_projection else 0
+                update_view(True)
+            except Exception as e:
+                print(f"Error updating projection mode: {e}", file=sys.stderr)
         
+        @state.change("point_size")
+        def on_point_size_change(point_size, **kwargs):
+            try:
+                val = float(point_size)
+                if primary_display:
+                    primary_display.PointSize = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.PointSize = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating point size: {e}", file=sys.stderr)
+        
+        @state.change("line_width")
+        def on_line_width_change(line_width, **kwargs):
+            try:
+                val = float(line_width)
+                if primary_display:
+                    primary_display.LineWidth = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.LineWidth = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating line width: {e}", file=sys.stderr)
+        
+        # Controllers
+        reset_camera = create_reset_camera_controller(pipeline, update_view)
+        set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+        pan_camera = create_pan_camera_controller(pipeline, update_view)
+        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
+        capture_screenshot = create_capture_screenshot_controller(pipeline)
+        
+        def toggle_controls():
+            state.show_controls = not state.show_controls
+            return state.show_controls
+
         with VAppLayout(server) as layout:
-            with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
-                with vuetify.VContainer():
-                    vuetify.VSubheader(f"Overlay: Tally {tally.id}")
+            from trame.widgets import html
+            html.Style(GLOBAL_STYLES)
+            with vuetify.VNavigationDrawer(
+                v_model=("show_controls", True), app=True, width=320, clipped=True,
+                color="#1e1e1e", dark=True
+            ):
+                with vuetify.VContainer(classes="pa-3"):
+                    # Header with close button
+                    with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
+                        html.Div(f"Overlay: Tally {tally.id}", 
+                                classes="text-subtitle-1 font-weight-medium white--text")
+                        with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                            vuetify.VIcon("mdi-chevron-left")
+                    vuetify.VDivider(classes="mb-2")
+                    
+                    # Overlay type indicator
+                    overlay_label = {
+                        'cell': 'Cell Tally (on Geometry)',
+                        'mesh': 'Mesh Tally (Overlay)',
+                        'none': 'Geometry Only'
+                    }.get(overlay_type, 'Unknown')
+                    
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #2a3f5f; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Overlay Type", style="font-size: 10px; color: #88aaff; text-transform: uppercase;")
+                                html.Div(overlay_label, style="font-size: 12px; color: #fff; font-weight: 500;")
+                    
+                    # Tally info
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Tally Name", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                                html.Div(tally.name, style="font-size: 13px; color: #fff; font-weight: 500;")
+                    
+                    # Score info
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        for label, value in [("Score", "current_score"), ("Type", "overlay_type")]:
+                            with vuetify.VCol(cols=6, classes="pa-0 pr-1" if label == "Score" else "pa-0 pl-1"):
+                                with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                    html.Div(label, style="font-size: 10px; color: #888; text-transform: uppercase;")
+                                    html.Div(f"{{{{{value}}}}}", style="font-size: 12px; color: #fff;")
+                    
+                    # Scores and Nuclides info
+                    if tally.scores:
+                        html.Div("Available Scores", style="font-size: 11px; color: #888; text-transform: uppercase; margin: 8px 0 4px 0;")
+                        with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                            with vuetify.VCol(cols=12, classes="pa-0"):
+                                with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                    html.Div(", ".join(tally.scores[:5]) + ("..." if len(tally.scores) > 5 else ""), 
+                                            style="font-size: 11px; color: #fff;")
+                    
+                    if tally.nuclides and not (len(tally.nuclides) == 1 and tally.nuclides[0] == 'total'):
+                        html.Div("Nuclides", style="font-size: 11px; color: #888; text-transform: uppercase; margin: 8px 0 4px 0;")
+                        with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                            with vuetify.VCol(cols=12, classes="pa-0"):
+                                with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                    html.Div(", ".join(tally.nuclides[:5]) + ("..." if len(tally.nuclides) > 5 else ""), 
+                                            style="font-size: 11px; color: #fff;")
+                    
                     vuetify.VDivider(classes="mb-4")
                     
-                    UIComponents.opacity_slider(vuetify, ("opacity", 0.6))
+                    # Controls
+                    # Opacity slider - for mesh tallies, control the mesh overlay opacity
+                    # For cell tallies, control the geometry opacity
+                    opacity_label = "Mesh Opacity" if overlay_type == 'mesh' else "Geometry Opacity"
+                    with vuetify.VContainer(classes="pa-0"):
+                        html.Div(opacity_label, style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px;")
+                        UIComponents.opacity_slider(vuetify, ("opacity", 0.6 if overlay_type == 'mesh' else 1.0))
+                    
                     UIComponents.representation_selector(vuetify)
+                    
+                    # Color by selector (for both cell and mesh tallies with colored data)
+                    if has_colored_data:
+                        UIComponents.color_by_selector(vuetify)
+                        
+                        with vuetify.VContainer(v_if=("color_by !== 'Solid Color'",)):
+                            UIComponents.color_map_selector(vuetify, COLOR_MAPS)
+                            vuetify.VCheckbox(
+                                v_model=("show_scalar_bar", True),
+                                label="Show Color Legend",
+                                dense=True, classes="mb-4"
+                            )
+                        
+                        vuetify.VDivider(classes="my-4")
+                    
+                    # Compact toggles in a grid
+                    UIComponents.compact_appearance_controls(vuetify)
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    vuetify.VCheckbox(
-                        v_model=("parallel_projection", False),
-                        label="Parallel Projection (2D/Ortho)",
-                        dense=True, classes="mb-2"
-                    )
-                    
+                    # Detail sliders
+                    UIComponents.point_size_slider(vuetify)
+                    UIComponents.line_width_slider(vuetify)
                     UIComponents.ambient_light_slider(vuetify)
                     
                     vuetify.VDivider(classes="my-4")
                     
-                    vuetify.VBtn("Reset Camera", click=lambda: (simple.ResetCamera(), update_view(True)),
-                                block=True, outlined=True)
+                    # Screenshot Section
+                    def save_screenshot():
+                        save_screenshot_with_timestamp(capture_screenshot, state)
+                    
+                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                    vuetify.VBtn("Save Screenshot", click=save_screenshot,
+                                block=True, small=True, color="primary", classes="mb-2")
+                    
+                    with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
+                        vuetify.VSubheader(("screenshot_status",), classes="text-caption justify-center")
             
             with vuetify.VMain():
-                pipeline['view_widget'] = pv_widgets.VtkRemoteView(view)
+                # Toggle button when controls are hidden
+                with vuetify.VContainer(
+                    v_if=("!show_controls",), classes="ma-2 pa-0",
+                    style="position: absolute; top: 0; left: 0; z-index: 100;"
+                ):
+                    with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
+                        vuetify.VIcon("mdi-chevron-right")
+                
+                # Camera Navigation Gadget (Top Right)
+                UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
+                
+                pipeline['view_widget'] = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
+        
+        # Add controllers
+        @server.controller.add("view_update")
+        def ctrl_view_update():
+            update_view()
+        
+        @server.controller.add("toggle_controls")
+        def ctrl_toggle_controls():
+            return toggle_controls()
+        
+        @server.controller.add("reset_camera")
+        def ctrl_reset_camera():
+            return reset_camera()
+        
+        @server.controller.add("set_camera_view")
+        def ctrl_set_camera_view(view_type):
+            return set_camera_view(view_type)
+        
+        @state.change("camera_update_counter")
+        def on_camera_update(camera_update_counter, **kwargs):
+            try:
+                simple.Render(view)
+                if pipeline.get('view_widget'):
+                    pipeline['view_widget'].update()
+            except Exception as e:
+                print(f"Warning: camera update failed: {e}", file=sys.stderr)
         
         print(f"Starting OpenMC overlay server on port {port}", file=sys.stderr)
         server.start(port=port, debug=False, open_browser=False)
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return 1
 
 

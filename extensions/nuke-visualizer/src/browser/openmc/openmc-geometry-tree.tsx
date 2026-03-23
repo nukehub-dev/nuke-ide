@@ -21,6 +21,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import { Emitter, Event } from '@theia/core';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from './openmc-service';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
 import { 
@@ -58,6 +59,9 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
 
+    @inject(FileDialogService)
+    protected readonly fileDialogService!: FileDialogService;
+
     private geometryUri: URI | null = null;
     private hierarchy: OpenMCGeometryHierarchy | null = null;
     private selectedItem: GeometryTreeSelection | null = null;
@@ -78,7 +82,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.title.label = OpenMCGeometryTreeWidget.LABEL;
         this.title.caption = OpenMCGeometryTreeWidget.LABEL;
         this.title.iconClass = codicon('repo');
-        this.title.closable = true;
+        this.title.closable = false;
         
         this.node.tabIndex = 0;
         this.update();
@@ -98,14 +102,69 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.update();
     }
 
+    clearGeometry(): void {
+        this.geometryUri = null;
+        this.hierarchy = null;
+        this.selectedItem = null;
+        this.expandedUniverses.clear();
+        this.expandedCells.clear();
+        this.update();
+    }
+
+    protected async handleBrowse(): Promise<void> {
+        try {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select OpenMC Geometry File',
+                openLabel: 'Open',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'XML Files': ['xml'],
+                    'All Files': ['*']
+                }
+            });
+            
+            if (fileUri) {
+                const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                await this.loadGeometry(uri);
+            }
+        } catch (error) {
+            console.error('[GeometryTree] Error browsing for file:', error);
+        }
+    }
+
+    protected async loadGeometry(uri: URI): Promise<void> {
+        try {
+            const hierarchy = await this.openmcService.getGeometryHierarchy(uri);
+            if (hierarchy.error) {
+                console.error('[GeometryTree] Failed to load geometry:', hierarchy.error);
+                return;
+            }
+            this.setGeometry(uri, hierarchy);
+        } catch (error) {
+            console.error('[GeometryTree] Error loading geometry:', error);
+        }
+    }
+
+    protected handleClose(): void {
+        this.clearGeometry();
+    }
+
     protected render(): React.ReactNode {
         if (!this.hierarchy) {
             return (
                 <div className="openmc-geometry-tree empty">
                     <div className="placeholder">
                         <i className={codicon('repo')}></i>
-                        <div>Open a geometry file to view hierarchy</div>
-                        <div className="placeholder-hint">Supported: geometry.xml, model directories</div>
+                        <div>No geometry file loaded</div>
+                        <button 
+                            className="browse-file-btn"
+                            onClick={() => this.handleBrowse()}
+                        >
+                            <i className="fa fa-folder"></i>
+                            Browse Geometry File
+                        </button>
                     </div>
                 </div>
             );
@@ -124,8 +183,8 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                         </span>
                         <button 
                             className="close-btn" 
-                            onClick={() => this.close()}
-                            title="Close"
+                            onClick={() => this.handleClose()}
+                            title="Close Geometry"
                         >
                             <i className={codicon('close')}></i>
                         </button>

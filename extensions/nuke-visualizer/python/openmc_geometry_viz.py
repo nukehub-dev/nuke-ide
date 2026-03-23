@@ -18,7 +18,9 @@ import json
 from visualizer_common import (
     hex_to_rgb, get_data_bounds, calculate_camera_position,
     create_update_view, create_reset_camera_controller,
-    create_set_camera_view_controller, UIComponents,
+    create_set_camera_view_controller, 
+    create_pan_camera_controller, create_zoom_camera_controller,
+    UIComponents,
     init_common_state, StateHandlers, 
     create_capture_screenshot_controller, save_screenshot_with_timestamp,
     GLOBAL_STYLES, DISTINCT_COLORS
@@ -1563,6 +1565,8 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
         # Controllers
         reset_camera = create_reset_camera_controller(pipeline, update_view)
         set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+        pan_camera = create_pan_camera_controller(pipeline, update_view)
+        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
         capture_screenshot = create_capture_screenshot_controller(pipeline)
         
         def save_screenshot():
@@ -1571,7 +1575,16 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
         # UI
         with VAppLayout(server) as layout:
             # Custom CSS for better UI aesthetics
-            html.Style(GLOBAL_STYLES)
+            html.Style(GLOBAL_STYLES + """
+                .nav-guide {
+                    background: rgba(0,0,0,0.2);
+                    border-radius: 4px;
+                    padding: 8px;
+                    font-size: 0.75rem;
+                    line-height: 1.4;
+                }
+                .nav-guide b { color: #82B1FF; }
+            """)
 
             with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
                 with vuetify.VContainer():
@@ -1678,47 +1691,10 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                                 )
                     
                     vuetify.VDivider(classes="my-3")
-                    
-                    # Camera Section - Compact
-                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VSubheader("Camera", classes="text-subtitle-1 pa-0")
-                    
-                    with vuetify.VRow(dense=True):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Reset", click=reset_camera, block=True, x_small=True, outlined=True)
-                        with vuetify.VCol(cols=6):
-                            vuetify.VBtn("Iso", click=lambda: set_camera_view('isometric'), block=True, x_small=True, outlined=True)
-                    
-                    with vuetify.VRow(dense=True, classes="mt-1"):
-                        with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Front", click=lambda: set_camera_view('front'), block=True, x_small=True, text=True)
-                        with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Side", click=lambda: set_camera_view('right'), block=True, x_small=True, text=True)
-                        with vuetify.VCol(cols=4):
-                            vuetify.VBtn("Top", click=lambda: set_camera_view('top'), block=True, x_small=True, text=True)
-                    
-                    vuetify.VDivider(classes="my-3")
-                    
-                    # Appearance Section - Compact
-                    vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
-                    
-                    # Background Color - compact
-                    with vuetify.VContainer(classes="ma-0 pa-0 mb-3", style="overflow: hidden;"):
-                        UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
-                    
+
                     # Compact toggles in a grid
-                    with vuetify.VRow(dense=True, classes="mb-2"):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VCheckbox(v_model=("show_orientation_axes", True), label="3D Axis", dense=True, hide_details=True)
-                        with vuetify.VCol(cols=6):
-                            vuetify.VCheckbox(v_model=("parallel_projection", False), label="Parallel Proj", dense=True, hide_details=True)
-                    with vuetify.VRow(dense=True, classes="mb-2"):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VCheckbox(v_model=("show_bounding_box", False), label="Bounds", dense=True, hide_details=True)
-                        with vuetify.VCol(cols=6):
-                            vuetify.VCheckbox(v_model=("show_cube_axes", False), label="Grid", dense=True, hide_details=True)
-                    
+                    UIComponents.compact_appearance_controls(vuetify)
+
                     # Compact sliders
                     UIComponents.point_size_slider(vuetify, classes="mb-2 mt-2")
                     UIComponents.line_width_slider(vuetify, classes="mb-2")
@@ -1740,6 +1716,9 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                     with vuetify.VBtn(click=lambda: setattr(state, 'show_controls', True), small=True, fab=True, color="primary"):
                         vuetify.VIcon("mdi-chevron-right")
                 
+                # Camera Navigation Gadget (Top Right)
+                UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
+
                 # View container with explicit sizing
                 with vuetify.VContainer(
                     fluid=True,

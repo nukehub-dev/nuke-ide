@@ -41,7 +41,7 @@ import { NavigatorDiff } from '@theia/navigator/lib/browser/navigator-diff';
 import { DiffUris } from '@theia/core/lib/browser/diff-uris';
 import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
 import { OpenMCTallySelector } from './tally-selector';
-import { OpenMCTallyTreeWidget } from './openmc-tally-tree';
+import { OpenMCTallyTreeWidget, TallySelection } from './openmc-tally-tree';
 import { OpenMCPlotWidget } from './openmc-plot-widget';
 import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
@@ -606,46 +606,128 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     private async visualizeSourceCommand(): Promise<void> {
-        const uri = await this.quickInput.showQuickPick(
-            await this.getSourceFiles(),
-            {
-                title: 'Select Source File',
-                placeholder: 'Choose a source.h5 file'
-            }
-        );
+        // Get source files from workspace
+        const files = await this.getSourceFiles();
+        
+        // Add "Browse..." option
+        const options: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse for file...', description: 'Select source.h5 file from any location' }
+        ];
+        
+        if (files.length > 0) {
+            options.push({ type: 'separator', label: 'Workspace Files' } as any, ...files);
+        }
 
-        if (uri) {
-            await this.openmcService.visualizeSource(new URI(uri.value));
+        const selection = await this.quickInput.showQuickPick(options, {
+            title: 'Select Source File',
+            placeholder: files.length > 0 ? 'Choose a file or browse...' : 'Browse for source.h5 file...'
+        });
+
+        if (!selection) return;
+
+        if (selection.value === '__browse__') {
+            // Open file dialog
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Source File',
+                openLabel: 'Open',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'HDF5 Files': ['h5'],
+                    'All Files': ['*']
+                }
+            });
+            
+            if (fileUri) {
+                const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                await this.openmcService.visualizeSource(uri);
+            }
+        } else {
+            await this.openmcService.visualizeSource(new URI(selection.value));
         }
     }
 
     private async overlayTallyCommand(): Promise<void> {
-        // Select geometry file
-        const geometryUri = await this.quickInput.showQuickPick(
-            await this.getGeometryFiles(),
-            {
-                title: 'Select Geometry File',
-                placeholder: 'Choose a DAGMC .h5m file'
-            }
-        );
+        // Get geometry files from workspace
+        const geometryFiles = await this.getGeometryFiles();
+        
+        // Build geometry options with browse
+        const geometryOptions: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select DAGMC .h5m file from any location' }
+        ];
+        
+        if (geometryFiles.length > 0) {
+            geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
+        }
 
-        if (!geometryUri) return;
+        // Select geometry file
+        const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
+            title: 'Select Geometry File',
+            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
+        });
+
+        if (!geometrySelection) return;
+
+        let geometryUri: URI;
+        if (geometrySelection.value === '__browse__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Geometry File',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'DAGMC Files': ['h5m'],
+                    'All Files': ['*']
+                }
+            });
+            if (!fileUri) return;
+            geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        } else {
+            geometryUri = new URI(geometrySelection.value);
+        }
+
+        // Get statepoint files from workspace
+        const statepointFiles = await this.getStatepointFiles();
+        
+        // Build statepoint options with browse
+        const statepointOptions: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse for statepoint file...', description: 'Select statepoint.h5 file from any location' }
+        ];
+        
+        if (statepointFiles.length > 0) {
+            statepointOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...statepointFiles);
+        }
 
         // Select statepoint file
-        const statepointUri = await this.quickInput.showQuickPick(
-            await this.getStatepointFiles(),
-            {
+        const statepointSelection = await this.quickInput.showQuickPick(statepointOptions, {
+            title: 'Select Statepoint File',
+            placeholder: statepointFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for statepoint.h5 file...'
+        });
+
+        if (!statepointSelection) return;
+
+        let statepointUri: URI;
+        if (statepointSelection.value === '__browse__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
                 title: 'Select Statepoint File',
-                placeholder: 'Choose a statepoint.h5 file'
-            }
-        );
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'HDF5 Files': ['h5'],
+                    'All Files': ['*']
+                }
+            });
+            if (!fileUri) return;
+            statepointUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        } else {
+            statepointUri = new URI(statepointSelection.value);
+        }
 
-        if (!statepointUri) return;
-
-        await this.showTallySelectorForOverlay(
-            new URI(geometryUri.value),
-            new URI(statepointUri.value)
-        );
+        await this.showTallySelectorForOverlay(geometryUri, statepointUri);
     }
 
     private async showTallyInfoCommand(): Promise<void> {
@@ -721,9 +803,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         await this.shell.activateWidget(widget.id);
         
         // Listen for tally selection from tree (only once)
-        if (!(widget as any)._selectionHandlerSet) {
-            (widget as any)._selectionHandlerSet = true;
-            widget.onTallySelected(async selection => {
+        if (!(widget as any)._handlerSet) {
+            (widget as any)._handlerSet = true;
+            
+            // Handle tally selection
+            widget.onTallySelected(async (selection: TallySelection) => {
                 console.log(`[OpenMC] Tally selected: id=${selection.tallyId}, action=${selection.action}`);
                 const options: TallyVisualizationOptions = {
                     tallyId: selection.tallyId,
@@ -738,6 +822,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     if (selection.action === 'visualize') {
                         console.log(`[OpenMC] Visualizing mesh tally ${selection.tallyId}`);
                         await this.openmcService.visualizeMeshTally(statepointUri, options);
+                    } else if (selection.action === 'overlay-geometry') {
+                        console.log(`[OpenMC] Overlaying tally ${selection.tallyId} on geometry`);
+                        await this.handleOverlayOnGeometry(selection, statepointUri);
                     } else if (selection.action === 'spectrum') {
                         console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
                         
@@ -935,22 +1022,269 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
+    private async handleOverlayOnGeometry(selection: any, statepointUri: URI): Promise<void> {
+        // Get DAGMC geometry files from workspace
+        const geometryFiles = await this.getDagmcFiles();
+        
+        // Build geometry options with browse
+        const geometryOptions: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse for DAGMC file...', description: 'Select .h5m file from any location' }
+        ];
+        
+        if (geometryFiles.length > 0) {
+            geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
+        }
+
+        // Select geometry file
+        const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
+            title: 'Select DAGMC Geometry File',
+            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
+        });
+
+        if (!geometrySelection) return;
+
+        let geometryUri: URI;
+        if (geometrySelection.value === '__browse__') {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select DAGMC Geometry File',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'DAGMC Files': ['h5m'],
+                    'All Files': ['*']
+                }
+            });
+            if (!fileUri) return;
+            geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        } else {
+            geometryUri = new URI(geometrySelection.value);
+        }
+
+        // Confirm the overlay
+        const confirm = await this.quickInput.showQuickPick([
+            { value: 'yes', label: '$(check) Overlay Tally on Geometry' },
+            { value: 'no', label: '$(x) Cancel' }
+        ], {
+            title: `Overlay Tally ${selection.tallyId} on ${geometryUri.path.base}?`,
+            placeholder: 'Confirm overlay action'
+        });
+
+        if (confirm?.value !== 'yes') return;
+
+        // Perform the overlay
+        const options: TallyVisualizationOptions = {
+            tallyId: selection.tallyId,
+            score: selection.score,
+            nuclide: selection.nuclide
+        };
+
+        try {
+            await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+        } catch (error) {
+            this.messageService.error(`Failed to overlay tally: ${error}`);
+        }
+    }
+
+    private async getDagmcFiles(): Promise<QuickPickValue<string>[]> {
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectDagmcFiles = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name.endsWith('.h5m')) {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                await collectDagmcFiles(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectDagmcFiles(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for DAGMC files:', e);
+        }
+
+        return files;
+    }
+
     private async getH5Files(): Promise<QuickPickValue<string>[]> {
-        // Return empty - user will input path manually
-        // In a full implementation, this would walk the workspace directories
-        return [];
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectH5Files = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name.endsWith('.h5')) {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                await collectH5Files(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectH5Files(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for H5 files:', e);
+        }
+
+        return files;
     }
 
     private async getStatepointFiles(): Promise<QuickPickValue<string>[]> {
-        return [];
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectStatepointFiles = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name.startsWith('statepoint') && child.name.endsWith('.h5')) {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                await collectStatepointFiles(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectStatepointFiles(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for statepoint files:', e);
+        }
+
+        return files;
     }
 
     private async getSourceFiles(): Promise<QuickPickValue<string>[]> {
-        return [];
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectSourceFiles = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name === 'source.h5') {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                await collectSourceFiles(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectSourceFiles(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for source files:', e);
+        }
+
+        return files;
     }
 
     private async getGeometryFiles(): Promise<QuickPickValue<string>[]> {
-        return [];
+        const workspace = this.workspaceService.workspace;
+        if (!workspace) {
+            return [];
+        }
+
+        const files: QuickPickValue<string>[] = [];
+        
+        try {
+            const rootUri = workspace.resource;
+            
+            const collectGeometryFiles = async (uri: URI): Promise<void> => {
+                try {
+                    const dirStat = await this.fileService.resolve(uri);
+                    if (dirStat.children) {
+                        for (const child of dirStat.children) {
+                            if (child.isFile && child.name.endsWith('.h5m')) {
+                                files.push({
+                                    value: child.resource.toString(),
+                                    label: child.name,
+                                    description: this.labelProvider.getLongName(child.resource)
+                                });
+                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                                await collectGeometryFiles(child.resource);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for individual directories
+                }
+            };
+
+            await collectGeometryFiles(rootUri);
+        } catch (e) {
+            console.error('[OpenMC] Failed to search for geometry files:', e);
+        }
+
+        return files;
     }
 
     private async openDepletionViewerCommand(): Promise<void> {
@@ -1190,6 +1524,19 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     private geometry3DWidget: OpenMCGeometry3DWidget | null = null;
 
+    private geometryTreeWidget: OpenMCGeometryTreeWidget | undefined;
+
+    private async getOrCreateGeometryTreeWidget(): Promise<OpenMCGeometryTreeWidget> {
+        let widget = this.geometryTreeWidget;
+        if (!widget || widget.isDisposed) {
+            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(
+                OpenMCGeometryTreeWidget.ID
+            );
+            this.geometryTreeWidget = widget;
+        }
+        return widget;
+    }
+
     private async openGeometryHierarchy(uri: URI): Promise<void> {
         const progress = await this.messageService.showProgress({
             text: 'Loading geometry hierarchy...',
@@ -1205,9 +1552,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             }
             
             // Get or create the geometry tree widget
-            const widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(
-                OpenMCGeometryTreeWidget.ID
-            );
+            const widget = await this.getOrCreateGeometryTreeWidget();
             
             // Update the widget state
             widget.setGeometry(uri, hierarchy);
@@ -1220,9 +1565,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             // Activate the widget
             await this.shell.activateWidget(widget.id);
 
-            // Listen for 3D view requests
-            if (!(widget as any)._view3DHandlerSet) {
-                (widget as any)._view3DHandlerSet = true;
+            // Listen for 3D view requests (only once)
+            if (!(widget as any)._handlerSet) {
+                (widget as any)._handlerSet = true;
+                
+                // Handle 3D view requests
                 widget.onView3D(async (request: GeometryView3DRequest) => {
                     await this.showGeometry3D(request);
                 });

@@ -186,6 +186,14 @@ export class OpenMCService {
     }
 
     /**
+     * Clear the currently loaded statepoint.
+     */
+    clearStatepoint(): void {
+        this.currentStatepoint = null;
+        this.currentTallies = [];
+    }
+
+    /**
      * Visualize a mesh tally from a statepoint file.
      */
     async visualizeMeshTally(
