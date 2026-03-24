@@ -1062,22 +1062,24 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             geometryUri = new URI(geometrySelection.value);
         }
 
-        // Confirm the overlay
-        const confirm = await this.quickInput.showQuickPick([
-            { value: 'yes', label: '$(check) Overlay Tally on Geometry' },
-            { value: 'no', label: '$(x) Cancel' }
+        // Ask about graveyard filtering
+        const filterChoice = await this.quickInput.showQuickPick([
+            { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+            { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
         ], {
-            title: `Overlay Tally ${selection.tallyId} on ${geometryUri.path.base}?`,
-            placeholder: 'Confirm overlay action'
+            title: 'Graveyard Surface Filtering',
+            placeholder: 'Select visualization mode'
         });
 
-        if (confirm?.value !== 'yes') return;
+        if (!filterChoice) return;
+        const filterGraveyard = filterChoice.value === 'filter';
 
         // Perform the overlay
         const options: TallyVisualizationOptions = {
             tallyId: selection.tallyId,
             score: selection.score,
-            nuclide: selection.nuclide
+            nuclide: selection.nuclide,
+            filterGraveyard
         };
 
         try {

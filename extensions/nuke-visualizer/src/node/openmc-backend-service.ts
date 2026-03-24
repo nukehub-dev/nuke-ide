@@ -215,7 +215,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         geometryPath: string,
         statepointPath: string,
         tallyId: number,
-        score?: string
+        score?: string,
+        filterGraveyard: boolean = true
     ): Promise<OpenMCVisualizationResult> {
         const port = await this.findFreePort(8090);
         this.reservedPorts.add(port);
@@ -238,17 +239,56 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 args.push('--score', score);
             }
 
+            if (!filterGraveyard) {
+                args.push('--no-graveyard-filter');
+            }
+
             const process = this.startPythonProcess(pythonCommand, args, port);
 
-            await this.waitForServer(port, process);
+            // Capture stderr to get warning file path
+            let stderrOutput = '';
+            const processInstance = process.process;
+            if (processInstance && processInstance.stderr) {
+                processInstance.stderr.on('data', (data: Buffer) => {
+                    stderrOutput += data.toString();
+                });
+            }
+
+            // Use longer timeout for large DAGMC files (120 seconds)
+            await this.waitForServer(port, process, 120000, { data: stderrOutput });
 
             const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
+
+            // Check for spatial warning in stderr (JSON format)
+            let spatialWarning: string | undefined;
+            const warningMatch = stderrOutput.match(/\{"type":\s*"warning",\s*"message":\s*"([^"]+)"\}/);
+            if (warningMatch) {
+                // Extract the message (handle escaped quotes if any)
+                spatialWarning = warningMatch[1].replace(/\\"/g, '"');
+            }
+            // Also try to match unescaped JSON format
+            const jsonLines = stderrOutput.split('\n');
+            for (const line of jsonLines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('{"type":"warning"') || trimmed.startsWith('{"type": "warning"')) {
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (parsed.type === 'warning' && parsed.message) {
+                            spatialWarning = parsed.message;
+                            break;
+                        }
+                    } catch (e) {
+                        // Not valid JSON, skip
+                    }
+                }
+            }
 
             return {
                 success: true,
                 port,
                 url: `http://127.0.0.1:${port}`,
-                tallyInfo
+                tallyInfo,
+                spatialWarning
             };
 
         } catch (error) {
@@ -1083,7 +1123,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return process;
     }
 
-    private async waitForServer(port: number, process: RawProcess, timeoutMs: number = 30000): Promise<void> {
+    private async waitForServer(port: number, process: RawProcess, timeoutMs: number = 30000, stderrOutput?: { data: string }): Promise<void> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 cleanup();
@@ -1103,7 +1143,17 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             const exitListener = (event: { code?: number; signal?: string }) => {
                 cleanup();
-                reject(new Error(`Process exited with code ${event.code} before server started`));
+                let errorMsg = `Process exited with code ${event.code} before server started`;
+                // Include stderr output if available
+                if (stderrOutput?.data) {
+                    // Extract the last error line from stderr
+                    const lines = stderrOutput.data.split('\n').filter(l => l.trim());
+                    const errorLine = lines.find(l => l.includes('Error:') || l.includes('Traceback'));
+                    if (errorLine) {
+                        errorMsg += `: ${errorLine}`;
+                    }
+                }
+                reject(new Error(errorMsg));
             };
             const exitDisposable = process.onExit(exitListener);
 

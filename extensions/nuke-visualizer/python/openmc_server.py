@@ -281,8 +281,8 @@ def cmd_visualize_mesh(args):
         @state.change("show_bounding_box")
         def on_bounding_box_change(show_bounding_box, **kwargs):
             try:
-                display.CenterAxesVisibility = 1 if show_bounding_box else 0
-                update_view()
+                # Note: CenterAxesVisibility may not be available in all ParaView versions
+                pass
             except Exception as e:
                 print(f"Error updating bounding box: {e}", file=sys.stderr)
         
@@ -771,7 +771,8 @@ def cmd_visualize_overlay(args):
     
     try:
         viz_data = reader.visualize_tally_on_geometry(
-            args.geometry, args.statepoint, args.tally_id, args.score
+            args.geometry, args.statepoint, args.tally_id, args.score,
+            filter_graveyard=not args.no_graveyard_filter
         )
         tally = viz_data['tally']
         overlay_type = viz_data.get('overlay_type', 'none')
@@ -780,17 +781,35 @@ def cmd_visualize_overlay(args):
         state = server.state
         
         # Determine which display has the colored data
-        # For cell tallies: geometry_display has the tally colors
+        # For cell/mesh_mapped tallies: geometry_display has the tally colors
         # For mesh tallies: tally_display has the mesh overlay
-        has_colored_data = overlay_type in ('cell', 'mesh')
-        color_array_name = 'tally_value' if overlay_type == 'cell' else 'tally_mean'
+        has_colored_data = overlay_type in ('cell', 'mesh', 'mesh_mapped')
+        
+        # Determine default color array name and location
+        # The integration module now provides array_location info for mesh_mapped type
+        if overlay_type == 'cell':
+            color_array_name = 'tally_value'
+            color_array_location = 'CELLS'
+        elif overlay_type == 'mesh_mapped':
+            color_array_name = viz_data.get('array_name', 'tally_mean')
+            # Get location from integration (default to POINTS for resampled data)
+            color_array_location = viz_data.get('array_location', 'POINTS')
+        else:
+            color_array_name = 'tally_mean'
+            color_array_location = 'CELLS'
+        
+        default_color_type = 'Cell' if color_array_location == 'CELLS' else 'Point'
         
         # Initialize common state
         init_common_state(state, theme='dark', 
-                         opacity=0.6 if overlay_type == 'mesh' else 1.0,
-                         color_by=f'Cell: {color_array_name}' if has_colored_data else 'Solid Color',
+                         opacity=1.0 if overlay_type in ('cell', 'mesh_mapped') else 0.6,
+                         color_by=f'{default_color_type}: {color_array_name}' if has_colored_data else 'Solid Color',
                          show_scalar_bar=has_colored_data,
                          color_map=args.colormap or 'Cool to Warm')
+        
+        # Store array info for later use
+        state.array_name = color_array_name
+        state.array_location = color_array_location
         
         # Store tally info for display
         state.tally_id = tally.id
@@ -799,24 +818,61 @@ def cmd_visualize_overlay(args):
         state.overlay_type = overlay_type
         state.current_score = args.score if args.score else (tally.scores[0] if tally.scores else 'total')
         
+        # Store spatial warning if present
+        spatial_warning = viz_data.get('spatial_warning')
+        if spatial_warning:
+            state.spatial_warning = spatial_warning
+            # Output JSON warning for TypeScript backend to parse
+            print(json.dumps({"type": "warning", "message": spatial_warning}), file=sys.stderr)
+            print(f"[Overlay] Spatial warning: {spatial_warning}", file=sys.stderr)
+        
         view = simple.GetActiveViewOrCreate('RenderView')
         bg_rgb = hex_to_rgb(state.background_color_hex)
         view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]
         view.UseColorPaletteForBackground = 0
         view.OrientationAxesVisibility = 1
         
-        # Get available arrays for coloring from the colored display
+        # Get available arrays for coloring from the data source
         available_arrays = ['Solid Color']
-        colored_display = viz_data.get('geometry_display') if overlay_type == 'cell' else viz_data.get('tally_display')
-        if colored_display:
+        
+        # Get the actual source data object (not the display input)
+        # For cell/mesh_mapped: geometry is the final source. For mesh: tally_source has the data.
+        if overlay_type in ('cell', 'mesh_mapped'):
+            data_source = viz_data.get('geometry')
+        else:
+            data_source = viz_data.get('tally_source')
+        
+        if data_source:
             try:
-                cell_data = colored_display.Input.CellData
-                for i in range(cell_data.GetNumberOfArrays()):
-                    array = cell_data.GetArray(i)
-                    if array and array.GetName():
-                        available_arrays.append(f"Cell: {array.GetName()}")
+                # Add Cell Data
+                try:
+                    cell_data = data_source.CellData
+                    for i in range(cell_data.GetNumberOfArrays()):
+                        array = cell_data.GetArray(i)
+                        if array and array.GetName():
+                            available_arrays.append(f"Cell: {array.GetName()}")
+                except Exception as e:
+                    pass
+                
+                # Add Point Data
+                try:
+                    point_data = data_source.PointData
+                    for i in range(point_data.GetNumberOfArrays()):
+                        array = point_data.GetArray(i)
+                        if array and array.GetName():
+                            available_arrays.append(f"Point: {array.GetName()}")
+                except Exception as e:
+                    pass
             except Exception as e:
-                print(f"Warning: Could not get cell data arrays: {e}", file=sys.stderr)
+                print(f"Warning: Could not get data arrays: {e}", file=sys.stderr)
+        
+        # Ensure the default color array is in the list
+        default_entry = f"{default_color_type}: {color_array_name}"
+        if has_colored_data and default_entry not in available_arrays:
+            # If the expected array isn't found, add it to ensure it's selectable
+            available_arrays.append(default_entry)
+            print(f"[Overlay] Added missing default array: {default_entry}", file=sys.stderr)
+        
         state.available_arrays = available_arrays
         
         simple.Render(view)
@@ -824,24 +880,65 @@ def cmd_visualize_overlay(args):
         
         # Setup pipeline
         # For cell tally: only geometry_display exists, and it has the colors
-        # For mesh tally: both exist, tally_display has the colors
+        # For mesh mapped: geometry_display has the resampled colors
+        # For mesh tally (fallback): both exist, tally_display has the colors
         geometry_display = viz_data.get('geometry_display')
         tally_display = viz_data.get('tally_display')
         
         # The 'primary_display' is the one with tally colors
-        primary_display = geometry_display if overlay_type == 'cell' else tally_display
+        primary_display = geometry_display if overlay_type in ('cell', 'mesh_mapped') else tally_display
+        
+        # For mesh overlay, the 'geometry' in pipeline should be tally_source for color handlers
+        # For cell/mesh_mapped, it's the geometry with mapped colors
+        pipeline_geometry = viz_data.get('geometry') if overlay_type in ('cell', 'mesh_mapped') else viz_data.get('tally_source')
         
         pipeline = {
             'view': view, 
             'view_widget': None,
-            'source': viz_data.get('geometry') if overlay_type == 'cell' else viz_data.get('tally_source'),
+            'source': viz_data.get('geometry') if overlay_type in ('cell', 'mesh_mapped') else viz_data.get('tally_source'),
             'display': primary_display,
-            'geometry': viz_data.get('geometry'),
+            'geometry': pipeline_geometry,
             'geometry_display': geometry_display,
             'tally_source': viz_data.get('tally_source'),
             'tally_display': tally_display,
             'overlay_type': overlay_type
         }
+        
+        # Setup scalar bar for the initial color array
+        if has_colored_data and primary_display:
+            try:
+                lut = simple.GetColorTransferFunction(color_array_name)
+                lut.ApplyPreset(state.color_map, True)
+                
+                # Get data range from the correct source
+                # For mesh overlay: tally_source has the data
+                # For cell/mesh_mapped: geometry has the data
+                if overlay_type == 'mesh':
+                    data_source = viz_data.get('tally_source')
+                else:
+                    data_source = viz_data.get('geometry')
+                
+                if data_source:
+                    if color_array_location == 'CELLS':
+                        data_array = data_source.CellData.GetArray(color_array_name)
+                    else:
+                        data_array = data_source.PointData.GetArray(color_array_name)
+                    
+                    if data_array:
+                        data_range = data_array.GetRange()
+                        lut.RescaleTransferFunction(data_range[0], data_range[1])
+                        print(f"[Overlay] Initial color range: [{data_range[0]:.6e}, {data_range[1]:.6e}]", file=sys.stderr)
+                
+                # Configure scalar bar
+                scalar_bar = simple.GetScalarBar(lut, view)
+                if scalar_bar:
+                    scalar_bar.Visibility = 1 if state.show_scalar_bar else 0
+                    scalar_bar.Title = color_array_name.replace('_', ' ').title()
+            except Exception as e:
+                print(f"[Overlay] Warning: Could not setup initial scalar bar: {e}", file=sys.stderr)
+        
+        # Force an initial render to ensure everything is properly set up
+        simple.Render(view)
         
         def update_view(push_camera=False):
             try:
@@ -869,11 +966,29 @@ def cmd_visualize_overlay(args):
                     simple.ColorBy(primary_display, ('POINTS', array_name))
                     lut = simple.GetColorTransferFunction(array_name)
                     lut.ApplyPreset(state.color_map, True)
+                    # Ensure proper data range is set
+                    try:
+                        if pipeline.get('geometry'):
+                            data_array = pipeline['geometry'].PointData.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception as e:
+                        pass
                 elif color_by.startswith('Cell: '):
                     array_name = color_by[6:]
                     simple.ColorBy(primary_display, ('CELLS', array_name))
                     lut = simple.GetColorTransferFunction(array_name)
                     lut.ApplyPreset(state.color_map, True)
+                    # Ensure proper data range is set
+                    try:
+                        if pipeline.get('geometry'):
+                            data_array = pipeline['geometry'].CellData.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception as e:
+                        pass
                 update_view()
             except Exception as e:
                 print(f"Error updating color by: {e}", file=sys.stderr)
@@ -886,14 +1001,27 @@ def cmd_visualize_overlay(args):
                     return
                 
                 array_name = None
+                array_location = None
                 if color_by.startswith('Point: '):
                     array_name = color_by[7:]
+                    array_location = 'PointData'
                 elif color_by.startswith('Cell: '):
                     array_name = color_by[6:]
+                    array_location = 'CellData'
                 
                 if array_name:
                     lut = simple.GetColorTransferFunction(array_name)
                     lut.ApplyPreset(color_map, True)
+                    # Preserve the current data range
+                    try:
+                        if pipeline.get('geometry'):
+                            data = getattr(pipeline['geometry'], array_location)
+                            data_array = data.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception as e:
+                        pass
                 update_view()
             except Exception as e:
                 print(f"Error updating color map: {e}", file=sys.stderr)
@@ -901,15 +1029,16 @@ def cmd_visualize_overlay(args):
         @state.change("opacity")
         def on_opacity_change(opacity, **kwargs):
             try:
-                # For cell tally: opacity affects geometry
+                # For cell/mesh_mapped tally: opacity affects geometry
                 # For mesh tally: opacity affects the mesh overlay
-                if overlay_type == 'cell' and geometry_display:
+                if overlay_type in ('cell', 'mesh_mapped') and geometry_display:
                     geometry_display.Opacity = float(opacity)
                 elif overlay_type == 'mesh' and tally_display:
                     tally_display.Opacity = float(opacity)
                 update_view()
             except Exception as e:
                 print(f"Error updating opacity: {e}", file=sys.stderr)
+
         
         @state.change("representation")
         def on_representation_change(representation, **kwargs):
@@ -938,6 +1067,11 @@ def cmd_visualize_overlay(args):
                     scalar_bar = simple.GetScalarBar(lut, view)
                     if scalar_bar:
                         scalar_bar.Visibility = 1 if show_scalar_bar else 0
+                    elif show_scalar_bar:
+                        # Create scalar bar if it doesn't exist
+                        scalar_bar = simple.GetScalarBar(lut, view)
+                        scalar_bar.Visibility = 1
+                        scalar_bar.Title = array_name.replace('_', ' ').title()
                 update_view()
             except Exception as e:
                 print(f"Error updating scalar bar: {e}", file=sys.stderr)
@@ -968,12 +1102,9 @@ def cmd_visualize_overlay(args):
         @state.change("show_bounding_box")
         def on_bounding_box_change(show_bounding_box, **kwargs):
             try:
-                val = 1 if show_bounding_box else 0
-                if primary_display:
-                    primary_display.CenterAxesVisibility = val
-                if overlay_type == 'mesh' and geometry_display:
-                    geometry_display.CenterAxesVisibility = val
-                update_view()
+                # Note: CenterAxesVisibility may not be available in all ParaView versions
+                # This is typically used to show the center of the data bounds
+                pass
             except Exception as e:
                 print(f"Error updating bounding box: {e}", file=sys.stderr)
         
@@ -3108,6 +3239,8 @@ def main():
     overlay_parser.add_argument('tally_id', type=int, help='Tally ID')
     overlay_parser.add_argument('--score', help='Score name')
     overlay_parser.add_argument('--colormap', help='Color map name')
+    overlay_parser.add_argument('--no-graveyard-filter', action='store_true',
+                                help='Disable graveyard surface filtering (show full geometry including graveyard cube)')
     overlay_parser.add_argument('--port', type=int, help='Server port')
     
     # Spectrum command

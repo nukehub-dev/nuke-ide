@@ -46,19 +46,20 @@ class OpenMCSourceParticle:
 class OpenMCReader:
     """Reader for OpenMC output files"""
     
-    def load_geometry(self, h5m_path: str):
+    def load_geometry(self, h5m_path: str, filter_graveyard: bool = True):
         """
         Load OpenMC geometry (DAGMC format).
         
         Args:
             h5m_path: Path to DAGMC .h5m file
+            filter_graveyard: Whether to filter out graveyard surfaces (default True)
             
         Returns:
             ParaView source object
         """
-        from dagmc_converter import convert_h5m_to_vtk
-        vtk_path = convert_h5m_to_vtk(h5m_path)
-        return simple.OpenDataFile(vtk_path)
+        from dagmc_converter import convert_h5m_to_vtk_cached
+        result = convert_h5m_to_vtk_cached(h5m_path, use_cache=True, do_filter_graveyard=filter_graveyard)
+        return simple.OpenDataFile(result['vtk_path'])
     
     def load_statepoint(self, statepoint_file: str) -> Dict:
         """
@@ -745,7 +746,8 @@ class OpenMCReader:
             return polydata
     
     def visualize_tally_on_geometry(self, geometry_file: str, statepoint_file: str, 
-                                     tally_id: int, score: str = None) -> Dict:
+                                     tally_id: int, score: str = None,
+                                     filter_graveyard: bool = True) -> Dict:
         """
         Overlay tally results on geometry by mapping tally values to geometry cells.
         
@@ -757,6 +759,7 @@ class OpenMCReader:
             statepoint_file: Path to statepoint.h5
             tally_id: Tally ID to visualize
             score: Specific score to visualize (optional)
+            filter_graveyard: Whether to filter out graveyard surfaces (default True)
             
         Returns:
             Dictionary with visualization objects
@@ -764,29 +767,40 @@ class OpenMCReader:
         import tempfile
         import os
         
+        # Load tally first (fail fast if tally doesn't exist)
+        tally = self.load_tally(statepoint_file, tally_id)
+        
         # Load geometry
         if geometry_file.endswith('.h5m'):
-            from dagmc_converter import convert_h5m_to_vtk
-            vtk_path = convert_h5m_to_vtk(geometry_file)
-            geometry = simple.OpenDataFile(vtk_path)
+            from dagmc_converter import convert_h5m_to_vtk_cached
+            result = convert_h5m_to_vtk_cached(geometry_file, use_cache=True, 
+                                               do_filter_graveyard=filter_graveyard)
+            geometry = simple.OpenDataFile(result['vtk_path'])
         else:
             geometry = simple.OpenDataFile(geometry_file)
         
-        # Load tally
-        tally = self.load_tally(statepoint_file, tally_id)
-        
         # Check if this is a cell-based tally (has cell filter)
         has_cell_filter = any(f.get('type') == 'cell' for f in tally.filters)
+        
+        # Validate spatial overlap for mesh tallies
+        spatial_warning = None
+        if tally.has_mesh and not has_cell_filter:
+            spatial_warning = self._validate_spatial_overlap(geometry, tally)
+            if spatial_warning:
+                print(f"[Overlay Warning] {spatial_warning}", file=sys.stderr)
         
         if has_cell_filter:
             # For cell tallies: Map tally values directly to geometry cells
             result = self._apply_cell_tally_to_geometry(
                 geometry, tally, statepoint_file, score
             )
+            result['spatial_warning'] = spatial_warning
             return result
         elif tally.has_mesh:
-            # For mesh tallies: Show both geometry and mesh
-            return self._show_mesh_overlay(geometry, tally)
+            # For mesh tallies: Map tally values onto geometry cells (Resample)
+            result = self._apply_mesh_tally_to_geometry(geometry, tally, score)
+            result['spatial_warning'] = spatial_warning
+            return result
         else:
             # No cell filter and no mesh - just show geometry
             geometry_display = simple.Show(geometry)
@@ -796,6 +810,365 @@ class OpenMCReader:
                 'tally': tally,
                 'overlay_type': 'none'
             }
+    
+    def _validate_spatial_overlap(self, geometry, tally) -> Optional[str]:
+        """
+        Check if mesh tally bounds overlap with geometry bounds.
+        
+        Returns a warning message if there's no significant overlap,
+        or None if overlap is sufficient.
+        """
+        try:
+            # Get geometry bounds from ParaView
+            geometry.UpdatePipeline()
+            geom_info = geometry.GetDataInformation().GetBounds()
+            geom_bounds = {
+                'x': (geom_info[0], geom_info[1]),
+                'y': (geom_info[2], geom_info[3]),
+                'z': (geom_info[4], geom_info[5])
+            }
+            
+            # Get mesh bounds from tally
+            if not tally.mesh_info:
+                return None
+            
+            mesh_lower = tally.mesh_info.get('lower_left', [-25, -25, -25])
+            mesh_upper = tally.mesh_info.get('upper_right', [25, 25, 25])
+            
+            mesh_bounds = {
+                'x': (mesh_lower[0], mesh_upper[0]),
+                'y': (mesh_lower[1], mesh_upper[1]),
+                'z': (mesh_lower[2], mesh_upper[2])
+            }
+            
+            # Check overlap in each dimension
+            overlap_x = max(0, min(geom_bounds['x'][1], mesh_bounds['x'][1]) - 
+                               max(geom_bounds['x'][0], mesh_bounds['x'][0]))
+            overlap_y = max(0, min(geom_bounds['y'][1], mesh_bounds['y'][1]) - 
+                               max(geom_bounds['y'][0], mesh_bounds['y'][0]))
+            overlap_z = max(0, min(geom_bounds['z'][1], mesh_bounds['z'][1]) - 
+                               max(geom_bounds['z'][0], mesh_bounds['z'][0]))
+            
+            # Calculate overlap volume
+            geom_volume = (geom_bounds['x'][1] - geom_bounds['x'][0]) * \
+                         (geom_bounds['y'][1] - geom_bounds['y'][0]) * \
+                         (geom_bounds['z'][1] - geom_bounds['z'][0])
+            
+            overlap_volume = overlap_x * overlap_y * overlap_z
+            
+            # If overlap is less than 10% of geometry volume, warn
+            if geom_volume > 0 and overlap_volume / geom_volume < 0.1:
+                return (
+                    f"Mesh tally bounds ({mesh_bounds['x']}, {mesh_bounds['y']}, {mesh_bounds['z']}) "
+                    f"have minimal overlap with geometry bounds ({geom_bounds['x']}, {geom_bounds['y']}, {geom_bounds['z']}). "
+                    f"The tally may not correspond to this geometry model."
+                )
+            
+            return None
+            
+        except Exception as e:
+            print(f"[Overlay] Could not validate spatial overlap: {e}", file=sys.stderr)
+            return None
+    
+    def _map_tally_to_cells_spatial(self, geometry_vtk, tally, mesh_info: Dict, 
+                                     score_idx: int = 0) -> vtk.vtkUnstructuredGrid:
+        """
+        Map mesh tally values to geometry cells based on spatial position.
+        
+        This is an alternative to ResampleWithDataset that directly maps each
+        geometry cell to a mesh voxel based on the cell's center point.
+        
+        Args:
+            geometry_vtk: VTK unstructured grid with geometry
+            tally: OpenMCTally object
+            mesh_info: Mesh information dict with dimensions, lower_left, upper_right
+            score_idx: Score index to use
+            
+        Returns:
+            VTK unstructured grid with tally_mean cell data
+        """
+        import numpy as np
+        from vtk.util import numpy_support
+        
+        # Get mesh parameters
+        dims = mesh_info['dimensions']  # [nx, ny, nz]
+        lower_left = mesh_info['lower_left']  # [xmin, ymin, zmin]
+        upper_right = mesh_info['upper_right']  # [xmax, ymax, zmax]
+        
+        nx, ny, nz = dims
+        xmin, ymin, zmin = lower_left
+        xmax, ymax, zmax = upper_right
+        
+        # Calculate mesh cell sizes
+        dx = (xmax - xmin) / nx
+        dy = (ymax - ymin) / ny
+        dz = (zmax - zmin) / nz
+        
+        # The tally.mean has shape (n_filter_bins, n_scores) where n_filter_bins = nx*ny*nz
+        # Extract values for specific score
+        n_mesh_cells = nx * ny * nz
+        if tally.mean.ndim >= 2:
+            # Shape is (n_mesh_cells, n_scores)
+            values = tally.mean[:, score_idx]
+        else:
+            values = tally.mean[:n_mesh_cells]
+        
+        # Reshape to 3D array for indexing (Z, Y, X order in VTK)
+        values_3d = values.reshape(nz, ny, nx)
+        
+        # Get geometry cells
+        n_geom_cells = geometry_vtk.GetNumberOfCells()
+        points = geometry_vtk.GetPoints()
+        
+        # Create tally array for geometry cells
+        tally_array = vtk.vtkFloatArray()
+        tally_array.SetName('tally_mean')
+        tally_array.SetNumberOfValues(n_geom_cells)
+        
+        # Map each geometry cell to mesh value
+        for i in range(n_geom_cells):
+            cell = geometry_vtk.GetCell(i)
+            n_pts = cell.GetNumberOfPoints()
+            
+            # Calculate cell center
+            center = np.zeros(3)
+            for j in range(n_pts):
+                pt = np.array(points.GetPoint(cell.GetPointId(j)))
+                center += pt
+            center /= n_pts
+            
+            # Map to mesh indices
+            ix = int((center[0] - xmin) / dx)
+            iy = int((center[1] - ymin) / dy)
+            iz = int((center[2] - zmin) / dz)
+            
+            # Clamp to valid range
+            ix = max(0, min(ix, nx - 1))
+            iy = max(0, min(iy, ny - 1))
+            iz = max(0, min(iz, nz - 1))
+            
+            # Get value from mesh
+            value = values_3d[iz, iy, ix]
+            tally_array.SetValue(i, value)
+        
+        # Add array to geometry
+        output = vtk.vtkUnstructuredGrid()
+        output.DeepCopy(geometry_vtk)
+        output.GetCellData().AddArray(tally_array)
+        output.GetCellData().SetActiveScalars('tally_mean')
+        
+        return output
+    
+    def _apply_mesh_tally_to_geometry(self, geometry, tally, score: str = None) -> Dict:
+        """Map mesh tally values onto geometry cells using ParaView resampling."""
+        import tempfile
+        import os
+        
+        # Resolve score index
+        score_idx = 0
+        if score and tally.scores:
+            try:
+                score_idx = tally.scores.index(score)
+            except ValueError:
+                score_idx = 0
+        
+        # Create mesh tally VTK
+        mesh_grid = self.create_mesh_tally_vtu(tally, score_idx)
+        
+        # Write to temp file for ParaView
+        with tempfile.NamedTemporaryFile(suffix='.vtu', delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        writer = vtk.vtkXMLUnstructuredGridWriter()
+        writer.SetFileName(tmp_path)
+        writer.SetInputData(mesh_grid)
+        writer.Write()
+        
+        # Load mesh in ParaView
+        mesh_source = simple.XMLUnstructuredGridReader(FileName=tmp_path)
+        mesh_source.UpdatePipeline()
+        
+        # Debug: Check what arrays are on the mesh source and spatial bounds
+        try:
+            cell_data = mesh_source.CellData
+            point_data = mesh_source.PointData
+            print(f"[Overlay] Mesh source cell arrays: {[cell_data.GetArray(i).GetName() for i in range(cell_data.GetNumberOfArrays())]}", file=sys.stderr)
+            print(f"[Overlay] Mesh source point arrays: {[point_data.GetArray(i).GetName() for i in range(point_data.GetNumberOfArrays())]}", file=sys.stderr)
+            # Check tally_mean range
+            if cell_data.GetArray('tally_mean'):
+                rng = cell_data.GetArray('tally_mean').GetRange()
+                print(f"[Overlay] Mesh tally_mean range: [{rng[0]:.6e}, {rng[1]:.6e}]", file=sys.stderr)
+            # Check mesh bounds
+            mesh_info = mesh_source.GetDataInformation().GetBounds()
+            print(f"[Overlay] Mesh bounds: {mesh_info}", file=sys.stderr)
+        except Exception as e:
+            print(f"[Overlay] Debug warning: {e}", file=sys.stderr)
+        
+        # Ensure geometry is updated
+        geometry.UpdatePipeline()
+        
+        # Check geometry bounds
+        try:
+            geom_info = geometry.GetDataInformation().GetBounds()
+            print(f"[Overlay] Geometry bounds: {geom_info}", file=sys.stderr)
+        except Exception as e:
+            print(f"[Overlay] Debug warning: {e}", file=sys.stderr)
+        
+        # Resample mesh onto geometry
+        # DestinationMesh is the geometry, SourceDataArrays is the mesh tally
+        resampled = simple.ResampleWithDataset(SourceDataArrays=mesh_source, DestinationMesh=geometry)
+        resampled.PassCellArrays = 1
+        resampled.PassPointArrays = 1
+        resampled.UpdatePipeline()
+        
+        # Debug: Check what arrays are on the resampled output
+        resampled_valid = False
+        try:
+            cell_data = resampled.CellData
+            point_data = resampled.PointData
+            print(f"[Overlay] Resampled cell arrays: {[cell_data.GetArray(i).GetName() for i in range(cell_data.GetNumberOfArrays())]}", file=sys.stderr)
+            print(f"[Overlay] Resampled point arrays: {[point_data.GetArray(i).GetName() for i in range(point_data.GetNumberOfArrays())]}", file=sys.stderr)
+            # Check if any tally data made it through
+            for i in range(point_data.GetNumberOfArrays()):
+                arr = point_data.GetArray(i)
+                if arr and 'tally' in arr.GetName():
+                    rng = arr.GetRange()
+                    print(f"[Overlay] Resampled '{arr.GetName()}' range: [{rng[0]:.6e}, {rng[1]:.6e}]", file=sys.stderr)
+                    if rng[1] > 0:  # Has actual data
+                        resampled_valid = True
+        except Exception as e:
+            print(f"[Overlay] Debug warning: {e}", file=sys.stderr)
+        
+        # If resampling produced no valid data, try spatial cell mapping
+        if not resampled_valid:
+            print(f"[Overlay] Resampling produced no valid data, trying spatial cell mapping...", file=sys.stderr)
+            try:
+                # Get the underlying VTK data from geometry
+                geometry_vtk = geometry.GetClientSideObject().GetOutputDataObject(0)
+                
+                # Apply spatial mapping
+                mapped_vtk = self._map_tally_to_cells_spatial(
+                    geometry_vtk, tally, tally.mesh_info, score_idx
+                )
+                
+                # Write mapped VTK to temp file
+                with tempfile.NamedTemporaryFile(suffix='.vtu', delete=False) as tmp2:
+                    tmp_path2 = tmp2.name
+                
+                writer2 = vtk.vtkXMLUnstructuredGridWriter()
+                writer2.SetFileName(tmp_path2)
+                writer2.SetInputData(mapped_vtk)
+                writer2.Write()
+                
+                # Load the mapped file
+                final_source = simple.XMLUnstructuredGridReader(FileName=tmp_path2)
+                final_source.UpdatePipeline()
+                
+                # Clean up original temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                tmp_path = tmp_path2
+                
+                array_location = 'CELLS'
+                array_name = 'tally_mean'
+                resampled_valid = True
+                print(f"[Overlay] Spatial cell mapping succeeded", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[Overlay] Spatial cell mapping failed: {e}, falling back to mesh overlay", file=sys.stderr)
+                import traceback
+                traceback.print_exc()
+                return self._show_mesh_overlay(geometry, tally)
+        
+        # Use the resampled output directly (PointData after resampling)
+        final_source = resampled
+        array_location = 'POINTS'
+        array_name = 'tally_mean'
+        
+        # Show the final source
+        geometry_display = simple.Show(final_source)
+        
+        # Verify the array exists on the data and find its actual location
+        array_exists = False
+        actual_array_name = array_name
+        actual_array_location = array_location
+        
+        try:
+            # Check all possible locations for tally_mean or variations
+            for attr_name, loc_type in [('PointData', 'POINTS'), ('CellData', 'CELLS')]:
+                data = getattr(final_source, attr_name)
+                for i in range(data.GetNumberOfArrays()):
+                    arr = data.GetArray(i)
+                    if arr:
+                        name = arr.GetName()
+                        # Look for tally_mean or variations (tally_mean_0, etc.)
+                        if name and 'tally_mean' in name:
+                            actual_array_name = name
+                            actual_array_location = loc_type
+                            array_exists = True
+                            print(f"[Overlay] Found tally array: '{name}' in {attr_name}", file=sys.stderr)
+                            # Check its range
+                            rng = arr.GetRange()
+                            print(f"[Overlay] Array range: [{rng[0]:.6e}, {rng[1]:.6e}]", file=sys.stderr)
+                            break
+                if array_exists:
+                    break
+        except Exception as e:
+            print(f"[Overlay] Warning: Could not verify array: {e}", file=sys.stderr)
+        
+        if not array_exists:
+            print(f"[Overlay] Warning: No tally_mean array found in resampled data!", file=sys.stderr)
+            print(f"[Overlay] Available arrays will be listed above", file=sys.stderr)
+        
+        # Update array name and location to what was actually found
+        array_name = actual_array_name
+        array_location = actual_array_location
+        
+        # Apply color by the tally array
+        if array_exists:
+            simple.ColorBy(geometry_display, (array_location, array_name))
+            
+            # Apply color map
+            lut = simple.GetColorTransferFunction(array_name)
+            lut.ApplyPreset('Cool to Warm', True)
+            
+            # Rescale transfer function to data range - critical for proper coloring
+            try:
+                # Get the actual data range from the array
+                data_array = None
+                if array_location == 'POINTS':
+                    data_array = final_source.PointData.GetArray(array_name)
+                else:
+                    data_array = final_source.CellData.GetArray(array_name)
+                
+                if data_array:
+                    data_range = data_array.GetRange()
+                    # Avoid zero-range (all same value)
+                    if data_range[0] == data_range[1]:
+                        print(f"[Overlay] Warning: Zero data range [{data_range[0]:.6e}], using [0, 1]", file=sys.stderr)
+                        lut.RescaleTransferFunction(0, 1)
+                    else:
+                        lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    print(f"[Overlay] Color range: [{data_range[0]:.6e}, {data_range[1]:.6e}]", file=sys.stderr)
+            except Exception as e:
+                print(f"[Overlay] Warning: Could not rescale transfer function: {e}", file=sys.stderr)
+                # Fallback to automatic rescaling
+                geometry_display.RescaleTransferFunctionToDataRange(True, False)
+        else:
+            print(f"[Overlay] ERROR: Could not find tally array for coloring", file=sys.stderr)
+        
+        return {
+            'geometry': final_source,
+            'geometry_display': geometry_display,
+            'tally': tally,
+            'overlay_type': 'mesh_mapped',
+            'tally_source': mesh_source,
+            'temp_file': tmp_path,
+            'array_name': actual_array_name if array_exists else 'tally_mean',
+            'array_location': actual_array_location if array_exists else 'POINTS'
+        }
     
     def _apply_cell_tally_to_geometry(self, geometry, tally, statepoint_file: str, score: str = None) -> Dict:
         """Apply cell tally values directly to geometry cells as cell data."""
@@ -970,14 +1343,25 @@ class OpenMCReader:
         writer.Write()
         
         mesh_source = simple.XMLUnstructuredGridReader(FileName=tmp_path)
+        mesh_source.UpdatePipeline()
         mesh_display = simple.Show(mesh_source)
         
         # Color by tally mean
         simple.ColorBy(mesh_display, ('CELLS', 'tally_mean'))
         
-        # Apply color map
+        # Apply color map with proper data range
         lut = simple.GetColorTransferFunction('tally_mean')
         lut.ApplyPreset('Cool to Warm', True)
+        
+        # Rescale to data range
+        try:
+            data_array = mesh_source.CellData.GetArray('tally_mean')
+            if data_array:
+                data_range = data_array.GetRange()
+                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                print(f"[Overlay] Mesh overlay color range: [{data_range[0]:.6e}, {data_range[1]:.6e}]", file=sys.stderr)
+        except Exception as e:
+            print(f"[Overlay] Warning: Could not rescale mesh overlay colors: {e}", file=sys.stderr)
         
         return {
             'geometry': geometry,

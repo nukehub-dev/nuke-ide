@@ -55,6 +55,8 @@ export interface TallyVisualizationOptions {
     normalize?: boolean;
     /** Color map to use */
     colorMap?: string;
+    /** Whether to filter out graveyard surfaces (default: true) */
+    filterGraveyard?: boolean;
 }
 
 @injectable()
@@ -362,7 +364,8 @@ export class OpenMCService {
                 geometryPath,
                 statepointPath,
                 options.tallyId,
-                options.score
+                options.score,
+                options.filterGraveyard !== false  // default to true
             );
 
             progress.cancel();
@@ -397,6 +400,11 @@ export class OpenMCService {
 
             if (result.tallyInfo) {
                 this._onTallyVisualized.fire(result.tallyInfo);
+            }
+
+            // Show spatial warning if present
+            if (result.spatialWarning) {
+                this.messageService.warn(result.spatialWarning);
             }
 
             this.messageService.info('Loaded tally overlay on geometry');

@@ -307,6 +307,8 @@ export interface OpenMCVisualizationResult {
     url?: string;
     /** Tally info that was loaded */
     tallyInfo?: OpenMCTallyInfo;
+    /** Warning about spatial mismatch between tally and geometry */
+    spatialWarning?: string;
 }
 
 // === OpenMC Backend Service ===
@@ -340,7 +342,8 @@ export interface OpenMCBackendService {
         geometryPath: string,
         statepointPath: string,
         tallyId: number,
-        score?: string
+        score?: string,
+        filterGraveyard?: boolean
     ): Promise<OpenMCVisualizationResult>;
     
     /** Get energy spectrum data for a tally */
