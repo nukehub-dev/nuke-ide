@@ -247,10 +247,19 @@ export class OpenMCService {
                 return existingWidget;
             }
 
-            const progress = await this.messageService.showProgress({
-                text: 'Loading mesh tally visualization...',
-                options: { cancelable: false }
-            });
+            // Build label with tally name (we'll update it after getting tally info)
+            let label = `OpenMC Tally ${options.tallyId}`;
+            if (options.score) {
+                label += ` (${options.score})`;
+            }
+            
+            // Create widget immediately with loading state
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                statepointUri,
+                label,
+                deterministicId,
+                'Starting mesh tally visualization...'
+            );
 
             const statepointPath = statepointUri.path.toString();
             const result = await this.openmcBackend.visualizeMeshTally(
@@ -260,32 +269,22 @@ export class OpenMCService {
                 options.nuclide
             );
 
-            progress.cancel();
-
             if (!result.success || !result.port || !result.url) {
                 throw new Error(result.error || 'Unknown error loading visualization');
             }
             
-            // Build label with tally name if available (skip default "Tally N" names)
-            let label = `OpenMC Tally ${options.tallyId}`;
+            // Update label with tally name if available
             const tallyName = result.tallyInfo?.name;
             const defaultName = `Tally ${options.tallyId}`;
-            // Only add name if it's set and not the default "Tally N" pattern
             if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                label += `: ${tallyName}`;
+                widget.title.label = `OpenMC Tally ${options.tallyId}: ${tallyName}`;
+                if (options.score) {
+                    widget.title.label += ` (${options.score})`;
+                }
             }
-            if (options.score) {
-                label += ` (${options.score})`;
-            }
-            
-            // Create and configure widget with deterministic ID
-            const widget = await this.createVisualizerWidget(
-                statepointUri,
-                result.port,
-                result.url,
-                label,
-                deterministicId
-            );
+
+            // Complete loading by setting server URL
+            completeLoading(result.port, result.url);
 
             if (result.tallyInfo) {
                 this._onTallyVisualized.fire(result.tallyInfo);
@@ -332,30 +331,26 @@ export class OpenMCService {
         }
 
         try {
-            const progress = await this.messageService.showProgress({
-                text: 'Loading source distribution...',
-                options: { cancelable: false }
-            });
+            // Create unique suffix for source visualization
+            const uniqueSuffix = `source:${Date.now()}`;
+            
+            // Create widget immediately with loading state
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                sourceUri,
+                'OpenMC Source Distribution',
+                uniqueSuffix,
+                'Loading source distribution...'
+            );
 
             const sourcePath = sourceUri.path.toString();
             const result = await this.openmcBackend.visualizeSource(sourcePath);
-
-            progress.cancel();
 
             if (!result.success || !result.port || !result.url) {
                 throw new Error(result.error || 'Unknown error loading source');
             }
 
-            // Create unique suffix for source visualization
-            const uniqueSuffix = `source:${Date.now()}`;
-            
-            const widget = await this.createVisualizerWidget(
-                sourceUri,
-                result.port,
-                result.url,
-                'OpenMC Source Distribution',
-                uniqueSuffix
-            );
+            // Complete loading by setting server URL
+            completeLoading(result.port, result.url);
 
             this.messageService.info('Loaded source distribution');
             return widget;
@@ -381,10 +376,23 @@ export class OpenMCService {
         }
 
         try {
-            const progress = await this.messageService.showProgress({
-                text: 'Loading tally overlay on geometry...',
-                options: { cancelable: false }
-            });
+            // Create unique suffix for overlay visualization
+            const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
+            
+            // Build initial label
+            let label = `OpenMC Tally ${options.tallyId}`;
+            if (options.score) {
+                label += ` (${options.score})`;
+            }
+            label += ' on Geometry';
+            
+            // Create widget immediately with loading state
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                statepointUri,
+                label,
+                uniqueSuffix,
+                'Loading tally overlay on geometry...'
+            );
 
             const geometryPath = geometryUri.path.toString();
             const statepointPath = statepointUri.path.toString();
@@ -397,35 +405,23 @@ export class OpenMCService {
                 options.filterGraveyard !== false  // default to true
             );
 
-            progress.cancel();
-
             if (!result.success || !result.port || !result.url) {
                 throw new Error(result.error || 'Unknown error loading overlay');
             }
 
-            // Create unique suffix for overlay visualization
-            const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-            
-            // Build label with tally name if available (skip default "Tally N" names)
-            let label = `OpenMC Tally ${options.tallyId}`;
+            // Update label with tally name if available
             const tallyName = result.tallyInfo?.name;
             const defaultName = `Tally ${options.tallyId}`;
-            // Only add name if it's set and not the default "Tally N" pattern
             if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                label += `: ${tallyName}`;
+                widget.title.label = `OpenMC Tally ${options.tallyId}: ${tallyName}`;
+                if (options.score) {
+                    widget.title.label += ` (${options.score})`;
+                }
+                widget.title.label += ' on Geometry';
             }
-            if (options.score) {
-                label += ` (${options.score})`;
-            }
-            label += ' on Geometry';
-            
-            const widget = await this.createVisualizerWidget(
-                statepointUri,
-                result.port,
-                result.url,
-                label,
-                uniqueSuffix
-            );
+
+            // Complete loading by setting server URL
+            completeLoading(result.port, result.url);
 
             if (result.tallyInfo) {
                 this._onTallyVisualized.fire(result.tallyInfo);
@@ -621,13 +617,14 @@ export class OpenMCService {
 
     /**
      * Create and configure a visualizer widget.
+     * Can be called with loading state first, then server URL set later.
      */
     private async createVisualizerWidget(
         fileUri: URI,
-        port: number,
-        url: string,
         label: string,
-        widgetId?: string
+        widgetId?: string,
+        serverInfo?: { port: number; url: string },
+        loadingMessage?: string
     ): Promise<VisualizerWidget> {
         // Use provided widgetId or create default one
         const finalWidgetId = widgetId || `${VisualizerWidget.ID}:${fileUri.path.toString()}`;
@@ -650,15 +647,47 @@ export class OpenMCService {
         widget.title.label = label;
         widget.title.caption = label;
         
-        // IMPORTANT: Set the server URL directly on the widget
-        // This bypasses the normal loadFile() flow since the server is already running
-        widget.setServerUrl(url, port);
+        // If loading message provided and no server URL yet, show loading state
+        if (loadingMessage && !serverInfo) {
+            (widget as any).statusMessage = loadingMessage;
+            widget.update();
+        }
+        
+        // Set server URL if provided (marks end of loading)
+        if (serverInfo) {
+            widget.setServerUrl(serverInfo.url, serverInfo.port);
+        }
         
         // Add widget to main area and activate it
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
         
         return widget;
+    }
+    
+    /**
+     * Create a visualizer widget in loading state.
+     * Returns the widget and a function to complete loading once server is ready.
+     */
+    private async createVisualizerWidgetLoading(
+        fileUri: URI,
+        label: string,
+        widgetId: string,
+        loadingMessage: string
+    ): Promise<{ widget: VisualizerWidget; completeLoading: (port: number, url: string) => void }> {
+        const widget = await this.createVisualizerWidget(
+            fileUri,
+            label,
+            widgetId,
+            undefined,  // no server info yet (loading state)
+            loadingMessage
+        );
+        
+        const completeLoading = (port: number, url: string) => {
+            widget.setServerUrl(url, port);
+        };
+        
+        return { widget, completeLoading };
     }
 
     /**
@@ -931,25 +960,6 @@ export class OpenMCService {
             const MAX_OVERLAPS = 1000;
             const overlapDisplayCount = hasOverlaps ? Math.min(overlaps.length, MAX_OVERLAPS) : 0;
 
-            const progressText = hasOverlaps
-                ? (overlaps.length > MAX_OVERLAPS 
-                    ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
-                    : `Loading geometry with ${overlaps.length} overlap markers...`)
-                : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
-                
-            const progress = await this.messageService.showProgress({
-                text: progressText,
-                options: { cancelable: false }
-            });
-
-            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
-
-            progress.cancel();
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading geometry');
-            }
-
             // Create unique suffix for geometry visualization
             let uniqueSuffix = `geometry:${Date.now()}`;
             if (hasOverlaps) {
@@ -967,13 +977,28 @@ export class OpenMCService {
                     : `OpenMC Geometry (${highlightCellIds.length} cells)`;
             }
             
-            const widget = await this.createVisualizerWidget(
+            const loadingMessage = hasOverlaps
+                ? (overlaps.length > MAX_OVERLAPS 
+                    ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
+                    : `Loading geometry with ${overlaps.length} overlap markers...`)
+                : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
+            
+            // Create widget immediately with loading state
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
                 fileUri,
-                result.port,
-                result.url,
                 label,
-                uniqueSuffix
+                uniqueSuffix,
+                loadingMessage
             );
+
+            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
+
+            if (!result.success || !result.port || !result.url) {
+                throw new Error(result.error || 'Unknown error loading geometry');
+            }
+
+            // Complete loading by setting server URL
+            completeLoading(result.port, result.url);
 
             this.messageService.info(hasHighlights 
                 ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted`

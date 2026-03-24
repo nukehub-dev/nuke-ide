@@ -113,6 +113,21 @@
     opacity: 0.5;
 }
 
+/* Placeholder for loading/empty/error states - consistent with tally tree */
+.geometry-3d-container .placeholder {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--theia-descriptionForeground);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.geometry-3d-container .placeholder i {
+    opacity: 0.5;
+}
+
 /* ============================================================================
    Geometry Tree Widget (scoped to .openmc-geometry-tree)
    ============================================================================ */
@@ -130,6 +145,36 @@
 .openmc-geometry-tree.empty {
     justify-content: center;
     align-items: center;
+}
+
+.openmc-geometry-tree.loading {
+    justify-content: center;
+    align-items: center;
+}
+
+.openmc-geometry-tree .loading-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: var(--theia-descriptionForeground);
+    text-align: center;
+}
+
+.openmc-geometry-tree .loading-spinner i {
+    font-size: 40px;
+    color: var(--theia-textLink-foreground);
+    animation: geometry-tree-spin 1s linear infinite;
+}
+
+.openmc-geometry-tree .loading-spinner span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+@keyframes geometry-tree-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* Header */

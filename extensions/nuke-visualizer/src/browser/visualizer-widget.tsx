@@ -55,7 +55,7 @@ export class VisualizerWidget extends ReactWidget {
 
     @postConstruct()
     protected init(): void {
-        console.log(`[VisualizerWidget] Initializing widget instance`);
+
         this.id = VisualizerWidget.ID;
         this.title.label = VisualizerWidget.LABEL;
         this.title.caption = VisualizerWidget.LABEL;
@@ -66,7 +66,7 @@ export class VisualizerWidget extends ReactWidget {
 
     private handleServerStop(port: number): void {
         if (this.serverPort === port) {
-            console.log(`[Visualizer] Server on port ${port} stopped, updating widget state`);
+
             this.serverUrl = null;
             this.serverPort = null;
             this.statusMessage = 'Visualizer server stopped unexpectedly. Check logs for details.';
@@ -96,7 +96,7 @@ export class VisualizerWidget extends ReactWidget {
      * Set the server URL directly (for when server is already running, e.g., OpenMC).
      */
     public setServerUrl(url: string, port: number): void {
-        console.log(`[VisualizerWidget] Setting server URL: ${url}, port: ${port}`);
+
         this.serverUrl = url;
         this.serverPort = port;
         this.statusMessage = `Server ready at ${url}`;
@@ -118,7 +118,7 @@ export class VisualizerWidget extends ReactWidget {
 
     protected override onAfterShow(msg: Message): void {
         super.onAfterShow(msg);
-        console.log('[VisualizerWidget] Widget shown, forcing update');
+
         this.update();
     }
 
@@ -133,7 +133,8 @@ export class VisualizerWidget extends ReactWidget {
                         statusLower.includes('cannot find') || statusLower.includes('unexpected');
         const isLoading = !this.serverUrl && 
                          (statusLower.includes('starting') || statusLower.includes('waiting') || 
-                          statusLower.includes('initializing') || statusLower.includes('converting') ||
+                          statusLower.includes('loading') || statusLower.includes('initializing') || 
+                          statusLower.includes('converting') || statusLower.includes('overlay') ||
                           statusLower === 'initializing...' || statusLower.includes('server started'));
         const hasWarning = this.warningMessage !== null;
         
@@ -437,13 +438,13 @@ export class VisualizerWidget extends ReactWidget {
         
         // If already showing this file, just activate
         if (this.currentFile === filePath && this.serverUrl) {
-            console.log(`[Visualizer] File ${filePath} already loaded, skipping reload`);
+
             this.ensureClosable();
             this.update();
             return;
         }
         
-        console.log(`[Visualizer] Loading file: ${filePath} (loadId: ${loadId})`);
+
         
         // Ensure URI and ID are set correctly
         if (!this.currentFileUri || this.currentFileUri.toString() !== fileUri.toString()) {
@@ -498,7 +499,7 @@ export class VisualizerWidget extends ReactWidget {
     }
 
     private async retry(): Promise<void> {
-        console.log('[Visualizer] Retry requested');
+
         const uri = this.currentFileUri;
         this.warningMessage = null;
         this.statusMessage = 'Retrying...';
@@ -531,7 +532,7 @@ export class VisualizerWidget extends ReactWidget {
             // Check if still the active load
             if (loadId !== this.currentLoadId) return;
             
-            console.log(`[Visualizer] DAGMC conversion successful: ${vtkPath}`);
+
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
             
@@ -551,7 +552,7 @@ export class VisualizerWidget extends ReactWidget {
     private async startVisualizerServer(filePath?: string, loadId?: number): Promise<void> {
         const currentId = loadId ?? ++this.currentLoadId;
         if (currentId !== this.currentLoadId) {
-            console.log(`[Visualizer] startVisualizerServer cancelled for loadId ${currentId}`);
+    
             return;
         }
 
@@ -592,7 +593,7 @@ export class VisualizerWidget extends ReactWidget {
                 // Method 3: Check matchMedia for system preference
                 const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 
-                console.log(`[Visualizer] Theme detection - classes: "${classes}", bg: ${bgColor}, prefersDark: ${prefersDark}`);
+
                 
                 // Determine theme based on evidence
                 if (classes.includes('theia-light') || classes.includes('light-theia')) {
@@ -609,26 +610,24 @@ export class VisualizerWidget extends ReactWidget {
                     theme = 'dark';
                 }
             } catch (e) {
-                console.log(`[Visualizer] Theme detection failed: ${e}, using default`);
+
             }
-            console.log(`[Visualizer] Using theme: ${theme}`);
-            
             console.log('[Visualizer] Requesting server start from backend...');
             const result = await this.visualizerBackend.startServer(filePath, config, theme);
             
             // Check again after async call
             if (currentId !== this.currentLoadId) {
-                console.log(`[Visualizer] Load ${currentId} cancelled while starting server, killing new server on port ${result.port}`);
+
                 this.visualizerBackend.stopServer(result.port);
                 return;
             }
 
             this.serverPort = result.port;
-            console.log(`[Visualizer] Server started on port ${result.port}, URL: ${result.url}`);
+
             
             if (result.warning) {
                 this.warningMessage = result.warning;
-                console.log(`[Visualizer] Warning from backend: ${result.warning}`);
+
                 this.ensureClosable();
             }
             
@@ -663,7 +662,7 @@ export class VisualizerWidget extends ReactWidget {
                         if (currentId !== this.currentLoadId) return;
                         
                         if (!this.serverUrl) {
-                            console.log(`[Visualizer] Server at ${result.url} is ready (attempt ${attempts})`);
+
                             // Append theme to URL so trame knows which theme to use
                             this.serverUrl = `${result.url}?theme=${theme}`;
                             this.statusMessage = `Server ready at ${result.url}`;
@@ -687,7 +686,7 @@ export class VisualizerWidget extends ReactWidget {
                         // If we haven't reached serverUrl yet, any error (including 404/403) 
                         // means the server is at least responding at the network level
                         if (!this.serverUrl) {
-                            console.log(`[Visualizer] Image probe got response (error/success) from ${result.url}, considering server started`);
+
                             setReady();
                         }
                     };
@@ -721,7 +720,7 @@ export class VisualizerWidget extends ReactWidget {
     }
 
     protected override onCloseRequest(msg: Message): void {
-        console.log('[VisualizerWidget] Close requested, cleaning up server...');
+
         VisualizerWidget.instances.delete(this);
         this.cleanupServer();
         super.onCloseRequest(msg);

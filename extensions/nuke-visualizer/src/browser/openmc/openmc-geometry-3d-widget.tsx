@@ -24,6 +24,7 @@ import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
 import { OpenMCService } from './openmc-service';
+import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from '../components/loading-spinner';
 
 @injectable()
 export class OpenMCGeometry3DWidget extends ReactWidget {
@@ -55,6 +56,9 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
 
     setGeometry(uri: URI): void {
         this.geometryUri = uri;
+        this.error = null;  // Clear any previous error
+        this.isLoading = false;  // Reset loading state
+        this.serverUrl = null;  // Reset server URL
         this.update();
     }
 
@@ -89,10 +93,8 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
         if (this.error) {
             return (
                 <div className="geometry-3d-container error">
-                    <div className="error-message">
-                        <i className={codicon('error')}></i>
-                        <div>{this.error}</div>
-                    </div>
+                    <LoadingAnimations />
+                    <ErrorDisplay message={this.error} />
                 </div>
             );
         }
@@ -100,10 +102,11 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
         if (this.isLoading) {
             return (
                 <div className="geometry-3d-container loading">
-                    <div className="loading-spinner">
-                        <i className={codicon('loading')}></i>
-                        <div>Loading 3D Geometry...</div>
-                    </div>
+                    <LoadingAnimations />
+                    <FancyLoadingSpinner 
+                        message="Loading 3D Geometry..." 
+                        subMessage="Please wait" 
+                    />
                 </div>
             );
         }
@@ -111,10 +114,10 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
         if (!this.serverUrl) {
             return (
                 <div className="geometry-3d-container empty">
-                    <div className="empty-message">
-                        <i className={codicon('globe')}></i>
-                        <div>No geometry loaded</div>
-                    </div>
+                    <EmptyState 
+                        icon="globe" 
+                        message="No geometry loaded" 
+                    />
                 </div>
             );
         }

@@ -33,10 +33,16 @@ import {
 } from '../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
+import { SimpleLoadingSpinner, EmptyState, ErrorDisplay, LoadingAnimations } from '../components/loading-spinner';
 
 export interface GeometryView3DRequest {
     fileUri: URI;
     highlightCellId?: number;
+}
+
+export interface GeometryLoadedEvent {
+    fileUri: URI;
+    hierarchy: OpenMCGeometryHierarchy;
 }
 
 export interface GeometryTreeSelection {
@@ -69,12 +75,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private expandedCells: Set<string> = new Set();  // Format: "universeId:cellId"
     private showSurfaces: boolean = true;
     private filterText: string = '';
+    private isLoading: boolean = false;
+    private errorMessage: string | null = null;
 
     private readonly _onGeometrySelected = new Emitter<GeometryTreeSelection>();
     readonly onGeometrySelected: Event<GeometryTreeSelection> = this._onGeometrySelected.event;
 
     private readonly _onView3D = new Emitter<GeometryView3DRequest>();
     readonly onView3D: Event<GeometryView3DRequest> = this._onView3D.event;
+
+    private readonly _onGeometryLoaded = new Emitter<GeometryLoadedEvent>();
+    readonly onGeometryLoaded: Event<GeometryLoadedEvent> = this._onGeometryLoaded.event;
 
     @postConstruct()
     protected init(): void {
@@ -108,10 +119,29 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.selectedItem = null;
         this.expandedUniverses.clear();
         this.expandedCells.clear();
+        this.errorMessage = null;
         this.update();
     }
 
+    /**
+     * Get the current geometry URI.
+     * Used to avoid stale closure issues when loading new files.
+     */
+    getCurrentGeometryUri(): URI | null {
+        return this.geometryUri;
+    }
+
+    /**
+     * Get the current geometry hierarchy.
+     * Used to check geometry stats before visualization.
+     */
+    getCurrentHierarchy(): OpenMCGeometryHierarchy | null {
+        return this.hierarchy;
+    }
+
     protected async handleBrowse(): Promise<void> {
+        this.isLoading = true;
+        this.update();
         try {
             const fileUri = await this.fileDialogService.showOpenDialog({
                 title: 'Select OpenMC Geometry File',
@@ -131,19 +161,27 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
             }
         } catch (error) {
             console.error('[GeometryTree] Error browsing for file:', error);
+        } finally {
+            this.isLoading = false;
+            this.update();
         }
     }
 
     protected async loadGeometry(uri: URI): Promise<void> {
+        this.errorMessage = null;
         try {
             const hierarchy = await this.openmcService.getGeometryHierarchy(uri);
             if (hierarchy.error) {
                 console.error('[GeometryTree] Failed to load geometry:', hierarchy.error);
+                this.errorMessage = hierarchy.error;
                 return;
             }
             this.setGeometry(uri, hierarchy);
+            // Emit event so contribution can attach handlers
+            this._onGeometryLoaded.fire({ fileUri: uri, hierarchy });
         } catch (error) {
             console.error('[GeometryTree] Error loading geometry:', error);
+            this.errorMessage = String(error);
         }
     }
 
@@ -152,20 +190,38 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     }
 
     protected render(): React.ReactNode {
+        // Show loading state while browsing/loading
+        if (this.isLoading) {
+            return (
+                <div className="openmc-geometry-tree empty">
+                    <LoadingAnimations />
+                    <SimpleLoadingSpinner message="Loading geometry..." />
+                </div>
+            );
+        }
+
+        // Show error state
+        if (this.errorMessage) {
+            return (
+                <div className="openmc-geometry-tree empty">
+                    <ErrorDisplay 
+                        message={this.errorMessage}
+                        onRetry={() => this.handleBrowse()}
+                        retryLabel="Browse Geometry File"
+                    />
+                </div>
+            );
+        }
+
         if (!this.hierarchy) {
             return (
                 <div className="openmc-geometry-tree empty">
-                    <div className="placeholder">
-                        <i className={codicon('repo')}></i>
-                        <div>No geometry file loaded</div>
-                        <button 
-                            className="browse-file-btn"
-                            onClick={() => this.handleBrowse()}
-                        >
-                            <i className="fa fa-folder"></i>
-                            Browse Geometry File
-                        </button>
-                    </div>
+                    <EmptyState 
+                        icon="repo"
+                        message="No geometry file loaded"
+                        actionLabel="Browse Geometry File"
+                        onAction={() => this.handleBrowse()}
+                    />
                 </div>
             );
         }

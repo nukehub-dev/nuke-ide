@@ -25,6 +25,7 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from './openmc-service';
 import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
+import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from '../components/loading-spinner';
 
 export interface TallySelection {
     tallyId: number;
@@ -50,9 +51,17 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     private tallies: OpenMCTallyInfo[] = [];
     private selectedTally: TallySelection | null = null;
     private expandedTallies: Set<number> = new Set();
+    private isLoading: boolean = false;
+    private loadingMessage: string = 'Loading...';
 
     private readonly _onTallySelected = new Emitter<TallySelection>();
     readonly onTallySelected: Event<TallySelection> = this._onTallySelected.event;
+
+    setLoading(loading: boolean, message: string = 'Loading...'): void {
+        this.isLoading = loading;
+        this.loadingMessage = message;
+        this.update();
+    }
 
     @postConstruct()
     protected init(): void {
@@ -109,6 +118,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     }
 
     protected async loadStatepoint(uri: URI): Promise<void> {
+        this.setLoading(true, 'Loading statepoint file...');
         try {
             await this.openmcService.loadStatepoint(uri);
             const info = this.openmcService.getCurrentStatepoint();
@@ -118,6 +128,8 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
             }
         } catch (error) {
             console.error('[TallyTree] Error loading statepoint:', error);
+        } finally {
+            this.setLoading(false);
         }
     }
 
@@ -127,20 +139,25 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     }
 
     protected render(): React.ReactNode {
+        // Show loading state
+        if (this.isLoading) {
+            return (
+                <div className="openmc-tally-tree empty">
+                    <LoadingAnimations />
+                    <SimpleLoadingSpinner message={this.loadingMessage} />
+                </div>
+            );
+        }
+
         if (!this.statepointInfo) {
             return (
                 <div className="openmc-tally-tree empty">
-                    <div className="placeholder">
-                        <i className={codicon('database')}></i>
-                        <div>No statepoint file loaded</div>
-                        <button 
-                            className="browse-file-btn"
-                            onClick={() => this.handleBrowse()}
-                        >
-                            <i className="fa fa-folder"></i>
-                            Browse Statepoint File
-                        </button>
-                    </div>
+                    <EmptyState 
+                        icon="database"
+                        message="No statepoint file loaded"
+                        actionLabel="Browse Statepoint File"
+                        onAction={() => this.handleBrowse()}
+                    />
                 </div>
             );
         }

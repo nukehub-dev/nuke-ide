@@ -14,6 +14,37 @@
     justify-content: center;
 }
 
+/* Loading State */
+.openmc-tally-tree.loading {
+    align-items: center;
+    justify-content: center;
+}
+
+.openmc-tally-tree .loading-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: var(--theia-descriptionForeground);
+    text-align: center;
+}
+
+.openmc-tally-tree .loading-spinner i {
+    font-size: 40px;
+    color: var(--theia-textLink-foreground);
+    animation: tally-tree-spin 1s linear infinite;
+}
+
+.openmc-tally-tree .loading-spinner span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+@keyframes tally-tree-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .openmc-tally-tree .placeholder {
     text-align: center;
     color: var(--theia-descriptionForeground);

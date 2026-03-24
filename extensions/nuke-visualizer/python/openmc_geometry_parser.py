@@ -171,10 +171,13 @@ class OpenMCGeometryParser:
             # Parse based on file extension and name
             file_name = path.name.lower()
             
+            # Reject known non-geometry files
+            non_geometry_files = ['settings.xml', 'tallies.xml', 'materials.xml', 'plots.xml', 'cmfd.xml']
+            if file_name in non_geometry_files:
+                return {'error': f'{file_name} is not a geometry file. Please open geometry.xml instead.'}
+            
             if file_name == 'geometry.xml':
                 return self._parse_geometry_xml(path)
-            elif file_name == 'materials.xml':
-                return {'error': 'Materials files do not contain geometry. Please open geometry.xml'}
             elif file_name.endswith('.xml'):
                 return self._parse_geometry_xml(path)
             elif file_name.endswith('.py'):
@@ -222,6 +225,18 @@ class OpenMCGeometryParser:
         tree = ET.parse(file_path)
         root = tree.getroot()
         
+        # Validate that this is actually a geometry file
+        # OpenMC geometry files should have <geometry> as root or contain cell/surface elements
+        root_tag = root.tag.lower()
+        if root_tag not in ('geometry', 'model'):
+            # Check if it has any geometry elements - if not, it's not a geometry file
+            has_cells = root.find('cell') is not None
+            has_surfaces = root.find('surface') is not None
+            has_lattices = root.find('lattice') is not None
+            
+            if not (has_cells or has_surfaces or has_lattices):
+                return {'error': f'Not a valid geometry file. Expected <geometry> root element or geometry elements (cell, surface, lattice), but found <{root.tag}>.'}
+        
         # Parse surfaces
         for surface_elem in root.findall('surface'):
             self._parse_surface(surface_elem)
@@ -236,6 +251,10 @@ class OpenMCGeometryParser:
         
         # Organize cells into universes
         self._organize_universes()
+        
+        # Validate that we found some geometry
+        if len(self.cells) == 0:
+            return {'error': 'No cells found in geometry file. The file may be empty or not a valid OpenMC geometry file.'}
         
         # Build response
         return self._build_response(str(file_path))

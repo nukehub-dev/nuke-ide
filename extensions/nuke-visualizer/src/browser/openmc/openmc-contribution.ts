@@ -47,7 +47,7 @@ import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
 import { XSPlotWidget } from './xs-plot-widget';
 import { OpenMCDepletionWidget } from './openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget';
-import { OpenMCGeometryTreeWidget, GeometryView3DRequest } from './openmc-geometry-tree';
+import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from './openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './openmc-material-explorer';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
@@ -352,7 +352,28 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     initialize(): void {
-        // Register keyboard shortcuts or other initialization
+        // Track widget creation and attach event handlers
+        this.widgetManager.onDidCreateWidget(async ({ widget }) => {
+            if (widget instanceof OpenMCGeometryTreeWidget) {
+                this.geometryTreeWidget = widget;
+                
+                widget.onView3D(async (request: GeometryView3DRequest) => {
+                    await this.showGeometry3D(request);
+                });
+                
+                widget.onGeometryLoaded(async (event: GeometryLoadedEvent) => {
+                    console.log('[OpenMC] Geometry loaded:', event.fileUri.path.toString());
+                });
+            }
+            
+            if (widget instanceof OpenMCTallyTreeWidget) {
+                this.tallyTreeWidget = widget;
+                
+                widget.onTallySelected(async (selection: TallySelection) => {
+                    await this.handleTallySelection(selection);
+                });
+            }
+        });
     }
 
     registerCommands(registry: CommandRegistry): void {
@@ -829,210 +850,215 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         await this.shell.activateWidget(widget.id);
         
         // Listen for tally selection from tree (only once)
+        // Note: Handlers are also attached in initialize() via onDidCreateWidget
         if (!(widget as any)._handlerSet) {
             (widget as any)._handlerSet = true;
             
-            // Handle tally selection
+            // Handle tally selection - delegates to handleTallySelection method
             widget.onTallySelected(async (selection: TallySelection) => {
-                console.log(`[OpenMC] Tally selected: id=${selection.tallyId}, action=${selection.action}`);
+                await this.handleTallySelection(selection);
+            });
+        }
+    }
+
+    private async handleTallySelection(selection: TallySelection): Promise<void> {
+        console.log(`[OpenMC] Tally selected: id=${selection.tallyId}, action=${selection.action}`);
+        
+        // Get CURRENT statepoint URI (not the captured one from closure)
+        const currentStatepoint = this.openmcService.getCurrentStatepoint();
+        if (!currentStatepoint) {
+            this.messageService.error('No statepoint loaded');
+            return;
+        }
+        const currentStatepointUri = new URI(currentStatepoint.file);
+        
+        const options: TallyVisualizationOptions = {
+            tallyId: selection.tallyId,
+            score: selection.score,
+            nuclide: selection.nuclide
+        };
+        
+        try {
+            const currentTallies = this.openmcService.getCurrentTallies();
+            const tallyInfo = currentTallies.find(t => t.id === selection.tallyId);
+            
+            if (selection.action === 'visualize') {
+                console.log(`[OpenMC] Visualizing mesh tally ${selection.tallyId}`);
+                await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
+            } else if (selection.action === 'overlay-geometry') {
+                console.log(`[OpenMC] Overlaying tally ${selection.tallyId} on geometry`);
+                // Use stored geometry URI if available
+                const storedGeometryUri = this.tallyTreeWidget ? (this.tallyTreeWidget as any)._geometryUri as URI | undefined : undefined;
+                await this.handleOverlayOnGeometry(selection, currentStatepointUri, storedGeometryUri);
+            } else if (selection.action === 'spectrum') {
+                console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
                 
-                // Get CURRENT statepoint URI (not the captured one from closure)
-                const currentStatepoint = this.openmcService.getCurrentStatepoint();
-                if (!currentStatepoint) {
-                    this.messageService.error('No statepoint loaded');
+                // Resolve indices for spectrum plot
+                let scoreIdx = 0;
+                let nuclideIdx = 0;
+                if (tallyInfo) {
+                    if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                        scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                    }
+                    if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                        nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                    }
+                }
+    
+                const data = await this.openmcService.getEnergySpectrum(
+                    currentStatepointUri, 
+                    selection.tallyId, 
+                    scoreIdx,
+                    nuclideIdx
+                );
+                console.log(`[OpenMC] Spectrum data received:`, data);
+                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum');
+                plotWidget.setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
+                if (!plotWidget.isAttached) {
+                    this.shell.addWidget(plotWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(plotWidget.id);
+            } else if (selection.action === 'spatial') {
+                console.log(`[OpenMC] Plotting spatial distribution for tally ${selection.tallyId}`);
+                
+                // Resolve indices for spatial plot
+                let scoreIdx = 0;
+                let nuclideIdx = 0;
+                if (tallyInfo) {
+                    if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                        scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                    }
+                    if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                        nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                    }
+                }
+    
+                const data = await this.openmcService.getSpatialPlot(
+                    currentStatepointUri, 
+                    selection.tallyId, 
+                    'z',
+                    scoreIdx,
+                    nuclideIdx
+                );
+                console.log(`[OpenMC] Spatial data received:`, data);
+                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
+                plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
+                if (!plotWidget.isAttached) {
+                    this.shell.addWidget(plotWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(plotWidget.id);
+            } else if (selection.action === 'heatmap') {
+                console.log(`[OpenMC] Creating 2D heatmap for tally ${selection.tallyId}`);
+                
+                // Resolve indices for heatmap
+                let scoreIdx = 0;
+                let nuclideIdx = 0;
+                let scoreName = 'total';
+                let nuclideName = 'total';
+                if (tallyInfo) {
+                    if (selection.score && tallyInfo.scores.includes(selection.score)) {
+                        scoreIdx = tallyInfo.scores.indexOf(selection.score);
+                        scoreName = selection.score;
+                    }
+                    if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
+                        nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
+                        nuclideName = selection.nuclide;
+                    }
+                }
+    
+                const data = await this.openmcService.getHeatmapSlice(
+                    currentStatepointUri, 
+                    selection.tallyId, 
+                    'xy',
+                    0,  // Start with first slice
+                    scoreIdx,
+                    nuclideIdx
+                );
+                console.log(`[OpenMC] Heatmap data received:`, data);
+                
+                if (data.error) {
+                    this.messageService.error(`Heatmap error: ${data.error}`);
                     return;
                 }
-                const currentStatepointUri = new URI(currentStatepoint.file);
                 
-                const options: TallyVisualizationOptions = {
-                    tallyId: selection.tallyId,
-                    score: selection.score,
-                    nuclide: selection.nuclide
+                const heatmapWidget = await this.getHeatmapWidget(selection.tallyId, selection.score);
+                heatmapWidget.setData(
+                    data,
+                    currentStatepointUri,
+                    selection.tallyId,
+                    scoreIdx,
+                    nuclideIdx,
+                    scoreName,
+                    nuclideName,
+                    `Tally ${selection.tallyId} 2D Heatmap`
+                );
+                if (!heatmapWidget.isAttached) {
+                    this.shell.addWidget(heatmapWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(heatmapWidget.id);
+            } else if (selection.action === 'spectrum-all-scores' && tallyInfo) {
+                const data = await this.openmcService.getMultiScoreSpectrum(currentStatepointUri, selection.tallyId, tallyInfo.scores);
+                const traces = PlotlyUtils.createMultiScoreTraces(data, 'spectrum');
+                const figure: PlotlyFigure = {
+                    data: traces,
+                    layout: {
+                        xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
+                        yaxis: { title: { text: 'Tally Value' }, type: 'log' }
+                    },
+                    title: `Tally ${selection.tallyId} All Scores Spectrum`
                 };
-                
-                try {
-                    const currentTallies = this.openmcService.getCurrentTallies();
-                    const tallyInfo = currentTallies.find(t => t.id === selection.tallyId);
-                    
-                    if (selection.action === 'visualize') {
-                        console.log(`[OpenMC] Visualizing mesh tally ${selection.tallyId}`);
-                        await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
-                    } else if (selection.action === 'overlay-geometry') {
-                        console.log(`[OpenMC] Overlaying tally ${selection.tallyId} on geometry`);
-                        // Use stored geometry URI if available
-                        const storedGeometryUri = (widget as any)._geometryUri as URI | undefined;
-                        await this.handleOverlayOnGeometry(selection, currentStatepointUri, storedGeometryUri);
-                    } else if (selection.action === 'spectrum') {
-                        console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
-                        
-                        // Resolve indices for spectrum plot
-                        let scoreIdx = 0;
-                        let nuclideIdx = 0;
-                        if (tallyInfo) {
-                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
-                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
-                            }
-                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
-                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
-                            }
-                        }
-
-                        const data = await this.openmcService.getEnergySpectrum(
-                            currentStatepointUri, 
-                            selection.tallyId, 
-                            scoreIdx,
-                            nuclideIdx
-                        );
-                        console.log(`[OpenMC] Spectrum data received:`, data);
-                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum');
-                        plotWidget.setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
-                        if (!plotWidget.isAttached) {
-                            this.shell.addWidget(plotWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(plotWidget.id);
-                    } else if (selection.action === 'spatial') {
-                        console.log(`[OpenMC] Plotting spatial distribution for tally ${selection.tallyId}`);
-                        
-                        // Resolve indices for spatial plot
-                        let scoreIdx = 0;
-                        let nuclideIdx = 0;
-                        if (tallyInfo) {
-                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
-                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
-                            }
-                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
-                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
-                            }
-                        }
-
-                        const data = await this.openmcService.getSpatialPlot(
-                            currentStatepointUri, 
-                            selection.tallyId, 
-                            'z',
-                            scoreIdx,
-                            nuclideIdx
-                        );
-                        console.log(`[OpenMC] Spatial data received:`, data);
-                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
-                        plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
-                        if (!plotWidget.isAttached) {
-                            this.shell.addWidget(plotWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(plotWidget.id);
-                    } else if (selection.action === 'heatmap') {
-                        console.log(`[OpenMC] Creating 2D heatmap for tally ${selection.tallyId}`);
-                        
-                        // Resolve indices for heatmap
-                        let scoreIdx = 0;
-                        let nuclideIdx = 0;
-                        let scoreName = 'total';
-                        let nuclideName = 'total';
-                        if (tallyInfo) {
-                            if (selection.score && tallyInfo.scores.includes(selection.score)) {
-                                scoreIdx = tallyInfo.scores.indexOf(selection.score);
-                                scoreName = selection.score;
-                            }
-                            if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
-                                nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
-                                nuclideName = selection.nuclide;
-                            }
-                        }
-
-                        const data = await this.openmcService.getHeatmapSlice(
-                            currentStatepointUri, 
-                            selection.tallyId, 
-                            'xy',
-                            0,  // Start with first slice
-                            scoreIdx,
-                            nuclideIdx
-                        );
-                        console.log(`[OpenMC] Heatmap data received:`, data);
-                        
-                        if (data.error) {
-                            this.messageService.error(`Heatmap error: ${data.error}`);
-                            return;
-                        }
-                        
-                        const heatmapWidget = await this.getHeatmapWidget(selection.tallyId, selection.score);
-                        heatmapWidget.setData(
-                            data,
-                            currentStatepointUri,
-                            selection.tallyId,
-                            scoreIdx,
-                            nuclideIdx,
-                            scoreName,
-                            nuclideName,
-                            `Tally ${selection.tallyId} 2D Heatmap`
-                        );
-                        if (!heatmapWidget.isAttached) {
-                            this.shell.addWidget(heatmapWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(heatmapWidget.id);
-                    } else if (selection.action === 'spectrum-all-scores' && tallyInfo) {
-                        const data = await this.openmcService.getMultiScoreSpectrum(currentStatepointUri, selection.tallyId, tallyInfo.scores);
-                        const traces = PlotlyUtils.createMultiScoreTraces(data, 'spectrum');
-                        const figure: PlotlyFigure = {
-                            data: traces,
-                            layout: {
-                                xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
-                                yaxis: { title: { text: 'Tally Value' }, type: 'log' }
-                            },
-                            title: `Tally ${selection.tallyId} All Scores Spectrum`
-                        };
-                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-multi');
-                        plotWidget.setFigure(figure);
-                        if (!plotWidget.isAttached) {
-                            this.shell.addWidget(plotWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(plotWidget.id);
-                    } else if (selection.action === 'spatial-all-scores' && tallyInfo) {
-                        const data = await this.openmcService.getMultiScoreSpatialPlot(currentStatepointUri, selection.tallyId, 'z', tallyInfo.scores);
-                        const traces = PlotlyUtils.createMultiScoreTraces(data, 'spatial');
-                        const figure: PlotlyFigure = {
-                            data: traces,
-                            layout: {
-                                xaxis: { title: { text: 'Position [cm]' } },
-                                yaxis: { title: { text: 'Tally Value' } }
-                            },
-                            title: `Tally ${selection.tallyId} All Scores Spatial Plot`
-                        };
-                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial-multi');
-                        plotWidget.setFigure(figure);
-                        if (!plotWidget.isAttached) {
-                            this.shell.addWidget(plotWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(plotWidget.id);
-                    } else if (selection.action === 'spectrum-all-nuclides' && tallyInfo) {
-                        console.log(`[OpenMC] Plotting all nuclides for tally ${selection.tallyId}`);
-                        const scoreIdx = selection.score ? tallyInfo.scores.indexOf(selection.score) : 0;
-                        const scoreName = selection.score || tallyInfo.scores[0];
-
-                        const nuclideTraces = await Promise.all(tallyInfo.nuclides.map(async nuclide => {
-                            const data = await this.openmcService.getEnergySpectrum(currentStatepointUri, selection.tallyId, scoreIdx, tallyInfo.nuclides.indexOf(nuclide));
-                            return PlotlyUtils.createSpectrumTrace(data, `${nuclide} (${scoreName})`);
-                        }));
-
-                        const figure: PlotlyFigure = {
-                            data: nuclideTraces,
-                            layout: {
-                                xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
-                                yaxis: { title: { text: 'Tally Value' }, type: 'log' }
-                            },
-                            title: `Tally ${selection.tallyId} All Nuclides - ${scoreName}`
-                        };
-                        const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-nuclides');
-                        plotWidget.setFigure(figure);
-                        if (!plotWidget.isAttached) {
-                            this.shell.addWidget(plotWidget, { area: 'main' });
-                        }
-                        this.shell.activateWidget(plotWidget.id);
-                    }
-                } catch (error) {
+                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-multi');
+                plotWidget.setFigure(figure);
+                if (!plotWidget.isAttached) {
+                    this.shell.addWidget(plotWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(plotWidget.id);
+            } else if (selection.action === 'spatial-all-scores' && tallyInfo) {
+                const data = await this.openmcService.getMultiScoreSpatialPlot(currentStatepointUri, selection.tallyId, 'z', tallyInfo.scores);
+                const traces = PlotlyUtils.createMultiScoreTraces(data, 'spatial');
+                const figure: PlotlyFigure = {
+                    data: traces,
+                    layout: {
+                        xaxis: { title: { text: 'Position [cm]' } },
+                        yaxis: { title: { text: 'Tally Value' } }
+                    },
+                    title: `Tally ${selection.tallyId} All Scores Spatial Plot`
+                };
+                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial-multi');
+                plotWidget.setFigure(figure);
+                if (!plotWidget.isAttached) {
+                    this.shell.addWidget(plotWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(plotWidget.id);
+            } else if (selection.action === 'spectrum-all-nuclides' && tallyInfo) {
+                console.log(`[OpenMC] Plotting all nuclides for tally ${selection.tallyId}`);
+                const scoreIdx = selection.score ? tallyInfo.scores.indexOf(selection.score) : 0;
+                const scoreName = selection.score || tallyInfo.scores[0];
+    
+                const nuclideTraces = await Promise.all(tallyInfo.nuclides.map(async nuclide => {
+                    const data = await this.openmcService.getEnergySpectrum(currentStatepointUri, selection.tallyId, scoreIdx, tallyInfo.nuclides.indexOf(nuclide));
+                    return PlotlyUtils.createSpectrumTrace(data, `${nuclide} (${scoreName})`);
+                }));
+    
+                const figure: PlotlyFigure = {
+                    data: nuclideTraces,
+                    layout: {
+                        xaxis: { title: { text: 'Energy [eV]' }, type: 'log' },
+                        yaxis: { title: { text: 'Tally Value' }, type: 'log' }
+                    },
+                    title: `Tally ${selection.tallyId} All Nuclides - ${scoreName}`
+                };
+                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-nuclides');
+                plotWidget.setFigure(figure);
+                if (!plotWidget.isAttached) {
+                    this.shell.addWidget(plotWidget, { area: 'main' });
+                }
+                this.shell.activateWidget(plotWidget.id);
+            }
+        } catch (error) {
                     console.error(`[OpenMC] Action ${selection.action} failed:`, error);
                     this.messageService.error(`Failed to perform action ${selection.action}: ${error}`);
                 }
-            });
-        }
     }
 
     private async showTallySelectorForOverlay(geometryUri: URI, statepointUri: URI): Promise<void> {
@@ -1605,12 +1631,14 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     private async getOrCreateGeometryTreeWidget(): Promise<OpenMCGeometryTreeWidget> {
         let widget = this.geometryTreeWidget;
+        
         if (!widget || widget.isDisposed) {
             widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(
                 OpenMCGeometryTreeWidget.ID
             );
             this.geometryTreeWidget = widget;
         }
+        
         return widget;
     }
 
@@ -1628,7 +1656,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 return;
             }
             
-            // Get or create the geometry tree widget
+            // Get or create the geometry tree widget (handlers attached in getOrCreateGeometryTreeWidget)
             const widget = await this.getOrCreateGeometryTreeWidget();
             
             // Update the widget state
@@ -1641,16 +1669,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             
             // Activate the widget
             await this.shell.activateWidget(widget.id);
-
-            // Listen for 3D view requests (only once)
-            if (!(widget as any)._handlerSet) {
-                (widget as any)._handlerSet = true;
-                
-                // Handle 3D view requests
-                widget.onView3D(async (request: GeometryView3DRequest) => {
-                    await this.showGeometry3D(request);
-                });
-            }
             
             this.messageService.info(
                 `Loaded geometry: ${hierarchy.totalCells} cells, ${hierarchy.totalSurfaces} surfaces`
@@ -1673,24 +1691,45 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             this.geometry3DWidget = widget;
         }
 
-        widget.setGeometry(request.fileUri);
-        widget.setLoading(true);
-
+        // IMPORTANT: Use the geometry tree widget's CURRENT geometry URI
+        // to avoid stale closure issues when loading new files
+        const treeWidget = await this.getOrCreateGeometryTreeWidget();
+        const currentGeometryUri = treeWidget.getCurrentGeometryUri();
+        const currentHierarchy = treeWidget.getCurrentHierarchy();
+        
+        // Show widget even if no geometry (it will show "No geometry loaded" state)
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, { area: 'main' });
         }
         await this.shell.activateWidget(widget.id);
+        
+        // Check if geometry is loaded and valid
+        if (!currentHierarchy) {
+            widget.setGeometry(request.fileUri); // Set URI for reference
+            // Widget will show "No geometry loaded" empty state
+            return;
+        }
+        if (currentHierarchy.totalCells === 0) {
+            this.messageService.warn('Cannot visualize: Geometry has no cells. The file may not be a valid geometry file.');
+            return;
+        }
+        
+        const geometryUri = currentGeometryUri || request.fileUri;
+        const highlightCellId = request.highlightCellId;
+
+        widget.setGeometry(geometryUri);
+        widget.setLoading(true);
 
         try {
             const result = await this.openmcService.visualizeGeometry(
-                request.fileUri,
-                request.highlightCellId !== undefined ? [request.highlightCellId] : undefined
+                geometryUri,
+                highlightCellId !== undefined ? [highlightCellId] : undefined
             );
 
             if (result.success && result.url && result.port) {
                 widget.setServerInfo(result.url, result.port);
-                if (request.highlightCellId !== undefined) {
-                    widget.setHighlightedCell(request.highlightCellId);
+                if (highlightCellId !== undefined) {
+                    widget.setHighlightedCell(highlightCellId);
                 }
             } else {
                 widget.setError(result.error || 'Failed to start 3D visualization server');

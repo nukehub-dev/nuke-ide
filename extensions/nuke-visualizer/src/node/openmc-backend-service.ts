@@ -860,24 +860,27 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         const args = [scriptPath, 'geometry', filePath];
 
-        console.log(`[OpenMC] Running geometry command for ${filePath}`);
-
         const result = spawnSync(pythonCommand, args, {
             encoding: 'utf8',
             timeout: 30000,
             maxBuffer: 10 * 1024 * 1024  // 10MB for large geometry files
         });
 
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Geometry command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to load geometry hierarchy');
+        // Check if stdout is empty
+        if (!result.stdout || result.stdout.trim() === '') {
+            throw new Error('Geometry parser returned empty output. The file may not be a valid OpenMC geometry file.');
         }
 
+        // Try to parse the output as JSON (even if status is non-zero, error info is in JSON)
         try {
-            return JSON.parse(result.stdout);
+            const parsed = JSON.parse(result.stdout);
+            // If there's an error in the JSON, return it (don't throw)
+            if (parsed.error) {
+                return parsed;  // Return the error object so frontend can handle it
+            }
+            return parsed;
         } catch (e) {
-            console.error(`[OpenMC] Failed to parse geometry data: ${e}`);
-            throw e;
+            throw new Error('Failed to parse geometry data. The file may be corrupted or not a valid geometry file.');
         }
     }
 
