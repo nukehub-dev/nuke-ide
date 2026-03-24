@@ -710,19 +710,34 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
         let statepointUri: URI;
         if (statepointSelection.value === '__browse__') {
-            const fileUri = await this.fileDialogService.showOpenDialog({
-                title: 'Select Statepoint File',
-                openLabel: 'Select',
-                canSelectFiles: true,
-                canSelectFolders: false,
-                canSelectMany: false,
-                filters: {
-                    'HDF5 Files': ['h5'],
-                    'All Files': ['*']
+            console.log('[OpenMC] Opening file picker for statepoint...');
+            // Close any open quick pick first
+            this.quickInput.hide();
+            // Longer delay to ensure dialog can open
+            await new Promise(resolve => setTimeout(resolve, 300));
+            try {
+                const fileUri = await this.fileDialogService.showOpenDialog({
+                    title: 'Select Statepoint File',
+                    openLabel: 'Select',
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    filters: {
+                        'Statepoint Files': ['h5'],
+                        'All Files': ['*']
+                    }
+                });
+                console.log('[OpenMC] File picker result:', fileUri);
+                if (!fileUri) {
+                    console.log('[OpenMC] No file selected, cancelling');
+                    return;
                 }
-            });
-            if (!fileUri) return;
-            statepointUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                statepointUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            } catch (error) {
+                console.error('[OpenMC] File picker error:', error);
+                this.messageService.error(`File picker failed: ${error}`);
+                return;
+            }
         } else {
             statepointUri = new URI(statepointSelection.value);
         }
@@ -776,19 +791,30 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async showTallyTree(statepointUri: URI): Promise<void> {
+    private async showTallyTree(statepointUri: URI, geometryUri?: URI): Promise<void> {
         const info = this.openmcService.getCurrentStatepoint();
         const tallies = this.openmcService.getCurrentTallies();
         
+        // Get or create the tally tree widget
+        let widget = this.tallyTreeWidget;
+        
         if (tallies.length === 0 || !info) {
+            // Clear the widget if no tallies
+            if (widget && !widget.isDisposed) {
+                widget.clearStatepoint();
+            }
             return;
         }
 
-        // Get or create the tally tree widget
-        let widget = this.tallyTreeWidget;
+        // Create widget if needed
         if (!widget || widget.isDisposed) {
             widget = await this.widgetManager.getOrCreateWidget<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget.ID);
             this.tallyTreeWidget = widget;
+        }
+        
+        // Store geometry URI for overlay (if provided)
+        if (geometryUri) {
+            (widget as any)._geometryUri = geometryUri;
         }
         
         // Update the widget state
@@ -809,6 +835,15 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             // Handle tally selection
             widget.onTallySelected(async (selection: TallySelection) => {
                 console.log(`[OpenMC] Tally selected: id=${selection.tallyId}, action=${selection.action}`);
+                
+                // Get CURRENT statepoint URI (not the captured one from closure)
+                const currentStatepoint = this.openmcService.getCurrentStatepoint();
+                if (!currentStatepoint) {
+                    this.messageService.error('No statepoint loaded');
+                    return;
+                }
+                const currentStatepointUri = new URI(currentStatepoint.file);
+                
                 const options: TallyVisualizationOptions = {
                     tallyId: selection.tallyId,
                     score: selection.score,
@@ -821,10 +856,12 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     
                     if (selection.action === 'visualize') {
                         console.log(`[OpenMC] Visualizing mesh tally ${selection.tallyId}`);
-                        await this.openmcService.visualizeMeshTally(statepointUri, options);
+                        await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
                     } else if (selection.action === 'overlay-geometry') {
                         console.log(`[OpenMC] Overlaying tally ${selection.tallyId} on geometry`);
-                        await this.handleOverlayOnGeometry(selection, statepointUri);
+                        // Use stored geometry URI if available
+                        const storedGeometryUri = (widget as any)._geometryUri as URI | undefined;
+                        await this.handleOverlayOnGeometry(selection, currentStatepointUri, storedGeometryUri);
                     } else if (selection.action === 'spectrum') {
                         console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
                         
@@ -841,7 +878,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
 
                         const data = await this.openmcService.getEnergySpectrum(
-                            statepointUri, 
+                            currentStatepointUri, 
                             selection.tallyId, 
                             scoreIdx,
                             nuclideIdx
@@ -869,7 +906,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
 
                         const data = await this.openmcService.getSpatialPlot(
-                            statepointUri, 
+                            currentStatepointUri, 
                             selection.tallyId, 
                             'z',
                             scoreIdx,
@@ -902,7 +939,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
 
                         const data = await this.openmcService.getHeatmapSlice(
-                            statepointUri, 
+                            currentStatepointUri, 
                             selection.tallyId, 
                             'xy',
                             0,  // Start with first slice
@@ -919,7 +956,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         const heatmapWidget = await this.getHeatmapWidget(selection.tallyId, selection.score);
                         heatmapWidget.setData(
                             data,
-                            statepointUri,
+                            currentStatepointUri,
                             selection.tallyId,
                             scoreIdx,
                             nuclideIdx,
@@ -932,7 +969,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
                         this.shell.activateWidget(heatmapWidget.id);
                     } else if (selection.action === 'spectrum-all-scores' && tallyInfo) {
-                        const data = await this.openmcService.getMultiScoreSpectrum(statepointUri, selection.tallyId, tallyInfo.scores);
+                        const data = await this.openmcService.getMultiScoreSpectrum(currentStatepointUri, selection.tallyId, tallyInfo.scores);
                         const traces = PlotlyUtils.createMultiScoreTraces(data, 'spectrum');
                         const figure: PlotlyFigure = {
                             data: traces,
@@ -949,7 +986,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
                         this.shell.activateWidget(plotWidget.id);
                     } else if (selection.action === 'spatial-all-scores' && tallyInfo) {
-                        const data = await this.openmcService.getMultiScoreSpatialPlot(statepointUri, selection.tallyId, 'z', tallyInfo.scores);
+                        const data = await this.openmcService.getMultiScoreSpatialPlot(currentStatepointUri, selection.tallyId, 'z', tallyInfo.scores);
                         const traces = PlotlyUtils.createMultiScoreTraces(data, 'spatial');
                         const figure: PlotlyFigure = {
                             data: traces,
@@ -971,7 +1008,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         const scoreName = selection.score || tallyInfo.scores[0];
 
                         const nuclideTraces = await Promise.all(tallyInfo.nuclides.map(async nuclide => {
-                            const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, tallyInfo.nuclides.indexOf(nuclide));
+                            const data = await this.openmcService.getEnergySpectrum(currentStatepointUri, selection.tallyId, scoreIdx, tallyInfo.nuclides.indexOf(nuclide));
                             return PlotlyUtils.createSpectrumTrace(data, `${nuclide} (${scoreName})`);
                         }));
 
@@ -1000,10 +1037,20 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
     private async showTallySelectorForOverlay(geometryUri: URI, statepointUri: URI): Promise<void> {
         // Load tallies from statepoint
-        await this.openmcService.loadTallyList(statepointUri);
+        console.log(`[OpenMC] Loading tallies from: ${statepointUri.toString()}`);
+        try {
+            await this.openmcService.loadTallyList(statepointUri);
+        } catch (error) {
+            console.error('[OpenMC] Error loading tally list:', error);
+            this.messageService.error(`Failed to load tallies: ${error}`);
+            return;
+        }
+        
         const tallies = this.openmcService.getCurrentTallies();
+        console.log(`[OpenMC] Found ${tallies.length} tallies:`, tallies.map(t => `Tally ${t.id}`).join(', '));
         
         if (tallies.length === 0) {
+            this.messageService.warn('No tallies found in statepoint file');
             return;
         }
 
@@ -1011,6 +1058,13 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         const selection = await selector.show(tallies);
 
         if (selection) {
+            // Validate tally exists
+            const tallyExists = tallies.some(t => t.id === selection.tallyId);
+            if (!tallyExists) {
+                this.messageService.error(`Tally ${selection.tallyId} not found in statepoint. Available: ${tallies.map(t => t.id).join(', ')}`);
+                return;
+            }
+            
             const options: TallyVisualizationOptions = {
                 tallyId: selection.tallyId,
                 score: selection.score,
@@ -1022,44 +1076,65 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async handleOverlayOnGeometry(selection: any, statepointUri: URI): Promise<void> {
-        // Get DAGMC geometry files from workspace
-        const geometryFiles = await this.getDagmcFiles();
-        
-        // Build geometry options with browse
-        const geometryOptions: QuickPickValue<string>[] = [
-            { value: '__browse__', label: '$(folder-opened) Browse for DAGMC file...', description: 'Select .h5m file from any location' }
-        ];
-        
-        if (geometryFiles.length > 0) {
-            geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
-        }
-
-        // Select geometry file
-        const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
-            title: 'Select DAGMC Geometry File',
-            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
-        });
-
-        if (!geometrySelection) return;
-
+    private async handleOverlayOnGeometry(selection: any, statepointUri: URI, knownGeometryUri?: URI): Promise<void> {
         let geometryUri: URI;
-        if (geometrySelection.value === '__browse__') {
-            const fileUri = await this.fileDialogService.showOpenDialog({
-                title: 'Select DAGMC Geometry File',
-                openLabel: 'Select',
-                canSelectFiles: true,
-                canSelectFolders: false,
-                canSelectMany: false,
-                filters: {
-                    'DAGMC Files': ['h5m'],
-                    'All Files': ['*']
-                }
-            });
-            if (!fileUri) return;
-            geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        
+        // If geometry is already known (from file manager), use it directly
+        if (knownGeometryUri) {
+            console.log(`[OpenMC] Using known geometry: ${knownGeometryUri.toString()}`);
+            geometryUri = knownGeometryUri;
         } else {
-            geometryUri = new URI(geometrySelection.value);
+            // Get DAGMC geometry files from workspace
+            const geometryFiles = await this.getDagmcFiles();
+            
+            // Build geometry options with browse
+            const geometryOptions: QuickPickValue<string>[] = [
+                { value: '__browse__', label: '$(folder-opened) Browse for DAGMC file...', description: 'Select .h5m file from any location' }
+            ];
+            
+            if (geometryFiles.length > 0) {
+                geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
+            }
+
+            // Select geometry file
+            const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
+                title: 'Select DAGMC Geometry File',
+                placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
+            });
+
+            if (!geometrySelection) return;
+        if (geometrySelection.value === '__browse__') {
+            console.log('[OpenMC] Opening file picker for geometry...');
+            // Close any open quick pick first
+            this.quickInput.hide();
+            // Longer delay to ensure dialog can open
+            await new Promise(resolve => setTimeout(resolve, 300));
+            try {
+                const fileUri = await this.fileDialogService.showOpenDialog({
+                    title: 'Select DAGMC Geometry File',
+                    openLabel: 'Select',
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    filters: {
+                        'DAGMC Files': ['h5m'],
+                        'All Files': ['*']
+                    }
+                });
+                console.log('[OpenMC] Geometry file picker result:', fileUri);
+                if (!fileUri) {
+                    console.log('[OpenMC] No geometry file selected, cancelling');
+                    return;
+                }
+                geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            } catch (error) {
+                console.error('[OpenMC] Geometry file picker error:', error);
+                this.messageService.error(`File picker failed: ${error}`);
+                return;
+            }
+            } else {
+                geometryUri = new URI(geometrySelection.value);
+            }
         }
 
         // Ask about graveyard filtering

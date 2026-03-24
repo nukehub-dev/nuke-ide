@@ -164,11 +164,40 @@ export class OpenMCService {
     async loadTallyList(statepointUri: URI): Promise<OpenMCTallyInfo[]> {
         try {
             const statepointPath = statepointUri.path.toString();
+            console.log(`[OpenMC Service] Loading tallies from: ${statepointPath}`);
+            
+            // Clear old state first to prevent stale data
+            this.currentTallies = [];
+            
             const tallies = await this.openmcBackend.listTallies(statepointPath);
             this.currentTallies = tallies;
+            
+            // Also update currentStatepoint to reflect the new file
+            // Create a minimal statepoint info if we don't have one
+            if (!this.currentStatepoint || this.currentStatepoint.file !== statepointPath) {
+                // Try to load full statepoint info, or create minimal one
+                try {
+                    const info = await this.openmcBackend.loadStatepoint(statepointPath);
+                    this.currentStatepoint = info;
+                    console.log(`[OpenMC Service] Updated statepoint info: ${info.nTallies} tallies`);
+                } catch (e) {
+                    // Create minimal statepoint info
+                    this.currentStatepoint = {
+                        file: statepointPath,
+                        batches: 0,
+                        generationsPerBatch: 0,
+                        nTallies: tallies.length,
+                        tallyIds: tallies.map(t => t.id)
+                    };
+                    console.log(`[OpenMC Service] Created minimal statepoint info with ${tallies.length} tallies`);
+                }
+            }
+            
+            console.log(`[OpenMC Service] Loaded ${tallies.length} tallies: ${tallies.map(t => t.id).join(', ')}`);
             return tallies;
         } catch (error) {
             console.error('[OpenMC] Error loading tally list:', error);
+            this.currentTallies = [];
             return [];
         }
     }
@@ -402,11 +431,8 @@ export class OpenMCService {
                 this._onTallyVisualized.fire(result.tallyInfo);
             }
 
-            // Show spatial warning if present
-            if (result.spatialWarning) {
-                this.messageService.warn(result.spatialWarning);
-            }
-
+            // Note: Spatial warning (if any) was already shown immediately via RPC
+            // The warning appears as soon as Python outputs it, not at the end
             this.messageService.info('Loaded tally overlay on geometry');
             return widget;
 

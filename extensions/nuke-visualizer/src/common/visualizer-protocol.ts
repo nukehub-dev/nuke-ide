@@ -164,6 +164,7 @@ export interface VisualizerBackendService {
 export interface VisualizerClient {
     log(message: string): void;
     error(message: string): void;
+    warn(message: string): void;
     onServerStop(port: number): void;
 }
 
@@ -319,6 +320,9 @@ export const OPENMC_BACKEND_PATH = '/services/openmc';
 export interface OpenMCBackendService {
     /** Set Python configuration for OpenMC operations */
     setPythonConfig(config: PythonConfig): Promise<void>;
+    
+    /** Set the client for receiving log messages and warnings */
+    setClient(client: VisualizerClient): void;
 
     /** Load OpenMC statepoint and return summary information */
     loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;

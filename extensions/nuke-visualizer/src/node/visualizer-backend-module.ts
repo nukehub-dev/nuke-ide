@@ -15,11 +15,12 @@
 // *****************************************************************************
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
-import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
+import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common';
 import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
 import { 
     VisualizerBackendService, 
     VISUALIZER_BACKEND_PATH,
+    VisualizerClient,
     OpenMCBackendService,
     OPENMC_BACKEND_PATH
 } from '../common/visualizer-protocol';
@@ -32,9 +33,10 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(BackendApplicationContribution).toService(VisualizerBackendServiceImpl);
     
     bind(ConnectionHandler).toDynamicValue(ctx =>
-        new JsonRpcConnectionHandler<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, () => {
-            const service = ctx.container.get<VisualizerBackendService>(VisualizerBackendService);
-            return service;
+        new RpcConnectionHandler<VisualizerClient>(VISUALIZER_BACKEND_PATH, client => {
+            const server = ctx.container.get<VisualizerBackendServiceImpl>(VisualizerBackendServiceImpl);
+            server.setClient(client);
+            return server;
         })
     ).inSingletonScope();
     
@@ -43,9 +45,10 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(OpenMCBackendService).toService(OpenMCBackendServiceImpl);
     
     bind(ConnectionHandler).toDynamicValue(ctx =>
-        new JsonRpcConnectionHandler<OpenMCBackendService>(OPENMC_BACKEND_PATH, () => {
-            const service = ctx.container.get<OpenMCBackendService>(OpenMCBackendService);
-            return service;
+        new RpcConnectionHandler<VisualizerClient>(OPENMC_BACKEND_PATH, client => {
+            const server = ctx.container.get<OpenMCBackendServiceImpl>(OpenMCBackendServiceImpl);
+            server.setClient(client);
+            return server;
         })
     ).inSingletonScope();
 });

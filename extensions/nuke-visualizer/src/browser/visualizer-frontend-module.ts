@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
+import { CommandContribution, MenuContribution, MessageService } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';
 import { VisualizerContribution } from './visualizer-contribution';
@@ -66,6 +66,11 @@ export default new ContainerModule((bind: interfaces.Bind) => {
                 const channel = outputChannelManager.getChannel('Nuke Visualizer');
                 channel.appendLine(`ERROR: ${message}`);
             },
+            warn: (message: string) => {
+                // Warnings from base visualizer - log to output channel
+                const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                channel.appendLine(`WARNING: ${message}`);
+            },
             onServerStop: (port: number) => {
                 VisualizerWidget.onServerStop(port);
             }
@@ -102,10 +107,35 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     // === OpenMC Integration ===
     
-    // Bind OpenMC backend service proxy
+    // Bind OpenMC backend service proxy with client for receiving warnings
     bind(OpenMCBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH);
+        const messageService = ctx.container.get(MessageService);
+        const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
+        
+        const client: VisualizerClient = {
+            log: (message: string) => {
+                const channel = outputChannelManager.getChannel('OpenMC');
+                channel.appendLine(message);
+            },
+            error: (message: string) => {
+                const channel = outputChannelManager.getChannel('OpenMC');
+                channel.appendLine(`ERROR: ${message}`);
+            },
+            warn: (message: string) => {
+                // Show warning notification immediately
+                messageService.warn(message);
+                // Also log to output channel
+                const channel = outputChannelManager.getChannel('OpenMC');
+                channel.appendLine(`WARNING: ${message}`);
+            },
+            onServerStop: (port: number) => {
+                // Handle server stop if needed
+                console.log(`[OpenMC] Server on port ${port} stopped`);
+            }
+        };
+        
+        return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH, client);
     }).inSingletonScope();
     
     // Bind OpenMC frontend service

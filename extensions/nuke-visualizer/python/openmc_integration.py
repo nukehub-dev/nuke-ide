@@ -771,9 +771,11 @@ class OpenMCReader:
         tally = self.load_tally(statepoint_file, tally_id)
         
         # Load geometry
+        # NOTE: Disable cache for overlay mode since tally data changes
+        # The VTK file stores the first tally data, so caching would show wrong colors
         if geometry_file.endswith('.h5m'):
             from dagmc_converter import convert_h5m_to_vtk_cached
-            result = convert_h5m_to_vtk_cached(geometry_file, use_cache=True, 
+            result = convert_h5m_to_vtk_cached(geometry_file, use_cache=False, 
                                                do_filter_graveyard=filter_graveyard)
             geometry = simple.OpenDataFile(result['vtk_path'])
         else:

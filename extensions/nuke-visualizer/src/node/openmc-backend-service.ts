@@ -28,7 +28,8 @@ import {
     OpenMCVisualizationResult,
     OpenMCFilter,
     XSGroupStructuresResponse,
-    PythonConfig
+    PythonConfig,
+    VisualizerClient
 } from '../common/visualizer-protocol';
 
 interface OpenMCProcess {
@@ -42,9 +43,14 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private processes: Map<number, OpenMCProcess> = new Map();
     private reservedPorts: Set<number> = new Set();
     private pythonConfig: PythonConfig = {};
+    private client: VisualizerClient | undefined;
 
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
+
+    setClient(client: VisualizerClient): void {
+        this.client = client;
+    }
 
     async setPythonConfig(config: PythonConfig): Promise<void> {
         this.pythonConfig = config;
@@ -243,52 +249,58 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 args.push('--no-graveyard-filter');
             }
 
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            // Capture stderr to get warning file path
-            let stderrOutput = '';
-            const processInstance = process.process;
-            if (processInstance && processInstance.stderr) {
-                processInstance.stderr.on('data', (data: Buffer) => {
-                    stderrOutput += data.toString();
-                });
-            }
-
-            // Use longer timeout for large DAGMC files (120 seconds)
-            await this.waitForServer(port, process, 120000, { data: stderrOutput });
-
-            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
-
-            // Check for spatial warning in stderr (JSON format)
-            let spatialWarning: string | undefined;
-            const warningMatch = stderrOutput.match(/\{"type":\s*"warning",\s*"message":\s*"([^"]+)"\}/);
-            if (warningMatch) {
-                // Extract the message (handle escaped quotes if any)
-                spatialWarning = warningMatch[1].replace(/\\"/g, '"');
-            }
-            // Also try to match unescaped JSON format
-            const jsonLines = stderrOutput.split('\n');
-            for (const line of jsonLines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith('{"type":"warning"') || trimmed.startsWith('{"type": "warning"')) {
-                    try {
-                        const parsed = JSON.parse(trimmed);
-                        if (parsed.type === 'warning' && parsed.message) {
-                            spatialWarning = parsed.message;
-                            break;
+            // Create a custom process to capture stdout for warnings
+            const processOptions: RawProcessOptions = {
+                command: pythonCommand,
+                args,
+            };
+            const process = this.rawProcessFactory(processOptions);
+            
+            // Capture stdout to look for structured warnings and send immediately via RPC
+            process.outputStream.on('data', (data: Buffer) => {
+                const msg = data.toString();
+                console.log(`[OpenMC ${port}] ${msg.trim()}`);
+                
+                // Check for warning in real-time and send to client immediately
+                const lines = msg.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('NUKE_IDE_WARNING:')) {
+                        try {
+                            const jsonStr = line.substring('NUKE_IDE_WARNING:'.length);
+                            const parsed = JSON.parse(jsonStr);
+                            if (parsed.type === 'spatial_warning' && parsed.message) {
+                                console.log(`[OpenMC Backend] Sending spatial warning to client via RPC`);
+                                this.client?.warn(parsed.message);
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
                         }
-                    } catch (e) {
-                        // Not valid JSON, skip
                     }
                 }
-            }
+            });
+            
+            process.errorStream.on('data', (data: Buffer) => {
+                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
+            });
+            
+            process.onExit((event: { code?: number; signal?: string }) => {
+                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+            });
+            
+            this.processes.set(port, { process, port, filePath: geometryPath });
+
+            // Use longer timeout for large DAGMC files (120 seconds)
+            await this.waitForServer(port, process, 120000);
+
+            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
 
             return {
                 success: true,
                 port,
                 url: `http://127.0.0.1:${port}`,
-                tallyInfo,
-                spatialWarning
+                tallyInfo
             };
 
         } catch (error) {
