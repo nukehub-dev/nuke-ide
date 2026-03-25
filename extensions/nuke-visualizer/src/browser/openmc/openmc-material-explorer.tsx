@@ -23,6 +23,8 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './openmc-service';
 import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../common/visualizer-protocol';
 import { OpenMCMaterialMixer } from './openmc-material-mixer';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCMaterialExplorerWidget extends ReactWidget {
@@ -228,16 +230,17 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                     )}
                 </div>
                 <div className='toolbar-actions' style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                    <button
-                        className={`theia-button ${this.showMixer ? 'primary' : 'secondary'}`}
-                        title='Manual Homogenization: Mix multiple materials into a new one'
-                        onClick={() => {
-                            this.showMixer = !this.showMixer;
-                            this.update();
-                        }}
-                    >
-                        <i className='fa fa-blender'></i> {this.showMixer ? 'Close Mixer' : 'Mix Materials'}
-                    </button>
+                    <Tooltip content='Mix multiple materials into a new one' position='bottom'>
+                        <button
+                            className={`theia-button ${this.showMixer ? 'primary' : 'secondary'}`}
+                            onClick={() => {
+                                this.showMixer = !this.showMixer;
+                                this.update();
+                            }}
+                        >
+                            <i className='fa fa-blender'></i> {this.showMixer ? 'Close Mixer' : 'Mix Materials'}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
         );
@@ -284,7 +287,11 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                             <div className='material-info'>
                                 <div className='material-name'>
                                     {material.name || `Material ${material.id}`}
-                                    {material.isDepletable && <span className='depletable-badge' title='Depletable material'>D</span>}
+                                    {material.isDepletable && (
+                                        <Tooltip content='Depletable material' position='right'>
+                                            <span className='depletable-badge'>D</span>
+                                        </Tooltip>
+                                    )}
                                 </div>
                                 <div className='material-meta'>
                                     {material.nuclides.length} nuclides
@@ -316,19 +323,20 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                 {nuclides.map(nuclide => {
                     const percentage = (nuclide.fraction / maxFraction) * 100;
                     return (
-                        <div key={nuclide.name} className='nuclide-bar-row'>
-                            <div className='nuclide-name'>{nuclide.name}</div>
-                            <div className='nuclide-bar-container'>
-                                <div
-                                    className='nuclide-bar'
-                                    style={{ width: `${percentage}%` }}
-                                    title={`${nuclide.fraction.toFixed(6)} ${nuclide.fractionType}`}
-                                ></div>
+                        <Tooltip key={nuclide.name} content={`${nuclide.fraction.toFixed(6)} ${nuclide.fractionType}`} position='top'>
+                            <div className='nuclide-bar-row'>
+                                <div className='nuclide-name'>{nuclide.name}</div>
+                                <div className='nuclide-bar-container'>
+                                    <div
+                                        className='nuclide-bar'
+                                        style={{ width: `${percentage}%` }}
+                                    ></div>
+                                </div>
+                                <div className='nuclide-fraction'>
+                                    {nuclide.fraction.toFixed(6)} {nuclide.fractionType}
+                                </div>
                             </div>
-                            <div className='nuclide-fraction'>
-                                {nuclide.fraction.toFixed(6)} {nuclide.fractionType}
-                            </div>
-                        </div>
+                        </Tooltip>
                     );
                 })}
             </div>
@@ -362,18 +370,21 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                             <div key={cell.id} className='material-cell-item'>
                                 <div className='material-cell-info'>
                                     <span className='material-cell-id'>#{cell.id}</span>
-                                    <span className='material-cell-name' title={cell.name}>
-                                        {cell.name}
-                                    </span>
+                                    <Tooltip content={cell.name || `Cell ${cell.id}`} position='top'>
+                                        <span className='material-cell-name'>
+                                            {cell.name}
+                                        </span>
+                                    </Tooltip>
                                     <span className='material-cell-universe'>U:{cell.universe}</span>
                                 </div>
-                                <button
-                                    className='material-cell-highlight-btn'
-                                    title='Highlight cell in Geometry Viewer'
-                                    onClick={() => this.highlightCell(cell.id)}
-                                >
-                                    <i className='fa fa-crosshairs'></i>
-                                </button>
+                                <Tooltip content='Highlight cell in Geometry Viewer' position='left'>
+                                    <button
+                                        className='material-cell-highlight-btn'
+                                        onClick={() => this.highlightCell(cell.id)}
+                                    >
+                                        <i className='fa fa-crosshairs'></i>
+                                    </button>
+                                </Tooltip>
                             </div>
                         ))}
                     </div>

@@ -28,6 +28,8 @@ import {
     DepletionXAxis,
     DepletionNuclidePreset
 } from '../../common/visualizer-protocol';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
 import URI from '@theia/core/lib/common/uri';
@@ -360,23 +362,23 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             const isActive = availableNucs.length > 0 && availableNucs.every(nuc => this.selectedNuclides.has(nuc));
                             
                             return (
-                                <button
-                                    key={preset.id}
-                                    onClick={() => this.applyPreset(preset)}
-                                    title={preset.description}
-                                    style={{
-                                        padding: '4px 8px',
-                                        fontSize: '10px',
-                                        borderRadius: '4px',
-                                        border: `1px solid ${isActive ? 'var(--theia-successBackground, #4caf50)' : borderColor}`,
-                                        backgroundColor: isActive ? 'var(--theia-successBackground, #4caf50)' : 'var(--theia-button-secondaryBackground)',
-                                        color: isActive ? 'var(--theia-button-foreground)' : textColor,
-                                        cursor: 'pointer',
-                                        fontWeight: isActive ? 'bold' : 'normal'
-                                    }}
-                                >
-                                    {isActive ? '✓ ' : ''}{preset.label}
-                                </button>
+                                <Tooltip key={preset.id} content={preset.description} position="top">
+                                    <button
+                                        onClick={() => this.applyPreset(preset)}
+                                        style={{
+                                            padding: '4px 8px',
+                                            fontSize: '10px',
+                                            borderRadius: '4px',
+                                            border: `1px solid ${isActive ? 'var(--theia-successBackground, #4caf50)' : borderColor}`,
+                                            backgroundColor: isActive ? 'var(--theia-successBackground, #4caf50)' : 'var(--theia-button-secondaryBackground)',
+                                            color: isActive ? 'var(--theia-button-foreground)' : textColor,
+                                            cursor: 'pointer',
+                                            fontWeight: isActive ? 'bold' : 'normal'
+                                        }}
+                                    >
+                                        {isActive ? '✓ ' : ''}{preset.label}
+                                    </button>
+                                </Tooltip>
                             );
                         })}
                     </div>

@@ -24,7 +24,9 @@ import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
 import { OpenMCService } from './openmc-service';
-import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from '../components/loading-spinner';
+import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCGeometry3DWidget extends ReactWidget {
@@ -127,10 +129,12 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
         return (
             <div className="geometry-3d-container">
                 <div className="geometry-3d-header">
-                    <span className="file-name" title={fileName}>
-                        <i className={codicon('globe')}></i>
-                        {fileName}
-                    </span>
+                    <Tooltip content={fileName} position="bottom">
+                        <span className="file-name">
+                            <i className={codicon('globe')}></i>
+                            {fileName}
+                        </span>
+                    </Tooltip>
                     {this.highlightedCell !== null && (
                         <span className="highlight-badge">
                             Cell {this.highlightedCell} highlighted

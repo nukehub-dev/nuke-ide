@@ -23,6 +23,8 @@ import { OpenMCHeatmapData, OpenMCHeatmapPlane } from '../../common/visualizer-p
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
 import URI from '@theia/core/lib/common/uri';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCHeatmapWidget extends ReactWidget {
@@ -641,23 +643,24 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 {/* Auto-play Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {!this.hasLoadedAllSlices && !this.isLoadingAllSlices && (
-                        <button
-                            onClick={() => this.loadAllSlices()}
-                            disabled={this.isLoading}
-                            style={{
-                                padding: '4px 12px',
-                                fontSize: '12px',
-                                borderRadius: '4px',
-                                border: 'none',
-                                backgroundColor: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                cursor: this.isLoading ? 'not-allowed' : 'pointer',
-                                opacity: this.isLoading ? 0.6 : 1
-                            }}
-                            title="Load all slices for smooth animation"
-                        >
-                            📥 Load All
-                        </button>
+                        <Tooltip content="Load all slices for smooth animation" position="top">
+                            <button
+                                onClick={() => this.loadAllSlices()}
+                                disabled={this.isLoading}
+                                style={{
+                                    padding: '4px 12px',
+                                    fontSize: '12px',
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    backgroundColor: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
+                                    cursor: this.isLoading ? 'not-allowed' : 'pointer',
+                                    opacity: this.isLoading ? 0.6 : 1
+                                }}
+                            >
+                                📥 Load All
+                            </button>
+                        </Tooltip>
                     )}
                     {this.isLoadingAllSlices && (
                         <span style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>

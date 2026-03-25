@@ -17,7 +17,9 @@
 import * as React from '@theia/core/shared/react';
 import { OpenMCMaterial } from '../../common/visualizer-protocol';
 import { OpenMCService } from './openmc-service';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './openmc-material-mixer.css';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 export interface OpenMCMaterialMixerProps {
     materials: OpenMCMaterial[];
@@ -136,19 +138,22 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                     <h3><i className='fa fa-blender'></i> Material Homogenizer</h3>
                     <div className='header-actions'>
                         {result && (
-                            <button 
-                                className='header-btn'
-                                onClick={handleSaveToFile}
-                                disabled={isSaving}
-                                title='Save to materials.xml'
-                            >
-                                {isSaving ? <i className='fa fa-spinner fa-spin'></i> : <i className='fa fa-save'></i>}
-                                {isSaving ? 'Saving...' : 'Save to File'}
-                            </button>
+                            <Tooltip content='Save mixed material to materials.xml' position='bottom'>
+                                <button 
+                                    className='header-btn'
+                                    onClick={handleSaveToFile}
+                                    disabled={isSaving}
+                                >
+                                    {isSaving ? <i className='fa fa-spinner fa-spin'></i> : <i className='fa fa-save'></i>}
+                                    {isSaving ? 'Saving...' : 'Save to File'}
+                                </button>
+                            </Tooltip>
                         )}
-                        <button className='close-btn' onClick={onClose} title='Close mixer'>
-                            <i className='fa fa-times'></i>
-                        </button>
+                        <Tooltip content='Close mixer' position='bottom'>
+                            <button className='close-btn' onClick={onClose}>
+                                <i className='fa fa-times'></i>
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
 
@@ -169,21 +174,27 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                         </div>
                         <div className='material-mixer-available-list'>
                             {filteredMaterials.map(m => (
-                                <div
+                                <Tooltip 
                                     key={m.id}
-                                    className='material-mixer-available-item'
-                                    onClick={() => addMaterial(m)}
-                                    title={`Add ${m.name || `Material ${m.id}`} to mixture`}
+                                    content={`Add ${m.name || `Material ${m.id}`} to mixture`}
+                                    position='right'
                                 >
-                                    <span className='mat-id'>#{m.id}</span>
-                                    <span className='mat-name'>
-                                        {m.name || `Material ${m.id}`}
-                                        {m.thermalScattering && m.thermalScattering.length > 0 && (
-                                            <i className='fa fa-thermometer-half' style={{ marginLeft: '8px', color: '#e67e22' }} title='Contains S(a,b) data'></i>
-                                        )}
-                                    </span>
-                                    <i className='fa fa-plus-circle'></i>
-                                </div>
+                                    <div
+                                        className='material-mixer-available-item'
+                                        onClick={() => addMaterial(m)}
+                                    >
+                                        <span className='mat-id'>#{m.id}</span>
+                                        <span className='mat-name'>
+                                            {m.name || `Material ${m.id}`}
+                                            {m.thermalScattering && m.thermalScattering.length > 0 && (
+                                                <Tooltip content='Contains S(a,b) thermal scattering data' position='right'>
+                                                    <i className='fa fa-thermometer-half' style={{ marginLeft: '8px', color: '#e67e22', cursor: 'help' }}></i>
+                                                </Tooltip>
+                                            )}
+                                        </span>
+                                        <i className='fa fa-plus-circle'></i>
+                                    </div>
+                                </Tooltip>
                             ))}
                         </div>
                     </aside>
@@ -217,41 +228,47 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                                 <div className='material-mixer-section-title' style={{ justifyContent: 'space-between' }}>
                                     <span><i className='fa fa-list-ul'></i> Selected Components ({selectedMats.length})</span>
                                     {selectedMats.length > 0 && (
-                                        <button 
-                                            className='clear-all-btn'
-                                            onClick={() => {
-                                                setSelectedMats([]);
-                                                setResult(null);
-                                            }}
-                                            title='Clear all selected materials'
-                                        >
-                                            Clear All
-                                        </button>
+                                        <Tooltip content='Remove all selected materials' position='left'>
+                                            <button 
+                                                className='clear-all-btn'
+                                                onClick={() => {
+                                                    setSelectedMats([]);
+                                                    setResult(null);
+                                                }}
+                                            >
+                                                Clear All
+                                            </button>
+                                        </Tooltip>
                                     )}
                                 </div>
                                 <div className='material-mixer-mix-list'>
                                     {selectedMats.map(s => (
                                         <div key={s.material.id} className='material-mixer-mix-item'>
                                             <div className='mat-info'>
-                                                <div className='mat-name' title={s.material.name || `Material ${s.material.id}`}>
-                                                    {s.material.name || `Material ${s.material.id}`}
-                                                </div>
+                                                <Tooltip content={s.material.name || `Material ${s.material.id}`} position='top'>
+                                                    <div className='mat-name'>
+                                                        {s.material.name || `Material ${s.material.id}`}
+                                                    </div>
+                                                </Tooltip>
                                                 <div className='mat-density'>{s.material.density.toFixed(4)} {s.material.densityUnit}</div>
                                             </div>
-                                            <div className='fraction-input-wrapper'>
-                                                <input
-                                                    type='number'
-                                                    step='0.001'
-                                                    min='0'
-                                                    max='1'
-                                                    value={s.fraction}
-                                                    onChange={e => updateFraction(s.material.id, e.target.value)}
-                                                    title={`Fraction of ${s.material.name || `Material ${s.material.id}`} in mixture`}
-                                                />
-                                            </div>
-                                            <button className='remove-btn' onClick={() => removeMaterial(s.material.id)} title='Remove from mixture'>
-                                                <i className='fa fa-trash'></i>
-                                            </button>
+                                            <Tooltip content={`Fraction of ${s.material.name || `Material ${s.material.id}`}`} position='top'>
+                                                <div className='fraction-input-wrapper'>
+                                                    <input
+                                                        type='number'
+                                                        step='0.001'
+                                                        min='0'
+                                                        max='1'
+                                                        value={s.fraction}
+                                                        onChange={e => updateFraction(s.material.id, e.target.value)}
+                                                    />
+                                                </div>
+                                            </Tooltip>
+                                            <Tooltip content='Remove from mixture' position='left'>
+                                                <button className='remove-btn' onClick={() => removeMaterial(s.material.id)}>
+                                                    <i className='fa fa-trash'></i>
+                                                </button>
+                                            </Tooltip>
                                         </div>
                                     ))}
                                     {selectedMats.length === 0 && (
@@ -314,13 +331,14 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                                 <div className='material-mixer-result-card' ref={resultRef}>
                                     <div className='material-mixer-result-header'>
                                         <span><i className='fa fa-check-circle'></i> Generated Material</span>
-                                        <button 
-                                            className='header-btn'
-                                            onClick={() => navigator.clipboard.writeText(result.xml)}
-                                            title='Copy XML to clipboard'
-                                        >
-                                            <i className='fa fa-copy'></i> Copy XML
-                                        </button>
+                                        <Tooltip content='Copy XML to clipboard' position='left'>
+                                            <button 
+                                                className='header-btn'
+                                                onClick={() => navigator.clipboard.writeText(result.xml)}
+                                            >
+                                                <i className='fa fa-copy'></i> Copy XML
+                                            </button>
+                                        </Tooltip>
                                     </div>
                                     <div className='material-mixer-result-body'>
                                         <div className='material-mixer-stats-grid'>

@@ -36,6 +36,8 @@ import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 /** Mode for XS plotting */
 type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
@@ -619,27 +621,27 @@ export class XSPlotWidget extends ReactWidget {
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                         {(Object.keys(XS_ENERGY_REGIONS) as XSEnergyRegion[]).map(region => (
-                            <button
-                                key={region}
-                                onClick={() => this.setEnergyRegion(region)}
-                                style={{
-                                    padding: '6px 8px',
-                                    fontSize: '11px',
-                                    backgroundColor: this.energyRegion === region
-                                        ? accentColor
-                                        : 'var(--theia-button-secondaryBackground)',
-                                    color: this.energyRegion === region
-                                        ? 'var(--theia-button-foreground)'
-                                        : textColor,
-                                    border: 'none',
-                                    borderRadius: '3px',
-                                    cursor: 'pointer',
-                                    textAlign: 'center'
-                                }}
-                                title={XS_ENERGY_REGIONS[region].description}
-                            >
-                                {XS_ENERGY_REGIONS[region].label}
-                            </button>
+                            <Tooltip key={region} content={XS_ENERGY_REGIONS[region].description} position="top">
+                                <button
+                                    onClick={() => this.setEnergyRegion(region)}
+                                    style={{
+                                        padding: '6px 8px',
+                                        fontSize: '11px',
+                                        backgroundColor: this.energyRegion === region
+                                            ? accentColor
+                                            : 'var(--theia-button-secondaryBackground)',
+                                        color: this.energyRegion === region
+                                            ? 'var(--theia-button-foreground)'
+                                            : textColor,
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        textAlign: 'center'
+                                    }}
+                                >
+                                    {XS_ENERGY_REGIONS[region].label}
+                                </button>
+                            </Tooltip>
                         ))}
                     </div>
                     <div style={{ 
@@ -2620,26 +2622,27 @@ export class XSPlotWidget extends ReactWidget {
         const handleHoverColor = 'var(--theia-input-border)';
         
         return (
-            <div
-                style={{
-                    height: '6px',
-                    backgroundColor: this.isDraggingIntegrals ? handleHoverColor : handleColor,
-                    cursor: 'row-resize',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background-color 0.2s'
-                }}
-                onMouseDown={(e) => this.startResizeIntegrals(e)}
-                title="Drag to resize"
-            >
-                <div style={{
-                    width: '30px',
-                    height: '2px',
-                    backgroundColor: 'var(--theia-descriptionForeground)',
-                    borderRadius: '1px'
-                }} />
-            </div>
+            <Tooltip content="Drag to resize" position="top">
+                <div
+                    style={{
+                        height: '6px',
+                        backgroundColor: this.isDraggingIntegrals ? handleHoverColor : handleColor,
+                        cursor: 'row-resize',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'background-color 0.2s'
+                    }}
+                    onMouseDown={(e) => this.startResizeIntegrals(e)}
+                >
+                    <div style={{
+                        width: '30px',
+                        height: '2px',
+                        backgroundColor: 'var(--theia-descriptionForeground)',
+                        borderRadius: '1px'
+                    }} />
+                </div>
+            </Tooltip>
         );
     }
 
@@ -2690,19 +2693,20 @@ export class XSPlotWidget extends ReactWidget {
                 <h4 style={{ margin: '0 0 10px 0', color: headerColor, fontSize: '13px' }}>
                     <span className={codicon('symbol-constant')} style={{ marginRight: '6px' }} />
                     Integral Quantities
-                    <span 
-                        onClick={() => { this.showIntegrals = false; this.update(); }}
-                        style={{ 
-                            float: 'right', 
-                            cursor: 'pointer', 
-                            fontSize: '12px',
-                            color: textColor,
-                            marginLeft: '10px'
-                        }}
-                        title="Hide panel"
-                    >
-                        ×
-                    </span>
+                    <Tooltip content="Hide panel" position="left">
+                        <span 
+                            onClick={() => { this.showIntegrals = false; this.update(); }}
+                            style={{ 
+                                float: 'right', 
+                                cursor: 'pointer', 
+                                fontSize: '12px',
+                                color: textColor,
+                                marginLeft: '10px'
+                            }}
+                        >
+                            ×
+                        </span>
+                    </Tooltip>
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {this.data.curves.map((curve, idx) => {

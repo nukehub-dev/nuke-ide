@@ -33,7 +33,9 @@ import {
 } from '../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
-import { SimpleLoadingSpinner, EmptyState, ErrorDisplay, LoadingAnimations } from '../components/loading-spinner';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
+import { SimpleLoadingSpinner, EmptyState, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 export interface GeometryView3DRequest {
     fileUri: URI;
@@ -233,38 +235,43 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
             <div className="openmc-geometry-tree">
                 <div className="tree-header">
                     <div className="header-title">
-                        <span className="file-name" title={fileName}>
-                            <i className={codicon('repo')}></i>
-                            {fileName}
-                        </span>
-                        <button 
-                            className="close-btn" 
-                            onClick={() => this.handleClose()}
-                            title="Close Geometry"
-                        >
-                            <i className={codicon('close')}></i>
-                        </button>
+                        <Tooltip content={fileName} position="bottom">
+                            <span className="file-name">
+                                <i className={codicon('repo')}></i>
+                                {fileName}
+                            </span>
+                        </Tooltip>
+                        <Tooltip content="Close Geometry" position="left">
+                            <button 
+                                className="close-btn" 
+                                onClick={() => this.handleClose()}
+                            >
+                                <i className={codicon('close')}></i>
+                            </button>
+                        </Tooltip>
                     </div>
                     <div className="geometry-stats">
                         {this.hierarchy.totalCells} cells, {this.hierarchy.totalSurfaces} surfaces
                     </div>
                     <div className="geometry-actions">
-                        <button 
-                            className="view-3d-btn"
-                            onClick={() => this.viewIn3D()}
-                            title="View Geometry in 3D"
-                        >
-                            <i className={codicon('globe')}></i>
-                            View 3D
-                        </button>
-                        <button 
-                            className="overlap-btn"
-                            onClick={() => this.checkOverlaps()}
-                            title="Check for Geometry Overlaps"
-                        >
-                            <i className={codicon('search')}></i>
-                            Check Overlaps
-                        </button>
+                        <Tooltip content="View Geometry in 3D" position="bottom">
+                            <button 
+                                className="view-3d-btn"
+                                onClick={() => this.viewIn3D()}
+                            >
+                                <i className={codicon('globe')}></i>
+                                View 3D
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Check for Geometry Overlaps" position="bottom">
+                            <button 
+                                className="overlap-btn"
+                                onClick={() => this.checkOverlaps()}
+                            >
+                                <i className={codicon('search')}></i>
+                                Check Overlaps
+                            </button>
+                        </Tooltip>
                     </div>
                     
                     {/* Search and filter */}
@@ -278,22 +285,24 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                                 onChange={(e) => this.setFilterText(e.target.value)}
                             />
                             {this.filterText && (
-                                <button 
-                                    className="clear-search"
-                                    onClick={() => this.setFilterText('')}
-                                    title="Clear filter"
-                                >
-                                    <i className={codicon('close')}></i>
-                                </button>
+                                <Tooltip content="Clear filter" position="bottom">
+                                    <button 
+                                        className="clear-search"
+                                        onClick={() => this.setFilterText('')}
+                                    >
+                                        <i className={codicon('close')}></i>
+                                    </button>
+                                </Tooltip>
                             )}
                         </div>
-                        <button
-                            className={`toolbar-btn ${this.showSurfaces ? 'active' : ''}`}
-                            onClick={() => this.toggleSurfaces()}
-                            title="Toggle surfaces visibility"
-                        >
-                            <i className={codicon('symbol-misc')}></i>
-                        </button>
+                        <Tooltip content="Toggle surfaces visibility" position="bottom">
+                            <button
+                                className={`toolbar-btn ${this.showSurfaces ? 'active' : ''}`}
+                                onClick={() => this.toggleSurfaces()}
+                            >
+                                <i className={codicon('symbol-misc')}></i>
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
                 
@@ -406,14 +415,15 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                 {isExpanded && (
                     <div className="cell-details">
                         <div className="cell-actions">
-                            <button 
-                                className="highlight-btn"
-                                onClick={(e) => { e.stopPropagation(); this.highlightCellIn3D(cell.id); }}
-                                title={`Highlight Cell ${cell.id} in 3D View`}
-                            >
-                                <i className={codicon('eye')}></i>
-                                Highlight in 3D
-                            </button>
+                            <Tooltip content={`Highlight Cell ${cell.id} in 3D View`} position="top">
+                                <button 
+                                    className="highlight-btn"
+                                    onClick={(e) => { e.stopPropagation(); this.highlightCellIn3D(cell.id); }}
+                                >
+                                    <i className={codicon('eye')}></i>
+                                    Highlight in 3D
+                                </button>
+                            </Tooltip>
                         </div>
                         {cell.region && (
                             <div className="detail-row">
@@ -473,19 +483,20 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         else if (surface.type.includes('torus')) icon = 'refresh';
         
         return (
-            <div 
-                key={`surface-${surface.id}`}
-                className={`surface-item ${isSelected ? 'selected' : ''}`}
-                onClick={() => this.selectSurface(surface.id)}
-                title={surface.description}
-            >
-                <i className={codicon(icon)}></i>
-                <span className="surface-id">{surface.id}</span>
-                <span className="surface-type">{surface.type}</span>
-                {surface.boundary && surface.boundary !== 'transmission' && (
-                    <span className={`boundary-badge ${surface.boundary}`}>{surface.boundary}</span>
-                )}
-            </div>
+            <Tooltip content={surface.description || `${surface.type} surface`} position="top">
+                <div 
+                    key={`surface-${surface.id}`}
+                    className={`surface-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => this.selectSurface(surface.id)}
+                >
+                    <i className={codicon(icon)}></i>
+                    <span className="surface-id">{surface.id}</span>
+                    <span className="surface-type">{surface.type}</span>
+                    {surface.boundary && surface.boundary !== 'transmission' && (
+                        <span className={`boundary-badge ${surface.boundary}`}>{surface.boundary}</span>
+                    )}
+                </div>
+            </Tooltip>
         );
     }
 

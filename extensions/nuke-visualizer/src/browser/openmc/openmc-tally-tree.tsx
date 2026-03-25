@@ -25,7 +25,9 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from './openmc-service';
 import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
-import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from '../components/loading-spinner';
+import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 export interface TallySelection {
     tallyId: number;
@@ -168,17 +170,20 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
             <div className="openmc-tally-tree">
                 <div className="tree-header">
                     <div className="header-title">
-                        <span className="file-name" title={fileName}>
-                            <i className={codicon('database')}></i>
-                            {fileName}
-                        </span>
-                        <button 
-                            className="close-btn" 
-                            onClick={() => this.handleClose()}
-                            title="Close Statepoint"
-                        >
-                            <i className={codicon('close')}></i>
-                        </button>
+                        <Tooltip content={fileName} position="bottom">
+                            <span className="file-name">
+                                <i className={codicon('database')}></i>
+                                {fileName}
+                            </span>
+                        </Tooltip>
+                        <Tooltip content="Close Statepoint" position="left">
+                            <button 
+                                className="close-btn" 
+                                onClick={() => this.handleClose()}
+                            >
+                                <i className={codicon('close')}></i>
+                            </button>
+                        </Tooltip>
                     </div>
                     
                     {this.statepointInfo.kEff !== undefined && (
@@ -217,23 +222,31 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                 >
                     <i className={`${codicon('chevron-right')} tally-expand-icon`}></i>
                     <span className="tally-id-badge">Tally {tally.id}</span>
-                    <span className="tally-name" title={tally.name}>{tally.name}</span>
+                    <Tooltip content={tally.name} position="top">
+                        <span className="tally-name">{tally.name}</span>
+                    </Tooltip>
                     
                     <div className="tally-badges">
                         {meshFilter && (
-                            <span className="tally-badge mesh" title="Mesh Tally">
-                                <i className="fa fa-th"></i>
-                            </span>
+                            <Tooltip content="Mesh Tally" position="top">
+                                <span className="tally-badge mesh">
+                                    <i className="fa fa-th"></i>
+                                </span>
+                            </Tooltip>
                         )}
                         {cellFilter && (
-                            <span className="tally-badge cell" title="Cell Filter">
-                                <i className={codicon('square')}></i>
-                            </span>
+                            <Tooltip content="Cell Filter" position="top">
+                                <span className="tally-badge cell">
+                                    <i className={codicon('square')}></i>
+                                </span>
+                            </Tooltip>
                         )}
                         {energyFilter && (
-                            <span className="tally-badge energy" title="Energy Filter">
-                                <i className={codicon('zap')}></i>
-                            </span>
+                            <Tooltip content="Energy Filter" position="top">
+                                <span className="tally-badge energy">
+                                    <i className={codicon('zap')}></i>
+                                </span>
+                            </Tooltip>
                         )}
                     </div>
                 </div>
@@ -296,84 +309,92 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                 <>
                                     {/* Primary Visualizations */}
                                     <div className="action-group">
-                                        <button 
-                                            className="action-btn primary"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
-                                            title="Visualize 3D Mesh Tally"
-                                        >
-                                            <i className="fa fa-cube"></i>
-                                            <span>3D View</span>
-                                        </button>
+                                        <Tooltip content="Visualize 3D Mesh Tally" position="top">
+                                            <button 
+                                                className="action-btn primary"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
+                                            >
+                                                <i className="fa fa-cube"></i>
+                                                <span>3D View</span>
+                                            </button>
+                                        </Tooltip>
                                         
-                                        <button 
-                                            className="action-btn accent"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-geometry')}
-                                            title="Overlay on DAGMC Geometry"
-                                        >
-                                            <i className={codicon('layers')}></i>
-                                            <span>Overlay</span>
-                                        </button>
+                                        <Tooltip content="Overlay on DAGMC Geometry" position="top">
+                                            <button 
+                                                className="action-btn accent"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-geometry')}
+                                            >
+                                                <i className={codicon('layers')}></i>
+                                                <span>Overlay</span>
+                                            </button>
+                                        </Tooltip>
                                         
-                                        <button 
-                                            className="action-btn info"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
-                                            title="2D Heatmap Slices"
-                                        >
-                                            <i className="fa fa-th"></i>
-                                            <span>Heatmap</span>
-                                        </button>
+                                        <Tooltip content="2D Heatmap Slices" position="top">
+                                            <button 
+                                                className="action-btn info"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
+                                            >
+                                                <i className="fa fa-th"></i>
+                                                <span>Heatmap</span>
+                                            </button>
+                                        </Tooltip>
                                     </div>
                                     
                                     {/* Plot Actions */}
                                     <div className="actions-label">Plots</div>
                                     <div className="action-group small">
                                         <div className="action-btn-group">
-                                            <button 
-                                                className="action-btn"
-                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
-                                                title="Plot 1D Spatial Distribution"
-                                            >
-                                                <i className={codicon('graph-line')}></i>
-                                                <span>Spatial</span>
-                                            </button>
-                                            {tally.scores.length > 1 && (
+                                            <Tooltip content="Plot 1D Spatial Distribution" position="top">
                                                 <button 
                                                     className="action-btn"
-                                                    onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
-                                                    title="Plot All Scores"
+                                                    onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
                                                 >
-                                                    <i className={codicon('add')}></i>
+                                                    <i className={codicon('graph-line')}></i>
+                                                    <span>Spatial</span>
                                                 </button>
+                                            </Tooltip>
+                                            {tally.scores.length > 1 && (
+                                                <Tooltip content="Plot All Scores" position="top">
+                                                    <button 
+                                                        className="action-btn"
+                                                        onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
+                                                    >
+                                                        <i className={codicon('add')}></i>
+                                                    </button>
+                                                </Tooltip>
                                             )}
                                         </div>
                                         
                                         {energyFilter && (
                                             <div className="action-btn-group">
-                                                <button 
-                                                    className="action-btn"
-                                                    onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
-                                                    title="Plot Energy Spectrum"
-                                                >
-                                                    <i className="fa fa-area-chart"></i>
-                                                    <span>Spectrum</span>
-                                                </button>
-                                                {tally.scores.length > 1 && (
+                                                <Tooltip content="Plot Energy Spectrum" position="top">
                                                     <button 
                                                         className="action-btn"
-                                                        onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
-                                                        title="Plot All Scores"
+                                                        onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
                                                     >
-                                                        <i className={codicon('add')}></i>
+                                                        <i className="fa fa-area-chart"></i>
+                                                        <span>Spectrum</span>
                                                     </button>
+                                                </Tooltip>
+                                                {tally.scores.length > 1 && (
+                                                    <Tooltip content="Plot All Scores" position="top">
+                                                        <button 
+                                                            className="action-btn"
+                                                            onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                                        >
+                                                            <i className={codicon('add')}></i>
+                                                        </button>
+                                                    </Tooltip>
                                                 )}
                                                 {tally.nuclides.length > 1 && (
-                                                    <button 
-                                                        className="action-btn"
-                                                        onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
-                                                        title="Plot All Nuclides"
-                                                    >
-                                                        <i className={codicon('organization')}></i>
-                                                    </button>
+                                                    <Tooltip content="Plot All Nuclides" position="top">
+                                                        <button 
+                                                            className="action-btn"
+                                                            onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                        >
+                                                            <i className={codicon('organization')}></i>
+                                                        </button>
+                                                    </Tooltip>
                                                 )}
                                             </div>
                                         )}
@@ -385,31 +406,34 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                             {!tally.hasMesh && energyFilter && (
                                 <div className="action-group small">
                                     <div className="action-btn-group">
-                                        <button 
-                                            className="action-btn"
-                                            onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
-                                            title="Plot Energy Spectrum"
-                                        >
-                                            <i className="fa fa-area-chart"></i>
-                                            <span>Spectrum</span>
-                                        </button>
-                                        {tally.scores.length > 1 && (
+                                        <Tooltip content="Plot Energy Spectrum" position="top">
                                             <button 
                                                 className="action-btn"
-                                                onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
-                                                title="Plot All Scores"
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
                                             >
-                                                <i className="fa fa-plus"></i>
+                                                <i className="fa fa-area-chart"></i>
+                                                <span>Spectrum</span>
                                             </button>
+                                        </Tooltip>
+                                        {tally.scores.length > 1 && (
+                                            <Tooltip content="Plot All Scores" position="top">
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                                >
+                                                    <i className="fa fa-plus"></i>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                         {tally.nuclides.length > 1 && (
-                                            <button 
-                                                className="action-btn"
-                                                onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
-                                                title="Plot All Nuclides"
-                                            >
-                                                <i className="fa fa-users"></i>
-                                            </button>
+                                            <Tooltip content="Plot All Nuclides" position="top">
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                >
+                                                    <i className="fa fa-users"></i>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                     </div>
                                 </div>

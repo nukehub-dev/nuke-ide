@@ -1,0 +1,127 @@
+/* ============================================================================
+   NukeIDE Custom Tooltip Styles
+   ============================================================================ */
+
+.nuke-tooltip {
+    background: var(--theia-tooltip-background, #252526);
+    color: var(--theia-tooltip-foreground, #cccccc);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: var(--theia-ui-font-family);
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--theia-panel-border, #3c3c3c);
+    animation: tooltip-fade-in 0.15s ease-out;
+    transform: translate(-50%, -100%);
+}
+
+.nuke-tooltip-bottom {
+    transform: translate(-50%, 0);
+}
+
+.nuke-tooltip-left {
+    transform: translate(-100%, -50%);
+}
+
+.nuke-tooltip-right {
+    transform: translate(0, -50%);
+}
+
+@keyframes tooltip-fade-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -100%) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -100%) scale(1);
+    }
+}
+
+.nuke-tooltip-bottom {
+    animation: tooltip-fade-in-bottom 0.15s ease-out;
+}
+
+@keyframes tooltip-fade-in-bottom {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 0) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.nuke-tooltip-left {
+    animation: tooltip-fade-in-left 0.15s ease-out;
+}
+
+@keyframes tooltip-fade-in-left {
+    from {
+        opacity: 0;
+        transform: translate(-100%, -50%) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-100%, -50%) scale(1);
+    }
+}
+
+.nuke-tooltip-right {
+    animation: tooltip-fade-in-right 0.15s ease-out;
+}
+
+@keyframes tooltip-fade-in-right {
+    from {
+        opacity: 0;
+        transform: translate(0, -50%) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translate(0, -50%) scale(1);
+    }
+}
+
+/* Arrow indicators */
+.nuke-tooltip::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+
+.nuke-tooltip-top::after {
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px 5px 0;
+    border-color: var(--theia-tooltip-background, #252526) transparent transparent transparent;
+}
+
+.nuke-tooltip-bottom::after {
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 0 5px 5px;
+    border-color: transparent transparent var(--theia-tooltip-background, #252526) transparent;
+}
+
+.nuke-tooltip-left::after {
+    right: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 5px 0 5px 5px;
+    border-color: transparent transparent transparent var(--theia-tooltip-background, #252526);
+}
+
+.nuke-tooltip-right::after {
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 5px 5px 5px 0;
+    border-color: transparent var(--theia-tooltip-background, #252526) transparent transparent;
+}

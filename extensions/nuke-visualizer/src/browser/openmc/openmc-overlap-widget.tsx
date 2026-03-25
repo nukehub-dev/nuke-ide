@@ -25,6 +25,8 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './openmc-service';
 import { OpenMCOverlap } from '../../common/visualizer-protocol';
 import './openmc-overlap-widget.css';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCOverlapWidget extends ReactWidget {
@@ -370,21 +372,22 @@ export class OpenMCOverlapWidget extends ReactWidget {
                         Overlap{this.overlaps.length !== 1 ? 's' : ''} Found
                     </h3>
                     <div style={{ display: 'flex', gap: '5px' }}>
-                        <button
-                            onClick={() => this.visualizeAllIn3D()}
-                            title="Visualize all overlaps in 3D"
-                            style={{
-                                padding: '3px 8px',
-                                fontSize: '11px',
-                                background: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            View 3D
-                        </button>
+                        <Tooltip content="Visualize all overlaps in 3D" position="top">
+                            <button
+                                onClick={() => this.visualizeAllIn3D()}
+                                style={{
+                                    padding: '3px 8px',
+                                    fontSize: '11px',
+                                    background: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                View 3D
+                            </button>
+                        </Tooltip>
                         <button
                             onClick={() => this.exportResults('json')}
                             style={{
@@ -502,25 +505,26 @@ export class OpenMCOverlapWidget extends ReactWidget {
                                 : `Cells ${overlap.cellIds[0]} & ${overlap.cellIds[1]}`}
                         </span>
                     </div>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            this.viewOverlapIn3D(overlap);
-                        }}
-                        disabled={!this.geometryUri}
-                        style={{
-                            padding: '2px 6px',
-                            fontSize: '10px',
-                            background: this.geometryUri ? 'var(--theia-button-secondaryBackground)' : 'var(--theia-button-disabledBackground)',
-                            color: this.geometryUri ? 'var(--theia-button-secondaryForeground)' : 'var(--theia-button-disabledForeground)',
-                            border: 'none',
-                            borderRadius: '2px',
-                            cursor: this.geometryUri ? 'pointer' : 'not-allowed'
-                        }}
-                        title="View in 3D"
-                    >
-                        3D
-                    </button>
+                    <Tooltip content={this.geometryUri ? "View in 3D" : "Load geometry.xml first"} position="top">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                this.viewOverlapIn3D(overlap);
+                            }}
+                            disabled={!this.geometryUri}
+                            style={{
+                                padding: '2px 6px',
+                                fontSize: '10px',
+                                background: this.geometryUri ? 'var(--theia-button-secondaryBackground)' : 'var(--theia-button-disabledBackground)',
+                                color: this.geometryUri ? 'var(--theia-button-secondaryForeground)' : 'var(--theia-button-disabledForeground)',
+                                border: 'none',
+                                borderRadius: '2px',
+                                cursor: this.geometryUri ? 'pointer' : 'not-allowed'
+                            }}
+                        >
+                            3D
+                        </button>
+                    </Tooltip>
                 </div>
                 
                 <div style={{

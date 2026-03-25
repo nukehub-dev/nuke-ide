@@ -33,6 +33,7 @@
     "@theia/filesystem": "1.69.0",
     "@theia/process": "1.69.0",
     "@theia/workspace": "1.69.0",
+    "nuke-essentials": "0.1.2",
     "plotly.js-dist-min": "^3.4.0"
   },
   "devDependencies": {
@@ -47,7 +48,7 @@
     "prepare": "yarn run clean && yarn run build",
     "clean": "rimraf lib *.tsbuildinfo",
     "build": "tsc && yarn run copy-css",
-    "copy-css": "mkdir -p lib/browser/openmc && cp src/browser/openmc/*.css lib/browser/openmc/",
+    "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\; 2>/dev/null || true",
     "watch": "tsc -w"
   },
   "theiaExtensions": [
