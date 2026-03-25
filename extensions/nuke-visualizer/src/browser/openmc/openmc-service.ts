@@ -1043,6 +1043,39 @@ export class OpenMCService {
             throw error;
         }
     }
+
+    /**
+     * Mix multiple materials into a new material.
+     */
+    async mixMaterials(request: {
+        filePath: string;
+        materialIds: number[];
+        fractions: number[];
+        percentType: 'ao' | 'wo' | 'vo';
+        name?: string;
+        id?: number;
+    }): Promise<any> {
+        try {
+            const result = await this.openmcBackend.mixMaterials(request);
+            return result;
+        } catch (error) {
+            this.messageService.error(`Failed to mix materials: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Add a material XML snippet to an existing materials.xml file.
+     */
+    async addMaterialToFile(filePath: string, materialXml: string): Promise<void> {
+        try {
+            await this.openmcBackend.addMaterial(filePath, materialXml);
+            this.messageService.info(`Material added to ${new URI(filePath).path.base}`);
+        } catch (error) {
+            this.messageService.error(`Failed to add material: ${error}`);
+            throw error;
+        }
+    }
     
     // === Geometry Overlap Checker ===
 

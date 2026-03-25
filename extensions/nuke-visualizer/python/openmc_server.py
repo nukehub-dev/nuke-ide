@@ -42,6 +42,7 @@ from openmc_commands import (
     cmd_spectrum, cmd_spatial, cmd_heatmap, cmd_heatmap_all,
     cmd_geometry, cmd_visualize_geometry, cmd_check_overlaps, cmd_overlap_viz,
     cmd_materials, cmd_list_nuclides, cmd_list_group_structures, cmd_list_thermal_materials, cmd_material_cell_linkage,
+    cmd_mix_materials, cmd_add_material,
     cmd_depletion_summary, cmd_depletion_materials, cmd_depletion_data,
     cmd_xs_plot,
 )
@@ -180,6 +181,20 @@ def main():
     linkage_parser.add_argument('materials_file', help='Path to materials.xml')
     linkage_parser.add_argument('geometry_file', help='Path to geometry.xml')
     
+    # Mix materials command
+    mix_parser = subparsers.add_parser('mix-materials', help='Mix multiple materials')
+    mix_parser.add_argument('file', help='Path to materials.xml')
+    mix_parser.add_argument('--material-ids', required=True, help='Comma-separated material IDs to mix')
+    mix_parser.add_argument('--fractions', required=True, help='Comma-separated mixing fractions')
+    mix_parser.add_argument('--percent-type', choices=['ao', 'wo', 'vo'], default='ao', help='Fraction type')
+    mix_parser.add_argument('--name', help='Name of the new material')
+    mix_parser.add_argument('--id', type=int, help='ID of the new material')
+    
+    # Add material command
+    add_mat_parser = subparsers.add_parser('add-material', help='Add a material to materials.xml')
+    add_mat_parser.add_argument('file', help='Path to materials.xml')
+    add_mat_parser.add_argument('--material-xml', required=True, help='XML snippet of the material')
+    
     # Overlap checker commands
     overlaps_parser = subparsers.add_parser('check-overlaps', help='Check for geometry overlaps')
     overlaps_parser.add_argument('geometry', help='Path to geometry.xml or Python model')
@@ -222,6 +237,8 @@ def main():
         'list-nuclides': cmd_list_nuclides,
         'materials': cmd_materials,
         'material-cell-linkage': cmd_material_cell_linkage,
+        'mix-materials': cmd_mix_materials,
+        'add-material': cmd_add_material,
         'check-overlaps': cmd_check_overlaps,
         'overlap-viz': cmd_overlap_viz,
     }

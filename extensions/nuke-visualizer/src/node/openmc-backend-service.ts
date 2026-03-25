@@ -1023,6 +1023,103 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    async mixMaterials(request: any): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'mix-materials', request.filePath,
+            '--material-ids', request.materialIds.join(','),
+            '--fractions', request.fractions.join(','),
+            '--percent-type', request.percentType
+        ];
+
+        if (request.name) {
+            args.push('--name', request.name);
+        }
+
+        if (request.id !== undefined) {
+            args.push('--id', request.id.toString());
+        }
+
+        console.log(`[OpenMC] Running mix-materials command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        // Try to parse stdout even if status is not 0, as our script catches exceptions
+        // and prints them as JSON to stdout.
+        if (result.stdout) {
+            try {
+                const data = JSON.parse(result.stdout);
+                if (data.error) {
+                    console.error(`[OpenMC] Mix materials failed (JSON error): ${data.error}`);
+                    if (data.traceback) {
+                        console.error(`[OpenMC] Traceback: ${data.traceback}`);
+                    }
+                    return { error: data.error };
+                }
+                if (result.status === 0) {
+                    return { material: data };
+                }
+            } catch (e) {
+                // Not JSON or other parse error, continue to stderr check
+            }
+        }
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Mix materials command failed with status ${result.status}`);
+            console.error(`[OpenMC] Stderr: ${result.stderr}`);
+            return { error: result.stderr || `Command failed with status ${result.status}` };
+        }
+
+        return { error: 'Unknown error occurred during material mixing' };
+    }
+
+    async addMaterial(filePath: string, materialXml: string): Promise<void> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [
+            scriptPath, 'add-material', filePath,
+            '--material-xml', materialXml
+        ];
+
+        console.log(`[OpenMC] Running add-material command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.stdout) {
+            try {
+                const data = JSON.parse(result.stdout);
+                if (data.error) {
+                    console.error(`[OpenMC] Add material failed (JSON error): ${data.error}`);
+                    throw new Error(data.error);
+                }
+                if (result.status === 0) {
+                    return;
+                }
+            } catch (e) {
+                if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
+                    throw e;
+                }
+            }
+        }
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Add material command failed with status ${result.status}`);
+            console.error(`[OpenMC] Stderr: ${result.stderr}`);
+            throw new Error(result.stderr || `Command failed with status ${result.status}`);
+        }
+    }
+
     // === Geometry Overlap Checker ===
 
     async checkOverlaps(request: any): Promise<any> {

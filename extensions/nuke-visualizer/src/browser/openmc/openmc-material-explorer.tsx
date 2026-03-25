@@ -22,6 +22,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './openmc-service';
 import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../common/visualizer-protocol';
+import { OpenMCMaterialMixer } from './openmc-material-mixer';
 
 @injectable()
 export class OpenMCMaterialExplorerWidget extends ReactWidget {
@@ -45,6 +46,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     private materialCells: { [materialId: string]: Array<{ id: number; name: string; universe: number }> } = {};
     private geometryUri: URI | null = null;
     private linkedCells: Array<{ id: number; name: string; universe: number }> = [];
+    private showMixer = false;
 
     @postConstruct()
     protected init(): void {
@@ -215,6 +217,18 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                     {this.materials.some(m => m.isDepletable) && (
                         <span className='depletable-stat'><i className='fa fa-fire'></i> {this.materials.filter(m => m.isDepletable).length} Depletable</span>
                     )}
+                </div>
+                <div className='toolbar-actions' style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <button
+                        className={`theia-button ${this.showMixer ? 'primary' : 'secondary'}`}
+                        title='Manual Homogenization: Mix multiple materials into a new one'
+                        onClick={() => {
+                            this.showMixer = !this.showMixer;
+                            this.update();
+                        }}
+                    >
+                        <i className='fa fa-blender'></i> {this.showMixer ? 'Close Mixer' : 'Mix Materials'}
+                    </button>
                 </div>
             </div>
         );
@@ -475,18 +489,38 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             );
         }
 
+        // Render modal outside the container using portal-like behavior
+        const mixerModal = this.showMixer && this.fileUri ? (
+            <OpenMCMaterialMixer
+                materials={this.materials}
+                filePath={this.fileUri.path.toString()}
+                openmcService={this.openmcService}
+                onClose={() => {
+                    this.showMixer = false;
+                    this.update();
+                }}
+                onMaterialAdded={() => {
+                    // Reload materials after adding a new one
+                    this.loadMaterials();
+                }}
+            />
+        ) : null;
+
         return (
-            <div className='material-explorer-container'>
-                {this.renderToolbar()}
-                <div className='material-explorer-content'>
-                    <div className='material-list-panel'>
-                        {this.renderMaterialList()}
-                    </div>
-                    <div className='material-details-panel'>
-                        {this.renderMaterialDetails()}
+            <>
+                <div className='material-explorer-container'>
+                    {this.renderToolbar()}
+                    <div className='material-explorer-content'>
+                        <div className='material-list-panel'>
+                            {this.renderMaterialList()}
+                        </div>
+                        <div className='material-details-panel'>
+                            {this.renderMaterialDetails()}
+                        </div>
                     </div>
                 </div>
-            </div>
+                {mixerModal}
+            </>
         );
     }
 }

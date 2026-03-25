@@ -446,6 +446,12 @@ export interface OpenMCBackendService {
     /** Get mapping of materials to cells that use them */
     getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<OpenMCMaterialCellLinkageResponse>;
     
+    /** Mix multiple materials into a new material */
+    mixMaterials(request: OpenMCMaterialMixRequest): Promise<OpenMCMaterialMixResponse>;
+    
+    /** Add a material XML snippet to materials.xml */
+    addMaterial(filePath: string, materialXml: string): Promise<void>;
+    
     // === Geometry Overlap Checker ===
     
     /** Run overlap check on geometry */
@@ -1315,6 +1321,30 @@ export interface OpenMCMaterialCellLinkageResponse {
     linkage: { [materialId: string]: OpenMCMaterialCell[] };
     /** Mapping of material IDs to names */
     materialNames: { [materialId: number]: string };
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Request to mix multiple materials */
+export interface OpenMCMaterialMixRequest {
+    /** Path to materials.xml file */
+    filePath: string;
+    /** IDs of materials to mix */
+    materialIds: number[];
+    /** Fractions for each material */
+    fractions: number[];
+    /** Fraction type: 'ao' (atomic), 'wo' (weight), or 'vo' (volume) */
+    percentType: 'ao' | 'wo' | 'vo';
+    /** Name for the new material */
+    name?: string;
+    /** ID for the new material (optional) */
+    id?: number;
+}
+
+/** Response for material mixing request */
+export interface OpenMCMaterialMixResponse {
+    /** Resulting mixed material */
+    material?: OpenMCMaterial & { xml: string };
     /** Error message if failed */
     error?: string;
 }
