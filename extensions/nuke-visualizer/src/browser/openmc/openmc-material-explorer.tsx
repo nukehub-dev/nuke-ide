@@ -66,12 +66,14 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         this.loadMaterials();
     }
 
-    private async loadMaterials(): Promise<void> {
+    private async loadMaterials(showLoading = true): Promise<void> {
         if (!this.fileUri) {
             return;
         }
 
-        this.isLoading = true;
+        if (showLoading) {
+            this.isLoading = true;
+        }
         this.error = null;
         this.update();
 
@@ -82,9 +84,16 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                 this.materials = [];
             } else {
                 this.materials = result.materials || [];
-                // Select first material by default
+                // Select first material by default only if nothing selected
                 if (this.materials.length > 0 && !this.selectedMaterial) {
                     this.selectedMaterial = this.materials[0];
+                }
+                // If previously selected material still exists, keep it selected
+                if (this.selectedMaterial) {
+                    const stillExists = this.materials.find(m => m.id === this.selectedMaterial!.id);
+                    if (!stillExists) {
+                        this.selectedMaterial = this.materials[0] || null;
+                    }
                 }
                 // Load cell linkage if geometry.xml exists
                 await this.loadCellLinkage();
@@ -500,8 +509,8 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                     this.update();
                 }}
                 onMaterialAdded={() => {
-                    // Reload materials after adding a new one
-                    this.loadMaterials();
+                    // Reload materials after adding a new one (without full loading screen)
+                    this.loadMaterials(false);
                 }}
             />
         ) : null;

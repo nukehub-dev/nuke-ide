@@ -96,7 +96,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
                 'activityBar.foreground': '#d4d4d4',
                 'activityBar.activeBorder': '#f37524',
                 'activityBar.border': '#333333',
-                'activityBarBadge.background': '#4a4a4a',
+                'activityBarBadge.background': '#fd8033',
                 'activityBarBadge.foreground': '#ffffff',
                 
                 // Side Bar

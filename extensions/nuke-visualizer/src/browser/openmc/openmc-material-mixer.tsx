@@ -214,8 +214,20 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
 
                             {/* Selected Components */}
                             <div className='material-mixer-section'>
-                                <div className='material-mixer-section-title'>
-                                    <i className='fa fa-list-ul'></i> Selected Components
+                                <div className='material-mixer-section-title' style={{ justifyContent: 'space-between' }}>
+                                    <span><i className='fa fa-list-ul'></i> Selected Components ({selectedMats.length})</span>
+                                    {selectedMats.length > 0 && (
+                                        <button 
+                                            className='clear-all-btn'
+                                            onClick={() => {
+                                                setSelectedMats([]);
+                                                setResult(null);
+                                            }}
+                                            title='Clear all selected materials'
+                                        >
+                                            Clear All
+                                        </button>
+                                    )}
                                 </div>
                                 <div className='material-mixer-mix-list'>
                                     {selectedMats.map(s => (
@@ -234,9 +246,10 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                                                     max='1'
                                                     value={s.fraction}
                                                     onChange={e => updateFraction(s.material.id, e.target.value)}
+                                                    title={`Fraction of ${s.material.name || `Material ${s.material.id}`} in mixture`}
                                                 />
                                             </div>
-                                            <button className='remove-btn' onClick={() => removeMaterial(s.material.id)} title='Remove'>
+                                            <button className='remove-btn' onClick={() => removeMaterial(s.material.id)} title='Remove from mixture'>
                                                 <i className='fa fa-trash'></i>
                                             </button>
                                         </div>
