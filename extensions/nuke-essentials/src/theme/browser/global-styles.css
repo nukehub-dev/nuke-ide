@@ -1,0 +1,587 @@
+/* ============================================================================
+   NukeIDE Global
+   ============================================================================ */
+
+/* ============================================================================
+   CSS Variables
+   ============================================================================ */
+:root {
+  /* Focus glow effect - orange accent */
+  --nuke-focus-glow: 0 0 0 3px rgba(243, 117, 36, 0.25);
+  --nuke-focus-glow-strong: 0 0 0 4px rgba(243, 117, 36, 0.35);
+  
+  /* Card shadows */
+  --nuke-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --nuke-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --nuke-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+  --nuke-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15), 0 10px 10px rgba(0, 0, 0, 0.04);
+  
+  /* Smooth transitions */
+  --nuke-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nuke-transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nuke-transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Border radius scale */
+  --nuke-radius-sm: 4px;
+  --nuke-radius-md: 6px;
+  --nuke-radius-lg: 8px;
+  --nuke-radius-xl: 12px;
+  
+  /* Spacing scale */
+  --nuke-space-1: 4px;
+  --nuke-space-2: 8px;
+  --nuke-space-3: 12px;
+  --nuke-space-4: 16px;
+  --nuke-space-5: 20px;
+  --nuke-space-6: 24px;
+}
+
+/* ============================================================================
+   Global Scrollbar Styling
+   ============================================================================ */
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theia-scrollbarSlider-background, #5a5a5a40) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--theia-scrollbarSlider-background, #5a5a5a40);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 40px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--theia-scrollbarSlider-hover-background, #5a5a5a60);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--theia-scrollbarSlider-active-background, #5a5a5a80);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================================
+   Input Elements
+   ============================================================================ */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+textarea,
+.theia-input {
+  transition: border-color var(--nuke-transition-fast),
+              box-shadow var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-md);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+textarea:focus,
+.theia-input:focus {
+  outline: none;
+}
+
+/* ============================================================================
+   Buttons
+   ============================================================================ */
+.theia-button,
+button.theia-button {
+  transition: all var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-md);
+  font-weight: 500;
+}
+
+.theia-button:hover,
+button.theia-button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--nuke-shadow-sm);
+}
+
+.theia-button:active,
+button.theia-button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.theia-button.secondary {
+  border: 1px solid var(--theia-button-secondaryBackground);
+}
+
+/* ============================================================================
+   Lists and Trees
+   ============================================================================ */
+.theia-TreeNode,
+.theia-TreeNodeContent,
+.monaco-list-row {
+  transition: background-color var(--nuke-transition-fast);
+}
+
+.theia-TreeNode:hover,
+.monaco-list-row:hover {
+  background-color: var(--theia-list-hoverBackground) !important;
+}
+
+.theia-TreeNode.theia-mod-selected,
+.monaco-list-row.selected {
+  transition: background-color var(--nuke-transition-fast);
+}
+
+/* ============================================================================
+   Tabs (Lumino classes)
+   ============================================================================ */
+.lm-TabBar-tab {
+  transition: background-color var(--nuke-transition-fast),
+              color var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-sm) var(--nuke-radius-sm) 0 0;
+}
+
+.lm-TabBar-tab:hover {
+  background-color: var(--theia-tab-hoverBackground);
+}
+
+.lm-TabBar-tab.lm-mod-current {
+  border-top: 0 !important;
+  font-weight: 500;
+}
+
+/* ============================================================================
+   Activity Bar / Sidebars (Lumino + Theia classes)
+   ============================================================================ */
+.lm-TabBar.theia-app-sides .lm-TabBar-tab {
+  transition: all var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-md);
+  margin: 2px 4px;
+}
+
+.lm-TabBar.theia-app-sides .lm-TabBar-tab:hover {
+  background-color: var(--theia-activityBar-hoverBackground, rgba(255,255,255,0.1));
+}
+
+.lm-TabBar.theia-app-left .lm-TabBar-tab.lm-mod-current {
+  box-shadow: none !important;
+  border-left: 2px solid var(--theia-activityBar-activeBorder);
+  background-color: var(--theia-activityBar-activeBackground, rgba(255,255,255,0.15));
+}
+
+.lm-TabBar.theia-app-right .lm-TabBar-tab.lm-mod-current {
+  box-shadow: none !important;
+  border-right: 2px solid var(--theia-activityBar-activeBorder);
+  background-color: var(--theia-activityBar-activeBackground, rgba(255,255,255,0.15));
+}
+
+/* ============================================================================
+   Dock Panel Widgets
+   ============================================================================ */
+.lm-DockPanel-widget {
+  border-radius: var(--nuke-radius-sm);
+}
+
+/* ============================================================================
+   Status Bar
+   ============================================================================ */
+#theia-statusBar {
+  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+}
+
+#theia-statusBar .area .element {
+  transition: background-color var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-sm);
+  padding: 2px 8px;
+  margin: 2px 4px;
+}
+
+#theia-statusBar .area .element.hasCommand:hover {
+  background-color: var(--theia-statusBarItem-hoverBackground);
+}
+
+/* ============================================================================
+   Menus (Lumino classes)
+   ============================================================================ */
+.lm-Menu {
+  border-radius: var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-lg);
+}
+
+.lm-Menu-item {
+  transition: background-color var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-sm);
+  margin: 2px 4px;
+}
+
+.lm-MenuBar-item {
+  transition: all var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-sm);
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.lm-MenuBar-item:hover,
+.lm-MenuBar-item.lm-mod-active {
+  border-radius: var(--nuke-radius-sm);
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove white borders and font pop on menu button click */
+.lm-MenuBar-item.lm-mod-active {
+  border-left: none !important;
+  border-right: none !important;
+  transform: none !important;
+  font-weight: inherit !important;
+}
+
+/* ============================================================================
+   Notifications
+   ============================================================================ */
+.theia-notification-list-item {
+  border-radius: var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-xl);
+  animation: notification-slide-in 0.3s ease-out;
+}
+
+@keyframes notification-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================================
+   Quick Input / Command Palette
+   ============================================================================ */
+.monaco-quick-open-widget {
+  border-radius: var(--nuke-radius-lg);
+  box-shadow: var(--nuke-shadow-xl);
+  overflow: hidden;
+}
+
+.monaco-quick-open-input input {
+  border-radius: var(--nuke-radius-md);
+}
+
+/* ============================================================================
+   Suggest Widget (IntelliSense)
+   ============================================================================ */
+.monaco-editor .suggest-widget {
+  border-radius: var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-lg);
+  overflow: hidden;
+}
+
+.monaco-editor .suggest-widget .monaco-list .monaco-list-row {
+  transition: background-color var(--nuke-transition-fast);
+}
+
+/* ============================================================================
+   Hover Widget
+   ============================================================================ */
+.monaco-editor .monaco-hover {
+  border-radius: var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-lg);
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+/* ============================================================================
+   Find/Replace Widget
+   ============================================================================ */
+.monaco-editor .find-widget {
+  border-radius: 0 0 var(--nuke-radius-md) var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-md);
+}
+
+/* ============================================================================
+   Breadcrumbs
+   ============================================================================ */
+.monaco-breadcrumbs {
+  padding: 0 8px;
+}
+
+.monaco-breadcrumb-item {
+  transition: background-color var(--nuke-transition-fast),
+              color var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-sm);
+  padding: 2px 6px;
+}
+
+.monaco-breadcrumb-item:hover {
+  background-color: var(--theia-list-hoverBackground);
+}
+
+/* ============================================================================
+   Modal Dialogs
+   ============================================================================ */
+.lm-Dialog {
+  border-radius: var(--nuke-radius-lg);
+  box-shadow: var(--nuke-shadow-xl);
+  overflow: hidden;
+}
+
+.lm-Dialog-header {
+  padding: 16px 20px;
+  font-weight: 600;
+}
+
+.lm-Dialog-content {
+  padding: 20px;
+}
+
+.lm-Dialog-footer {
+  padding: 12px 20px;
+}
+
+.lm-Dialog-footer button {
+  border-radius: var(--nuke-radius-md);
+  padding: 8px 16px;
+  font-weight: 500;
+}
+
+/* ============================================================================
+   File Tree
+   ============================================================================ */
+.theia-TreeContainer .theia-TreeNode {
+  border-radius: var(--nuke-radius-sm);
+  margin: 1px 4px;
+}
+
+.theia-TreeNodeContent {
+  padding: 3px 6px;
+}
+
+/* ============================================================================
+   Split Pane
+   ============================================================================ */
+.lm-SplitPanel-handle {
+  background-color: var(--theia-panel-border);
+  transition: background-color var(--nuke-transition-fast);
+}
+
+.lm-SplitPanel-handle:hover {
+  background-color: var(--theia-focusBorder);
+}
+
+.lm-SplitPanel-handle.lm-SplitPanel-handle-horizontal {
+  width: 4px;
+}
+
+.lm-SplitPanel-handle.lm-SplitPanel-handle-vertical {
+  height: 4px;
+}
+
+/* ============================================================================
+   Dropdown/Select
+   ============================================================================ */
+.theia-select,
+select.theia-select {
+  transition: border-color var(--nuke-transition-fast),
+              box-shadow var(--nuke-transition-fast);
+  border-radius: var(--nuke-radius-md);
+}
+
+.theia-select:focus,
+select.theia-select:focus {
+  outline: none !important;
+  box-shadow: var(--nuke-focus-glow);
+}
+
+/* ============================================================================
+   Checkbox and Radio
+   ============================================================================ */
+input[type="checkbox"],
+input[type="radio"] {
+  transition: all var(--nuke-transition-fast);
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  accent-color: var(--theia-focusBorder);
+}
+
+/* ============================================================================
+   Editor Groups
+   ============================================================================ */
+.monaco-workbench .part.editor > .content .editor-group-container {
+  border-radius: var(--nuke-radius-sm);
+}
+
+.monaco-workbench .part.editor > .content .one-editor-silo {
+  border-radius: var(--nuke-radius-sm);
+}
+
+/* ============================================================================
+   Minimap
+   ============================================================================ */
+.monaco-editor .minimap {
+  border-radius: var(--nuke-radius-sm);
+}
+
+/* ============================================================================
+   Progress Bar
+   ============================================================================ */
+.monaco-progress-container {
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.monaco-progress-container .progress-bit {
+  background: linear-gradient(90deg, 
+    var(--theia-progressBar-background) 0%, 
+    var(--theia-progressBar-background) 70%,
+    rgba(243, 117, 36, 0.5) 100%
+  );
+  animation: progress-shimmer 2s infinite;
+}
+
+@keyframes progress-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+/* ============================================================================
+   Badge
+   ============================================================================ */
+.theia-badge-decorator-sidebar,
+.theia-badge-decorator-horizontal {
+  border-radius: 20px;
+  box-shadow: var(--nuke-shadow-sm);
+}
+
+/* ============================================================================
+   Tooltip - Global enhancement
+   ============================================================================ */
+.monaco-editor-hover,
+.monaco-hover {
+  border-radius: var(--nuke-radius-md);
+  box-shadow: var(--nuke-shadow-lg);
+}
+
+/* ============================================================================
+   Animated transitions for panels
+   ============================================================================ */
+.lm-DockPanel-overlay {
+  background: rgba(243, 117, 36, 0.15);
+  border: 2px dashed var(--theia-focusBorder);
+  border-radius: var(--nuke-radius-md);
+}
+
+/* ============================================================================
+   Custom Scrollable areas with smooth scrolling
+   ============================================================================ */
+.theia-TreeContainer,
+.monaco-scrollable-element,
+.lm-Widget {
+  scroll-behavior: smooth;
+}
+
+/* ============================================================================
+   Focus indicators for accessibility
+   ============================================================================ */
+:focus-visible {
+  outline: 2px solid var(--theia-focusBorder);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 0px solid var(--theia-focusBorder);
+  outline-offset: 0px;
+}
+
+/* ============================================================================
+   SCM Action Button Container
+   ============================================================================ */
+.theia-scm-action-button-container {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-radius: var(--nuke-radius-md);
+  overflow: hidden;
+  box-shadow: var(--nuke-shadow-sm);
+  transition: box-shadow var(--nuke-transition-fast);
+}
+
+.theia-scm-action-button-container:hover {
+  box-shadow: var(--nuke-shadow-md);
+}
+
+/* Primary Commit Button */
+.theia-scm-action-button {
+  background: var(--theia-button-background, #f37524) !important;
+  color: var(--theia-button-foreground, #ffffff) !important;
+  border: none !important;
+  padding: 8px 16px !important;
+  font-weight: 500 !important;
+  font-size: var(--theia-ui-font-size1) !important;
+  cursor: pointer;
+  transition: all var(--nuke-transition-fast) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.theia-scm-action-button:hover {
+  background: var(--theia-button-hoverBackground, #f5a623) !important;
+  transform: translateY(-1px);
+}
+
+.theia-scm-action-button:active {
+  transform: translateY(0);
+}
+
+.theia-scm-action-button .codicon {
+  font-size: 14px;
+}
+
+/* Divider between buttons */
+.theia-scm-action-button-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.2);
+  align-self: stretch;
+}
+
+/* Secondary Button (More Actions) */
+.theia-scm-action-button-secondary {
+  background: var(--theia-button-background, #f37524) !important;
+  color: var(--theia-button-foreground, #ffffff) !important;
+  border: none !important;
+  padding: 8px 10px !important;
+  cursor: pointer;
+  transition: all var(--nuke-transition-fast) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theia-scm-action-button-secondary:hover {
+  background: var(--theia-button-hoverBackground, #f5a623) !important;
+}
+
+.theia-scm-action-button-secondary .codicon {
+  font-size: 14px;
+}

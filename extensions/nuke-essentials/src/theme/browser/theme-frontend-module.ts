@@ -18,6 +18,9 @@ import { ContainerModule } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { ThemeContribution } from './theme-contribution';
 
+// Import global styles
+import './global-styles.css';
+
 export default new ContainerModule((bind) => {
     bind(ThemeContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(ThemeContribution);

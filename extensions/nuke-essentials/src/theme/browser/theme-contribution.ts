@@ -260,9 +260,9 @@ export class ThemeContribution implements FrontendApplicationContribution {
                 
                 // Scrollbar
                 'scrollbar.shadow': '#000000',
-                'scrollbarSlider.background': '#5a5a5a80',
-                'scrollbarSlider.hoverBackground': '#6a6a6a80',
-                'scrollbarSlider.activeBackground': '#7a7a7a80',
+                'scrollbarSlider.background': '#5a5a5a40',
+                'scrollbarSlider.hoverBackground': '#5a5a5a60',
+                'scrollbarSlider.activeBackground': '#5a5a5a80',
                 
                 // Keybinding
                 'keybindingLabel.background': '#3c3c3c',
@@ -477,9 +477,9 @@ export class ThemeContribution implements FrontendApplicationContribution {
                 
                 // Scrollbar
                 'scrollbar.shadow': '#6c757d40',
-                'scrollbarSlider.background': '#6c757d40',
-                'scrollbarSlider.hoverBackground': '#6c757d60',
-                'scrollbarSlider.activeBackground': '#6c757d80',
+                'scrollbarSlider.background': '#6c757d30',
+                'scrollbarSlider.hoverBackground': '#6c757d50',
+                'scrollbarSlider.activeBackground': '#6c757d70',
                 
                 // Keybinding
                 'keybindingLabel.background': '#e4e4e4',

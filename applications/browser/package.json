@@ -121,7 +121,7 @@
     "frontend": {
       "config": {
         "applicationName": "NukeIDE",
-        "defaultIconTheme": "theia-file-icons",
+        "defaultIconTheme": "material-icon-theme",
         "warnOnPotentiallyInsecureHostPattern": false,
         "preferences": {
           "toolbar.showToolbar": true,
