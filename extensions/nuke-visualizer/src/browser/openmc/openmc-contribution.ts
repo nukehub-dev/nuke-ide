@@ -487,65 +487,65 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     registerMenus(registry: MenuModelRegistry): void {
-        // Register OpenMC menu in the menubar
-        registry.registerMenuAction(['menubar', 'openmc'], {
+        // Register OpenMC Visualizer menu in the menubar
+        registry.registerMenuAction(['menubar', 'openmc_visualizer'], {
             commandId: OpenMCCommands.LOAD_STATEPOINT.id,
-            label: 'OpenMC',
+            label: 'OpenMC Visualizer',
             order: '10'
         });
 
         // Add items to OpenMC menu
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.LOAD_STATEPOINT.id,
             order: '1'
         });
 
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.VISUALIZE_TALLY.id,
             order: '2'
         });
 
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.VISUALIZE_SOURCE.id,
             order: '3'
         });
 
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.OVERLAY_TALLY_ON_GEOMETRY.id,
             order: '4'
         });
 
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.SHOW_TALLY_INFO.id,
             order: '5'
         });
 
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
             order: '6'
         });
         
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
             order: '7'
         });
         
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.COMPARE_DEPLETION.id,
             order: '8'
         });
         
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
             order: '9'
         });
         
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.VIEW_MATERIALS.id,
             order: '10'
         });
         
-        registry.registerMenuAction(['openmc'], {
+        registry.registerMenuAction(['openmc_visualizer'], {
             commandId: OpenMCCommands.CHECK_OVERLAPS.id,
             order: '11'
         });
