@@ -100,6 +100,7 @@
     "nuke-essentials": "0.1.2",
     "nukelab-menu": "0.1.2",
     "nukelab-pwa": "0.1.2",
+    "nuke-sysmon": "0.1.0",
     "nuke-visualizer": "0.1.2"
   },
   "devDependencies": {

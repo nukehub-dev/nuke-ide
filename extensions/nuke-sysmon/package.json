@@ -1,0 +1,40 @@
+{
+  "name": "nuke-sysmon",
+  "version": "0.1.0",
+  "description": "NukeIDE System Monitor - CPU, RAM, Disk, Network stats with graphs",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "system-monitor",
+    "status-bar",
+    "nukeide"
+  ],
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.69.0",
+    "systeminformation": "^5.21.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib *.tsbuildinfo",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\;",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/sysmon-frontend-module",
+      "backend": "lib/node/sysmon-backend-module"
+    }
+  ]
+}

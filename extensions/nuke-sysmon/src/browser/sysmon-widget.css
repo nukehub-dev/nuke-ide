@@ -1,0 +1,824 @@
+/* ==========================================================================
+   NukeIDE System Monitor - Premium Dashboard Design
+   ========================================================================== */
+
+.sysmon-widget {
+    --sysmon-bg-primary: var(--theia-editor-background);
+    --sysmon-bg-card: var(--theia-panel-background, #1e1e1e);
+    --sysmon-bg-elevated: var(--theia-toolbar-background, #2d2d2d);
+    --sysmon-border: var(--theia-panel-border, rgba(128, 128, 128, 0.2));
+    --sysmon-text-primary: var(--theia-foreground);
+    --sysmon-text-secondary: var(--theia-descriptionForeground);
+    --sysmon-accent-cpu: #10b981;
+    --sysmon-accent-memory: #3b82f6;
+    --sysmon-accent-disk: #8b5cf6;
+    --sysmon-accent-network: #f59e0b;
+    --sysmon-warning: #f59e0b;
+    --sysmon-danger: #ef4444;
+    --sysmon-success: #10b981;
+    --sysmon-glass-bg: rgba(255, 255, 255, 0.03);
+    --sysmon-glass-border: rgba(255, 255, 255, 0.08);
+    --sysmon-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --sysmon-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --sysmon-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --sysmon-radius-sm: 8px;
+    --sysmon-radius-md: 12px;
+    --sysmon-radius-lg: 16px;
+    --sysmon-radius-xl: 20px;
+    
+    /* Force overflow visible for scrolling */
+    overflow: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    
+    /* Fill container */
+    height: 100% !important;
+    width: 100% !important;
+    
+    /* Prevent Theia's contain from clipping */
+    contain: none !important;
+    
+    background: var(--sysmon-bg-primary);
+    font-family: var(--theia-ui-font-family);
+}
+
+.sysmon-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 400px;
+    color: var(--sysmon-text-secondary);
+    gap: 20px;
+}
+
+.sysmon-loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--sysmon-border);
+    border-top-color: var(--sysmon-accent-cpu);
+    border-radius: 50%;
+    animation: sysmon-spin 1s linear infinite;
+}
+
+@keyframes sysmon-spin {
+    to { transform: rotate(360deg); }
+}
+
+.sysmon-container {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+    /* Ensure content is tall enough to trigger scrolling when needed */
+    min-height: 100%;
+    height: auto;
+}
+
+.sysmon-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 28px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--sysmon-border);
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.sysmon-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sysmon-title {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--sysmon-text-primary);
+    letter-spacing: -0.5px;
+}
+
+.sysmon-subtitle {
+    font-size: 13px;
+    color: var(--sysmon-text-secondary);
+    font-weight: 400;
+}
+
+.sysmon-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sysmon-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--sysmon-success);
+    animation: sysmon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sysmon-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.sysmon-dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.sysmon-metric-card {
+    background: var(--sysmon-bg-card);
+    border: 1px solid var(--sysmon-border);
+    border-radius: var(--sysmon-radius-lg);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+.sysmon-metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--card-accent) 0%, transparent 100%);
+    opacity: 0.8;
+    border-radius: var(--sysmon-radius-lg) var(--sysmon-radius-lg) 0 0;
+}
+
+.sysmon-metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sysmon-shadow-lg);
+    border-color: var(--card-accent);
+}
+
+.sysmon-metric-card.cpu { --card-accent: var(--sysmon-accent-cpu); }
+.sysmon-metric-card.memory { --card-accent: var(--sysmon-accent-memory); }
+.sysmon-metric-card.disk { --card-accent: var(--sysmon-accent-disk); }
+.sysmon-metric-card.network { --card-accent: var(--sysmon-accent-network); }
+
+.sysmon-metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.sysmon-metric-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--sysmon-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.sysmon-metric-card:hover .sysmon-metric-icon {
+    background: var(--card-accent);
+    border-color: var(--card-accent);
+}
+
+.sysmon-metric-icon svg {
+    width: 22px;
+    height: 22px;
+    color: var(--card-accent);
+    transition: color 0.3s ease;
+}
+
+.sysmon-metric-card:hover .sysmon-metric-icon svg {
+    color: white;
+}
+
+.sysmon-metric-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    color: var(--sysmon-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.sysmon-metric-value-section {
+    margin-bottom: 16px;
+}
+
+.sysmon-metric-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--sysmon-text-primary);
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.sysmon-metric-unit {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sysmon-text-secondary);
+    margin-left: 4px;
+}
+
+.sysmon-metric-label {
+    font-size: 13px;
+    color: var(--sysmon-text-secondary);
+    font-weight: 500;
+}
+
+.sysmon-circular-progress {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 16px;
+    flex-shrink: 0;
+}
+
+.sysmon-circular-progress svg {
+    transform: rotate(-90deg);
+}
+
+.sysmon-circular-bg {
+    fill: none;
+    stroke: var(--sysmon-border);
+    stroke-width: 8;
+}
+
+.sysmon-circular-fill {
+    fill: none;
+    stroke: var(--card-accent);
+    stroke-width: 8;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sysmon-circular-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.sysmon-circular-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--sysmon-text-primary);
+    line-height: 1;
+}
+
+.sysmon-circular-label {
+    font-size: 11px;
+    color: var(--sysmon-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sysmon-progress-container {
+    margin-top: 12px;
+}
+
+.sysmon-progress-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--sysmon-text-secondary);
+    margin-bottom: 6px;
+}
+
+.sysmon-progress-bar {
+    height: 6px;
+    background: var(--sysmon-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.sysmon-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--card-accent) 0%, var(--card-accent) 100%);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.sysmon-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+    animation: sysmon-shimmer 2s infinite;
+}
+
+@keyframes sysmon-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.sysmon-disk-selector {
+    position: relative;
+    margin-bottom: 16px;
+}
+
+.sysmon-disk-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+    color: var(--sysmon-text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    justify-content: center;
+}
+
+.sysmon-disk-trigger:hover {
+    background: var(--sysmon-border);
+    border-color: var(--sysmon-border);
+}
+
+.sysmon-disk-trigger svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.sysmon-disk-trigger.open svg:last-child {
+    transform: rotate(180deg);
+}
+
+.sysmon-disk-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: 0;
+    background: var(--sysmon-bg-elevated, #2d2d2d);
+    border: 1px solid var(--sysmon-border);
+    border-radius: var(--sysmon-radius-md);
+    padding: 8px;
+    min-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: var(--sysmon-shadow-lg);
+    animation: sysmon-dropdown-in 0.2s ease;
+}
+
+@keyframes sysmon-dropdown-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sysmon-disk-option {
+    padding: 12px;
+    border-radius: var(--sysmon-radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sysmon-disk-option:hover {
+    background: var(--sysmon-glass-bg);
+}
+
+.sysmon-disk-option.active {
+    background: rgba(139, 92, 246, 0.2);
+    border: 1px solid var(--sysmon-accent-disk);
+}
+
+.sysmon-disk-option-fs {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+    margin-bottom: 2px;
+}
+
+.sysmon-disk-option-info {
+    font-size: 11px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-network-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.sysmon-network-stat {
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-md);
+    padding: 14px;
+    text-align: center;
+    transition: all 0.2s ease;
+    height: 90px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.sysmon-network-stat:hover {
+    background: var(--sysmon-border);
+    transform: translateY(-1px);
+}
+
+.sysmon-network-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+}
+
+.sysmon-network-icon.download {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--sysmon-accent-cpu);
+}
+
+.sysmon-network-icon.upload {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--sysmon-accent-network);
+}
+
+.sysmon-network-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.sysmon-network-stat-label {
+    font-size: 11px;
+    color: var(--sysmon-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.sysmon-network-stat-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--sysmon-text-primary);
+    height: 24px;
+    line-height: 24px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sysmon-network-total {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--sysmon-border);
+    font-size: 12px;
+    color: var(--sysmon-text-secondary);
+    text-align: center;
+    word-break: break-word;
+}
+
+.sysmon-network-interface {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 8px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+    font-size: 12px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-network-interface svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.sysmon-temp-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+}
+
+.sysmon-temp-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--sysmon-warning);
+    flex-shrink: 0;
+}
+
+.sysmon-temp-icon.critical {
+    color: var(--sysmon-danger);
+    animation: sysmon-pulse 1s ease-in-out infinite;
+}
+
+.sysmon-temp-text {
+    font-size: 13px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-temp-value {
+    margin-left: auto;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+}
+
+.sysmon-swap-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--sysmon-border);
+}
+
+.sysmon-swap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.sysmon-swap-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-swap-label svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sysmon-swap-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+}
+
+.sysmon-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.sysmon-info-item {
+    text-align: center;
+    padding: 10px 4px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+}
+
+.sysmon-info-label {
+    font-size: 10px;
+    color: var(--sysmon-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.sysmon-info-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+}
+
+.sysmon-cpu-info {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+    text-align: center;
+}
+
+.sysmon-cpu-model {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--sysmon-text-primary);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sysmon-cpu-cores {
+    font-size: 11px;
+    color: var(--sysmon-text-secondary);
+}
+
+.sysmon-graphs-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+    min-height: 280px;
+}
+
+.sysmon-graph-card {
+    background: var(--sysmon-bg-card);
+    border: 1px solid var(--sysmon-border);
+    border-radius: var(--sysmon-radius-lg);
+    padding: 20px;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    min-height: 280px;
+}
+
+.sysmon-graph-card:hover {
+    box-shadow: var(--sysmon-shadow-md);
+}
+
+.sysmon-graph-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+.sysmon-graph-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+}
+
+.sysmon-graph-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--sysmon-radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sysmon-graph-icon.cpu {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--sysmon-accent-cpu);
+}
+
+.sysmon-graph-icon.memory {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--sysmon-accent-memory);
+}
+
+.sysmon-graph-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sysmon-graph-current {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.sysmon-graph-current.cpu { color: var(--sysmon-accent-cpu); }
+.sysmon-graph-current.memory { color: var(--sysmon-accent-memory); }
+
+.sysmon-graph-container {
+    flex: 1;
+    min-height: 200px;
+    border-radius: var(--sysmon-radius-md);
+    overflow: hidden;
+    position: relative;
+}
+
+.sysmon-graph-container > div {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.sysmon-system-section {
+    background: var(--sysmon-bg-card);
+    border: 1px solid var(--sysmon-border);
+    border-radius: var(--sysmon-radius-lg);
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.sysmon-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sysmon-text-primary);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--sysmon-border);
+}
+
+.sysmon-system-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.sysmon-system-item {
+    padding: 12px;
+    background: var(--sysmon-glass-bg);
+    border: 1px solid var(--sysmon-glass-border);
+    border-radius: var(--sysmon-radius-sm);
+    min-width: 0;
+}
+
+.sysmon-system-label {
+    font-size: 11px;
+    color: var(--sysmon-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.sysmon-system-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sysmon-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Responsive adjustments for very small containers */
+@media (max-width: 400px) {
+    .sysmon-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .sysmon-info-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.sysmon-text-success { color: var(--sysmon-success) !important; }
+.sysmon-text-warning { color: var(--sysmon-warning) !important; }
+.sysmon-text-danger { color: var(--sysmon-danger) !important; }
+.sysmon-text-muted { color: var(--sysmon-text-secondary) !important; }
+
+@keyframes sysmon-value-update {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.sysmon-value-updating {
+    animation: sysmon-value-update 0.3s ease;
+}

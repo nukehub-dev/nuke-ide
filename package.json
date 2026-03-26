@@ -25,7 +25,7 @@
   },
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
-    "vscode-stats-bar": "https://open-vsx.org/api/njzy/stats-bar/0.5.2/file/njzy.stats-bar-0.5.2.vsix",
+    
     "eclipse-theia.builtin-extension-pack": "https://open-vsx.org/api/eclipse-theia/builtin-extension-pack/1.104.0/file/eclipse-theia.builtin-extension-pack-1.104.0.vsix",
     "ms-python.python": "https://open-vsx.org/api/ms-python/python/2026.2.0/file/ms-python.python-2026.2.0.vsix",
     "ms-toolsai.jupyter": "https://open-vsx.org/api/ms-toolsai/jupyter/2025.9.1/file/ms-toolsai.jupyter-2025.9.1.vsix",
