@@ -47,7 +47,8 @@
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
     "clean": "rimraf lib *.tsbuildinfo",
-    "build": "tsc",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\; 2>/dev/null || true",
     "watch": "tsc -w"
   },
   "theiaExtensions": [

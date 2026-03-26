@@ -150,6 +150,13 @@ export class OpenMCSimulationRunner {
      * Cancel the current simulation.
      */
     async cancelSimulation(): Promise<boolean> {
+        return this.stopSimulation();
+    }
+
+    /**
+     * Stop the current simulation.
+     */
+    async stopSimulation(): Promise<boolean> {
         if (!this._isRunning || !this._currentProcessId) {
             return false;
         }
@@ -159,7 +166,7 @@ export class OpenMCSimulationRunner {
             
             if (success) {
                 this._isRunning = false;
-                this.messageService.info('Simulation cancelled');
+                this.messageService.info('Simulation stopped');
                 this._onStatusChange.fire({
                     processId: this._currentProcessId,
                     status: 'cancelled'
@@ -168,7 +175,7 @@ export class OpenMCSimulationRunner {
             
             return success;
         } catch (error) {
-            console.error('[OpenMC Studio] Error cancelling simulation:', error);
+            console.error('[OpenMC Studio] Error stopping simulation:', error);
             return false;
         }
     }

@@ -32,13 +32,25 @@ import {
     MAIN_MENU_BAR
 } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { Emitter } from '@theia/core/lib/common';
 import {
     TabBarToolbarContribution,
     TabBarToolbarRegistry
 } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import {
+    OpenHandler,
+    FrontendApplicationContribution,
+    WidgetOpenerOptions,
+    Widget,
+    WidgetManager,
+    ApplicationShell
+} from '@theia/core/lib/browser';
+import URI from '@theia/core/lib/common/uri';
 
 import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
+import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 
 // ============================================================================
 // Command IDs
@@ -145,7 +157,10 @@ export namespace OpenMCStudioMenus {
 // ============================================================================
 
 @injectable()
-export class OpenMCStudioContribution implements CommandContribution, MenuContribution, TabBarToolbarContribution {
+export class OpenMCStudioContribution implements CommandContribution, MenuContribution, TabBarToolbarContribution, OpenHandler, FrontendApplicationContribution {
+    readonly id = 'openmc-studio';
+    readonly label = 'OpenMC Project';
+    readonly priority = 200;
     
     @inject(MessageService)
     protected readonly messageService: MessageService;
@@ -155,6 +170,19 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
+    
+    @inject(WidgetManager)
+    protected readonly widgetManager: WidgetManager;
+    
+    @inject(ApplicationShell)
+    protected readonly shell: ApplicationShell;
+    
+    @inject(FileService)
+    protected readonly fileService: FileService;
+    
+    private currentWidget?: SimulationDashboardWidget;
+    private _onDidChangeCurrentWidget = new Emitter<void>();
+    readonly onDidChangeCurrentWidget = this._onDidChangeCurrentWidget.event;
 
     // ============================================================================
     // Command Registration
@@ -294,19 +322,83 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     }
 
     // ============================================================================
+    // OpenHandler Implementation
+    // ============================================================================
+    
+    canHandle(uri: URI, options?: WidgetOpenerOptions): number {
+        if (uri.path.ext === '.nuke-openmc') {
+            return 200; // High priority for .nuke-openmc files
+        }
+        return 0;
+    }
+    
+    async open(uri: URI, options?: WidgetOpenerOptions): Promise<Widget> {
+        console.log('[OpenMC Studio] Opening project file:', uri.toString());
+        
+        try {
+            // Read and parse the project file
+            const content = await this.fileService.readFile(uri);
+            const projectFile = JSON.parse(content.value.toString());
+            
+            if (projectFile.state) {
+                // Load the state into the state manager
+                this.stateManager.setState(projectFile.state);
+                this.stateManager.setProjectPath(uri.path.toString());
+                this.stateManager.markClean();
+                
+                // Open the dashboard
+                const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
+                
+                this.currentWidget = widget;
+                this._onDidChangeCurrentWidget.fire();
+                
+                this.messageService.info(`Opened project: ${projectFile.state.metadata?.name || 'Untitled'}`);
+                return widget;
+            } else {
+                throw new Error('Invalid project file format');
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to open project: ${msg}`);
+            throw error;
+        }
+    }
+    
+    // ============================================================================
+    // FrontendApplicationContribution
+    // ============================================================================
+    
+    initialize(): void {
+        // Track when the dashboard widget is activated
+        this.shell.onDidChangeCurrentWidget(({ newValue }) => {
+            if (newValue instanceof SimulationDashboardWidget) {
+                this.currentWidget = newValue;
+                this._onDidChangeCurrentWidget.fire();
+            } else if (this.currentWidget && !(this.shell.currentWidget instanceof SimulationDashboardWidget)) {
+                this.currentWidget = undefined;
+                this._onDidChangeCurrentWidget.fire();
+            }
+        });
+    }
+    
+    // ============================================================================
     // Toolbar Registration
     // ============================================================================
     
     registerToolbarItems(toolbar: TabBarToolbarRegistry): void {
-        // TODO: In Phase 1, restrict toolbar buttons to only show for .nuke-openmc files
-        // by implementing isVisible callback
+        // Only show toolbar buttons when the Simulation Dashboard widget is active
+        // The isVisible callback receives the widget that the toolbar is for
+        const isVisible = (widget?: Widget) => widget instanceof SimulationDashboardWidget;
         
         toolbar.registerItem({
             id: OpenMCStudioCommands.RUN_SIMULATION.id,
             command: OpenMCStudioCommands.RUN_SIMULATION.id,
             tooltip: 'Run Simulation',
             priority: 100,
-            onDidChange: undefined
+            onDidChange: this.onDidChangeCurrentWidget,
+            isVisible
         });
         
         toolbar.registerItem({
@@ -314,7 +406,8 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             command: OpenMCStudioCommands.STOP_SIMULATION.id,
             tooltip: 'Stop Simulation',
             priority: 99,
-            onDidChange: undefined
+            onDidChange: this.onDidChangeCurrentWidget,
+            isVisible
         });
         
         toolbar.registerItem({
@@ -322,7 +415,8 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             command: OpenMCStudioCommands.VALIDATE_MODEL.id,
             tooltip: 'Validate Model',
             priority: 98,
-            onDidChange: undefined
+            onDidChange: this.onDidChangeCurrentWidget,
+            isVisible
         });
     }
 
@@ -334,31 +428,49 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         console.log('[OpenMC Studio] New project command');
         this.stateManager.reset();
         this.messageService.info('Created new OpenMC project');
+        // Open the dashboard for the new project
+        await this.openSimulationDashboard();
     }
     
     protected async openProject(): Promise<void> {
         console.log('[OpenMC Studio] Open project command');
-        this.messageService.info('Open Project: Not yet implemented (Phase 1)');
+        await this.openSimulationDashboard();
+        // Get the dashboard widget and call its open method
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            // The widget will handle the dialog
+            await (widget as any).openProject();
+        }
     }
     
     protected async saveProject(): Promise<void> {
         console.log('[OpenMC Studio] Save project command');
-        this.messageService.info('Save Project: Not yet implemented (Phase 1)');
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            await (widget as any).saveProject();
+        }
     }
     
     protected async saveProjectAs(): Promise<void> {
         console.log('[OpenMC Studio] Save project as command');
-        this.messageService.info('Save Project As: Not yet implemented (Phase 1)');
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            await (widget as any).saveProjectAs();
+        }
     }
     
     protected async runSimulation(): Promise<void> {
         console.log('[OpenMC Studio] Run simulation command');
-        this.messageService.info('Run Simulation: Not yet implemented (Phase 1)');
+        await this.openSimulationDashboard();
+        // The run logic will be handled by the user in the dashboard
     }
     
     protected async stopSimulation(): Promise<void> {
         console.log('[OpenMC Studio] Stop simulation command');
-        this.messageService.info('Stop Simulation: Not yet implemented (Phase 1)');
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            // The widget handles stop
+        }
     }
     
     protected async validateModel(): Promise<void> {
@@ -377,21 +489,30 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
                 console.log(`[${issue.severity.toUpperCase()}] ${issue.category}: ${issue.message}`);
             });
         }
+        
+        // Open dashboard to show validation results
+        await this.openSimulationDashboard();
     }
     
     protected async generateXML(): Promise<void> {
         console.log('[OpenMC Studio] Generate XML command');
-        this.messageService.info('Generate XML: Not yet implemented (Phase 1)');
+        await this.openSimulationDashboard();
     }
     
     protected async importXML(): Promise<void> {
         console.log('[OpenMC Studio] Import XML command');
-        this.messageService.info('Import XML: Not yet implemented (Phase 1)');
+        await this.openSimulationDashboard();
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            await (widget as any).importXML();
+        }
     }
     
     protected async openSimulationDashboard(): Promise<void> {
         console.log('[OpenMC Studio] Open simulation dashboard command');
-        this.messageService.info('Simulation Dashboard: Not yet implemented (Phase 1)');
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
     }
     
     protected async openCSGBuilder(): Promise<void> {

@@ -1,0 +1,1015 @@
+/* ============================================================================
+   OpenMC Studio - Simulation Dashboard
+   All classes are scoped under .simulation-dashboard to avoid conflicts
+   ============================================================================ */
+
+/* ============================================================================
+   Dashboard Container & Keyframes
+   ============================================================================ */
+.simulation-dashboard {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    font-family: var(--theia-ui-font-family);
+    animation: dashboard-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dashboard-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes header-slide-down {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes content-fade-in {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes section-slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes card-fade-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes form-expand {
+    from { opacity: 0; transform: scaleY(0.95); transform-origin: top; }
+    to { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes row-slide-in {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes status-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(243, 117, 36, 0.2); }
+    50% { box-shadow: 0 0 0 10px rgba(243, 117, 36, 0); }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes progress-shimmer {
+    0% { background-position: -200px 0; }
+    100% { background-position: 200px 0; }
+}
+
+@keyframes slide-down {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes issue-fade-in {
+    from { opacity: 0; transform: translateX(-5px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes empty-fade-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* ============================================================================
+   Header Section
+   ============================================================================ */
+.simulation-dashboard .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    animation: header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .project-info h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .project-info h2 i {
+    color: var(--theia-focusBorder);
+    font-size: 20px;
+}
+
+.simulation-dashboard .project-description {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .project-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.simulation-dashboard .project-actions button {
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .project-actions button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.simulation-dashboard .project-actions button:active {
+    transform: translateY(0);
+}
+
+/* ============================================================================
+   Tabs Navigation
+   ============================================================================ */
+.simulation-dashboard .dashboard-tabs {
+    display: flex;
+    background: var(--theia-tabBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    padding: 0 12px;
+    gap: 4px;
+}
+
+.simulation-dashboard .tab-button {
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--theia-tabBar-inactiveForeground);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.simulation-dashboard .tab-button::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--theia-focusBorder);
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+}
+
+.simulation-dashboard .tab-button:hover {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.simulation-dashboard .tab-button:hover::after {
+    width: 30%;
+}
+
+.simulation-dashboard .tab-button.active {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-activeBackground);
+}
+
+.simulation-dashboard .tab-button.active::after {
+    width: 100%;
+}
+
+.simulation-dashboard .tab-button i {
+    font-size: 14px;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .tab-button:hover i {
+    transform: scale(1.1);
+}
+
+/* ============================================================================
+   Content Area
+   ============================================================================ */
+.simulation-dashboard .dashboard-content {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    scroll-behavior: smooth;
+}
+
+/* ============================================================================
+   Settings Tab
+   ============================================================================ */
+.simulation-dashboard .settings-tab {
+    max-width: 100%;
+    animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .settings-section {
+    max-width: 900px;
+}
+
+.simulation-dashboard .settings-section {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transition: box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: section-slide-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    animation-fill-mode: both;
+}
+
+.simulation-dashboard .settings-section:nth-child(1) { animation-delay: 0.05s; }
+.simulation-dashboard .settings-section:nth-child(2) { animation-delay: 0.1s; }
+.simulation-dashboard .settings-section:nth-child(3) { animation-delay: 0.15s; }
+
+.simulation-dashboard .settings-section:hover {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.simulation-dashboard .settings-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .settings-section h3 i {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .settings-section h3 button {
+    margin-left: auto;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Form Elements */
+.simulation-dashboard .form-group {
+    margin-bottom: 16px;
+}
+
+.simulation-dashboard .form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .form-group input[type='text'],
+.simulation-dashboard .form-group input[type='number'],
+.simulation-dashboard .form-group select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+}
+
+/* Hide number input spinners to prevent overflow */
+.simulation-dashboard .form-group input[type='number']::-webkit-outer-spin-button,
+.simulation-dashboard .form-group input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.simulation-dashboard .form-group input[type='number'] {
+    -moz-appearance: textfield;
+}
+
+.simulation-dashboard .form-group input:focus,
+.simulation-dashboard .form-group select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+.simulation-dashboard .form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: normal;
+}
+
+.simulation-dashboard .form-group.checkbox input[type='checkbox'] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--theia-focusBorder);
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .form-group.checkbox input[type='checkbox']:hover {
+    transform: scale(1.1);
+}
+
+.simulation-dashboard .form-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: nowrap;
+}
+
+.simulation-dashboard .form-row .form-group {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.simulation-dashboard .form-row .form-group input,
+.simulation-dashboard .form-row .form-group select {
+    margin-top: auto;
+}
+
+/* Source Card */
+.simulation-dashboard .source-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .source-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.simulation-dashboard .source-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: var(--theia-titleBar-inactiveBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-editor {
+    padding: 16px;
+}
+
+/* ============================================================================
+   Materials Tab
+   ============================================================================ */
+.simulation-dashboard .materials-tab {
+    max-width: 100%;
+    animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .material-form-container,
+.simulation-dashboard .materials-list {
+    max-width: 900px;
+    width: 100%;
+}
+
+.simulation-dashboard .material-form-container {
+    box-sizing: border-box;
+}
+
+.simulation-dashboard .material-card {
+    box-sizing: border-box;
+}
+
+.simulation-dashboard .materials-toolbar {
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+}
+
+.simulation-dashboard .material-form-container {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    animation: form-expand 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .material-form-container h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .material-form .form-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+}
+
+.simulation-dashboard .nuclides-section {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--theia-panel-background);
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .nuclides-section h5 {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .nuclide-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    align-items: stretch;
+    animation: row-slide-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .nuclide-row > * {
+    display: flex;
+    align-items: center;
+}
+
+.simulation-dashboard .nuclide-row input[type='text'] {
+    flex: 1;
+    min-width: 80px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.simulation-dashboard .nuclide-row input[type='number'] {
+    width: 70px;
+    min-width: 70px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    box-sizing: border-box;
+    -moz-appearance: textfield;
+}
+
+.simulation-dashboard .nuclide-row input[type='number']::-webkit-outer-spin-button,
+.simulation-dashboard .nuclide-row input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.simulation-dashboard .nuclide-row select {
+    width: 100px;
+    min-width: 100px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.simulation-dashboard .nuclide-row input:focus,
+.simulation-dashboard .nuclide-row select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+.simulation-dashboard .materials-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.simulation-dashboard .material-card {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 16px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .material-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transform: translateY(-1px);
+}
+
+.simulation-dashboard .material-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.simulation-dashboard .material-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .material-id {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-badge-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.simulation-dashboard .material-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.simulation-dashboard .material-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .material-card:hover .material-actions {
+    opacity: 1;
+}
+
+.simulation-dashboard .material-card-body {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .material-property {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.simulation-dashboard .material-property label {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .material-property span {
+    font-weight: 500;
+}
+
+.simulation-dashboard .material-nuclides-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.simulation-dashboard .nuclide-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: var(--theia-badge-background);
+    border-radius: 4px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .nuclide-tag:hover {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.simulation-dashboard .nuclide-tag.more {
+    background: var(--theia-activityBar-background);
+    opacity: 0.7;
+}
+
+/* ============================================================================
+   Simulation Tab
+   ============================================================================ */
+.simulation-dashboard .simulation-tab {
+    max-width: 100%;
+    animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .simulation-status {
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .status-ready {
+    background: linear-gradient(135deg, var(--theia-inputValidation-infoBackground) 0%, var(--theia-editorWidget-background) 100%);
+    color: var(--theia-inputValidation-infoBorder);
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .status-running {
+    background: linear-gradient(135deg, var(--theia-inputValidation-warningBackground) 0%, var(--theia-editorWidget-background) 100%);
+    color: var(--theia-inputValidation-warningBorder);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    animation: status-pulse 2s infinite;
+}
+
+.simulation-dashboard .simulation-status i {
+    font-size: 32px;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.simulation-dashboard .simulation-status span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.simulation-dashboard .codicon-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Progress Section */
+.simulation-dashboard .progress-section {
+    margin-bottom: 24px;
+    background: var(--theia-editorWidget-background);
+    padding: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .progress-bar-container {
+    height: 10px;
+    background: var(--theia-progressBar-background);
+    border-radius: 5px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.simulation-dashboard .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--theia-progressBar-background) 0%, var(--theia-focusBorder) 100%);
+    border-radius: 5px;
+    transition: width 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.simulation-dashboard .progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
+    animation: progress-shimmer 2s infinite;
+}
+
+.simulation-dashboard .progress-info {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 500;
+}
+
+/* Simulation Actions */
+.simulation-dashboard .simulation-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    justify-content: center;
+}
+
+.simulation-dashboard .simulation-actions button {
+    padding: 14px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 140px;
+}
+
+.simulation-dashboard .simulation-actions button.large {
+    font-size: 15px;
+}
+
+.simulation-dashboard .simulation-actions button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.simulation-dashboard .simulation-actions button:not(:disabled):active {
+    transform: translateY(0);
+}
+
+.simulation-dashboard .simulation-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Validation Results */
+.simulation-dashboard .validation-results {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+    animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .validation-results h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.simulation-dashboard .validation-issue {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    animation: issue-fade-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .validation-issue > i {
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .validation-issue:last-child {
+    border-bottom: none;
+}
+
+.simulation-dashboard .validation-issue.error {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .validation-issue.warning {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .validation-issue.info {
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .issue-category {
+    font-family: var(--theia-ui-font-family);
+    font-size: 10px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    background: var(--theia-badge-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Simulation Info */
+.simulation-dashboard .simulation-info {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.simulation-dashboard .simulation-info h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.simulation-dashboard .info-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--theia-editor-background);
+    border-radius: 4px;
+    font-size: 12px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    gap: 12px;
+}
+
+.simulation-dashboard .info-item:hover {
+    background: var(--theia-list-hoverBackground);
+    transform: translateX(2px);
+}
+
+.simulation-dashboard .info-item label {
+    color: var(--theia-descriptionForeground);
+    text-align: left;
+}
+
+.simulation-dashboard .info-item span {
+    font-weight: 600;
+    font-family: var(--theia-code-font-family);
+    text-align: right;
+}
+
+/* ============================================================================
+   Empty State
+   ============================================================================ */
+.simulation-dashboard .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .empty-state i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.3;
+}
+
+.simulation-dashboard .empty-state p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* ============================================================================
+   Button Styles (Enhanced)
+   ============================================================================ */
+.simulation-dashboard .theia-button {
+    min-width: none;
+    margin: 0;
+    padding: 8px 16px;
+    border: 1px solid var(--theia-button-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+}
+
+.simulation-dashboard .theia-button.primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-button-border);
+    background-image: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+}
+
+.simulation-dashboard .theia-button.primary:hover:not(:disabled) {
+    background: var(--theia-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.simulation-dashboard .theia-button.secondary {
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border-color: var(--theia-button-secondaryBorder);
+}
+
+.simulation-dashboard .theia-button.secondary:hover:not(:disabled) {
+    background: var(--theia-button-secondaryHoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.simulation-dashboard .theia-button.small {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+.simulation-dashboard .theia-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ============================================================================
+   Scrollbar Styling
+   ============================================================================ */
+.simulation-dashboard .dashboard-content::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.simulation-dashboard .dashboard-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.simulation-dashboard .dashboard-content::-webkit-scrollbar-thumb {
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 40px;
+}
+
+.simulation-dashboard .dashboard-content::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hover-background);
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+@media (max-width: 768px) {
+    .simulation-dashboard .form-row {
+        flex-direction: column;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    
+    .simulation-dashboard .form-row .form-group {
+        min-width: 100%;
+        max-width: 100%;
+    }
+    
+    .simulation-dashboard .info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .simulation-dashboard .simulation-actions {
+        flex-direction: column;
+    }
+    
+    .simulation-dashboard .project-actions {
+        flex-wrap: wrap;
+    }
+    
+    .simulation-dashboard .nuclide-row {
+        flex-wrap: wrap;
+    }
+}
+
+/* ============================================================================
+   Focus Indicators
+   ============================================================================ */
+.simulation-dashboard :focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+}
+
+.simulation-dashboard button:focus-visible,
+.simulation-dashboard input:focus-visible,
+.simulation-dashboard select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
+}

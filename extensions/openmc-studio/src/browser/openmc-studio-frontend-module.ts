@@ -26,7 +26,8 @@
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import {
     WebSocketConnectionProvider,
-    FrontendApplicationContribution
+    FrontendApplicationContribution,
+    OpenHandler
 } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { MenuContribution } from '@theia/core/lib/common/menu';
@@ -50,10 +51,13 @@ import { OpenMCStudioContribution } from './openmc-studio-contribution';
 // Preferences
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
-// Widget imports (to be implemented in later phases)
-// import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
+import { WidgetFactory } from '@theia/core/lib/browser';
+import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 // import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 // import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
+
+// Import CSS
+import './simulation-dashboard/simulation-dashboard.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -98,34 +102,34 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     // Contributions
     // ============================================================================
     
-    // Main contribution (commands, menus, toolbar)
+    // Main contribution (commands, menus, toolbar, open handler)
     bind(OpenMCStudioContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(OpenMCStudioContribution);
     bind(MenuContribution).toService(OpenMCStudioContribution);
     bind(TabBarToolbarContribution).toService(OpenMCStudioContribution);
-    
-    // Application contribution for initialization
-    bind(FrontendApplicationContribution).toDynamicValue(ctx => 
-        ctx.container.get(OpenMCStudioService)
-    ).inSingletonScope();
+    bind(OpenHandler).toService(OpenMCStudioContribution);
+    bind(FrontendApplicationContribution).toService(OpenMCStudioContribution);
 
     // ============================================================================
     // Widget Factories (Phase 1+)
     // ============================================================================
     
     // Simulation Dashboard Widget - Phase 1
-    // bind(WidgetFactory).toDynamicValue(({ container }) => ({
-    //     id: SimulationDashboardWidget.ID,
-    //     createWidget: () => container.get(SimulationDashboardWidget)
-    // })).inSingletonScope();
+    bind(SimulationDashboardWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: SimulationDashboardWidget.ID,
+        createWidget: () => container.get(SimulationDashboardWidget)
+    })).inSingletonScope();
     
     // CSG Builder Widget - Phase 2
+    // bind(CSGBuilderWidget).toSelf();
     // bind(WidgetFactory).toDynamicValue(({ container }) => ({
     //     id: CSGBuilderWidget.ID,
     //     createWidget: () => container.get(CSGBuilderWidget)
     // })).inSingletonScope();
     
     // Tally Configurator Widget - Phase 3
+    // bind(TallyConfiguratorWidget).toSelf();
     // bind(WidgetFactory).toDynamicValue(({ container }) => ({
     //     id: TallyConfiguratorWidget.ID,
     //     createWidget: () => container.get(TallyConfiguratorWidget)
