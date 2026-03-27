@@ -19,6 +19,8 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import URI from '@theia/core/lib/common/uri';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -33,6 +35,10 @@ import {
     OpenMCFillType,
     OpenMCUniverse
 } from '../../common/openmc-state-schema';
+
+// Import from nuke-visualizer for 3D preview
+import { OpenMCService } from 'nuke-visualizer/lib/browser/openmc/openmc-service';
+import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/openmc/openmc-geometry-3d-widget';
 
 export type CSGBuilderTab = 'surfaces' | 'cells' | 'universes';
 
@@ -149,7 +155,19 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCXMLGenerationService)
     protected readonly xmlService!: OpenMCXMLGenerationService;
 
+    @inject(WidgetManager)
+    protected readonly widgetManager!: WidgetManager;
+
+    @inject(ApplicationShell)
+    protected readonly shell!: ApplicationShell;
+
+    @inject(OpenMCService)
+    protected readonly openmcService!: OpenMCService;
+
     private activeTab: CSGBuilderTab = 'surfaces';
+    
+    // 3D Preview widget reference
+    private previewWidget: OpenMCGeometry3DWidget | null = null;
     
     // Surface form state
     private editingSurface?: OpenMCSurface;
@@ -224,6 +242,16 @@ export class CSGBuilderWidget extends ReactWidget {
                     </p>
                 </div>
                 <div className='header-actions'>
+                    <Tooltip content='Preview geometry in 3D viewer' position='bottom'>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => this.previewGeometry()}
+                            disabled={this.stateManager.getState().geometry.cells.length === 0}
+                        >
+                            <i className='codicon codicon-globe'></i>
+                            Preview 3D
+                        </button>
+                    </Tooltip>
                     <Tooltip content='Import geometry from XML files' position='bottom'>
                         <button
                             className='theia-button secondary'
@@ -1743,6 +1771,72 @@ export class CSGBuilderWidget extends ReactWidget {
                 this.messageService.error(`Error saving: ${error}`);
             }
             return false;
+        }
+    }
+
+    // ============================================================================
+    // 3D Preview
+    // ============================================================================
+
+    private async previewGeometry(): Promise<void> {
+        const state = this.stateManager.getState();
+        
+        if (state.geometry.cells.length === 0) {
+            this.messageService.warn('No cells defined. Create at least one cell before previewing.');
+            return;
+        }
+
+        // Need a save location to preview
+        let previewDir = this.saveOutputPath;
+        if (!previewDir) {
+            this.messageService.warn('Please save the geometry first (click Save As)');
+            await this.saveXMLAs();
+            previewDir = this.saveOutputPath;
+            if (!previewDir) {
+                return; // User cancelled
+            }
+        }
+
+        try {
+            // Save current geometry
+            await this.performSave(previewDir, false);
+
+            const geomFile = `${previewDir}/geometry.xml`;
+            const uri = new URI(geomFile);
+
+            // Open or create the 3D widget
+            let widget = this.previewWidget;
+            if (!widget || widget.isDisposed) {
+                widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(
+                    OpenMCGeometry3DWidget.ID,
+                    { id: `${OpenMCGeometry3DWidget.ID}:preview` } as any
+                );
+                this.previewWidget = widget;
+            }
+
+            // Show widget
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
+
+            // Set geometry and start visualization
+            widget.setGeometry(uri);
+            widget.setLoading(true);
+
+            // Start visualization server
+            const vizResult = await this.openmcService.visualizeGeometry(uri);
+
+            if (vizResult.success && vizResult.url && vizResult.port) {
+                widget.setServerInfo(vizResult.url, vizResult.port);
+                this.messageService.info('3D preview loaded');
+            } else {
+                widget.setError(vizResult.error || 'Failed to start visualization');
+                this.messageService.error(`Preview failed: ${vizResult.error}`);
+            }
+
+        } catch (error) {
+            this.messageService.error(`Preview error: ${error}`);
         }
     }
 
