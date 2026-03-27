@@ -25,6 +25,7 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { Emitter, Event } from '@theia/core/lib/common';
 
 import {
@@ -43,7 +44,10 @@ export class OpenMCSimulationRunner {
     
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
-
+    
+    @inject(PreferenceService)
+    protected readonly preferences: PreferenceService;
+    
     private _isRunning = false;
     private _currentProcessId?: string;
 
@@ -59,6 +63,14 @@ export class OpenMCSimulationRunner {
 
     private readonly _onStatusChange = new Emitter<SimulationStatusEvent>();
     readonly onStatusChange: Event<SimulationStatusEvent> = this._onStatusChange.event;
+
+    private readonly _onOutput = new Emitter<{ type: 'stdout' | 'stderr'; data: string }>();
+    readonly onOutput: Event<{ type: 'stdout' | 'stderr'; data: string }> = this._onOutput.event;
+
+    // Method to forward output from backend client
+    forwardOutput(type: 'stdout' | 'stderr', data: string): void {
+        this._onOutput.fire({ type, data });
+    }
 
     // ============================================================================
     // Properties
@@ -102,6 +114,15 @@ export class OpenMCSimulationRunner {
                 processId: request.workingDirectory,
                 status: 'running'
             });
+
+            // Add cross-sections path to environment if available
+            const env = await this.getCrossSectionsEnv();
+            if (env) {
+                request = {
+                    ...request,
+                    env: { ...request.env, ...env }
+                };
+            }
 
             const result = await this.backendService.runSimulation(request);
             
@@ -179,6 +200,32 @@ export class OpenMCSimulationRunner {
             console.error('[OpenMC Studio] Error stopping simulation:', error);
             return false;
         }
+    }
+
+    /**
+     * Get cross-sections environment variable if configured.
+     * Checks both nukeVisualizer.openmcCrossSectionsPath and openmcStudio.crossSectionsPath preferences.
+     */
+    private async getCrossSectionsEnv(): Promise<{ [key: string]: string } | undefined> {
+        // Check nuke-visualizer preference first (primary)
+        let xsPath = this.preferences.get('nukeVisualizer.openmcCrossSectionsPath') as string | undefined;
+        
+        // Fall back to openmc-studio preference
+        if (!xsPath) {
+            xsPath = this.preferences.get('openmcStudio.crossSectionsPath') as string | undefined;
+        }
+        
+        // Check environment variable as last resort
+        if (!xsPath && typeof process !== 'undefined' && process.env) {
+            xsPath = process.env.OPENMC_CROSS_SECTIONS;
+        }
+        
+        if (xsPath) {
+            console.log(`[OpenMC Studio] Using cross-sections path: ${xsPath}`);
+            return { OPENMC_CROSS_SECTIONS: xsPath };
+        }
+        
+        return undefined;
     }
 
     /**

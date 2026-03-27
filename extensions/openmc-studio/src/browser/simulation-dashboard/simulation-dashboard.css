@@ -146,6 +146,14 @@
     gap: 8px;
 }
 
+.simulation-dashboard .project-name-input,
+.simulation-dashboard .project-desc-input {
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+}
+
 .simulation-dashboard .project-name-input {
     font-size: 16px;
     font-weight: 600;
@@ -157,6 +165,12 @@
     font-size: 12px;
     padding: 6px 10px;
     width: 250px;
+}
+
+.simulation-dashboard .project-name-input:focus,
+.simulation-dashboard .project-desc-input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
 }
 
 .simulation-dashboard .project-actions {
@@ -426,6 +440,147 @@
 
 .simulation-dashboard .source-editor {
     padding: 16px;
+}
+
+/* Source Header with Type Select and Main Snap Button */
+.simulation-dashboard .source-header {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .source-type-select {
+    flex: 1;
+}
+
+.simulation-dashboard .source-type-select label {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .source-type-select select {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 13px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .snap-main-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    white-space: nowrap;
+}
+
+/* Quick Snap Actions */
+.simulation-dashboard .source-quick-snaps {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    border: 1px dashed var(--theia-panel-border);
+}
+
+.simulation-dashboard .quick-snaps-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.simulation-dashboard .quick-snaps-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1;
+}
+
+.simulation-dashboard .quick-snaps-buttons button {
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+}
+
+.simulation-dashboard .source-editor .form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .source-editor .form-row:last-child {
+    margin-bottom: 0;
+}
+
+.simulation-dashboard .source-editor .form-group {
+    flex: 1;
+    min-width: 0;
+}
+
+.simulation-dashboard .source-editor .form-group label {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .source-editor .form-group input {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 13px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-editor .form-group input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .source-editor button.small {
+    padding: 4px 8px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+
+
+/* Source bounds info display */
+.simulation-dashboard .source-bounds-info {
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .source-bounds-info code {
+    font-family: var(--theia-monospace-font-family);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.simulation-dashboard .form-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
 }
 
 /* ============================================================================
@@ -1141,14 +1296,38 @@
     border-radius: 6px;
     padding: 16px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    margin-bottom: 16px;
 }
 
 .simulation-dashboard .simulation-info h4 {
-    margin: 0 0 12px 0;
+    margin: 0;
     font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .info-footer {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: var(--theia-editor-background);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .info-footer i {
+    color: var(--theia-focusBorder);
 }
 
 .simulation-dashboard .info-grid {
@@ -1430,6 +1609,16 @@
     flex-direction: column;
     height: 300px;
     animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: height 0.3s ease;
+}
+
+.simulation-dashboard .console-panel.maximized {
+    height: 80vh;
+}
+
+.simulation-dashboard .console-actions {
+    display: flex;
+    gap: 4px;
 }
 
 .simulation-dashboard .console-header {

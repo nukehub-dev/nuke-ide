@@ -65,10 +65,10 @@ export class OpenMCStudioBackendServiceImpl
 
     /**
      * Set the client for receiving log messages.
-     * Note: Client logging is currently disabled to prevent errors on disconnect.
      */
-    setClient(_client: OpenMCStudioClient): void {
-        // Client logging disabled - see log() method
+    setClient(client: OpenMCStudioClient): void {
+        // Forward client to runner service for simulation output streaming
+        this.runnerService.setClient(client);
     }
 
     /**
@@ -125,8 +125,9 @@ export class OpenMCStudioBackendServiceImpl
             const warnings: string[] = [];
             const errors: string[] = [];
             
-            // Create default state
-            const state = this.createDefaultState();
+            // Use directory name as project name
+            const dirName = path.basename(request.directory);
+            const state = this.createDefaultState(dirName);
             
             // Import materials.xml
             if (fs.existsSync(materialsPath)) {
@@ -202,12 +203,12 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
     
-    private createDefaultState(): OpenMCState {
+    private createDefaultState(name?: string): OpenMCState {
         const now = new Date().toISOString();
         return {
             metadata: {
                 version: OPENMC_STATE_SCHEMA_VERSION,
-                name: 'Imported Project',
+                name: name || 'Untitled Project',
                 created: now,
                 modified: now
             },
@@ -350,7 +351,7 @@ export class OpenMCStudioBackendServiceImpl
                     const surface: any = {
                         id: parseInt(surf.$.id),
                         type: surf.$.type,
-                        coefficients: this.parseCoeffs(surf.$.coeffs),
+                        coefficients: this.parseCoeffs(surf.$.type, surf.$.coeffs),
                         boundary: surf.$.boundary || 'transmission'
                     };
                     if (surf.$.name) surface.name = surf.$.name;
@@ -376,29 +377,65 @@ export class OpenMCStudioBackendServiceImpl
                     if (cell.$.name) cellObj.name = cell.$.name;
                     if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
                     
-                    // Parse fill
-                    if (cell.material) {
-                        if (cell.material === '' || cell.material === 'void') {
+                    // Parse fill - check both attributes (new format) and child elements (old format)
+                    const materialAttr = cell.$.material;
+                    const fillAttr = cell.$.fill;
+                    const materialElem = cell.material;
+                    const fillElem = cell.fill;
+                    
+                    if (materialAttr !== undefined) {
+                        // New format: material as attribute
+                        if (materialAttr === '' || materialAttr === 'void') {
                             cellObj.fillType = 'void';
                         } else {
                             cellObj.fillType = 'material';
-                            cellObj.fillId = parseInt(cell.material);
+                            cellObj.fillId = parseInt(materialAttr);
                         }
-                    } else if (cell.fill) {
+                    } else if (fillAttr !== undefined) {
+                        // New format: fill as attribute (universe)
                         cellObj.fillType = 'universe';
-                        cellObj.fillId = parseInt(cell.fill);
+                        cellObj.fillId = parseInt(fillAttr);
+                    } else if (materialElem) {
+                        // Old format: material as child element
+                        if (materialElem === '' || materialElem === 'void') {
+                            cellObj.fillType = 'void';
+                        } else {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = parseInt(materialElem);
+                        }
+                    } else if (fillElem) {
+                        // Old format: fill as child element (universe)
+                        cellObj.fillType = 'universe';
+                        cellObj.fillId = parseInt(fillElem);
                     }
                     
-                    // Parse region
-                    if (cell.region) {
+                    // Parse region - check both attribute and child element
+                    if (cell.$.region) {
+                        cellObj.regionString = cell.$.region;
+                    } else if (cell.region) {
                         cellObj.regionString = cell.region;
                     }
                     
                     geometry.cells.push(cellObj);
                     
-                    // Add to root universe by default
-                    if (!geometry.universes[0].cellIds.includes(cellObj.id)) {
-                        geometry.universes[0].cellIds.push(cellObj.id);
+                    // Get universe ID (default to 0 if not specified)
+                    const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
+                    
+                    // Find or create the universe
+                    let universe = geometry.universes.find((u: any) => u.id === universeId);
+                    if (!universe) {
+                        universe = {
+                            id: universeId,
+                            name: `Universe ${universeId}`,
+                            cellIds: [],
+                            isRoot: universeId === 0
+                        };
+                        geometry.universes.push(universe);
+                    }
+                    
+                    // Add cell to its universe
+                    if (!universe.cellIds.includes(cellObj.id)) {
+                        universe.cellIds.push(cellObj.id);
                     }
                 } catch (err) {
                     warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
@@ -409,10 +446,70 @@ export class OpenMCStudioBackendServiceImpl
         return { geometry, warnings };
     }
     
-    private parseCoeffs(coeffsStr: string): any {
+    private parseCoeffs(surfaceType: string, coeffsStr: string): any {
         const values = coeffsStr.split(/\s+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-        // Return as object - the specific coefficients depend on surface type
-        // For simplicity, we'll store them as an array
+        
+        // Return as structured object based on surface type
+        switch (surfaceType) {
+            case 'sphere':
+                // coeffs: x0 y0 z0 r
+                if (values.length >= 4) {
+                    return { x0: values[0], y0: values[1], z0: values[2], r: values[3] };
+                }
+                break;
+            case 'x-cylinder':
+                // coeffs: y0 z0 r
+                if (values.length >= 3) {
+                    return { y0: values[0], z0: values[1], r: values[2] };
+                }
+                break;
+            case 'y-cylinder':
+                // coeffs: x0 z0 r
+                if (values.length >= 3) {
+                    return { x0: values[0], z0: values[1], r: values[2] };
+                }
+                break;
+            case 'z-cylinder':
+                // coeffs: x0 y0 r
+                if (values.length >= 3) {
+                    return { x0: values[0], y0: values[1], r: values[2] };
+                }
+                break;
+            case 'x-plane':
+                // coeffs: x0
+                if (values.length >= 1) {
+                    return { x0: values[0] };
+                }
+                break;
+            case 'y-plane':
+                // coeffs: y0
+                if (values.length >= 1) {
+                    return { y0: values[0] };
+                }
+                break;
+            case 'z-plane':
+                // coeffs: z0
+                if (values.length >= 1) {
+                    return { z0: values[0] };
+                }
+                break;
+            case 'plane':
+                // coeffs: a b c d
+                if (values.length >= 4) {
+                    return { a: values[0], b: values[1], c: values[2], d: values[3] };
+                }
+                break;
+            case 'x-cone':
+            case 'y-cone':
+            case 'z-cone':
+                // coeffs: x0 y0 z0 r2
+                if (values.length >= 4) {
+                    return { x0: values[0], y0: values[1], z0: values[2], r2: values[3] };
+                }
+                break;
+        }
+        
+        // Fallback: return as array if type unknown or insufficient values
         return values;
     }
     
@@ -458,13 +555,73 @@ export class OpenMCStudioBackendServiceImpl
             settings.run.inactive = parseInt(s.inactive);
         }
         
+        // Source rejection fraction
+        if (s.source_rejection_fraction) {
+            settings.sourceRejectionFraction = parseFloat(s.source_rejection_fraction);
+        }
+        
         // Source
         if (s.source) {
-            // Parse source - simplified
-            settings.sources.push({
-                spatial: { type: 'point', origin: [0, 0, 0] },
-                energy: { type: 'discrete', energies: [1e6] }
-            });
+            const sources = Array.isArray(s.source) ? s.source : [s.source];
+            
+            for (const src of sources) {
+                const source: any = {
+                    spatial: { type: 'point', origin: [0, 0, 0] },
+                    energy: { type: 'discrete', energies: [1e6] }
+                };
+                
+                // Parse spatial distribution
+                if (src.space) {
+                    const spaceType = src.space.$.type || 'point';
+                    source.spatial.type = spaceType;
+                    
+                    // Parse parameters
+                    if (src.space.parameters) {
+                        const params = src.space.parameters.toString().trim().split(/\s+/).map(Number);
+                        
+                        if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
+                            source.spatial.lowerLeft = params.slice(0, 3);
+                            source.spatial.upperRight = params.slice(3, 6);
+                        } else if (spaceType === 'point' && params.length >= 3) {
+                            source.spatial.origin = params.slice(0, 3);
+                        } else if ((spaceType === 'sphere' || spaceType === 'spherical') && params.length >= 4) {
+                            source.spatial.center = params.slice(0, 3);
+                            source.spatial.radius = params[3];
+                        }
+                    }
+                }
+                
+                // Parse energy distribution
+                if (src.energy) {
+                    const energyType = src.energy.$.type || 'discrete';
+                    source.energy.type = energyType;
+                    
+                    if (src.energy.parameters) {
+                        const params = src.energy.parameters.toString().trim().split(/\s+/).map(Number);
+                        
+                        if (energyType === 'discrete') {
+                            source.energy.energies = params;
+                        } else if (energyType === 'uniform' && params.length >= 2) {
+                            source.energy.min = params[0];
+                            source.energy.max = params[1];
+                        } else if (energyType === 'maxwell' && params.length >= 1) {
+                            source.energy.temperature = params[0];
+                        } else if (energyType === 'watt' && params.length >= 2) {
+                            source.energy.a = params[0];
+                            source.energy.b = params[1];
+                        }
+                    }
+                }
+                
+                // Parse angle distribution
+                if (src.angle) {
+                    source.angle = {
+                        type: src.angle.$.type || 'isotropic'
+                    };
+                }
+                
+                settings.sources.push(source);
+            }
         }
         
         return { settings, warnings };
@@ -510,9 +667,10 @@ export class OpenMCStudioBackendServiceImpl
         this.log('Validating simulation state');
         
         const issues: ValidationResult['issues'] = [];
+        const { geometry, materials, settings } = request.state;
         
         // Basic validation
-        if (!request.state.materials || request.state.materials.length === 0) {
+        if (!materials || materials.length === 0) {
             issues.push({
                 severity: 'error',
                 category: 'materials',
@@ -521,7 +679,7 @@ export class OpenMCStudioBackendServiceImpl
             });
         }
         
-        if (!request.state.geometry.cells || request.state.geometry.cells.length === 0) {
+        if (!geometry.cells || geometry.cells.length === 0) {
             issues.push({
                 severity: 'error',
                 category: 'geometry',
@@ -530,14 +688,99 @@ export class OpenMCStudioBackendServiceImpl
             });
         }
         
+        // Geometry region validation
+        if (geometry.cells && geometry.cells.length > 0) {
+            const surfaceIds = new Set(geometry.surfaces.map(s => s.id));
+            
+            for (const cell of geometry.cells) {
+                // Get region string from either regionString or convert from region tree
+                let regionStr = cell.regionString;
+                if (!regionStr && cell.region && typeof cell.region === 'string') {
+                    regionStr = cell.region;
+                }
+                if (!regionStr) continue;
+                
+                // Extract surface references from region
+                const surfaceRefs: Array<{ id: number; side: string }> = [];
+                const surfacePattern = /([+-~]?)(\d+)/g;
+                let match;
+                
+                while ((match = surfacePattern.exec(regionStr)) !== null) {
+                    const side = match[1] || '+';
+                    const id = parseInt(match[2], 10);
+                    surfaceRefs.push({ id, side });
+                }
+                
+                // Check for undefined surfaces
+                for (const ref of surfaceRefs) {
+                    if (!surfaceIds.has(ref.id)) {
+                        issues.push({
+                            severity: 'error',
+                            category: 'geometry',
+                            message: `Cell ${cell.id}: Region references undefined surface ${ref.id}`,
+                            suggestion: `Remove surface ${ref.id} from region or create the surface first`
+                        });
+                    }
+                }
+                
+                // Check for contradictory regions (same surface with both + and -)
+                const surfaceSides = new Map<number, Set<string>>();
+                for (const ref of surfaceRefs) {
+                    if (!surfaceSides.has(ref.id)) {
+                        surfaceSides.set(ref.id, new Set());
+                    }
+                    surfaceSides.get(ref.id)!.add(ref.side);
+                }
+                
+                for (const [id, sides] of surfaceSides) {
+                    const hasPositive = sides.has('+') || sides.has('~');
+                    const hasNegative = sides.has('-');
+                    if (hasPositive && hasNegative) {
+                        issues.push({
+                            severity: 'error',
+                            category: 'geometry',
+                            message: `Cell ${cell.id}: Contradictory region - surface ${id} used with both + and -`,
+                            suggestion: `Use only one side of surface ${id}. A cell cannot be both inside and outside the same surface`
+                        });
+                    }
+                }
+            }
+        }
+        
         // Check for source in fixed source mode
-        if (request.state.settings.run.mode === 'fixed source') {
-            if (!request.state.settings.sources || request.state.settings.sources.length === 0) {
+        if (settings.run.mode === 'fixed source') {
+            if (!settings.sources || settings.sources.length === 0) {
                 issues.push({
                     severity: 'error',
                     category: 'settings',
                     message: 'Fixed source mode requires at least one source definition',
                     suggestion: 'Add an external source in the settings'
+                });
+            }
+        }
+        
+        // Check for fissile material in eigenvalue mode
+        if (settings.run.mode === 'eigenvalue') {
+            const fissileNuclides = ['U233', 'U235', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 
+                                     'Am241', 'Am242', 'Am243', 'Cm242', 'Cm243', 'Cm244', 'Cm245', 'Cm246'];
+            
+            let hasFissileMaterial = false;
+            for (const material of materials) {
+                for (const nuclide of material.nuclides) {
+                    if (fissileNuclides.some(fn => nuclide.name.includes(fn))) {
+                        hasFissileMaterial = true;
+                        break;
+                    }
+                }
+                if (hasFissileMaterial) break;
+            }
+            
+            if (!hasFissileMaterial) {
+                issues.push({
+                    severity: 'error',
+                    category: 'materials',
+                    message: 'Eigenvalue mode requires at least one fissile material',
+                    suggestion: 'Add a fissile nuclide like U235 or Pu239 to a material. Eigenvalue calculations require fission chain reactions.'
                 });
             }
         }

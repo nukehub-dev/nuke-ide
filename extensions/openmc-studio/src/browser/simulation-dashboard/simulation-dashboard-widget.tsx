@@ -18,6 +18,7 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService, SaveFileDialogProps, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 
@@ -72,6 +73,9 @@ export class SimulationDashboardWidget extends ReactWidget {
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
 
+    @inject(PreferenceService)
+    protected readonly preferences!: PreferenceService;
+
     private activeTab: DashboardTab = 'settings';
     private isRunning = false;
     private simulationProgress?: SimulationProgress;
@@ -79,6 +83,8 @@ export class SimulationDashboardWidget extends ReactWidget {
     private showNewMaterialForm = false;
     private editingMaterial?: OpenMCMaterial;
     private consoleOutput: { type: 'info' | 'error' | 'warn'; message: string; timestamp: Date }[] = [];
+    private consoleMaximized = false;
+    private consoleContentRef = React.createRef<HTMLDivElement>();
 
     // Form state for new material
     private newMaterialName = '';
@@ -258,6 +264,22 @@ export class SimulationDashboardWidget extends ReactWidget {
             }
             this.update();
         });
+
+        // Listen to real-time simulation output from window event
+        window.addEventListener('openmc-output', ((evt: CustomEvent) => {
+            const { type, data } = evt.detail;
+            // Split by lines and log each non-empty line
+            const lines = data.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                // Skip logo/art lines (lines with only %, #, or common logo patterns)
+                if (/^[\s%#|]+$/.test(trimmed)) continue;
+                if (trimmed.match(/^%+$|^#+$/)) continue;
+                if (trimmed.includes('%%%%%%%%') || trimmed.includes('############')) continue;
+                this.logToConsole(line, type === 'stderr' ? 'error' : 'info');
+            }
+        }) as EventListener);
 
         this.updateTitle();
         this.update();
@@ -619,26 +641,90 @@ export class SimulationDashboardWidget extends ReactWidget {
                             Generate Summary File
                         </label>
                     </div>
+
+                    <div className='form-row'>
+                        <div className='form-group'>
+                            <label>Source Rejection Fraction (0-1)</label>
+                            <input
+                                type='number'
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                value={settings.sourceRejectionFraction ?? 0.0}
+                                placeholder='0.0'
+                                onChange={e => this.updateSetting('sourceRejectionFraction', e.target.value ? parseFloat(e.target.value) : undefined)}
+                            />
+                            <span className='form-hint'>
+                                Lower values allow more source sites. Set to 0.0 to disable rejection.
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     }
 
     private renderSourceEditor(source: OpenMCSource, index: number): React.ReactNode {
+        const spatial = source.spatial as any;
+        const snapActions: Record<string, { label: string; icon: string; action: () => void }[]> = {
+            point: [
+                { label: 'Geometry Center', icon: 'target', action: () => this.snapSourceToGeometryCenter(index) },
+                { label: 'Sphere Center', icon: 'circle-outline', action: () => this.setSourceToSphereCenter(index) },
+                { label: 'Cylinder Axis', icon: 'dash', action: () => this.setSourceToCylinderAxis(index) }
+            ],
+            box: [
+                { label: 'Tight Fit', icon: 'target', action: () => this.snapSourceToGeometryBounds(index, 0) },
+                { label: 'With Padding', icon: 'expand-all', action: () => this.snapSourceToGeometryBounds(index, 0.1) }
+            ],
+            sphere: [
+                { label: 'Match Surface', icon: 'circle-outline', action: () => this.snapSourceToMatchSphere(index) },
+                { label: 'Enclose All', icon: 'expand-all', action: () => this.snapSourceToEncloseGeometry(index) }
+            ]
+        };
+        
         return (
             <div className='source-editor'>
-                <div className='form-group'>
-                    <label>Spatial Distribution</label>
-                    <select
-                        value={source.spatial.type}
-                        onChange={e => this.updateSourceSpatial(index, e.target.value as OpenMCSourceSpatial['type'])}
+                {/* Source Header */}
+                <div className='source-header'>
+                    <div className='source-type-select'>
+                        <label>Spatial Distribution</label>
+                        <select
+                            value={source.spatial.type}
+                            onChange={e => this.updateSourceSpatial(index, e.target.value as OpenMCSourceSpatial['type'])}
+                        >
+                            <option value='point'>Point</option>
+                            <option value='box'>Box</option>
+                            <option value='sphere'>Sphere</option>
+                            <option value='cylinder'>Cylinder</option>
+                        </select>
+                    </div>
+                    <button
+                        className='theia-button secondary snap-main-btn'
+                        onClick={() => this.snapSourceToGeometry(index)}
                     >
-                        <option value='point'>Point</option>
-                        <option value='box'>Box</option>
-                        <option value='sphere'>Sphere</option>
-                        <option value='cylinder'>Cylinder</option>
-                    </select>
+                        <i className='codicon codicon-target'></i>
+                        <span>Snap to Geometry</span>
+                    </button>
                 </div>
+
+                {/* Quick Snap Actions */}
+                {snapActions[source.spatial.type] && (
+                    <div className='source-quick-snaps'>
+                        <span className='quick-snaps-label'>Quick Position:</span>
+                        <div className='quick-snaps-buttons'>
+                            {snapActions[source.spatial.type].map((btn, btnIdx) => (
+                                <button
+                                    key={btnIdx}
+                                    className='theia-button secondary small'
+                                    onClick={btn.action}
+                                >
+                                    <i className={`codicon codicon-${btn.icon}`}></i>
+                                    {btn.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {source.spatial.type === 'point' && (
                     <div className='form-row'>
@@ -647,7 +733,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                             <input
                                 type='number'
                                 step='0.1'
-                                value={(source.spatial as any).origin?.[0] || 0}
+                                value={spatial.origin?.[0] || 0}
                                 onChange={e => this.updateSourceOrigin(index, 0, parseFloat(e.target.value))}
                             />
                         </div>
@@ -656,7 +742,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                             <input
                                 type='number'
                                 step='0.1'
-                                value={(source.spatial as any).origin?.[1] || 0}
+                                value={spatial.origin?.[1] || 0}
                                 onChange={e => this.updateSourceOrigin(index, 1, parseFloat(e.target.value))}
                             />
                         </div>
@@ -665,11 +751,118 @@ export class SimulationDashboardWidget extends ReactWidget {
                             <input
                                 type='number'
                                 step='0.1'
-                                value={(source.spatial as any).origin?.[2] || 0}
+                                value={spatial.origin?.[2] || 0}
                                 onChange={e => this.updateSourceOrigin(index, 2, parseFloat(e.target.value))}
                             />
                         </div>
                     </div>
+                )}
+
+                {source.spatial.type === 'box' && (
+                    <>
+                        <div className='form-row'>
+                            <div className='form-group'>
+                                <label>Min X</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.lowerLeft?.[0] ?? -5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 0, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Min Y</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.lowerLeft?.[1] ?? -5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 1, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Min Z</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.lowerLeft?.[2] ?? -5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 2, parseFloat(e.target.value))}
+                                />
+                            </div>
+                        </div>
+                        <div className='form-row'>
+                            <div className='form-group'>
+                                <label>Max X</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.upperRight?.[0] ?? 5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 0, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Max Y</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.upperRight?.[1] ?? 5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 1, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Max Z</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.upperRight?.[2] ?? 5}
+                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 2, parseFloat(e.target.value))}
+                                />
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {source.spatial.type === 'sphere' && (
+                    <>
+                        <div className='form-row'>
+                            <div className='form-group'>
+                                <label>Center X</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.center?.[0] || 0}
+                                    onChange={e => this.updateSourceSphereCenter(index, 0, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Center Y</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.center?.[1] || 0}
+                                    onChange={e => this.updateSourceSphereCenter(index, 1, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Center Z</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={spatial.center?.[2] || 0}
+                                    onChange={e => this.updateSourceSphereCenter(index, 2, parseFloat(e.target.value))}
+                                />
+                            </div>
+                            <div className='form-group'>
+                                <label>Radius</label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    min={0}
+                                    value={spatial.radius || 1}
+                                    onChange={e => this.updateSourceSphereRadius(index, parseFloat(e.target.value))}
+                                />
+                            </div>
+                        </div>
+                    </>
                 )}
 
                 <div className='form-group'>
@@ -1190,13 +1383,24 @@ export class SimulationDashboardWidget extends ReactWidget {
                                     {state.geometry.cells.length > 0 ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces` : 'Not configured'}
                                 </span>
                             </div>
-                            {state.geometry.cells.length === 0 && (
-                                <button
-                                    className='theia-button primary small open-csg-btn'
-                                    onClick={() => this.openCSGBuilder()}
-                                >
-                                    <i className='codicon codicon-graph'></i> Open CSG Builder
-                                </button>
+                            {state.geometry.cells.length === 0 ? (
+                                <Tooltip content='Create geometry using CSG Builder'>
+                                    <button
+                                        className='theia-button primary small open-csg-btn'
+                                        onClick={() => this.openCSGBuilder()}
+                                    >
+                                        <i className='codicon codicon-graph'></i> Open CSG Builder
+                                    </button>
+                                </Tooltip>
+                            ) : (
+                                <Tooltip content='Edit geometry in CSG Builder'>
+                                    <button
+                                        className='theia-button secondary small open-csg-btn'
+                                        onClick={() => this.openCSGBuilder()}
+                                    >
+                                        <i className='codicon codicon-edit'></i> Edit
+                                    </button>
+                                </Tooltip>
                             )}
                         </div>
                         
@@ -1249,30 +1453,36 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 <div className='simulation-actions'>
-                    <button
-                        className='theia-button primary large'
-                        onClick={() => this.runSimulation()}
-                        disabled={this.isRunning}
-                    >
-                        <i className='codicon codicon-play'></i>
-                        {this.isRunning ? 'Running...' : 'Run Simulation'}
-                    </button>
-                    <button
-                        className='theia-button secondary large'
-                        onClick={() => this.stopSimulation()}
-                        disabled={!this.isRunning}
-                    >
-                        <i className='codicon codicon-stop'></i>
-                        Stop
-                    </button>
-                    <button
-                        className='theia-button secondary large'
-                        onClick={() => this.validateModel()}
-                        disabled={this.isRunning}
-                    >
-                        <i className='codicon codicon-check'></i>
-                        Validate
-                    </button>
+                    <Tooltip content={this.isRunning ? 'Simulation is running' : 'Start the simulation'}>
+                        <button
+                            className='theia-button primary large'
+                            onClick={() => this.runSimulation()}
+                            disabled={this.isRunning}
+                        >
+                            <i className='codicon codicon-play'></i>
+                            {this.isRunning ? 'Running...' : 'Run Simulation'}
+                        </button>
+                    </Tooltip>
+                    <Tooltip content='Stop the simulation'>
+                        <button
+                            className='theia-button secondary large'
+                            onClick={() => this.stopSimulation()}
+                            disabled={!this.isRunning}
+                        >
+                            <i className='codicon codicon-stop'></i>
+                            Stop
+                        </button>
+                    </Tooltip>
+                    <Tooltip content='Validate model before running'>
+                        <button
+                            className='theia-button secondary large'
+                            onClick={() => this.validateModel()}
+                            disabled={this.isRunning}
+                        >
+                            <i className='codicon codicon-check-all'></i>
+                            Validate
+                        </button>
+                    </Tooltip>
                 </div>
 
                 {this.validationIssues.length > 0 && (
@@ -1289,7 +1499,9 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 <div className='simulation-info'>
-                    <h4>Run Summary</h4>
+                    <div className='info-header'>
+                        <h4>Run Summary</h4>
+                    </div>
                     <div className='info-grid'>
                         <div className='info-item'>
                             <label>Mode:</label>
@@ -1324,19 +1536,71 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
                 </div>
 
+                {/* Geometry Summary */}
+                {state.geometry.cells.length > 0 && (
+                    <div className='simulation-info'>
+                        <div className='info-header'>
+                            <h4>Geometry Summary</h4>
+                            <Tooltip content='Open CSG Builder to edit geometry'>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => this.openCSGBuilder()}
+                                >
+                                    <i className='codicon codicon-edit'></i> Edit in CSG Builder
+                                </button>
+                            </Tooltip>
+                        </div>
+                        <div className='info-grid'>
+                            <div className='info-item'>
+                                <label>Surfaces:</label>
+                                <span>{state.geometry.surfaces.length}</span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Cells:</label>
+                                <span>{state.geometry.cells.length}</span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Universes:</label>
+                                <span>{state.geometry.universes.length}</span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Root Universe:</label>
+                                <span>{state.geometry.rootUniverseId}</span>
+                            </div>
+                        </div>
+                        {state.geometry.surfaces.length > 0 && (
+                            <div className='info-footer'>
+                                <i className='codicon codicon-info'></i>
+                                <span>Surface types: {Array.from(new Set(state.geometry.surfaces.map(s => s.type))).join(', ')}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Console Output */}
-                <div className='console-panel'>
+                <div className={`console-panel ${this.consoleMaximized ? 'maximized' : ''}`}>
                     <div className='console-header'>
                         <h4><i className='codicon codicon-terminal'></i> Simulation Output</h4>
-                        <button
-                            className='theia-button secondary small'
-                            onClick={() => this.clearConsole()}
-                            title='Clear console'
-                        >
-                            <i className='codicon codicon-clear-all'></i>
-                        </button>
+                        <div className='console-actions'>
+                            <Tooltip content={this.consoleMaximized ? 'Restore' : 'Maximize'}>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => this.toggleConsoleMaximize()}
+                                >
+                                    <i className={`codicon codicon-${this.consoleMaximized ? 'collapse-all' : 'expand-all'}`}></i>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content='Clear console'>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => this.clearConsole()}
+                                >
+                                    <i className='codicon codicon-clear-all'></i>
+                                </button>
+                            </Tooltip>
+                        </div>
                     </div>
-                    <div className='console-content'>
+                    <div className='console-content' ref={this.consoleContentRef}>
                         {this.consoleOutput.length === 0 ? (
                             <div className='console-empty'>No output yet. Run a simulation to see logs here.</div>
                         ) : (
@@ -1376,10 +1640,22 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.consoleOutput = this.consoleOutput.slice(-500);
         }
         this.update();
+        // Auto-scroll to bottom
+        setTimeout(() => {
+            const content = this.consoleContentRef.current;
+            if (content) {
+                content.scrollTop = content.scrollHeight;
+            }
+        }, 0);
     }
 
     private clearConsole(): void {
         this.consoleOutput = [];
+        this.update();
+    }
+
+    private toggleConsoleMaximize(): void {
+        this.consoleMaximized = !this.consoleMaximized;
         this.update();
     }
 
@@ -1571,8 +1847,15 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.stateManager.setState(result.state);
                 const matCount = result.state.materials?.length || 0;
                 const cellCount = result.state.geometry?.cells?.length || 0;
+                const surfCount = result.state.geometry?.surfaces?.length || 0;
                 this.messageService.info(`Imported XML files with ${result.warnings?.length || 0} warnings`);
-                this.logToConsole(`Imported ${matCount} materials, ${cellCount} cells`);
+                this.logToConsole(`Imported ${matCount} materials, ${cellCount} cells, ${surfCount} surfaces`);
+                
+                // Debug: log first surface
+                if (result.state.geometry?.surfaces?.length > 0) {
+                    const firstSurf = result.state.geometry.surfaces[0];
+                    console.log('[ImportXML] First surface:', firstSurf);
+                }
                 
                 if (result.warnings && result.warnings.length > 0) {
                     console.warn('[OpenMC Studio] Import warnings:', result.warnings);
@@ -1599,6 +1882,15 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
+        // Check OpenMC availability first
+        const openmcCheck = await this.studioService.checkOpenMCAvailability();
+        if (!openmcCheck.available) {
+            this.messageService.error(`OpenMC not available: ${openmcCheck.error}. Please configure Python path in nuke-visualizer preferences.`);
+            this.logToConsole(`OpenMC not available: ${openmcCheck.error}`, 'error');
+            this.logToConsole('Please set nukeVisualizer.pythonPath or nukeVisualizer.condaEnv in preferences', 'error');
+            return;
+        }
+
         // Select working directory
         const props: OpenFileDialogProps = {
             title: 'Select Working Directory for Simulation',
@@ -1612,6 +1904,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
 
         this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
+        this.logToConsole(`Using OpenMC: ${openmcCheck.version || 'unknown version'}`);
 
         try {
             // Generate XML first
@@ -1636,14 +1929,20 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             this.logToConsole(`Generated XML files: ${xmlResult.generatedFiles?.join(', ')}`);
 
+            // Check and log cross-sections path
+            const xsPath = this.preferences.get('nukeVisualizer.openmcCrossSectionsPath') as string | undefined
+                || this.preferences.get('openmcStudio.crossSectionsPath') as string | undefined;
+            if (xsPath) {
+                this.logToConsole(`Using cross-sections: ${xsPath}`);
+            } else {
+                this.logToConsole('Warning: No cross-sections path configured. Set nukeVisualizer.openmcCrossSectionsPath in preferences.', 'warn');
+            }
+
             // Run simulation
             this.logToConsole('Starting OpenMC simulation...');
             await this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()
             });
-
-            this.messageService.info('Simulation started');
-            this.logToConsole('Simulation started successfully');
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Error running simulation: ${msg}`);
@@ -1833,6 +2132,492 @@ export class SimulationDashboardWidget extends ReactWidget {
         const newSources = [...settings.sources];
         newSources[index] = { ...newSources[index], strength };
         this.stateManager.updateSettings({ ...settings, sources: newSources });
+    }
+
+    private updateSourceBoxBound(index: number, bound: 'lowerLeft' | 'upperRight', coord: number, value: number): void {
+        const settings = this.stateManager.getState().settings;
+        const newSources = [...settings.sources];
+        const bounds = [...((newSources[index].spatial as any)[bound] || [-5, -5, -5])];
+        bounds[coord] = value;
+        (newSources[index].spatial as any)[bound] = bounds;
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+    }
+
+    private updateSourceSphereCenter(index: number, coord: number, value: number): void {
+        const settings = this.stateManager.getState().settings;
+        const newSources = [...settings.sources];
+        const center = [...((newSources[index].spatial as any).center || [0, 0, 0])];
+        center[coord] = value;
+        (newSources[index].spatial as any).center = center;
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+    }
+
+    private updateSourceSphereRadius(index: number, value: number): void {
+        const settings = this.stateManager.getState().settings;
+        const newSources = [...settings.sources];
+        (newSources[index].spatial as any).radius = Math.max(0, value);
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+    }
+
+    /**
+     * Set point source to the center of the first sphere in geometry
+     */
+    private setSourceToSphereCenter(index: number): void {
+        const state = this.stateManager.getState();
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        // Find first sphere
+        const sphere = state.geometry.surfaces.find(s => s.type === 'sphere');
+        if (!sphere) {
+            this.messageService.warn('No sphere found. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const c = sphere.coefficients as any;
+        const x0 = c.x0 !== undefined ? c.x0 : (Array.isArray(c) ? c[0] : 0);
+        const y0 = c.y0 !== undefined ? c.y0 : (Array.isArray(c) ? c[1] : 0);
+        const z0 = c.z0 !== undefined ? c.z0 : (Array.isArray(c) ? c[2] : 0);
+        
+        if (x0 === undefined || y0 === undefined || z0 === undefined) {
+            this.messageService.error('Could not read sphere center coordinates');
+            return;
+        }
+        
+        (source.spatial as any).origin = [x0, y0, z0];
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.messageService.info(`Source ${index + 1} set to sphere center: (${x0}, ${y0}, ${z0})`);
+        this.logToConsole(`Source ${index + 1} positioned at sphere center (${x0}, ${y0}, ${z0})`);
+    }
+
+    /**
+     * Snap source to geometry bounds - analyzes geometry surfaces to find bounding box
+     */
+    private snapSourceToGeometry(index: number): void {
+        const state = this.stateManager.getState();
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        // Debug: log geometry info
+        console.log('[SnapToGeometry] Geometry info:', {
+            surfaces: state.geometry.surfaces.length,
+            cells: state.geometry.cells.length,
+            surfaceTypes: state.geometry.surfaces.map(s => s.type),
+            firstSurface: state.geometry.surfaces[0] ? {
+                id: state.geometry.surfaces[0].id,
+                type: state.geometry.surfaces[0].type,
+                coeffs: state.geometry.surfaces[0].coefficients
+            } : null
+        });
+        
+        // Calculate bounds from surfaces
+        const bounds = this.calculateGeometryBounds(state);
+        
+        if (!bounds) {
+            this.messageService.warn('No geometry defined. Open CSG Builder to create geometry?');
+            this.logToConsole('No geometry found. Open CSG Builder to create geometry.', 'error');
+            // Open CSG builder automatically
+            this.openCSGBuilder();
+            return;
+        }
+        
+        // Update source based on its type
+        const spatial = source.spatial as any;
+        
+        if (spatial.type === 'point') {
+            // Set point to center of geometry
+            spatial.origin = [
+                (bounds.min[0] + bounds.max[0]) / 2,
+                (bounds.min[1] + bounds.max[1]) / 2,
+                (bounds.min[2] + bounds.max[2]) / 2
+            ];
+            this.messageService.info(`Source ${index + 1} set to geometry center: (${spatial.origin.map((v: number) => v.toFixed(2)).join(', ')})`);
+        } else if (spatial.type === 'box') {
+            // Set box to geometry bounds with 10% padding
+            const padding = 0.1;
+            const size = [
+                bounds.max[0] - bounds.min[0],
+                bounds.max[1] - bounds.min[1],
+                bounds.max[2] - bounds.min[2]
+            ];
+            spatial.lowerLeft = [
+                bounds.min[0] - size[0] * padding,
+                bounds.min[1] - size[1] * padding,
+                bounds.min[2] - size[2] * padding
+            ];
+            spatial.upperRight = [
+                bounds.max[0] + size[0] * padding,
+                bounds.max[1] + size[1] * padding,
+                bounds.max[2] + size[2] * padding
+            ];
+            this.messageService.info(`Source ${index + 1} box set to geometry bounds with padding`);
+            
+            // Warn if geometry has complex regions
+            if (state.geometry.cells.some(c => c.regionString && (c.regionString.includes('-') || c.regionString.includes('|')))) {
+                this.logToConsole('Note: Geometry has complex regions. Box source may include areas outside cells.', 'warn');
+                this.logToConsole('Tip: If simulation fails with "Too few source sites", try using a Point source at the geometry center instead.', 'warn');
+            }
+        } else if (spatial.type === 'sphere') {
+            // Set sphere to enclose geometry
+            const center = [
+                (bounds.min[0] + bounds.max[0]) / 2,
+                (bounds.min[1] + bounds.max[1]) / 2,
+                (bounds.min[2] + bounds.max[2]) / 2
+            ];
+            const radius = Math.sqrt(
+                Math.pow(bounds.max[0] - center[0], 2) +
+                Math.pow(bounds.max[1] - center[1], 2) +
+                Math.pow(bounds.max[2] - center[2], 2)
+            ) * 1.2; // 20% padding
+            spatial.center = center;
+            spatial.radius = radius;
+            this.messageService.info(`Source ${index + 1} sphere set to enclose geometry (radius: ${radius.toFixed(2)})`);
+        }
+        
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.logToConsole(`Source ${index + 1} snapped to geometry bounds`);
+    }
+
+    /**
+     * Snap point source to geometry center
+     */
+    private snapSourceToGeometryCenter(index: number): void {
+        const state = this.stateManager.getState();
+        const bounds = this.calculateGeometryBounds(state);
+        
+        if (!bounds) {
+            this.messageService.warn('No geometry defined. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        (source.spatial as any).origin = [
+            (bounds.min[0] + bounds.max[0]) / 2,
+            (bounds.min[1] + bounds.max[1]) / 2,
+            (bounds.min[2] + bounds.max[2]) / 2
+        ];
+        
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.messageService.info(`Source ${index + 1} set to geometry center`);
+        this.logToConsole(`Source ${index + 1} positioned at geometry center (${(source.spatial as any).origin.join(', ')})`);
+    }
+
+    /**
+     * Snap box source to geometry bounds with custom padding
+     */
+    private snapSourceToGeometryBounds(index: number, padding: number): void {
+        const state = this.stateManager.getState();
+        const bounds = this.calculateGeometryBounds(state);
+        
+        if (!bounds) {
+            this.messageService.warn('No geometry defined. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        const size = [
+            bounds.max[0] - bounds.min[0],
+            bounds.max[1] - bounds.min[1],
+            bounds.max[2] - bounds.min[2]
+        ];
+        
+        (source.spatial as any).lowerLeft = [
+            bounds.min[0] - size[0] * padding,
+            bounds.min[1] - size[1] * padding,
+            bounds.min[2] - size[2] * padding
+        ];
+        (source.spatial as any).upperRight = [
+            bounds.max[0] + size[0] * padding,
+            bounds.max[1] + size[1] * padding,
+            bounds.max[2] + size[2] * padding
+        ];
+        
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        const paddingText = padding > 0 ? `with ${(padding * 100).toFixed(0)}% padding` : 'tight fit';
+        this.messageService.info(`Source ${index + 1} box set to ${paddingText}`);
+        this.logToConsole(`Source ${index + 1} box set to geometry bounds (${paddingText})`);
+    }
+
+    /**
+     * Snap sphere source to match first geometry sphere
+     */
+    private snapSourceToMatchSphere(index: number): void {
+        const state = this.stateManager.getState();
+        const sphere = state.geometry.surfaces.find(s => s.type === 'sphere');
+        
+        if (!sphere) {
+            this.messageService.warn('No sphere found. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        const c = sphere.coefficients as any;
+        const x0 = c.x0 !== undefined ? c.x0 : (Array.isArray(c) ? c[0] : 0);
+        const y0 = c.y0 !== undefined ? c.y0 : (Array.isArray(c) ? c[1] : 0);
+        const z0 = c.z0 !== undefined ? c.z0 : (Array.isArray(c) ? c[2] : 0);
+        const r = c.r !== undefined ? c.r : (Array.isArray(c) ? c[3] : 1);
+        
+        (source.spatial as any).center = [x0, y0, z0];
+        (source.spatial as any).radius = r;
+        
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.messageService.info(`Source ${index + 1} matched to sphere surface`);
+        this.logToConsole(`Source ${index + 1} matched to sphere at (${x0}, ${y0}, ${z0}), radius ${r}`);
+    }
+
+    /**
+     * Snap sphere source to enclose all geometry
+     */
+    private snapSourceToEncloseGeometry(index: number): void {
+        const state = this.stateManager.getState();
+        const bounds = this.calculateGeometryBounds(state);
+        
+        if (!bounds) {
+            this.messageService.warn('No geometry defined. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        const center = [
+            (bounds.min[0] + bounds.max[0]) / 2,
+            (bounds.min[1] + bounds.max[1]) / 2,
+            (bounds.min[2] + bounds.max[2]) / 2
+        ];
+        const radius = Math.sqrt(
+            Math.pow(bounds.max[0] - center[0], 2) +
+            Math.pow(bounds.max[1] - center[1], 2) +
+            Math.pow(bounds.max[2] - center[2], 2)
+        ) * 1.2; // 20% padding
+        
+        (source.spatial as any).center = center;
+        (source.spatial as any).radius = radius;
+        
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.messageService.info(`Source ${index + 1} sphere encloses all geometry`);
+        this.logToConsole(`Source ${index + 1} sphere set to enclose geometry (radius: ${radius.toFixed(2)})`);
+    }
+
+    /**
+     * Set point source to first cylinder axis
+     */
+    private setSourceToCylinderAxis(index: number): void {
+        const state = this.stateManager.getState();
+        const settings = state.settings;
+        const newSources = [...settings.sources];
+        const source = newSources[index];
+        
+        // Find first cylinder
+        const cylinder = state.geometry.surfaces.find(s => 
+            s.type === 'z-cylinder' || s.type === 'y-cylinder' || s.type === 'x-cylinder'
+        );
+        
+        if (!cylinder) {
+            this.messageService.warn('No cylinder found. Opening CSG Builder...');
+            this.openCSGBuilder();
+            return;
+        }
+        
+        const c = cylinder.coefficients as any;
+        const getValue = (key: string, idx: number) => c[key] !== undefined ? c[key] : (Array.isArray(c) ? c[idx] : 0);
+        
+        let x0 = 0, y0 = 0, z0 = 0;
+        
+        if (cylinder.type === 'z-cylinder') {
+            x0 = getValue('x0', 0);
+            y0 = getValue('y0', 1);
+            z0 = 0;
+        } else if (cylinder.type === 'y-cylinder') {
+            x0 = getValue('x0', 0);
+            y0 = 0;
+            z0 = getValue('z0', 2);
+        } else if (cylinder.type === 'x-cylinder') {
+            x0 = 0;
+            y0 = getValue('y0', 1);
+            z0 = getValue('z0', 2);
+        }
+        
+        (source.spatial as any).origin = [x0, y0, z0];
+        this.stateManager.updateSettings({ ...settings, sources: newSources });
+        this.messageService.info(`Source ${index + 1} set to ${cylinder.type} axis: (${x0}, ${y0}, ${z0})`);
+        this.logToConsole(`Source ${index + 1} positioned at ${cylinder.type} axis (${x0}, ${y0}, ${z0})`);
+    }
+    
+    /**
+     * Calculate bounding box from geometry surfaces
+     */
+    private calculateGeometryBounds(state: OpenMCState): { min: number[]; max: number[] } | null {
+        if (state.geometry.surfaces.length === 0) {
+            console.log('[SnapToGeometry] No surfaces found');
+            return null;
+        }
+        
+        console.log(`[SnapToGeometry] Calculating bounds from ${state.geometry.surfaces.length} surfaces`);
+        
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        let validSurfaceCount = 0;
+        
+        for (const surface of state.geometry.surfaces) {
+            const c = surface.coefficients as any;
+            if (!c) {
+                console.log(`[SnapToGeometry] Surface ${surface.id}: no coefficients`);
+                continue;
+            }
+            
+            // Handle both object format (new) and array format (old)
+            const getValue = (key: string, index: number): number | undefined => {
+                if (c[key] !== undefined) return c[key];
+                if (Array.isArray(c) && c.length > index) return c[index];
+                return undefined;
+            };
+            
+            switch (surface.type) {
+                case 'sphere': {
+                    // Sphere: x0, y0, z0, r
+                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), z0 = getValue('z0', 2), r = getValue('r', 3);
+                    if (x0 !== undefined && y0 !== undefined && z0 !== undefined && r !== undefined) {
+                        minX = Math.min(minX, x0 - r);
+                        minY = Math.min(minY, y0 - r);
+                        minZ = Math.min(minZ, z0 - r);
+                        maxX = Math.max(maxX, x0 + r);
+                        maxY = Math.max(maxY, y0 + r);
+                        maxZ = Math.max(maxZ, z0 + r);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'x-plane': {
+                    // x - x0 = 0
+                    const x0 = getValue('x0', 0);
+                    if (x0 !== undefined) {
+                        minX = Math.min(minX, x0);
+                        maxX = Math.max(maxX, x0);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'y-plane': {
+                    // y - y0 = 0
+                    const y0 = getValue('y0', 0);
+                    if (y0 !== undefined) {
+                        minY = Math.min(minY, y0);
+                        maxY = Math.max(maxY, y0);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'z-plane': {
+                    // z - z0 = 0
+                    const z0 = getValue('z0', 0);
+                    if (z0 !== undefined) {
+                        minZ = Math.min(minZ, z0);
+                        maxZ = Math.max(maxZ, z0);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'x-cylinder': {
+                    // (y-y0)^2 + (z-z0)^2 = r^2
+                    const y0 = getValue('y0', 0), z0 = getValue('z0', 1), r = getValue('r', 2);
+                    if (y0 !== undefined && z0 !== undefined && r !== undefined) {
+                        minY = Math.min(minY, y0 - r);
+                        minZ = Math.min(minZ, z0 - r);
+                        maxY = Math.max(maxY, y0 + r);
+                        maxZ = Math.max(maxZ, z0 + r);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'y-cylinder': {
+                    // (x-x0)^2 + (z-z0)^2 = r^2
+                    const x0 = getValue('x0', 0), z0 = getValue('z0', 1), r = getValue('r', 2);
+                    if (x0 !== undefined && z0 !== undefined && r !== undefined) {
+                        minX = Math.min(minX, x0 - r);
+                        minZ = Math.min(minZ, z0 - r);
+                        maxX = Math.max(maxX, x0 + r);
+                        maxZ = Math.max(maxZ, z0 + r);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                case 'z-cylinder': {
+                    // (x-x0)^2 + (y-y0)^2 = r^2
+                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), r = getValue('r', 2);
+                    if (x0 !== undefined && y0 !== undefined && r !== undefined) {
+                        minX = Math.min(minX, x0 - r);
+                        minY = Math.min(minY, y0 - r);
+                        maxX = Math.max(maxX, x0 + r);
+                        maxY = Math.max(maxY, y0 + r);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                
+                case 'x-cone':
+                case 'y-cone':
+                case 'z-cone': {
+                    // Cone: x0, y0, z0, r2 (squared radius)
+                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), z0 = getValue('z0', 2), r2 = getValue('r2', 3);
+                    if (x0 !== undefined && y0 !== undefined && z0 !== undefined && r2 !== undefined) {
+                        const r = Math.sqrt(Math.abs(r2));
+                        minX = Math.min(minX, x0 - r);
+                        minY = Math.min(minY, y0 - r);
+                        minZ = Math.min(minZ, z0 - r);
+                        maxX = Math.max(maxX, x0 + r);
+                        maxY = Math.max(maxY, y0 + r);
+                        maxZ = Math.max(maxZ, z0 + r);
+                        validSurfaceCount++;
+                    }
+                    break;
+                }
+                    
+                default:
+                    console.log(`[SnapToGeometry] Unknown surface type: ${surface.type}`);
+            }
+        }
+        
+        console.log(`[SnapToGeometry] Valid surfaces: ${validSurfaceCount}, Bounds: X[${minX}, ${maxX}], Y[${minY}, ${maxY}], Z[${minZ}, ${maxZ}]`);
+        
+        // If no valid bounds found, return null
+        if (minX === Infinity || minY === Infinity || minZ === Infinity) {
+            console.log('[SnapToGeometry] No valid bounds could be calculated');
+            return null;
+        }
+        
+        // Add some default padding if bounds are zero in any dimension
+        if (maxX - minX < 0.001) { maxX += 1; minX -= 1; }
+        if (maxY - minY < 0.001) { maxY += 1; minY -= 1; }
+        if (maxZ - minZ < 0.001) { maxZ += 1; minZ -= 1; }
+        
+        return {
+            min: [minX, minY, minZ],
+            max: [maxX, maxY, maxZ]
+        };
     }
 
     // ============================================================================

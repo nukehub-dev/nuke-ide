@@ -77,7 +77,18 @@ export function createDefaultState(): OpenMCState {
                 inactive: 10,
                 batches: 100
             },
-            sources: []
+            sources: [{
+                spatial: {
+                    type: 'box',
+                    lowerLeft: [-5, -5, -5],
+                    upperRight: [5, 5, 5]
+                },
+                energy: {
+                    type: 'discrete',
+                    energies: [1e6]
+                }
+            }],
+            sourceRejectionFraction: 0.0  // Allow sources to be placed anywhere
         },
         tallies: [],
         meshes: []

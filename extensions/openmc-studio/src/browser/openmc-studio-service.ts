@@ -27,6 +27,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { Emitter, Event } from '@theia/core/lib/common';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
@@ -42,6 +43,9 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
     
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
+    
+    @inject(PreferenceService)
+    protected readonly preferences: PreferenceService;
 
     private readonly _onInitialized = new Emitter<void>();
     readonly onInitialized: Event<void> = this._onInitialized.event;
@@ -53,6 +57,34 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
     @postConstruct()
     protected init(): void {
         console.log('[OpenMC Studio] Service initialized');
+        this.syncPythonConfig();
+        
+        // Listen for Python preference changes from nuke-visualizer
+        this.preferences.onPreferenceChanged(event => {
+            if (event.preferenceName === 'nukeVisualizer.pythonPath' || 
+                event.preferenceName === 'nukeVisualizer.condaEnv') {
+                console.log(`[OpenMC Studio] Python config changed: ${event.preferenceName}`);
+                this.syncPythonConfig();
+            }
+        });
+    }
+    
+    /**
+     * Sync Python configuration from nuke-visualizer preferences.
+     */
+    protected syncPythonConfig(): void {
+        const pythonPath = this.preferences.get('nukeVisualizer.pythonPath') as string | undefined;
+        const condaEnv = this.preferences.get('nukeVisualizer.condaEnv') as string | undefined;
+        
+        if (pythonPath || condaEnv) {
+            console.log(`[OpenMC Studio] Setting Python config: path=${pythonPath}, conda=${condaEnv}`);
+            this.backendService.setPythonConfig({
+                pythonPath: pythonPath || undefined,
+                condaEnv: condaEnv || undefined
+            }).catch(err => {
+                console.error('[OpenMC Studio] Failed to set Python config:', err);
+            });
+        }
     }
 
     /**

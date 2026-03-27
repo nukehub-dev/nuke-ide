@@ -507,6 +507,8 @@ export interface OpenMCSettings {
         overwrite?: boolean;
         mcpl?: boolean;
     };
+    /** Source rejection fraction for rejection sampling (default: 0.05) */
+    sourceRejectionFraction?: number;
     /** Temperature settings for Doppler broadening */
     temperature?: {
         default?: number;

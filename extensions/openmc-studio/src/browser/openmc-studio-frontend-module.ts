@@ -27,7 +27,8 @@ import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import {
     WebSocketConnectionProvider,
     FrontendApplicationContribution,
-    OpenHandler
+    OpenHandler,
+    WidgetFactory
 } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { MenuContribution } from '@theia/core/lib/common/menu';
@@ -36,6 +37,7 @@ import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar
 // Protocol imports
 import {
     OpenMCStudioBackendService,
+    OpenMCStudioClient,
     OPENMC_STUDIO_BACKEND_PATH
 } from '../common/openmc-studio-protocol';
 
@@ -51,7 +53,6 @@ import { OpenMCStudioContribution } from './openmc-studio-contribution';
 // Preferences
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
-import { WidgetFactory } from '@theia/core/lib/browser';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 // import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
@@ -77,10 +78,27 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     // Backend Service Proxy
     // ============================================================================
     
-    // Create proxy for backend service communication
+    // Create proxy for backend service communication with client
     bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH);
+        
+        // Create client object that forwards messages via window event
+        const client: OpenMCStudioClient = {
+            log: (message: string) => {
+                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stdout', data: message } }));
+            },
+            error: (message: string) => {
+                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
+            },
+            warn: (message: string) => {
+                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
+            },
+            onSimulationStatus: () => {},
+            onProgress: () => {},
+            onStateChange: () => {}
+        };
+        
+        return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
     }).inSingletonScope();
 
     // ============================================================================

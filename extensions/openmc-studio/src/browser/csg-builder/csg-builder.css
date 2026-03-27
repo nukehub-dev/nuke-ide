@@ -191,39 +191,158 @@
    ============================================================================ */
 .csg-builder .surfaces-tab {
     animation: slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Surface Editor Panel - Overlay/Slide-in */
+.csg-builder .surface-editor-panel {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+}
+
+.csg-builder .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-list-activeSelectionBackground);
+    border-bottom: 1px solid var(--theia-focusBorder);
+}
+
+.csg-builder .panel-header h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.csg-builder .panel-close {
+    background: transparent;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--theia-foreground);
+    opacity: 0.7;
+    transition: opacity 150ms;
+}
+
+.csg-builder .panel-close:hover {
+    opacity: 1;
+}
+
+.csg-builder .panel-content {
+    padding: 16px;
+}
+
+.csg-builder .panel-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+/* Two Column Layout for Surfaces */
+.csg-builder .surfaces-layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.csg-builder .surface-gallery-section,
+.csg-builder .surface-list-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.csg-builder .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border: 1px solid var(--theia-panel-border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+}
+
+.csg-builder .section-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.csg-builder .section-subtitle {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.csg-builder .auto-generate-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.csg-builder .auto-generate-toggle input {
+    cursor: pointer;
 }
 
 /* Surface Gallery */
 .csg-builder .surface-gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 12px;
-    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0 0 8px 8px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .csg-builder .surface-card {
-    background: var(--theia-editorWidget-background);
+    background: var(--theia-button-secondaryBackground);
     border: 1px solid var(--theia-panel-border);
-    border-radius: 8px;
-    padding: 16px;
+    border-radius: 6px;
+    padding: 12px;
     cursor: pointer;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    text-align: center;
-    gap: 8px;
+    gap: 12px;
+    text-align: left;
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
     animation: card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 100%;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
 }
 
 .csg-builder .surface-card:hover {
     border-color: var(--theia-focusBorder);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    transform: translateY(-2px);
+    background: var(--theia-button-secondaryHoverBackground);
 }
 
 .csg-builder .surface-card:active {
-    transform: translateY(0);
+    transform: scale(0.98);
 }
 
 .csg-builder .surface-card.creating {
@@ -232,38 +351,40 @@
 }
 
 .csg-builder .surface-icon {
-    width: 48px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--theia-panel-background);
-    border-radius: 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
 }
 
 .csg-builder .surface-icon i {
-    font-size: 24px;
+    font-size: 18px;
     color: var(--theia-focusBorder);
 }
 
 .csg-builder .surface-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
 }
 
 .csg-builder .surface-name {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .csg-builder .surface-desc {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--theia-descriptionForeground);
-    line-height: 1.4;
+    line-height: 1.3;
 }
 
-/* Surface Form */
+/* Surface Form - Legacy, keep for compatibility */
 .csg-builder .surface-form-container {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-focusBorder);
@@ -294,11 +415,14 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .csg-builder .coefficients-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 12px;
 }
 
@@ -307,13 +431,19 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    padding: 12px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0 0 8px 8px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .csg-builder .surface-list-item {
-    background: var(--theia-editorWidget-background);
+    background: var(--theia-editor-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
-    padding: 12px 16px;
+    padding: 10px 12px;
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
     animation: card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -323,11 +453,16 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.csg-builder .surface-item-header {
+.csg-builder .surface-list-item.editing {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.csg-builder .surface-item-main {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 .csg-builder .surface-item-info {
@@ -387,12 +522,6 @@
 .csg-builder .surface-item-actions {
     display: flex;
     gap: 4px;
-    opacity: 0;
-    transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.csg-builder .surface-list-item:hover .surface-item-actions {
-    opacity: 1;
 }
 
 .csg-builder .surface-item-coeffs {
@@ -437,6 +566,70 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+/* Fill Type Section in Cell Form */
+.csg-builder .form-section.fill-type-section {
+    background: var(--theia-panel-background);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.csg-builder .section-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--theia-foreground);
+}
+
+.csg-builder .fill-type-options {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.csg-builder .fill-type-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 16px 20px;
+    border: 2px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    cursor: pointer;
+    transition: all 150ms ease;
+    min-width: 100px;
+}
+
+.csg-builder .fill-type-btn:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.csg-builder .fill-type-btn.active {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.csg-builder .fill-type-btn i {
+    font-size: 24px;
+    margin-bottom: 4px;
+}
+
+.csg-builder .fill-type-btn span {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.csg-builder .fill-type-btn small {
+    font-size: 10px;
+    opacity: 0.7;
+    font-weight: 400;
 }
 
 .csg-builder .form-hint {
@@ -505,32 +698,68 @@
     font-size: 14px;
 }
 
-.csg-builder .cell-fill-type {
+/* Cell fill badge - visible indicator */
+.csg-builder .cell-fill-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 10px;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 4px;
     text-transform: uppercase;
     font-weight: 600;
+    cursor: help;
 }
 
-.csg-builder .cell-fill-type.void {
+.csg-builder .cell-fill-badge.void {
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
 }
 
-.csg-builder .cell-fill-type.material {
+.csg-builder .cell-fill-badge.material {
     background: var(--theia-inputValidation-infoBackground);
     color: var(--theia-inputValidation-infoBorder);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
 }
 
-.csg-builder .cell-fill-type.universe {
+.csg-builder .cell-fill-badge.universe {
     background: var(--theia-inputValidation-warningBackground);
     color: var(--theia-inputValidation-warningBorder);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
 }
 
-.csg-builder .cell-fill-type.lattice {
+.csg-builder .cell-fill-badge.lattice {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
+}
+
+/* Left border color coding for cell cards */
+.csg-builder .cell-card.fill-void {
+    border-left: 3px solid var(--theia-badge-background);
+}
+
+.csg-builder .cell-card.fill-material {
+    border-left: 3px solid var(--theia-inputValidation-infoBorder);
+}
+
+.csg-builder .cell-card.fill-universe {
+    border-left: 3px solid var(--theia-inputValidation-warningBorder);
+}
+
+/* Fill value display in cell details */
+.csg-builder .fill-value.void {
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.csg-builder .fill-value.material {
+    color: var(--theia-inputValidation-infoBorder);
+    font-weight: 500;
+}
+
+.csg-builder .fill-value.universe {
+    color: var(--theia-inputValidation-warningBorder);
+    font-weight: 500;
 }
 
 .csg-builder .cell-actions {
@@ -580,6 +809,7 @@
     margin-right: 24px;
     display: flex;
     gap: 8px;
+    align-items: center;
 }
 
 /* ============================================================================
@@ -594,23 +824,24 @@
 }
 
 .csg-builder .unassigned-cells-section {
-    background: var(--theia-inputValidation-warningBackground);
-    border: 1px solid var(--theia-inputValidation-warningBorder);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 20px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
 }
 
 .csg-builder .unassigned-cells-section h4 {
-    margin: 0 0 12px 0;
-    font-size: 13px;
+    margin: 0 0 10px 0;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--theia-inputValidation-warningBorder);
+    color: var(--theia-inputValidation-errorBorder);
 }
 
 .csg-builder .cell-tag.unassigned {
-    background: var(--theia-inputValidation-warningBorder);
-    color: var(--theia-button-foreground);
+    background: var(--theia-dropdown-background);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    color: var(--theia-foreground);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1244,5 +1475,31 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
+    }
+}
+
+/* Empty state hint */
+.csg-builder .empty-hint {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 8px;
+}
+
+/* Form hint text */
+.csg-builder .form-hint {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+}
+
+/* Responsive layout for surfaces */
+@media (max-width: 900px) {
+    .csg-builder .surfaces-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+    
+    .csg-builder .surface-gallery-section {
+        max-height: 300px;
     }
 }

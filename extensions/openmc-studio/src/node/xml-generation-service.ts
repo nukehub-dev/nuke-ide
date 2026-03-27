@@ -204,9 +204,11 @@ export class XMLGenerationService {
             lines.push(this.generateSurfaceElement(surface));
         }
         
-        // Add cells
+        // Add cells with their universe assignments
         for (const cell of state.geometry.cells) {
-            lines.push(this.generateCellElement(cell));
+            // Find which universe this cell belongs to
+            const universe = state.geometry.universes.find(u => u.cellIds.includes(cell.id));
+            lines.push(this.generateCellElement(cell, universe?.id ?? 0));
         }
         
         // Add lattices
@@ -220,7 +222,11 @@ export class XMLGenerationService {
     }
 
     private generateSurfaceElement(surface: OpenMCSurface): string {
-        const boundaryAttr = surface.boundary ? ` boundary="${surface.boundary}"` : '';
+        // Always use 'vacuum' for boundaries to allow particles to escape
+        // 'transmission' causes particles to get lost when crossing surfaces
+        // This is a workaround until proper boundary detection is implemented
+        const boundary = surface.boundary === 'reflective' ? 'reflective' : 'vacuum';
+        const boundaryAttr = ` boundary="${boundary}"`;
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
         
         return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${surface.type}"${boundaryAttr}${nameAttr}/>`;
@@ -232,39 +238,36 @@ export class XMLGenerationService {
         return values.join(' ');
     }
 
-    private generateCellElement(cell: OpenMCCell): string {
-        const lines: string[] = [];
-        
+    private generateCellElement(cell: OpenMCCell, universeId: number = 0): string {
         const nameAttr = cell.name ? ` name="${this.escapeXml(cell.name)}"` : '';
         const tempAttr = cell.temperature ? ` temperature="${cell.temperature}"` : '';
+        const universeAttr = universeId !== 0 ? ` universe="${universeId}"` : '';
         
-        lines.push(`  <cell id="${cell.id}"${nameAttr}${tempAttr}>`);
-        
-        // Fill
+        // Build attributes for self-closing tag (compatible with OpenMC geometry viewer)
+        let fillAttr = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
-            lines.push(`    <material>${cell.fillId}</material>`);
+            fillAttr = ` material="${cell.fillId}"`;
         } else if (cell.fillType === 'universe' && cell.fillId !== undefined) {
-            lines.push(`    <fill>${cell.fillId}</fill>`);
+            fillAttr = ` fill="${cell.fillId}"`;
         } else if (cell.fillType === 'lattice' && cell.fillId !== undefined) {
-            lines.push(`    <fill>${cell.fillId}</fill>`);
-        } else if (cell.fillType === 'void') {
-            lines.push(`    <material />`);
+            fillAttr = ` fill="${cell.fillId}"`;
         }
+        // Note: void cells don't need a material attribute (empty cell)
         
-        // Region
+        // Build region attribute
+        let regionAttr = '';
+        let regionValue = '';
         if (cell.regionString) {
-            lines.push(`    <region>${this.escapeXml(cell.regionString)}</region>`);
+            regionValue = cell.regionString;
         } else if (cell.region) {
-            const regionString = this.regionNodeToString(cell.region);
-            if (regionString) {
-                lines.push(`    <region>${this.escapeXml(regionString)}</region>`);
-            }
+            regionValue = this.regionNodeToString(cell.region);
+        }
+        if (regionValue) {
+            regionAttr = ` region="${this.escapeXml(regionValue)}"`;
         }
         
-        lines.push('  </cell>');
-        lines.push('');
-        
-        return lines.join('\n');
+        // Use self-closing tag format for cleaner XML
+        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}/>\n`;
     }
 
     private regionNodeToString(node: any): string {
@@ -330,14 +333,41 @@ export class XMLGenerationService {
         
         // Sources
         if (settings.sources && settings.sources.length > 0) {
+            let validSources = 0;
             for (const source of settings.sources) {
-                lines.push(this.generateSourceElement(source));
+                const sourceXml = this.generateSourceElement(source);
+                if (sourceXml) {
+                    lines.push(sourceXml);
+                    validSources++;
+                }
             }
+            // If no valid sources were generated, add a default source
+            if (validSources === 0 && run.mode !== 'volume') {
+                this.log('Warning: No valid sources found, adding default point source at origin');
+                lines.push('  <source>');
+                lines.push('    <space type="point">');
+                lines.push('      <parameters>0 0 0</parameters>');
+                lines.push('    </space>');
+                lines.push('  </source>');
+            }
+        } else if (run.mode !== 'volume') {
+            // No sources defined - add a default for non-volume modes
+            this.log('Warning: No sources defined, adding default point source at origin');
+            lines.push('  <source>');
+            lines.push('    <space type="point">');
+            lines.push('      <parameters>0 0 0</parameters>');
+            lines.push('    </space>');
+            lines.push('  </source>');
         }
         
         // Seed
         if (settings.seed) {
             lines.push(`  <seed>${settings.seed}</seed>`);
+        }
+        
+        // Source rejection fraction
+        if (settings.sourceRejectionFraction !== undefined) {
+            lines.push(`  <source_rejection_fraction>${settings.sourceRejectionFraction}</source_rejection_fraction>`);
         }
         
         // Temperature settings
@@ -377,25 +407,132 @@ export class XMLGenerationService {
     private generateSourceElement(source: any): string {
         const lines: string[] = [];
         
-        lines.push('  <source>');
-        lines.push('    <space type="' + source.spatial?.type + '">');
-        // Add spatial parameters based on type
-        lines.push('    </space>');
+        // Skip sources without proper spatial definition
+        if (!source.spatial || !source.spatial.type) {
+            this.log(`Warning: Skipping source with no spatial definition`);
+            return '';
+        }
+        
+        // Source with required attributes (type, strength, particle)
+        const strength = source.strength !== undefined ? source.strength : 1.0;
+        const particle = source.particle || 'neutron';
+        lines.push(`  <source type="independent" strength="${strength}" particle="${particle}">`);
+        
+        // Generate spatial distribution with parameters
+        const spatialLines = this.generateSpatialElement(source.spatial);
+        if (spatialLines) {
+            lines.push(spatialLines);
+        } else {
+            // If we can't generate valid spatial, skip this source
+            this.log(`Warning: Skipping source with unsupported spatial type: ${source.spatial.type}`);
+            return '';
+        }
         
         if (source.energy) {
-            lines.push('    <energy type="' + source.energy.type + '">');
-            // Add energy parameters
-            lines.push('    </energy>');
+            const energyLines = this.generateEnergyElement(source.energy);
+            if (energyLines) {
+                lines.push(energyLines);
+            }
         }
         
         if (source.angle) {
-            lines.push('    <angle type="' + source.angle.type + '">');
-            lines.push('    </angle>');
+            const angleLines = this.generateAngleElement(source.angle);
+            if (angleLines) {
+                lines.push(angleLines);
+            }
         }
         
         lines.push('  </source>');
         
         return lines.join('\n');
+    }
+    
+    private generateSpatialElement(spatial: any): string {
+        const type = spatial.type;
+        
+        switch (type) {
+            case 'box':
+                const lowerLeft = spatial.lowerLeft || [-10, -10, -10];
+                const upperRight = spatial.upperRight || [10, 10, 10];
+                return `    <space type="box">\n      <parameters>${lowerLeft.join(' ')} ${upperRight.join(' ')}</parameters>\n    </space>`;
+                
+            case 'point':
+                const origin = spatial.origin || [0, 0, 0];
+                return `    <space type="point">\n      <parameters>${origin.join(' ')}</parameters>\n    </space>`;
+                
+            case 'sphere':
+                // OpenMC XML uses 'spherical' with independent distributions for r, theta, phi
+                const center = spatial.center || [0, 0, 0];
+                const radius = spatial.radius !== undefined ? spatial.radius : 1;
+                return `    <space type="spherical" origin="${center.join(' ')}">\n      <r type="uniform" parameters="0 ${radius}"/>\n      <cos_theta type="uniform" parameters="-1 1"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n    </space>`;
+                
+            case 'cylinder':
+                // OpenMC XML uses 'cylindrical' with independent distributions for r, phi, z
+                const cylCenter = spatial.center || [0, 0, 0];
+                const cylRadius = spatial.radius !== undefined ? spatial.radius : 1;
+                const height = spatial.height !== undefined ? spatial.height : 1;
+                return `    <space type="cylindrical" origin="${cylCenter.join(' ')}">\n      <r type="uniform" parameters="0 ${cylRadius}"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n      <z type="uniform" parameters="-${height/2} ${height/2}"/>\n    </space>`;
+                
+            default:
+                this.log(`Warning: Unknown spatial type '${type}', using default box`);
+                return '    <space type="box">\n      <parameters>-10 -10 -10 10 10 10</parameters>\n    </space>';
+        }
+    }
+    
+    private generateEnergyElement(energy: any): string {
+        const type = energy.type;
+        
+        switch (type) {
+            case 'discrete':
+                const energies = energy.energies || [1e6];
+                // For discrete energy, parameters are: energy1 prob1 energy2 prob2 ...
+                // If only energies provided, assume equal probability (sum to 1)
+                const params: string[] = [];
+                const prob = 1.0 / energies.length;
+                for (const e of energies) {
+                    params.push(String(e));
+                    params.push(String(prob));
+                }
+                return `    <energy type="discrete">\n      <parameters>${params.join(' ')}</parameters>\n    </energy>`;
+                
+            case 'uniform':
+                const min = energy.min !== undefined ? energy.min : 1e-5;
+                const max = energy.max !== undefined ? energy.max : 2e7;
+                return `    <energy type="uniform">\n      <parameters>${min} ${max}</parameters>\n    </energy>`;
+                
+            case 'maxwell':
+                const temp = energy.temperature || 0.025;
+                return `    <energy type="maxwell">\n      <parameters>${temp}</parameters>\n    </energy>`;
+                
+            case 'watt':
+                const a = energy.a || 0.988;
+                const b = energy.b || 2.249;
+                return `    <energy type="watt">\n      <parameters>${a} ${b}</parameters>\n    </energy>`;
+                
+            case 'muir':
+            case 'tabular':
+                this.log(`Warning: Energy type '${type}' not fully implemented`);
+                return '';
+                
+            default:
+                return '';
+        }
+    }
+    
+    private generateAngleElement(angle: any): string {
+        const type = angle.type;
+        
+        switch (type) {
+            case 'isotropic':
+                return '    <angle type="isotropic"/>';
+                
+            case 'monodirectional':
+                return '    <angle type="monodirectional"/>';
+                
+            default:
+                this.log(`Warning: Angle type '${type}' not fully implemented`);
+                return '';
+        }
     }
 
     // ============================================================================

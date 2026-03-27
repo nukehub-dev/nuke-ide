@@ -156,8 +156,13 @@ export class CSGBuilderWidget extends ReactWidget {
     private creatingSurfaceType?: OpenMCSurfaceType;
     private surfaceFormType: OpenMCSurfaceType = 'sphere';
     private surfaceFormCoeffs: Partial<OpenMCSurfaceCoefficients[OpenMCSurfaceType]> = {};
-    private surfaceFormBoundary: OpenMCBoundaryCondition = 'transmission';
+    private surfaceFormBoundary: OpenMCBoundaryCondition = 'vacuum';
     private surfaceFormName = '';
+    private showSurfaceEditor = false;
+    
+    // Save location - if set, auto-saves happen here
+    private saveOutputPath?: string;
+    private autoSaveDebounceTimer?: number;
 
     // Cell form state
     private editingCell?: OpenMCCell;
@@ -181,7 +186,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-graph';
 
         // Listen to state changes (both change events and reload events)
-        this.stateManager.onStateChange(() => this.update());
+        this.stateManager.onStateChange(() => {
+            this.update();
+            this.autoSaveToCurrentPath();
+        });
         this.stateManager.onStateReload(() => this.update());
 
         this.update();
@@ -225,15 +233,7 @@ export class CSGBuilderWidget extends ReactWidget {
                             Import XML
                         </button>
                     </Tooltip>
-                    <Tooltip content='Generate geometry.xml file' position='bottom'>
-                        <button
-                            className='theia-button primary'
-                            onClick={() => this.generateGeometryXML()}
-                        >
-                            <i className='codicon codicon-file-code'></i>
-                            Generate XML
-                        </button>
-                    </Tooltip>
+                    {this.renderSaveButtons()}
                 </div>
                 <div className='header-stats'>
                     <div className='stat-item'>
@@ -287,77 +287,85 @@ export class CSGBuilderWidget extends ReactWidget {
     private renderSurfacesTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='surfaces-tab'>
-                <div className='tab-toolbar'>
-                    <h3>Surface Gallery</h3>
-                    <span className='tab-subtitle'>Click a surface type to create</span>
-                </div>
+                {/* Surface Editor Panel - Shows when editing/creating */}
+                {this.showSurfaceEditor && this.renderSurfaceEditorPanel()}
 
-                <div className='surface-gallery'>
-                    {SURFACE_TEMPLATES.map(template => (
-                        <div
-                            key={template.type}
-                            className={`surface-card ${this.creatingSurfaceType === template.type ? 'creating' : ''}`}
-                            onClick={() => this.startCreateSurface(template)}
-                        >
-                            <div className='surface-icon'>
-                                <i className={`codicon codicon-${template.icon}`}></i>
-                            </div>
-                            <div className='surface-info'>
-                                <span className='surface-name'>{template.name}</span>
-                                <span className='surface-desc'>{template.description}</span>
-                            </div>
+                {/* Two Column Layout: Gallery + Surface List */}
+                <div className='surfaces-layout'>
+                    {/* Left Column: Surface Gallery */}
+                    <div className='surface-gallery-section'>
+                        <div className='section-header'>
+                            <h3><i className='codicon codicon-add'></i> Create Surface</h3>
+                            <span className='section-subtitle'>Select a surface type</span>
                         </div>
-                    ))}
-                </div>
-
-                {(this.editingSurface || this.surfaceFormType) && this.renderSurfaceForm()}
-
-                <div className='tab-toolbar'>
-                    <h3>Defined Surfaces</h3>
-                </div>
-
-                <div className='surfaces-list'>
-                    {state.geometry.surfaces.length === 0 ? (
-                        <div className='empty-state'>
-                            <i className='codicon codicon-circle'></i>
-                            <p>No surfaces defined yet. Click a surface type above to create one.</p>
+                        <div className='surface-gallery'>
+                            {SURFACE_TEMPLATES.map(template => (
+                                <Tooltip key={template.type} content={template.description} position='right'>
+                                    <button
+                                        className={`surface-card ${this.creatingSurfaceType === template.type ? 'creating' : ''}`}
+                                        onClick={() => this.startCreateSurface(template)}
+                                    >
+                                        <div className='surface-icon'>
+                                            <i className={`codicon codicon-${template.icon}`}></i>
+                                        </div>
+                                        <div className='surface-info'>
+                                            <span className='surface-name'>{template.name}</span>
+                                            <span className='surface-desc'>{template.description}</span>
+                                        </div>
+                                    </button>
+                                </Tooltip>
+                            ))}
                         </div>
-                    ) : (
-                        state.geometry.surfaces.map(surface => (
-                            <div key={surface.id} className='surface-list-item'>
-                                <div className='surface-item-header'>
-                                    <div className='surface-item-info'>
-                                        <span className='surface-item-id'>#{surface.id}</span>
-                                        <span className='surface-item-name'>{surface.name || `${surface.type}`}</span>
-                                        <span className={`surface-bc ${surface.boundary || 'transmission'}`}>
-                                            {surface.boundary || 'transmission'}
-                                        </span>
-                                    </div>
-                                    <div className='surface-item-actions'>
-                                        <Tooltip content='Edit Surface' position='top'>
-                                            <button
-                                                className='theia-button secondary small'
-                                                onClick={() => this.startEditSurface(surface)}
-                                            >
-                                                <i className='codicon codicon-edit'></i>
-                                            </button>
-                                        </Tooltip>
-                                        <Tooltip content='Delete Surface' position='top'>
-                                            <button
-                                                className='theia-button secondary small danger'
-                                                onClick={() => this.deleteSurface(surface.id)}
-                                            >
-                                                <i className='codicon codicon-trash'></i>
-                                            </button>
-                                        </Tooltip>
-                                    </div>
+                    </div>
+
+                    {/* Right Column: Defined Surfaces */}
+                    <div className='surface-list-section'>
+                        <div className='section-header'>
+                            <h3><i className='codicon codicon-list-unordered'></i> Defined Surfaces ({state.geometry.surfaces.length})</h3>
+                        </div>
+                        <div className='surfaces-list'>
+                            {state.geometry.surfaces.length === 0 ? (
+                                <div className='empty-state'>
+                                    <i className='codicon codicon-circle'></i>
+                                    <p>No surfaces defined yet.</p>
+                                    <p className='empty-hint'>Select a surface type from the gallery to create one.</p>
                                 </div>
-                                <div className='surface-item-coeffs'>
-                                    {this.renderSurfaceCoeffsPreview(surface)}
-                                </div>
-                            </div>
-                        ))
-                    )}
+                            ) : (
+                                state.geometry.surfaces.map(surface => (
+                                    <div key={surface.id} className={`surface-list-item ${this.editingSurface?.id === surface.id ? 'editing' : ''}`}>
+                                        <div className='surface-item-main'>
+                                            <div className='surface-item-info'>
+                                                <span className='surface-item-id'>#{surface.id}</span>
+                                                <span className='surface-item-name'>{surface.name || `${surface.type}`}</span>
+                                                <span className={`surface-bc ${surface.boundary || 'transmission'}`}>
+                                                    {surface.boundary || 'transmission'}
+                                                </span>
+                                            </div>
+                                            <div className='surface-item-actions'>
+                                                <button
+                                                    className='theia-button secondary small'
+                                                    onClick={() => this.startEditSurface(surface)}
+                                                    title='Edit Surface'
+                                                >
+                                                    <i className='codicon codicon-edit'></i>
+                                                </button>
+                                                <button
+                                                    className='theia-button secondary small danger'
+                                                    onClick={() => this.deleteSurface(surface.id)}
+                                                    title='Delete Surface'
+                                                >
+                                                    <i className='codicon codicon-trash'></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className='surface-item-coeffs'>
+                                            {this.renderSurfaceCoeffsPreview(surface)}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -401,15 +409,38 @@ export class CSGBuilderWidget extends ReactWidget {
         ));
     }
 
-    private renderSurfaceForm(): React.ReactNode {
+    private renderSurfaceEditorPanel(): React.ReactNode {
         const template = SURFACE_TEMPLATES.find(t => t.type === this.surfaceFormType);
         if (!template) return null;
 
+        const isEditing = !!this.editingSurface?.id;
+
         return (
-            <div className='surface-form-container'>
-                <h4>{this.editingSurface?.id ? `Edit Surface #${this.editingSurface.id}` : `New ${template.name}`}</h4>
-                <div className='surface-form'>
+            <div className='surface-editor-panel'>
+                <div className='panel-header'>
+                    <h4>
+                        <i className={`codicon codicon-${isEditing ? 'edit' : 'add'}`}></i>
+                        {isEditing ? `Edit Surface #${this.editingSurface!.id}` : `Create New ${template.name}`}
+                    </h4>
+                    <button className='panel-close' onClick={() => this.cancelForm()} title='Close'>
+                        <i className='codicon codicon-close'></i>
+                    </button>
+                </div>
+                <div className='panel-content'>
                     <div className='form-row'>
+                        <div className='form-group'>
+                            <label>Surface Type</label>
+                            <select
+                                value={this.surfaceFormType}
+                                onChange={e => this.changeSurfaceType(e.target.value as OpenMCSurfaceType)}
+                                disabled={isEditing}
+                            >
+                                {SURFACE_TEMPLATES.map(t => (
+                                    <option key={t.type} value={t.type}>{t.name}</option>
+                                ))}
+                            </select>
+                            {isEditing && <span className='form-hint'>Type cannot be changed when editing</span>}
+                        </div>
                         <div className='form-group'>
                             <label>Name (optional)</label>
                             <input
@@ -419,7 +450,7 @@ export class CSGBuilderWidget extends ReactWidget {
                                     this.surfaceFormName = e.target.value;
                                     this.update();
                                 }}
-                                placeholder='e.g., Fuel Radius'
+                                placeholder='e.g., Fuel Outer Radius'
                             />
                         </div>
                         <div className='form-group'>
@@ -438,14 +469,16 @@ export class CSGBuilderWidget extends ReactWidget {
                         </div>
                     </div>
 
-                    <div className='form-section-title'>Coefficients</div>
+                    <div className='form-section-title'>
+                        <i className='codicon codicon-symbol-numeric'></i> Coefficients
+                    </div>
                     <div className='coefficients-grid'>
                         {Object.entries(template.defaultCoeffs).map(([key, defaultValue]) => (
                             <div key={key} className='form-group'>
                                 <label>{key}</label>
                                 <input
                                     type='number'
-                                    step={typeof defaultValue === 'number' && defaultValue < 10 ? '0.1' : '1'}
+                                    step={typeof defaultValue === 'number' && Math.abs(defaultValue as number) < 10 ? '0.1' : '1'}
                                     value={(this.surfaceFormCoeffs as any)[key] ?? defaultValue}
                                     onChange={e => {
                                         const val = parseFloat(e.target.value);
@@ -457,9 +490,10 @@ export class CSGBuilderWidget extends ReactWidget {
                         ))}
                     </div>
 
-                    <div className='form-actions'>
+                    <div className='panel-actions'>
                         <button className='theia-button primary' onClick={() => this.saveSurface()}>
-                            {this.editingSurface?.id ? 'Update Surface' : 'Create Surface'}
+                            <i className='codicon codicon-save'></i>
+                            {isEditing ? 'Save Changes' : 'Create Surface'}
                         </button>
                         <button className='theia-button secondary' onClick={() => this.cancelForm()}>
                             Cancel
@@ -494,15 +528,17 @@ export class CSGBuilderWidget extends ReactWidget {
                         <div className='empty-state'>
                             <i className='codicon codicon-package'></i>
                             <p>No cells defined yet. Click "Add Cell" to create one.</p>
+                            <p className='empty-hint'>Each cell needs a region (surfaces) and a fill (material/universe/void).</p>
                         </div>
                     ) : (
                         state.geometry.cells.map(cell => (
-                            <div key={cell.id} className='cell-card'>
+                            <div key={cell.id} className={`cell-card fill-${cell.fillType}`}>
                                 <div className='cell-header'>
                                     <div className='cell-info'>
                                         <span className='cell-id'>#{cell.id}</span>
                                         <span className='cell-name'>{cell.name || `Cell ${cell.id}`}</span>
-                                        <span className={`cell-fill-type ${cell.fillType}`}>
+                                        <span className={`cell-fill-badge ${cell.fillType}`} title='Click Edit to change fill type'>
+                                            <i className={`codicon codicon-${this.getFillIcon(cell.fillType)}`}></i>
                                             {cell.fillType}
                                         </span>
                                     </div>
@@ -534,7 +570,9 @@ export class CSGBuilderWidget extends ReactWidget {
                                     )}
                                     <div className='cell-fill'>
                                         <label>Fill:</label>
-                                        <span>{this.getFillDescription(cell, state)}</span>
+                                        <span className={`fill-value ${cell.fillType}`}>
+                                            {this.getFillDescription(cell, state)}
+                                        </span>
                                     </div>
                                     {cell.temperature && (
                                         <div className='cell-temp'>
@@ -569,19 +607,42 @@ export class CSGBuilderWidget extends ReactWidget {
                                 placeholder='e.g., Fuel Pin'
                             />
                         </div>
-                        <div className='form-group'>
-                            <label>Fill Type</label>
-                            <select
-                                value={this.cellFormFillType}
-                                onChange={e => {
-                                    this.cellFormFillType = e.target.value as OpenMCFillType;
-                                    this.update();
-                                }}
-                            >
-                                <option value='void'>Void</option>
-                                <option value='material'>Material</option>
-                                <option value='universe'>Universe</option>
-                            </select>
+                    </div>
+
+                    {/* Fill Type Selection - Made more prominent */}
+                    <div className='form-section fill-type-section'>
+                        <label className='section-label'>What fills this cell?</label>
+                        <div className='fill-type-options'>
+                            <Tooltip content='Empty space (no material)' position='top'>
+                                <button
+                                    className={`fill-type-btn ${this.cellFormFillType === 'void' ? 'active' : ''}`}
+                                    onClick={() => { this.cellFormFillType = 'void'; this.update(); }}
+                                >
+                                    <i className='codicon codicon-circle-outline'></i>
+                                    <span>Void</span>
+                                    <small>Empty space</small>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content='Fill with a material' position='top'>
+                                <button
+                                    className={`fill-type-btn ${this.cellFormFillType === 'material' ? 'active' : ''}`}
+                                    onClick={() => { this.cellFormFillType = 'material'; this.update(); }}
+                                >
+                                    <i className='codicon codicon-symbol-color'></i>
+                                    <span>Material</span>
+                                    <small>e.g., Water, Fuel</small>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content='Fill with another universe (nesting)' position='top'>
+                                <button
+                                    className={`fill-type-btn ${this.cellFormFillType === 'universe' ? 'active' : ''}`}
+                                    onClick={() => { this.cellFormFillType = 'universe'; this.update(); }}
+                                >
+                                    <i className='codicon codicon-layers'></i>
+                                    <span>Universe</span>
+                                    <small>Nested geometry</small>
+                                </button>
+                            </Tooltip>
                         </div>
                     </div>
 
@@ -786,20 +847,22 @@ export class CSGBuilderWidget extends ReactWidget {
                                     <Tooltip content={`Surface #${surface.id}: ${surface.name || surface.type}`} position='top'>
                                         <span className='surface-label'>#{surface.id}</span>
                                     </Tooltip>
-                                    <button 
-                                        className='theia-button secondary small surface-side-btn negative'
-                                        onClick={() => this.addSurfaceToRegion(surface.id, 'negative')}
-                                        title={`Negative side of surface #${surface.id}`}
-                                    >
-                                        -{surface.id}
-                                    </button>
-                                    <button 
-                                        className='theia-button secondary small surface-side-btn positive'
-                                        onClick={() => this.addSurfaceToRegion(surface.id, 'positive')}
-                                        title={`Positive side of surface #${surface.id}`}
-                                    >
-                                        +{surface.id}
-                                    </button>
+                                    <Tooltip content={`Negative side of surface #${surface.id}`} position='top'>
+                                        <button 
+                                            className='theia-button secondary small surface-side-btn negative'
+                                            onClick={() => this.addSurfaceToRegion(surface.id, 'negative')}
+                                        >
+                                            -{surface.id}
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content={`Positive side of surface #${surface.id}`} position='top'>
+                                        <button 
+                                            className='theia-button secondary small surface-side-btn positive'
+                                            onClick={() => this.addSurfaceToRegion(surface.id, 'positive')}
+                                        >
+                                            +{surface.id}
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             ))}
                         </div>
@@ -826,6 +889,20 @@ export class CSGBuilderWidget extends ReactWidget {
                             <code>-1 ~2</code>
                             <span>Inside surface 1 but outside surface 2</span>
                         </div>
+                        <div className='example' style={{ color: '#ff6b6b' }}>
+                            <code>-1 +1</code>
+                            <span>❌ Invalid: Same surface with both signs!</span>
+                        </div>
+                    </div>
+                    <div className='help-section' style={{ marginTop: '15px', borderTop: '1px solid #555', paddingTop: '10px' }}>
+                        <h5>⚠️ Common Mistake</h5>
+                        <p>A cell region like <code>-1 +1 -2 +2</code> is <strong>invalid</strong> because:</p>
+                        <ul>
+                            <li><code>-1</code> means inside surface 1</li>
+                            <li><code>+1</code> means outside surface 1</li>
+                            <li>These contradict each other!</li>
+                        </ul>
+                        <p><strong>Fix:</strong> Use only <code>-1 -2</code> for inside sphere AND outside cone.</p>
                     </div>
                 </div>
             </div>
@@ -846,12 +923,14 @@ export class CSGBuilderWidget extends ReactWidget {
             <div className='universes-tab'>
                 <div className='tab-toolbar'>
                     <h3>Universes</h3>
-                    <button
-                        className='theia-button primary'
-                        onClick={() => this.createUniverse()}
-                    >
-                        <i className='codicon codicon-add'></i> Add Universe
-                    </button>
+                    <Tooltip content='Create a new universe'>
+                        <button
+                            className='theia-button primary'
+                            onClick={() => this.createUniverse()}
+                        >
+                            <i className='codicon codicon-add'></i> Add Universe
+                        </button>
+                    </Tooltip>
                 </div>
 
                 <div className='universes-info'>
@@ -930,13 +1009,14 @@ export class CSGBuilderWidget extends ReactWidget {
                                             return (
                                                 <span key={cellId} className='cell-tag assigned'>
                                                     #{cellId} {cell?.name || ''}
-                                                    <button
-                                                        className='remove-cell-btn'
-                                                        onClick={() => this.removeCellFromUniverse(cellId, universe.id)}
-                                                        title='Remove from universe'
-                                                    >
-                                                        <i className='codicon codicon-close'></i>
-                                                    </button>
+                                                    <Tooltip content='Remove from universe'>
+                                                        <button
+                                                            className='remove-cell-btn'
+                                                            onClick={() => this.removeCellFromUniverse(cellId, universe.id)}
+                                                        >
+                                                            <i className='codicon codicon-close'></i>
+                                                        </button>
+                                                    </Tooltip>
                                                 </span>
                                             );
                                         })
@@ -984,7 +1064,7 @@ export class CSGBuilderWidget extends ReactWidget {
     private getFillDescription(cell: OpenMCCell, state: OpenMCState): string {
         switch (cell.fillType) {
             case 'void':
-                return 'Void';
+                return 'Void (empty)';
             case 'material': {
                 const mat = state.materials.find(m => m.id === cell.fillId);
                 return mat ? `#${mat.id}: ${mat.name}` : `Material #${cell.fillId}`;
@@ -1000,6 +1080,16 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    private getFillIcon(fillType: OpenMCFillType): string {
+        switch (fillType) {
+            case 'void': return 'circle-outline';
+            case 'material': return 'symbol-color';
+            case 'universe': return 'layers';
+            case 'lattice': return 'grid';
+            default: return 'question';
+        }
+    }
+
     // ============================================================================
     // Surface Actions
     // ============================================================================
@@ -1009,13 +1099,14 @@ export class CSGBuilderWidget extends ReactWidget {
             id: 0, 
             type: template.type, 
             coefficients: { ...template.defaultCoeffs } as any,
-            boundary: 'transmission'
+            boundary: 'vacuum'
         };
         this.creatingSurfaceType = template.type;
         this.surfaceFormType = template.type;
         this.surfaceFormCoeffs = { ...template.defaultCoeffs };
-        this.surfaceFormBoundary = 'transmission';
+        this.surfaceFormBoundary = 'vacuum';
         this.surfaceFormName = '';
+        this.showSurfaceEditor = true;
         this.update();
     }
 
@@ -1023,12 +1114,27 @@ export class CSGBuilderWidget extends ReactWidget {
         this.editingSurface = { ...surface };
         this.surfaceFormType = surface.type;
         this.surfaceFormCoeffs = { ...surface.coefficients };
-        this.surfaceFormBoundary = surface.boundary || 'transmission';
+        this.surfaceFormBoundary = surface.boundary || 'vacuum';
         this.surfaceFormName = surface.name || '';
+        this.showSurfaceEditor = true;
         this.update();
     }
 
-    private saveSurface(): void {
+    private changeSurfaceType(type: OpenMCSurfaceType): void {
+        const template = SURFACE_TEMPLATES.find(t => t.type === type);
+        if (!template) return;
+        
+        this.surfaceFormType = type;
+        this.surfaceFormCoeffs = { ...template.defaultCoeffs };
+        this.editingSurface = {
+            ...this.editingSurface!,
+            type: type,
+            coefficients: { ...template.defaultCoeffs } as any
+        };
+        this.update();
+    }
+
+    private async saveSurface(): Promise<void> {
         if (!this.editingSurface) return;
 
         const surface: OpenMCSurface = {
@@ -1184,6 +1290,29 @@ export class CSGBuilderWidget extends ReactWidget {
             }
         }
         this.cellFormRegionString = result.trim();
+        
+        // Check for contradictory surface usage
+        this.checkRegionContradictions();
+    }
+    
+    private checkRegionContradictions(): void {
+        const surfaceSides = new Map<number, Set<string>>();
+        
+        for (const token of this.regionBuilderTokens) {
+            if (token.type === 'surface' && token.id !== undefined) {
+                if (!surfaceSides.has(token.id)) {
+                    surfaceSides.set(token.id, new Set());
+                }
+                surfaceSides.get(token.id)!.add(token.side || 'positive');
+            }
+        }
+        
+        for (const [id, sides] of surfaceSides) {
+            if (sides.has('positive') && sides.has('negative')) {
+                // Show warning but allow it
+                console.warn(`[CSG Builder] Warning: Surface ${id} used on both sides (+${id} and -${id}). This creates an empty/impossible region.`);
+            }
+        }
     }
 
     private saveCell(): void {
@@ -1194,6 +1323,16 @@ export class CSGBuilderWidget extends ReactWidget {
             const valid = this.validateRegionString(this.cellFormRegionString);
             if (!valid) {
                 this.messageService.error('Invalid region expression. Use surface IDs with + or - prefixes.');
+                return;
+            }
+            
+            // Check for contradictory terms
+            if (this.hasContradictoryRegion(this.cellFormRegionString)) {
+                this.messageService.error(
+                    'Region has contradictory terms (same surface with both + and -). ' +
+                    'A cell cannot be both inside and outside the same surface. ' +
+                    'Remove one of the conflicting terms.'
+                );
                 return;
             }
         }
@@ -1256,6 +1395,33 @@ export class CSGBuilderWidget extends ReactWidget {
             }
         }
         return true;
+    }
+    
+    private hasContradictoryRegion(region: string): boolean {
+        // Check if same surface appears with both + and -
+        const surfaceSides = new Map<number, Set<string>>();
+        
+        // Extract surface references: +/- followed by number
+        const matches = region.match(/[+-]?\d+/g) || [];
+        
+        for (const match of matches) {
+            const sign = match.startsWith('-') ? '-' : '+';
+            const id = parseInt(match.replace(/[+-]/, ''));
+            
+            if (!surfaceSides.has(id)) {
+                surfaceSides.set(id, new Set());
+            }
+            surfaceSides.get(id)!.add(sign);
+        }
+        
+        // Check if any surface has both + and -
+        for (const [_id, sides] of surfaceSides) {
+            if (sides.has('+') && sides.has('-')) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     private parseRegionString(region: string): OpenMCRegionNode {
@@ -1354,8 +1520,13 @@ export class CSGBuilderWidget extends ReactWidget {
                 const cellCount = result.state.geometry?.cells?.length || 0;
                 const surfCount = result.state.geometry?.surfaces?.length || 0;
                 const matCount = result.state.materials?.length || 0;
+                
+                // Set save location to the import directory for auto-save
+                this.saveOutputPath = uri.path.toString();
+                this.update();
+                
                 this.messageService.info(
-                    `Imported: ${cellCount} cells, ${surfCount} surfaces, ${matCount} materials`
+                    `Imported: ${cellCount} cells, ${surfCount} surfaces, ${matCount} materials from ${this.saveOutputPath}`
                 );
                 
                 if (result.warnings && result.warnings.length > 0) {
@@ -1442,17 +1613,58 @@ export class CSGBuilderWidget extends ReactWidget {
     }
 
     // ============================================================================
-    // XML Generation
+    // Save / Save As
     // ============================================================================
 
-    private async generateGeometryXML(): Promise<void> {
-        const state = this.stateManager.getState();
-        
-        if (state.geometry.cells.length === 0) {
-            this.messageService.warn('No cells defined. Create at least one cell before generating geometry.xml');
-            return;
+    private renderSaveButtons(): React.ReactNode {
+        if (this.saveOutputPath) {
+            // Have a save location - show Save and Save As
+            return (
+                <>
+                    <Tooltip content={`Save to ${this.saveOutputPath}`} position='bottom'>
+                        <button
+                            className='theia-button primary'
+                            onClick={() => this.saveXML()}
+                        >
+                            <i className='codicon codicon-save'></i>
+                            Save
+                        </button>
+                    </Tooltip>
+                    <Tooltip content='Save to different location' position='bottom'>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => this.saveXMLAs()}
+                        >
+                            <i className='codicon codicon-save-as'></i>
+                            Save As...
+                        </button>
+                    </Tooltip>
+                </>
+            );
+        } else {
+            // No save location yet - show Save As only
+            return (
+                <Tooltip content='Save geometry.xml to a folder' position='bottom'>
+                    <button
+                        className='theia-button primary'
+                        onClick={() => this.saveXMLAs()}
+                    >
+                        <i className='codicon codicon-save'></i>
+                        Save As...
+                    </button>
+                </Tooltip>
+            );
         }
+    }
 
+    private async saveXML(): Promise<void> {
+        if (!this.saveOutputPath) {
+            return this.saveXMLAs();
+        }
+        await this.performSave(this.saveOutputPath, true);
+    }
+
+    private async saveXMLAs(): Promise<void> {
         const uri = await this.fileDialogService.showOpenDialog({
             title: 'Select Output Directory for geometry.xml',
             canSelectFiles: false,
@@ -1464,12 +1676,45 @@ export class CSGBuilderWidget extends ReactWidget {
             return;
         }
 
+        const selectedUri = Array.isArray(uri) ? uri[0] : uri;
+        const outputPath = selectedUri.path.toString();
+        
+        const success = await this.performSave(outputPath, true);
+        if (success) {
+            this.saveOutputPath = outputPath;
+            this.update();
+        }
+    }
+
+    private autoSaveToCurrentPath(): void {
+        if (!this.saveOutputPath) {
+            return;
+        }
+
+        // Clear existing timer
+        if (this.autoSaveDebounceTimer) {
+            window.clearTimeout(this.autoSaveDebounceTimer);
+        }
+
+        // Debounce for 1 second
+        this.autoSaveDebounceTimer = window.setTimeout(() => {
+            this.performSave(this.saveOutputPath!, false);
+        }, 1000);
+    }
+
+    private async performSave(outputPath: string, showMessages: boolean): Promise<boolean> {
+        const state = this.stateManager.getState();
+        if (state.geometry.cells.length === 0) {
+            if (showMessages) {
+                this.messageService.warn('No cells defined. Create at least one cell before saving.');
+            }
+            return false;
+        }
+
         try {
-            // Handle both single URI and array of URIs
-            const selectedUri = Array.isArray(uri) ? uri[0] : uri;
             const result = await this.xmlService.generateXML({
-                state: this.stateManager.getState(),
-                outputDirectory: selectedUri.path.toString(),
+                state,
+                outputDirectory: outputPath,
                 files: {
                     geometry: true,
                     materials: state.materials.length > 0,
@@ -1480,13 +1725,24 @@ export class CSGBuilderWidget extends ReactWidget {
             });
 
             if (result.success) {
-                const geomFile = result.generatedFiles.find(f => f.includes('geometry.xml'));
-                this.messageService.info(`Generated: ${geomFile ? geomFile.split('/').pop() : 'geometry.xml'}`);
+                if (showMessages) {
+                    const geomFile = result.generatedFiles.find(f => f.includes('geometry.xml'));
+                    this.messageService.info(`Saved: ${geomFile ? geomFile.split('/').pop() : 'geometry.xml'}`);
+                } else {
+                    console.log('[CSG Builder] Auto-saved to', outputPath);
+                }
+                return true;
             } else {
-                this.messageService.error(`Failed to generate XML: ${result.error}`);
+                if (showMessages) {
+                    this.messageService.error(`Failed to save: ${result.error}`);
+                }
+                return false;
             }
         } catch (error) {
-            this.messageService.error(`Error generating XML: ${error}`);
+            if (showMessages) {
+                this.messageService.error(`Error saving: ${error}`);
+            }
+            return false;
         }
     }
 
@@ -1500,8 +1756,9 @@ export class CSGBuilderWidget extends ReactWidget {
         this.editingCell = undefined;
         this.surfaceFormType = 'sphere';
         this.surfaceFormCoeffs = {};
-        this.surfaceFormBoundary = 'transmission';
+        this.surfaceFormBoundary = 'vacuum';
         this.surfaceFormName = '';
+        this.showSurfaceEditor = false;
         this.cellFormName = '';
         this.cellFormFillType = 'void';
         this.cellFormFillId = 0;
