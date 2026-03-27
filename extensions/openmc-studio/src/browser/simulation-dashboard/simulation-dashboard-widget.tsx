@@ -25,7 +25,7 @@ import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCStudioService } from '../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-runner';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,
     OpenMCMaterial,
@@ -38,6 +38,7 @@ import {
     OpenMCSourceEnergy
 } from '../../common/openmc-state-schema';
 import { SimulationProgress, ValidationIssue } from '../../common/openmc-studio-protocol';
+import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 
 // Tab types for the dashboard
 export type DashboardTab = 'settings' | 'materials' | 'simulation';
@@ -77,12 +78,138 @@ export class SimulationDashboardWidget extends ReactWidget {
     private validationIssues: ValidationIssue[] = [];
     private showNewMaterialForm = false;
     private editingMaterial?: OpenMCMaterial;
+    private consoleOutput: { type: 'info' | 'error' | 'warn'; message: string; timestamp: Date }[] = [];
 
     // Form state for new material
     private newMaterialName = '';
     private newMaterialDensity = 1.0;
     private newMaterialDensityUnit: OpenMCMaterial['densityUnit'] = 'g/cm3';
     private newMaterialNuclides: { name: string; fraction: number; fractionType: 'ao' | 'wo' }[] = [];
+    private newMaterialIsDepletable = false;
+    private newMaterialVolume?: number;
+    private newMaterialTemperature?: number;
+    private newMaterialThermalScattering: { name: string; fraction: number }[] = [];
+    private newMaterialColor = '#4A90D9';
+
+    // Material templates
+    private readonly MATERIAL_TEMPLATES: { name: string; description: string; setup: () => void }[] = [
+        {
+            name: 'UO2 Fuel (4% enriched)',
+            description: 'Uranium dioxide fuel with 4% U-235 enrichment',
+            setup: () => {
+                this.newMaterialName = 'UO2 Fuel';
+                this.newMaterialDensity = 10.0;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'U235', fraction: 0.04, fractionType: 'wo' },
+                    { name: 'U238', fraction: 0.96, fractionType: 'wo' },
+                    { name: 'O16', fraction: 2.0, fractionType: 'wo' }
+                ];
+                this.newMaterialIsDepletable = true;
+                this.newMaterialColor = '#FF6B35';
+            }
+        },
+        {
+            name: 'Light Water (H2O)',
+            description: 'Light water moderator with thermal scattering',
+            setup: () => {
+                this.newMaterialName = 'Water';
+                this.newMaterialDensity = 1.0;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'H1', fraction: 2.0, fractionType: 'ao' },
+                    { name: 'O16', fraction: 1.0, fractionType: 'ao' }
+                ];
+                this.newMaterialThermalScattering = [{ name: 'c_H_in_H2O', fraction: 1.0 }];
+                this.newMaterialColor = '#4ECDC4';
+            }
+        },
+        {
+            name: 'Heavy Water (D2O)',
+            description: 'Heavy water moderator',
+            setup: () => {
+                this.newMaterialName = 'Heavy Water';
+                this.newMaterialDensity = 1.1;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'H2', fraction: 2.0, fractionType: 'ao' },
+                    { name: 'O16', fraction: 1.0, fractionType: 'ao' }
+                ];
+                this.newMaterialThermalScattering = [{ name: 'c_D_in_D2O', fraction: 1.0 }];
+                this.newMaterialColor = '#95E1D3';
+            }
+        },
+        {
+            name: 'Graphite',
+            description: 'Graphite moderator/reflector',
+            setup: () => {
+                this.newMaterialName = 'Graphite';
+                this.newMaterialDensity = 1.7;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'C0', fraction: 1.0, fractionType: 'ao' }
+                ];
+                this.newMaterialThermalScattering = [{ name: 'c_Graphite', fraction: 1.0 }];
+                this.newMaterialColor = '#2C3E50';
+            }
+        },
+        {
+            name: 'Stainless Steel 304',
+            description: 'Common structural material',
+            setup: () => {
+                this.newMaterialName = 'SS304';
+                this.newMaterialDensity = 8.0;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'Fe56', fraction: 0.70, fractionType: 'wo' },
+                    { name: 'Cr52', fraction: 0.20, fractionType: 'wo' },
+                    { name: 'Ni58', fraction: 0.10, fractionType: 'wo' }
+                ];
+                this.newMaterialColor = '#95A5A6';
+            }
+        },
+        {
+            name: 'Boron Carbide (B4C)',
+            description: 'Control rod material',
+            setup: () => {
+                this.newMaterialName = 'B4C';
+                this.newMaterialDensity = 2.5;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'B10', fraction: 4.0, fractionType: 'ao' },
+                    { name: 'C0', fraction: 1.0, fractionType: 'ao' }
+                ];
+                this.newMaterialColor = '#8E44AD';
+            }
+        },
+        {
+            name: 'Air/Vacuum',
+            description: 'Void material',
+            setup: () => {
+                this.newMaterialName = 'Air';
+                this.newMaterialDensity = 0.001;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'N14', fraction: 0.8, fractionType: 'ao' },
+                    { name: 'O16', fraction: 0.2, fractionType: 'ao' }
+                ];
+                this.newMaterialColor = '#ECF0F1';
+            }
+        },
+        {
+            name: 'Helium (Coolant)',
+            description: 'Helium gas coolant',
+            setup: () => {
+                this.newMaterialName = 'Helium';
+                this.newMaterialDensity = 0.00018;
+                this.newMaterialDensityUnit = 'g/cm3';
+                this.newMaterialNuclides = [
+                    { name: 'He4', fraction: 1.0, fractionType: 'ao' }
+                ];
+                this.newMaterialColor = '#F39C12';
+            }
+        }
+    ];
 
     @postConstruct()
     protected init(): void {
@@ -94,6 +221,7 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         // Listen to state changes
         this.stateManager.onStateChange(() => this.update());
+        this.stateManager.onStateReload(() => this.update());
         this.stateManager.onDirtyChange(() => this.updateTitle());
 
         // Listen to simulation progress
@@ -104,6 +232,27 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         this.simulationRunner.onStatusChange(event => {
             this.isRunning = event.status === 'running' || event.status === 'starting';
+            
+            // Log status changes to console
+            if (event.status === 'completed') {
+                this.logToConsole('Simulation completed successfully');
+            } else if (event.status === 'failed') {
+                const errorMsg = event.result?.error || `Exit code: ${event.result?.exitCode}`;
+                this.logToConsole(`Simulation failed: ${errorMsg}`, 'error');
+                // Also log stderr if available
+                if (event.result?.stderr) {
+                    const stderrLines = event.result.stderr.split('\n').filter(l => l.trim());
+                    if (stderrLines.length > 0) {
+                        this.logToConsole('Stderr output:', 'error');
+                        stderrLines.slice(0, 10).forEach(line => {
+                            this.logToConsole(`  ${line}`, 'error');
+                        });
+                    }
+                }
+            } else if (event.status === 'cancelled') {
+                this.logToConsole('Simulation cancelled');
+            }
+            
             if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
                 this.simulationProgress = undefined;
             }
@@ -136,15 +285,61 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    private editingProjectName = false;
+    private newProjectName = '';
+    private newProjectDescription = '';
+
     private renderHeader(state: OpenMCState): React.ReactNode {
         return (
             <div className='dashboard-header'>
                 <div className='project-info'>
-                    <h2>
-                        <i className='codicon codicon-symbol-method'></i>
-                        {state.metadata.name}
-                    </h2>
-                    {state.metadata.description && (
+                    {this.editingProjectName ? (
+                        <div className='project-name-edit'>
+                            <input
+                                type='text'
+                                className='project-name-input'
+                                value={this.newProjectName}
+                                onChange={e => {
+                                    this.newProjectName = e.target.value;
+                                    this.update();
+                                }}
+                                placeholder='Project name'
+                                autoFocus
+                            />
+                            <input
+                                type='text'
+                                className='project-desc-input'
+                                value={this.newProjectDescription}
+                                onChange={e => {
+                                    this.newProjectDescription = e.target.value;
+                                    this.update();
+                                }}
+                                placeholder='Description (optional)'
+                            />
+                            <button
+                                className='theia-button primary small'
+                                onClick={() => this.saveProjectName()}
+                            >
+                                <i className='codicon codicon-check'></i>
+                            </button>
+                            <button
+                                className='theia-button secondary small'
+                                onClick={() => {
+                                    this.editingProjectName = false;
+                                    this.update();
+                                }}
+                            >
+                                <i className='codicon codicon-close'></i>
+                            </button>
+                        </div>
+                    ) : (
+                        <h2 onClick={() => this.startEditProjectName()} title='Click to rename'>
+                            <i className='codicon codicon-symbol-method'></i>
+                            {state.metadata.name}
+                            <i className='codicon codicon-edit edit-icon'></i>
+                        </h2>
+                    )}
+                    {state.metadata.description && !this.editingProjectName && (
                         <p className='project-description'>{state.metadata.description}</p>
                     )}
                 </div>
@@ -222,6 +417,31 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         return (
             <div className='settings-tab'>
+                {/* Quick Start Guide */}
+                <div className='quick-start-guide'>
+                    <h4><i className='codicon codicon-book'></i> Quick Start Guide</h4>
+                    <div className='guide-cards'>
+                        <div className='guide-card'>
+                            <div className='guide-icon'><i className='codicon codicon-flame'></i></div>
+                            <h5>Eigenvalue Mode</h5>
+                            <p>For criticality calculations (k-effective). Use for reactors, critical assemblies.</p>
+                            <code>Particles: 1000-10000<br/>Batches: 100-500</code>
+                        </div>
+                        <div className='guide-card'>
+                            <div className='guide-icon'><i className='codicon codicon-target'></i></div>
+                            <h5>Fixed Source</h5>
+                            <p>For shielding, dose calculations. Neutrons from defined source only.</p>
+                            <code>Particles: 10000+<br/>No inactive batches</code>
+                        </div>
+                        <div className='guide-card'>
+                            <div className='guide-icon'><i className='codicon codicon-rocket'></i></div>
+                            <h5>Getting Started</h5>
+                            <p>Start with fewer particles for testing, increase for production runs.</p>
+                            <code>Test: 100 particles<br/>Production: 10000+</code>
+                        </div>
+                    </div>
+                </div>
+
                 <div className='settings-section'>
                     <h3>
                         <i className='codicon codicon-run'></i>
@@ -534,6 +754,29 @@ export class SimulationDashboardWidget extends ReactWidget {
     private renderMaterialsTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='materials-tab'>
+                {/* Instructions */}
+                <div className='instructions-panel'>
+                    <h4><i className='codicon codicon-lightbulb'></i> How to Create Materials</h4>
+                    <div className='instruction-steps'>
+                        <div className='step'>
+                            <span className='step-number'>1</span>
+                            <span>Enter a name and density for your material</span>
+                        </div>
+                        <div className='step'>
+                            <span className='step-number'>2</span>
+                            <span>Add nuclides (e.g., U235, O16) with fractions</span>
+                        </div>
+                        <div className='step'>
+                            <span className='step-number'>3</span>
+                            <span>For depletion: Check "Depletable" and enter volume</span>
+                        </div>
+                        <div className='step'>
+                            <span className='step-number'>4</span>
+                            <span>For moderators: Add S(α,β) thermal scattering data</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div className='materials-toolbar'>
                     <button
                         className='theia-button primary'
@@ -559,17 +802,35 @@ export class SimulationDashboardWidget extends ReactWidget {
                     {state.materials.length === 0 ? (
                         <div className='empty-state'>
                             <i className='codicon codicon-info'></i>
-                            <p>No materials defined. Add materials to use in your geometry.</p>
+                            <p>No materials defined. Click "Add Material" to create your first material.</p>
                         </div>
                     ) : (
                         state.materials.map(material => (
-                            <div key={material.id} className='material-card'>
+                            <div key={material.id} className='material-card' style={{ borderLeft: `4px solid ${material.color || '#4A90D9'}` }}>
                                 <div className='material-card-header'>
                                     <div className='material-info'>
                                         <span className='material-id'>#{material.id}</span>
                                         <span className='material-name'>{material.name}</span>
+                                        {material.isDepletable && (
+                                            <span className='depletable-badge' title='Depletable material'>
+                                                <i className='codicon codicon-history'></i>
+                                            </span>
+                                        )}
+                                        {material.thermalScattering && material.thermalScattering.length > 0 && (
+                                            <span className='thermal-badge' title='Has thermal scattering'>
+                                                <i className='codicon codicon-flame'></i>
+                                            </span>
+                                        )}
                                     </div>
                                     <div className='material-actions'>
+                                        <Tooltip content='Duplicate Material' position='top'>
+                                            <button
+                                                className='theia-button secondary small'
+                                                onClick={() => this.duplicateMaterial(material)}
+                                            >
+                                                <i className='codicon codicon-copy'></i>
+                                            </button>
+                                        </Tooltip>
                                         <Tooltip content='Edit Material' position='top'>
                                             <button
                                                 className='theia-button secondary small'
@@ -580,7 +841,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                                         </Tooltip>
                                         <Tooltip content='Delete Material' position='top'>
                                             <button
-                                                className='theia-button secondary small'
+                                                className='theia-button secondary small danger'
                                                 onClick={() => this.deleteMaterial(material.id)}
                                             >
                                                 <i className='codicon codicon-trash'></i>
@@ -625,6 +886,31 @@ export class SimulationDashboardWidget extends ReactWidget {
     private renderMaterialForm(): React.ReactNode {
         return (
             <div className='material-form'>
+                {/* Template Selector */}
+                {!this.editingMaterial && (
+                    <div className='form-group template-selector'>
+                        <label><i className='codicon codicon-symbol-snippet'></i> Start from Template (Optional)</label>
+                        <select
+                            value=''
+                            onChange={e => {
+                                const template = this.MATERIAL_TEMPLATES.find(t => t.name === e.target.value);
+                                if (template) {
+                                    template.setup();
+                                    this.update();
+                                }
+                                e.target.value = '';
+                            }}
+                        >
+                            <option value=''>Select a template...</option>
+                            {this.MATERIAL_TEMPLATES.map(template => (
+                                <option key={template.name} value={template.name}>
+                                    {template.name} - {template.description}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 <div className='form-row'>
                     <div className='form-group'>
                         <label>Name</label>
@@ -638,6 +924,19 @@ export class SimulationDashboardWidget extends ReactWidget {
                             placeholder='e.g., UO2 Fuel'
                         />
                     </div>
+                    <div className='form-group color-picker-group'>
+                        <label>Color <span className='color-value'>{this.newMaterialColor}</span></label>
+                        <ColorPicker
+                            value={this.newMaterialColor}
+                            onChange={(color) => {
+                                this.newMaterialColor = color;
+                                this.update();
+                            }}
+                        />
+                    </div>
+                </div>
+
+                <div className='form-row'>
                     <div className='form-group'>
                         <label>Density Unit</label>
                         <select
@@ -669,6 +968,115 @@ export class SimulationDashboardWidget extends ReactWidget {
                         />
                     </div>
                 )}
+
+                {/* Depletable Material Options */}
+                <div className='form-section-title'>Depletion Options</div>
+                <div className='depletion-section'>
+                    <div className='depletion-toggle'>
+                        <label className='toggle-label'>
+                            <input
+                                type='checkbox'
+                                checked={this.newMaterialIsDepletable}
+                                onChange={e => {
+                                    this.newMaterialIsDepletable = e.target.checked;
+                                    this.update();
+                                }}
+                            />
+                            <span className='toggle-text'>Depletable Material</span>
+                        </label>
+                        <span className='depletion-description'>
+                            Enable for burnup/depletion calculations
+                        </span>
+                    </div>
+                    {this.newMaterialIsDepletable && (
+                        <div className='depletion-fields'>
+                            <div className='form-group'>
+                                <label>Volume (cm³) <span className='required'>*</span></label>
+                                <input
+                                    type='number'
+                                    step='0.1'
+                                    value={this.newMaterialVolume || ''}
+                                    onChange={e => {
+                                        this.newMaterialVolume = e.target.value ? parseFloat(e.target.value) : undefined;
+                                        this.update();
+                                    }}
+                                    placeholder='Required for depletion'
+                                />
+                                <span className='form-hint'>Material volume for burnup calculations</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className='form-row'>
+                    <div className='form-group'>
+                        <label>Temperature (K, optional)</label>
+                        <input
+                            type='number'
+                            step='1'
+                            value={this.newMaterialTemperature || ''}
+                            onChange={e => {
+                                this.newMaterialTemperature = e.target.value ? parseFloat(e.target.value) : undefined;
+                                this.update();
+                            }}
+                            placeholder='e.g., 600'
+                        />
+                        <span className='form-hint'>For Doppler broadening</span>
+                    </div>
+                </div>
+
+                {/* Thermal Scattering */}
+                <div className='nuclides-section thermal-section'>
+                    <h5>
+                        <i className='codicon codicon-flame'></i>
+                        Thermal Scattering (S(α,β))
+                        <span className='optional-badge'>Optional</span>
+                    </h5>
+                    <span className='section-hint'>Add thermal scattering data for moderators like water, graphite</span>
+                    {this.newMaterialThermalScattering.map((sab, index) => (
+                        <div key={index} className='nuclide-row'>
+                            <input
+                                type='text'
+                                placeholder='e.g., c_Graphite or h_H2O'
+                                value={sab.name}
+                                onChange={e => {
+                                    this.newMaterialThermalScattering[index].name = e.target.value;
+                                    this.update();
+                                }}
+                            />
+                            <input
+                                type='number'
+                                step='0.1'
+                                placeholder='Fraction'
+                                value={sab.fraction}
+                                onChange={e => {
+                                    this.newMaterialThermalScattering[index].fraction = parseFloat(e.target.value) || 1.0;
+                                    this.update();
+                                }}
+                            />
+                            <Tooltip content='Remove' position='top'>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => {
+                                        this.newMaterialThermalScattering.splice(index, 1);
+                                        this.update();
+                                    }}
+                                >
+                                    <i className='codicon codicon-trash'></i>
+                                </button>
+                            </Tooltip>
+                        </div>
+                    ))}
+                    <button
+                        className='theia-button secondary small'
+                        onClick={() => {
+                            this.newMaterialThermalScattering.push({ name: '', fraction: 1.0 });
+                            this.update();
+                        }}
+                    >
+                        <i className='codicon codicon-add'></i> Add S(α,β)
+                    </button>
+                </div>
 
                 <div className='nuclides-section'>
                     <h5>Nuclides</h5>
@@ -756,6 +1164,56 @@ export class SimulationDashboardWidget extends ReactWidget {
     private renderSimulationTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='simulation-tab'>
+                {/* Quick Actions */}
+                <div className='quick-actions-panel'>
+                    <h4><i className='codicon codicon-rocket'></i> Setup Checklist</h4>
+                    <div className='checklist-grid'>
+                        <div className={`checklist-item ${state.materials.length > 0 ? 'done' : ''}`}>
+                            <div className='checklist-icon'>
+                                <i className={`codicon codicon-${state.materials.length > 0 ? 'check' : 'circle-outline'}`}></i>
+                            </div>
+                            <div className='checklist-content'>
+                                <span className='checklist-title'>Materials</span>
+                                <span className='checklist-status'>
+                                    {state.materials.length > 0 ? `${state.materials.length} defined` : 'Not configured'}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div className={`checklist-item ${state.geometry.cells.length > 0 ? 'done' : ''}`}>
+                            <div className='checklist-icon'>
+                                <i className={`codicon codicon-${state.geometry.cells.length > 0 ? 'check' : 'circle-outline'}`}></i>
+                            </div>
+                            <div className='checklist-content'>
+                                <span className='checklist-title'>Geometry</span>
+                                <span className='checklist-status'>
+                                    {state.geometry.cells.length > 0 ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces` : 'Not configured'}
+                                </span>
+                            </div>
+                            {state.geometry.cells.length === 0 && (
+                                <button
+                                    className='theia-button primary small open-csg-btn'
+                                    onClick={() => this.openCSGBuilder()}
+                                >
+                                    <i className='codicon codicon-graph'></i> Open CSG Builder
+                                </button>
+                            )}
+                        </div>
+                        
+                        <div className={`checklist-item ${state.settings.sources.length > 0 ? 'done' : ''}`}>
+                            <div className='checklist-icon'>
+                                <i className={`codicon codicon-${state.settings.sources.length > 0 ? 'check' : 'circle-outline'}`}></i>
+                            </div>
+                            <div className='checklist-content'>
+                                <span className='checklist-title'>Source</span>
+                                <span className='checklist-status'>
+                                    {state.settings.sources.length > 0 ? `${state.settings.sources.length} defined` : 'Not configured'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div className='simulation-status'>
                     {this.isRunning ? (
                         <div className='status-running'>
@@ -865,6 +1323,34 @@ export class SimulationDashboardWidget extends ReactWidget {
                         </div>
                     </div>
                 </div>
+
+                {/* Console Output */}
+                <div className='console-panel'>
+                    <div className='console-header'>
+                        <h4><i className='codicon codicon-terminal'></i> Simulation Output</h4>
+                        <button
+                            className='theia-button secondary small'
+                            onClick={() => this.clearConsole()}
+                            title='Clear console'
+                        >
+                            <i className='codicon codicon-clear-all'></i>
+                        </button>
+                    </div>
+                    <div className='console-content'>
+                        {this.consoleOutput.length === 0 ? (
+                            <div className='console-empty'>No output yet. Run a simulation to see logs here.</div>
+                        ) : (
+                            this.consoleOutput.map((line, index) => (
+                                <div key={index} className={`console-line ${line.type}`}>
+                                    <span className='console-timestamp'>
+                                        {line.timestamp.toLocaleTimeString()}
+                                    </span>
+                                    <span className='console-message'>{line.message}</span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
             </div>
         );
     }
@@ -879,16 +1365,45 @@ export class SimulationDashboardWidget extends ReactWidget {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
+    private logToConsole(message: string, type: 'info' | 'error' | 'warn' = 'info'): void {
+        this.consoleOutput.push({
+            type,
+            message,
+            timestamp: new Date()
+        });
+        // Keep only last 500 lines
+        if (this.consoleOutput.length > 500) {
+            this.consoleOutput = this.consoleOutput.slice(-500);
+        }
+        this.update();
+    }
+
+    private clearConsole(): void {
+        this.consoleOutput = [];
+        this.update();
+    }
+
     private resetNewMaterialForm(): void {
         this.newMaterialName = '';
         this.newMaterialDensity = 1.0;
         this.newMaterialDensityUnit = 'g/cm3';
         this.newMaterialNuclides = [];
+        this.newMaterialIsDepletable = false;
+        this.newMaterialVolume = undefined;
+        this.newMaterialTemperature = undefined;
+        this.newMaterialThermalScattering = [];
+        this.newMaterialColor = '#4A90D9';
     }
 
     // ============================================================================
     // Action Handlers
     // ============================================================================
+
+    private async openCSGBuilder(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget(CSGBuilderWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+    }
 
     private async newProject(): Promise<void> {
         if (this.stateManager.isDirty) {
@@ -896,6 +1411,29 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
         this.stateManager.reset();
         this.messageService.info('Created new OpenMC project');
+    }
+
+    private startEditProjectName(): void {
+        this.editingProjectName = true;
+        this.newProjectName = this.stateManager.getState().metadata.name;
+        this.newProjectDescription = this.stateManager.getState().metadata.description || '';
+        this.update();
+    }
+
+    private saveProjectName(): void {
+        if (!this.newProjectName.trim()) {
+            this.messageService.error('Project name cannot be empty');
+            return;
+        }
+        
+        this.stateManager.updateMetadata({
+            name: this.newProjectName.trim(),
+            description: this.newProjectDescription.trim() || undefined
+        });
+        
+        this.editingProjectName = false;
+        this.updateTitle();
+        this.messageService.info('Project renamed');
     }
 
     private async openProject(): Promise<void> {
@@ -977,6 +1515,8 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
+        this.logToConsole(`Generating XML files in ${uri.path.toString()}...`);
+
         try {
             const result = await this.xmlService.generateXML({
                 state: this.stateManager.getState(),
@@ -992,11 +1532,15 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             if (result.success) {
                 this.messageService.info(`Generated XML files: ${result.generatedFiles.map(f => f.split('/').pop()).join(', ')}`);
+                this.logToConsole(`Generated: ${result.generatedFiles.map(f => f.split('/').pop()).join(', ')}`);
             } else {
                 this.messageService.error(`Failed to generate XML: ${result.error}`);
+                this.logToConsole(`XML generation failed: ${result.error}`, 'error');
             }
         } catch (error) {
-            this.messageService.error(`Error generating XML: ${error}`);
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Error generating XML: ${msg}`);
+            this.logToConsole(`XML generation error: ${msg}`, 'error');
         }
     }
 
@@ -1012,6 +1556,8 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
+        this.logToConsole(`Importing XML from ${uri.path.toString()}...`);
+
         try {
             const result = await this.studioService.getBackendService().importXML({
                 directory: uri.path.toString(),
@@ -1023,16 +1569,23 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             if (result.success && result.state) {
                 this.stateManager.setState(result.state);
+                const matCount = result.state.materials?.length || 0;
+                const cellCount = result.state.geometry?.cells?.length || 0;
                 this.messageService.info(`Imported XML files with ${result.warnings?.length || 0} warnings`);
+                this.logToConsole(`Imported ${matCount} materials, ${cellCount} cells`);
                 
                 if (result.warnings && result.warnings.length > 0) {
                     console.warn('[OpenMC Studio] Import warnings:', result.warnings);
+                    result.warnings.forEach(w => this.logToConsole(`Warning: ${w}`, 'warn'));
                 }
             } else {
                 this.messageService.error(`Failed to import XML: ${result.errors.join(', ')}`);
+                this.logToConsole(`Import failed: ${result.errors.join(', ')}`, 'error');
             }
         } catch (error) {
-            this.messageService.error(`Error importing XML: ${error}`);
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Error importing XML: ${msg}`);
+            this.logToConsole(`Import error: ${msg}`, 'error');
         }
     }
 
@@ -1042,6 +1595,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (!validation.valid) {
             const errors = validation.issues.filter(i => i.severity === 'error').length;
             this.messageService.error(`Cannot run simulation: ${errors} validation errors. Check the Simulation tab for details.`);
+            this.logToConsole(`Validation failed: ${errors} errors`, 'error');
             return;
         }
 
@@ -1057,8 +1611,11 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
+        this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
+
         try {
             // Generate XML first
+            this.logToConsole('Generating XML files...');
             const xmlResult = await this.xmlService.generateXML({
                 state: this.stateManager.getState(),
                 outputDirectory: uri.path.toString(),
@@ -1073,29 +1630,56 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             if (!xmlResult.success) {
                 this.messageService.error(`Failed to generate XML: ${xmlResult.error}`);
+                this.logToConsole(`XML generation failed: ${xmlResult.error}`, 'error');
                 return;
             }
 
+            this.logToConsole(`Generated XML files: ${xmlResult.generatedFiles?.join(', ')}`);
+
             // Run simulation
+            this.logToConsole('Starting OpenMC simulation...');
             await this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()
             });
 
             this.messageService.info('Simulation started');
+            this.logToConsole('Simulation started successfully');
         } catch (error) {
-            this.messageService.error(`Error running simulation: ${error}`);
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Error running simulation: ${msg}`);
+            this.logToConsole(`Error: ${msg}`, 'error');
         }
     }
 
     private async stopSimulation(): Promise<void> {
         await this.simulationRunner.stopSimulation();
         this.messageService.info('Simulation stopped');
+        this.logToConsole('Simulation stopped by user');
     }
 
     private async validateModel(): Promise<{ valid: boolean; issues: ValidationIssue[] }> {
+        this.logToConsole('Validating model...');
         const result = await this.stateManager.validate();
         this.validationIssues = result.issues;
         this.activeTab = 'simulation';
+        
+        const errorCount = result.issues.filter(i => i.severity === 'error').length;
+        const warnCount = result.issues.filter(i => i.severity === 'warning').length;
+        
+        if (result.valid) {
+            this.logToConsole('Validation passed');
+        } else {
+            this.logToConsole(`Validation failed: ${errorCount} errors, ${warnCount} warnings`, 'error');
+        }
+        
+        result.issues.forEach(issue => {
+            if (issue.severity === 'error') {
+                this.logToConsole(`[${issue.category}] ${issue.message}`, 'error');
+            } else if (issue.severity === 'warning') {
+                this.logToConsole(`[${issue.category}] ${issue.message}`, 'warn');
+            }
+        });
+        
         this.update();
         return result;
     }
@@ -1261,8 +1845,29 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.newMaterialDensity = material.density;
         this.newMaterialDensityUnit = material.densityUnit;
         this.newMaterialNuclides = [...material.nuclides.map(n => ({ ...n }))];
+        this.newMaterialIsDepletable = material.isDepletable || false;
+        this.newMaterialVolume = material.volume;
+        this.newMaterialTemperature = material.temperature;
+        this.newMaterialThermalScattering = material.thermalScattering?.map(s => ({ ...s })) || [];
+        this.newMaterialColor = material.color || '#4A90D9';
         this.showNewMaterialForm = true;
         this.update();
+    }
+
+    private duplicateMaterial(material: OpenMCMaterial): void {
+        this.editingMaterial = undefined;
+        this.newMaterialName = `${material.name} (Copy)`;
+        this.newMaterialDensity = material.density;
+        this.newMaterialDensityUnit = material.densityUnit;
+        this.newMaterialNuclides = [...material.nuclides.map(n => ({ ...n }))];
+        this.newMaterialIsDepletable = material.isDepletable || false;
+        this.newMaterialVolume = material.volume;
+        this.newMaterialTemperature = material.temperature;
+        this.newMaterialThermalScattering = material.thermalScattering?.map(s => ({ ...s })) || [];
+        this.newMaterialColor = material.color || '#4A90D9';
+        this.showNewMaterialForm = true;
+        this.update();
+        this.messageService.info('Edit the duplicated material and click Create');
     }
 
     private deleteMaterial(id: number): void {
@@ -1288,6 +1893,12 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
+        // Validate depletable material has volume
+        if (this.newMaterialIsDepletable && !this.newMaterialVolume) {
+            this.messageService.error('Depletable materials require a volume');
+            return;
+        }
+
         const material: OpenMCMaterial = {
             id: this.editingMaterial?.id || this.stateManager.getNextMaterialId(),
             name: this.newMaterialName.trim(),
@@ -1298,7 +1909,16 @@ export class SimulationDashboardWidget extends ReactWidget {
                 fraction: n.fraction,
                 fractionType: n.fractionType
             })),
-            thermalScattering: this.editingMaterial?.thermalScattering || []
+            thermalScattering: this.newMaterialThermalScattering
+                .filter(sab => sab.name.trim() !== '')
+                .map(sab => ({
+                    name: sab.name.trim(),
+                    fraction: sab.fraction
+                })),
+            isDepletable: this.newMaterialIsDepletable,
+            volume: this.newMaterialVolume,
+            temperature: this.newMaterialTemperature,
+            color: this.newMaterialColor
         };
 
         if (this.editingMaterial) {

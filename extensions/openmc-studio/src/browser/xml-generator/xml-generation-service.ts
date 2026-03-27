@@ -29,6 +29,8 @@ import { OpenMCState } from '../../common/openmc-state-schema';
 import {
     XMLGenerationRequest,
     XMLGenerationResult,
+    XMLImportRequest,
+    XMLImportResult,
     OpenMCStudioBackendService
 } from '../../common/openmc-studio-protocol';
 
@@ -114,6 +116,37 @@ export class OpenMCXMLGenerationService {
                 success: false,
                 generatedFiles: [],
                 error: msg
+            };
+        }
+    }
+
+    /**
+     * Import XML files into the simulation state.
+     */
+    async importXML(request: XMLImportRequest): Promise<XMLImportResult> {
+        try {
+            const result = await this.backendService.importXML(request);
+            
+            if (result.success) {
+                this.messageService.info(
+                    `Imported XML files with ${result.warnings?.length || 0} warnings`
+                );
+            } else {
+                this.messageService.error(
+                    `XML import failed: ${result.errors?.join(', ')}`
+                );
+            }
+            
+            return result;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`XML import error: ${msg}`);
+            
+            return {
+                success: false,
+                state: undefined,
+                errors: [msg],
+                warnings: []
             };
         }
     }

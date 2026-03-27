@@ -104,6 +104,25 @@
     align-items: center;
     gap: 8px;
     color: var(--theia-foreground);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background 150ms;
+}
+
+.simulation-dashboard .project-info h2:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.simulation-dashboard .project-info h2 .edit-icon {
+    opacity: 0;
+    font-size: 14px;
+    color: var(--theia-descriptionForeground);
+    transition: opacity 150ms;
+}
+
+.simulation-dashboard .project-info h2:hover .edit-icon {
+    opacity: 1;
 }
 
 .simulation-dashboard .project-info h2 i {
@@ -119,6 +138,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.simulation-dashboard .project-name-edit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .project-name-input {
+    font-size: 16px;
+    font-weight: 600;
+    padding: 6px 10px;
+    width: 200px;
+}
+
+.simulation-dashboard .project-desc-input {
+    font-size: 12px;
+    padding: 6px 10px;
+    width: 250px;
 }
 
 .simulation-dashboard .project-actions {
@@ -227,9 +265,6 @@
     animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.simulation-dashboard .settings-section {
-    max-width: 900px;
-}
 
 .simulation-dashboard .settings-section {
     background: var(--theia-editorWidget-background);
@@ -394,6 +429,54 @@
 }
 
 /* ============================================================================
+   Instructions Panel
+   ============================================================================ */
+.simulation-dashboard .instructions-panel {
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.simulation-dashboard .instructions-panel h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .instruction-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.simulation-dashboard .instruction-steps .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.simulation-dashboard .step-number {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--theia-inputValidation-infoBorder);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* ============================================================================
    Materials Tab
    ============================================================================ */
 .simulation-dashboard .materials-tab {
@@ -402,8 +485,7 @@
 }
 
 .simulation-dashboard .material-form-container,
-.simulation-dashboard .materials-list {
-    max-width: 900px;
+.simulation-dashboard  {
     width: 100%;
 }
 
@@ -452,12 +534,247 @@
     border: 1px solid var(--theia-panel-border);
 }
 
+.simulation-dashboard .nuclides-section.thermal-section {
+    background: var(--theia-inputValidation-warningBackground);
+    border-color: var(--theia-inputValidation-warningBorder);
+}
+
 .simulation-dashboard .nuclides-section h5 {
     margin: 0 0 8px 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .nuclides-section h5 i {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .optional-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    background: var(--theia-badge-background);
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+/* Template Selector */
+.simulation-dashboard .template-selector {
+    background: var(--theia-inputValidation-successBackground);
+    border: 1px solid var(--theia-inputValidation-successBorder);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.simulation-dashboard .template-selector label {
+    color: var(--theia-inputValidation-successBorder);
+    font-weight: 600;
+}
+
+.simulation-dashboard .template-selector select {
+    width: 100%;
+}
+
+/* Color Picker */
+.simulation-dashboard .color-picker-group {
+    flex: 0 0 auto;
+}
+
+/* Depletion Section */
+.simulation-dashboard .depletion-section {
+    background: var(--theia-panel-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.simulation-dashboard .depletion-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.simulation-dashboard .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.simulation-dashboard .toggle-label input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.simulation-dashboard .toggle-text {
+    font-size: 13px;
+}
+
+.simulation-dashboard .depletion-description {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-left: 28px;
+}
+
+.simulation-dashboard .depletion-fields {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+    animation: slide-down 0.2s ease-out;
+}
+
+@keyframes slide-down {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Quick Start Guide */
+.simulation-dashboard .quick-start-guide {
+    background: linear-gradient(135deg, var(--theia-inputValidation-infoBackground) 0%, var(--theia-editorWidget-background) 100%);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.simulation-dashboard .quick-start-guide h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-inputValidation-infoBorder);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .guide-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.simulation-dashboard .guide-card {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 150ms;
+}
+
+.simulation-dashboard .guide-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .guide-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: var(--theia-inputValidation-infoBorder);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .guide-card h5 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.simulation-dashboard .guide-card p {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.5;
+}
+
+.simulation-dashboard .guide-card code {
+    display: block;
+    background: var(--theia-textCodeBlock-background);
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-textCodeBlock-foreground);
+}
+
+/* Material Badges */
+.simulation-dashboard .depletable-badge {
+    color: var(--theia-inputValidation-warningBorder);
+    font-size: 12px;
+    padding: 2px 6px;
+    background: var(--theia-inputValidation-warningBackground);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .thermal-badge {
+    color: var(--theia-errorForeground);
+    font-size: 12px;
+    padding: 2px 6px;
+    background: var(--theia-errorBackground);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .depletable-badge i,
+.simulation-dashboard .thermal-badge i {
+    font-size: 12px;
+}
+
+.simulation-dashboard .section-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 12px;
+    font-style: italic;
+}
+
+.simulation-dashboard .form-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 16px;
+    margin-bottom: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .required {
+    color: var(--theia-errorForeground);
+}
+
+.simulation-dashboard .form-group.checkbox {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.simulation-dashboard .form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
 }
 
 .simulation-dashboard .nuclide-row {
@@ -894,8 +1211,8 @@
    Button Styles (Enhanced)
    ============================================================================ */
 .simulation-dashboard .theia-button {
-    min-width: none;
-    margin: 0;
+    min-width: auto !important;
+    margin-left: 0;
     padding: 8px 16px;
     border: 1px solid var(--theia-button-border);
     border-radius: 6px;
@@ -997,6 +1314,201 @@
     .simulation-dashboard .nuclide-row {
         flex-wrap: wrap;
     }
+}
+
+/* ============================================================================
+   Quick Actions Panel & Checklist
+   ============================================================================ */
+.simulation-dashboard .quick-actions-panel {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .quick-actions-panel h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-editor-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .quick-actions-panel h4 i {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .checklist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.simulation-dashboard .checklist-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.simulation-dashboard .checklist-item:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.simulation-dashboard .checklist-item.done {
+    background: var(--theia-inputValidation-infoBackground);
+    border-color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .checklist-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .checklist-item.done .checklist-icon {
+    background: var(--theia-inputValidation-infoBorder);
+    border-color: var(--theia-inputValidation-infoBorder);
+    color: white;
+}
+
+.simulation-dashboard .checklist-icon i {
+    font-size: 14px;
+}
+
+.simulation-dashboard .checklist-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.simulation-dashboard .checklist-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-editor-foreground);
+}
+
+.simulation-dashboard .checklist-status {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .checklist-item button.open-csg-btn {
+    margin-left: auto;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   Console Panel
+   ============================================================================ */
+.simulation-dashboard .console-panel {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    height: 300px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-titleBar-activeBackground);
+    border-radius: 8px 8px 0 0;
+}
+
+.simulation-dashboard .console-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .console-header h4 i {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .console-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    font-family: var(--theia-monospace-font-family, ' monospace');
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.simulation-dashboard .console-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.simulation-dashboard .console-line {
+    display: flex;
+    gap: 12px;
+    padding: 4px 16px;
+    border-left: 3px solid transparent;
+}
+
+.simulation-dashboard .console-line:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.simulation-dashboard .console-line.error {
+    border-left-color: var(--theia-inputValidation-errorBorder);
+    background: var(--theia-inputValidation-errorBackground);
+}
+
+.simulation-dashboard .console-line.warn {
+    border-left-color: var(--theia-inputValidation-warningBorder);
+    background: var(--theia-inputValidation-warningBackground);
+}
+
+.simulation-dashboard .console-timestamp {
+    color: var(--theia-descriptionForeground);
+    flex-shrink: 0;
+    font-size: 11px;
+}
+
+.simulation-dashboard .console-message {
+    color: var(--theia-editor-foreground);
+    word-break: break-word;
+}
+
+.simulation-dashboard .console-line.error .console-message {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .console-line.warn .console-message {
+    color: var(--theia-inputValidation-warningBorder);
 }
 
 /* ============================================================================

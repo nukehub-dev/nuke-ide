@@ -50,6 +50,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
+import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 
 // ============================================================================
@@ -517,7 +518,9 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     
     protected async openCSGBuilder(): Promise<void> {
         console.log('[OpenMC Studio] Open CSG builder command');
-        this.messageService.info('CSG Builder: Not yet implemented (Phase 2)');
+        const widget = await this.widgetManager.getOrCreateWidget<CSGBuilderWidget>(CSGBuilderWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
     }
     
     protected async openTallyConfigurator(): Promise<void> {

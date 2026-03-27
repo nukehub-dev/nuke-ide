@@ -125,3 +125,176 @@
     border-width: 5px 5px 5px 0;
     border-color: transparent var(--theia-tooltip-background, #252526) transparent transparent;
 }
+
+/* ============================================================================
+   NukeIDE Color Picker Styles
+   ============================================================================ */
+
+.nuke-color-picker {
+    position: relative;
+    display: inline-block;
+}
+
+.nuke-color-picker-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 150ms;
+}
+
+.nuke-color-picker-trigger:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-color-preview {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    border: 1px solid var(--theia-panel-border);
+    display: block;
+}
+
+.nuke-color-value {
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-input-foreground);
+    min-width: 55px;
+    text-align: left;
+}
+
+.nuke-color-picker-trigger .codicon {
+    color: var(--theia-input-foreground);
+}
+
+.nuke-color-picker-popup {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 10000;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.nuke-color-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.nuke-color-picker-close {
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    cursor: pointer;
+    color: var(--theia-descriptionForeground);
+    border-radius: 3px;
+}
+
+.nuke-color-picker-close:hover {
+    background: var(--theia-errorBackground);
+    color: var(--theia-errorForeground);
+}
+
+.nuke-color-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.nuke-color-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.nuke-color-group-name {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.nuke-color-row {
+    display: flex;
+    gap: 2px;
+}
+
+.nuke-color-swatch {
+    width: 24px;
+    height: 24px;
+    border: 2px solid transparent;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    transition: all 100ms;
+    flex-shrink: 0;
+}
+
+.nuke-color-swatch:hover {
+    transform: scale(1.15);
+    z-index: 1;
+    border-color: var(--theia-foreground);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.nuke-color-swatch.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px var(--theia-editorWidget-background), 0 0 0 3px var(--theia-focusBorder);
+    z-index: 2;
+}
+
+.nuke-color-hex-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.nuke-color-hex-input span {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 500;
+}
+
+.nuke-color-hex-input input {
+    flex: 1;
+    padding: 6px 8px;
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
+}
+
+.nuke-color-hex-input input.valid {
+    border-color: var(--theia-inputValidation-successBorder);
+}
+
+.nuke-color-hex-input input.invalid {
+    border-color: var(--theia-inputValidation-errorBorder);
+}
+
+.nuke-color-hex-input input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}

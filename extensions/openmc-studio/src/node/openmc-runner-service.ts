@@ -51,15 +51,15 @@ export class OpenMCRunnerService {
     @inject(ProcessManager)
     protected readonly processManager: ProcessManager;
 
-    private client?: OpenMCStudioClient;
     private runningSimulations = new Map<string, RunningSimulation>();
     private pythonConfig: PythonConfig = {};
 
     /**
      * Set the client for progress notifications.
+     * Note: Currently unused - client notifications disabled to prevent disconnect errors.
      */
-    setClient(client: OpenMCStudioClient): void {
-        this.client = client;
+    setClient(_client: OpenMCStudioClient): void {
+        // Client notifications disabled - see log() method
     }
 
     /**
@@ -71,11 +71,10 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Log a message to the client.
+     * Log a message to the console (client logging disabled to prevent disconnect errors).
      */
     protected log(message: string): void {
         console.log(`[OpenMC Runner] ${message}`);
-        this.client?.log(message);
     }
 
     // ============================================================================
@@ -302,11 +301,28 @@ export class OpenMCRunnerService {
                 // Get output files
                 const outputFiles = this.detectOutputFiles(request.workingDirectory);
                 
+                const success = code === 0;
+                let error: string | undefined;
+                
+                if (!success) {
+                    if (code !== null) {
+                        error = `Process exited with code ${code}`;
+                    } else {
+                        error = 'Process was terminated';
+                    }
+                    // Include stderr excerpt if available
+                    if (stderr) {
+                        const stderrExcerpt = stderr.split('\n').slice(0, 5).join('\n');
+                        error += `\nStderr: ${stderrExcerpt}`;
+                    }
+                }
+                
                 resolve({
-                    success: code === 0,
+                    success,
                     exitCode: code ?? undefined,
                     stdout,
                     stderr,
+                    error,
                     outputFiles,
                     timing: {
                         startTime: startTime.toISOString(),
@@ -374,8 +390,8 @@ export class OpenMCRunnerService {
                 progress.kEffStd = parseFloat(keffMatch[2]);
             }
             
-            // Notify client
-            this.client?.onProgress(progress);
+            // Notify client (disabled to prevent disconnect errors)
+            // this.client?.onProgress(progress);
         }
     }
 

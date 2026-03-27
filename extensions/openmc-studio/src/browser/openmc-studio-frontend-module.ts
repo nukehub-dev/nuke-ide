@@ -53,11 +53,12 @@ import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
 import { WidgetFactory } from '@theia/core/lib/browser';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
-// import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
+import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 // import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
 
 // Import CSS
 import './simulation-dashboard/simulation-dashboard.css';
+import './csg-builder/csg-builder.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -122,11 +123,11 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     })).inSingletonScope();
     
     // CSG Builder Widget - Phase 2
-    // bind(CSGBuilderWidget).toSelf();
-    // bind(WidgetFactory).toDynamicValue(({ container }) => ({
-    //     id: CSGBuilderWidget.ID,
-    //     createWidget: () => container.get(CSGBuilderWidget)
-    // })).inSingletonScope();
+    bind(CSGBuilderWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: CSGBuilderWidget.ID,
+        createWidget: () => container.get(CSGBuilderWidget)
+    })).inSingletonScope();
     
     // Tally Configurator Widget - Phase 3
     // bind(TallyConfiguratorWidget).toSelf();

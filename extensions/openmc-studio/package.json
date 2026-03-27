@@ -29,15 +29,17 @@
   ],
   "dependencies": {
     "@theia/core": "1.69.0",
+    "@theia/editor": "1.69.0",
     "@theia/filesystem": "1.69.0",
+    "@theia/navigator": "1.69.0",
     "@theia/process": "1.69.0",
     "@theia/workspace": "1.69.0",
-    "@theia/editor": "1.69.0",
-    "@theia/navigator": "1.69.0",
+    "nuke-essentials": "0.1.2",
     "nuke-visualizer": "0.1.2",
-    "nuke-essentials": "0.1.2"
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
+    "@types/xml2js": "^0.4.14",
     "rimraf": "^5.0.0",
     "typescript": "~5.4.5"
   },

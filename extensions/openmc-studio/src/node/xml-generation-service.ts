@@ -45,22 +45,20 @@ import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
 @injectable()
 export class XMLGenerationService {
-    
-    private client?: OpenMCStudioClient;
 
     /**
      * Set the client for log messages.
+     * Note: Currently unused - client notifications disabled to prevent disconnect errors.
      */
-    setClient(client: OpenMCStudioClient): void {
-        this.client = client;
+    setClient(_client: OpenMCStudioClient): void {
+        // Client logging disabled - see log() method
     }
 
     /**
-     * Log a message.
+     * Log a message to the console (client logging disabled to prevent disconnect errors).
      */
     protected log(message: string): void {
         console.log(`[XML Generation] ${message}`);
-        this.client?.log(message);
     }
 
     // ============================================================================

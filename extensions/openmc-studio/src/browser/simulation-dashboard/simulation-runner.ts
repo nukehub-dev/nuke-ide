@@ -115,7 +115,8 @@ export class OpenMCSimulationRunner {
                     result
                 });
             } else {
-                this.messageService.error(`Simulation failed: ${result.error}`);
+                const errorMsg = result.error || `Exit code: ${result.exitCode}`;
+                this.messageService.error(`Simulation failed: ${errorMsg}`);
                 this._onStatusChange.fire({
                     processId: request.workingDirectory,
                     status: 'failed',

@@ -63,15 +63,12 @@ export class OpenMCStudioBackendServiceImpl
     @inject(XMLGenerationService)
     protected readonly xmlService: XMLGenerationService;
 
-    private client?: OpenMCStudioClient;
-
     /**
      * Set the client for receiving log messages.
+     * Note: Client logging is currently disabled to prevent errors on disconnect.
      */
-    setClient(client: OpenMCStudioClient): void {
-        this.client = client;
-        this.runnerService.setClient(client);
-        this.xmlService.setClient(client);
+    setClient(_client: OpenMCStudioClient): void {
+        // Client logging disabled - see log() method
     }
 
     /**
@@ -82,19 +79,17 @@ export class OpenMCStudioBackendServiceImpl
     }
 
     /**
-     * Log a message to the client if available.
+     * Log a message to the console (client logging disabled to prevent disconnect errors).
      */
     protected log(message: string): void {
         console.log(`[OpenMC Studio] ${message}`);
-        this.client?.log(message);
     }
 
     /**
-     * Log an error to the client if available.
+     * Log an error to the console (client logging disabled to prevent disconnect errors).
      */
     protected error(message: string): void {
         console.error(`[OpenMC Studio] ${message}`);
-        this.client?.error(message);
     }
 
     // ============================================================================
@@ -102,7 +97,7 @@ export class OpenMCStudioBackendServiceImpl
     // ============================================================================
 
     onStop(): void {
-        this.log('Shutting down backend service');
+        console.log('[OpenMC Studio] Shutting down backend service');
         // Cleanup any running simulations
         this.runnerService.cleanup();
     }
@@ -118,12 +113,361 @@ export class OpenMCStudioBackendServiceImpl
 
     async importXML(request: XMLImportRequest): Promise<XMLImportResult> {
         this.log(`Importing XML from ${request.directory}`);
-        // TODO: Implement XML import in Phase 1
+        
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            
+            const materialsPath = path.join(request.directory, 'materials.xml');
+            const geometryPath = path.join(request.directory, 'geometry.xml');
+            const settingsPath = path.join(request.directory, 'settings.xml');
+            
+            const warnings: string[] = [];
+            const errors: string[] = [];
+            
+            // Create default state
+            const state = this.createDefaultState();
+            
+            // Import materials.xml
+            if (fs.existsSync(materialsPath)) {
+                try {
+                    const materialsData = await this.parseMaterialsXML(materialsPath);
+                    state.materials = materialsData.materials;
+                    warnings.push(...materialsData.warnings);
+                    this.log(`Imported ${materialsData.materials.length} materials`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Failed to parse materials.xml: ${msg}`);
+                }
+            } else {
+                warnings.push('materials.xml not found');
+            }
+            
+            // Import geometry.xml
+            if (fs.existsSync(geometryPath)) {
+                try {
+                    const geometryData = await this.parseGeometryXML(geometryPath);
+                    state.geometry = geometryData.geometry;
+                    warnings.push(...geometryData.warnings);
+                    this.log(`Imported ${geometryData.geometry.cells.length} cells, ${geometryData.geometry.surfaces.length} surfaces`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Failed to parse geometry.xml: ${msg}`);
+                }
+            } else {
+                warnings.push('geometry.xml not found');
+            }
+            
+            // Import settings.xml
+            if (fs.existsSync(settingsPath)) {
+                try {
+                    const settingsData = await this.parseSettingsXML(settingsPath);
+                    state.settings = settingsData.settings;
+                    warnings.push(...settingsData.warnings);
+                    this.log(`Imported settings`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Failed to parse settings.xml: ${msg}`);
+                }
+            } else {
+                warnings.push('settings.xml not found');
+            }
+            
+            if (state.materials.length === 0 && state.geometry.cells.length === 0) {
+                errors.push('No materials or geometry found in XML files');
+                return {
+                    success: false,
+                    state: undefined,
+                    errors,
+                    warnings
+                };
+            }
+            
+            return {
+                success: true,
+                state,
+                errors: errors.length > 0 ? errors : [],
+                warnings: warnings.length > 0 ? warnings : []
+            };
+            
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.error(`XML import failed: ${msg}`);
+            return {
+                success: false,
+                state: undefined,
+                errors: [msg],
+                warnings: []
+            };
+        }
+    }
+    
+    private createDefaultState(): OpenMCState {
+        const now = new Date().toISOString();
         return {
-            success: false,
-            errors: ['XML import not yet implemented'],
-            warnings: []
+            metadata: {
+                version: OPENMC_STATE_SCHEMA_VERSION,
+                name: 'Imported Project',
+                created: now,
+                modified: now
+            },
+            geometry: {
+                surfaces: [],
+                cells: [],
+                universes: [{
+                    id: 0,
+                    name: 'root',
+                    cellIds: [],
+                    isRoot: true
+                }],
+                lattices: [],
+                rootUniverseId: 0
+            },
+            materials: [],
+            settings: {
+                run: {
+                    mode: 'eigenvalue',
+                    particles: 1000,
+                    inactive: 10,
+                    batches: 100
+                },
+                sources: []
+            },
+            tallies: [],
+            meshes: []
         };
+    }
+    
+    private async parseMaterialsXML(filePath: string): Promise<{ materials: any[]; warnings: string[] }> {
+        const fs = await import('fs');
+        const xml2js = await import('xml2js');
+        
+        const warnings: string[] = [];
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parser = new xml2js.Parser({ explicitArray: false });
+        const result = await parser.parseStringPromise(xml);
+        
+        const materials: any[] = [];
+        
+        if (!result.materials || !result.materials.material) {
+            warnings.push('No materials found in materials.xml');
+            return { materials, warnings };
+        }
+        
+        const materialArray = Array.isArray(result.materials.material) 
+            ? result.materials.material 
+            : [result.materials.material];
+        
+        for (const mat of materialArray) {
+            try {
+                const material: any = {
+                    id: parseInt(mat.$.id),
+                    name: mat.$.name || `Material ${mat.$.id}`,
+                    density: 1.0,
+                    densityUnit: 'g/cm3',
+                    nuclides: [],
+                    thermalScattering: []
+                };
+                
+                // Parse density
+                if (mat.density) {
+                    material.density = parseFloat(mat.density.$.value);
+                    material.densityUnit = mat.density.$.units as any;
+                }
+                
+                // Parse nuclides
+                if (mat.nuclide) {
+                    const nuclides = Array.isArray(mat.nuclide) ? mat.nuclide : [mat.nuclide];
+                    for (const nuc of nuclides) {
+                        material.nuclides.push({
+                            name: nuc.$.name,
+                            fraction: parseFloat(nuc.$.ao || nuc.$.wo || '1.0'),
+                            fractionType: nuc.$.ao ? 'ao' : 'wo'
+                        });
+                    }
+                }
+                
+                // Parse S(alpha,beta)
+                if (mat.sab) {
+                    const sabs = Array.isArray(mat.sab) ? mat.sab : [mat.sab];
+                    for (const sab of sabs) {
+                        material.thermalScattering.push({
+                            name: sab.$.name,
+                            fraction: 1.0
+                        });
+                    }
+                }
+                
+                // Parse temperature
+                if (mat.$.temperature) {
+                    material.temperature = parseFloat(mat.$.temperature);
+                }
+                
+                materials.push(material);
+            } catch (err) {
+                warnings.push(`Failed to parse material ${mat.$.id}: ${err}`);
+            }
+        }
+        
+        return { materials, warnings };
+    }
+    
+    private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[] }> {
+        const fs = await import('fs');
+        const xml2js = await import('xml2js');
+        
+        const warnings: string[] = [];
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parser = new xml2js.Parser({ explicitArray: false });
+        const result = await parser.parseStringPromise(xml);
+        
+        const geometry = {
+            surfaces: [] as any[],
+            cells: [] as any[],
+            universes: [{
+                id: 0,
+                name: 'root',
+                cellIds: [] as number[],
+                isRoot: true
+            }],
+            lattices: [] as any[],
+            rootUniverseId: 0
+        };
+        
+        if (!result.geometry) {
+            warnings.push('No geometry element found in geometry.xml');
+            return { geometry, warnings };
+        }
+        
+        // Parse surfaces
+        if (result.geometry.surface) {
+            const surfaces = Array.isArray(result.geometry.surface) 
+                ? result.geometry.surface 
+                : [result.geometry.surface];
+            
+            for (const surf of surfaces) {
+                try {
+                    const surface: any = {
+                        id: parseInt(surf.$.id),
+                        type: surf.$.type,
+                        coefficients: this.parseCoeffs(surf.$.coeffs),
+                        boundary: surf.$.boundary || 'transmission'
+                    };
+                    if (surf.$.name) surface.name = surf.$.name;
+                    geometry.surfaces.push(surface);
+                } catch (err) {
+                    warnings.push(`Failed to parse surface ${surf.$.id}: ${err}`);
+                }
+            }
+        }
+        
+        // Parse cells
+        if (result.geometry.cell) {
+            const cells = Array.isArray(result.geometry.cell) 
+                ? result.geometry.cell 
+                : [result.geometry.cell];
+            
+            for (const cell of cells) {
+                try {
+                    const cellObj: any = {
+                        id: parseInt(cell.$.id),
+                        fillType: 'void'
+                    };
+                    if (cell.$.name) cellObj.name = cell.$.name;
+                    if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
+                    
+                    // Parse fill
+                    if (cell.material) {
+                        if (cell.material === '' || cell.material === 'void') {
+                            cellObj.fillType = 'void';
+                        } else {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = parseInt(cell.material);
+                        }
+                    } else if (cell.fill) {
+                        cellObj.fillType = 'universe';
+                        cellObj.fillId = parseInt(cell.fill);
+                    }
+                    
+                    // Parse region
+                    if (cell.region) {
+                        cellObj.regionString = cell.region;
+                    }
+                    
+                    geometry.cells.push(cellObj);
+                    
+                    // Add to root universe by default
+                    if (!geometry.universes[0].cellIds.includes(cellObj.id)) {
+                        geometry.universes[0].cellIds.push(cellObj.id);
+                    }
+                } catch (err) {
+                    warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
+                }
+            }
+        }
+        
+        return { geometry, warnings };
+    }
+    
+    private parseCoeffs(coeffsStr: string): any {
+        const values = coeffsStr.split(/\s+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+        // Return as object - the specific coefficients depend on surface type
+        // For simplicity, we'll store them as an array
+        return values;
+    }
+    
+    private async parseSettingsXML(filePath: string): Promise<{ settings: any; warnings: string[] }> {
+        const fs = await import('fs');
+        const xml2js = await import('xml2js');
+        
+        const warnings: string[] = [];
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parser = new xml2js.Parser({ explicitArray: false });
+        const result = await parser.parseStringPromise(xml);
+        
+        const settings: any = {
+            run: {
+                mode: 'eigenvalue',
+                particles: 1000,
+                inactive: 10,
+                batches: 100
+            },
+            sources: []
+        };
+        
+        if (!result.settings) {
+            warnings.push('No settings element found in settings.xml');
+            return { settings, warnings };
+        }
+        
+        const s = result.settings;
+        
+        // Run mode
+        if (s.run_mode) {
+            settings.run.mode = s.run_mode;
+        }
+        
+        // Particles and batches
+        if (s.particles) {
+            settings.run.particles = parseInt(s.particles);
+        }
+        if (s.batches) {
+            settings.run.batches = parseInt(s.batches);
+        }
+        if (s.inactive) {
+            settings.run.inactive = parseInt(s.inactive);
+        }
+        
+        // Source
+        if (s.source) {
+            // Parse source - simplified
+            settings.sources.push({
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6] }
+            });
+        }
+        
+        return { settings, warnings };
     }
 
     async validateXML(directory: string): Promise<XMLValidationResult> {
