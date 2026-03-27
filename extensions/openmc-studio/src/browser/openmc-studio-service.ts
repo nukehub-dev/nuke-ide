@@ -18,7 +18,6 @@
  * OpenMC Studio Service
  * 
  * Main frontend service for the OpenMC Studio extension.
- * Manages the lifecycle of the extension and provides high-level operations.
  * 
  * @module openmc-studio/browser
  */
@@ -26,11 +25,10 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { Emitter, Event } from '@theia/core/lib/common';
-import { PreferenceService } from '@theia/core/lib/common/preferences';
 
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
+import { NukeCoreService } from 'nuke-core';
 
 @injectable()
 export class OpenMCStudioService implements FrontendApplicationContribution {
@@ -44,47 +42,14 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
     
-    @inject(PreferenceService)
-    protected readonly preferences: PreferenceService;
-
-    private readonly _onInitialized = new Emitter<void>();
-    readonly onInitialized: Event<void> = this._onInitialized.event;
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService: NukeCoreService;
 
     private _isReady = false;
-    private _openmcAvailable?: boolean;
-    private _openmcVersion?: string;
 
     @postConstruct()
     protected init(): void {
         console.log('[OpenMC Studio] Service initialized');
-        this.syncPythonConfig();
-        
-        // Listen for Python preference changes from nuke-visualizer
-        this.preferences.onPreferenceChanged(event => {
-            if (event.preferenceName === 'nukeVisualizer.pythonPath' || 
-                event.preferenceName === 'nukeVisualizer.condaEnv') {
-                console.log(`[OpenMC Studio] Python config changed: ${event.preferenceName}`);
-                this.syncPythonConfig();
-            }
-        });
-    }
-    
-    /**
-     * Sync Python configuration from nuke-visualizer preferences.
-     */
-    protected syncPythonConfig(): void {
-        const pythonPath = this.preferences.get('nukeVisualizer.pythonPath') as string | undefined;
-        const condaEnv = this.preferences.get('nukeVisualizer.condaEnv') as string | undefined;
-        
-        if (pythonPath || condaEnv) {
-            console.log(`[OpenMC Studio] Setting Python config: path=${pythonPath}, conda=${condaEnv}`);
-            this.backendService.setPythonConfig({
-                pythonPath: pythonPath || undefined,
-                condaEnv: condaEnv || undefined
-            }).catch(err => {
-                console.error('[OpenMC Studio] Failed to set Python config:', err);
-            });
-        }
     }
 
     /**
@@ -92,36 +57,49 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
      */
     onStart(): void {
         this._isReady = true;
-        this._onInitialized.fire();
-        // Don't check OpenMC availability on startup - check lazily when needed
     }
 
     /**
-     * Check if OpenMC is available. Cached after first call.
+     * Check if OpenMC is ready to use.
+     * Delegates to nuke-core for validation.
      */
-    async checkOpenMCAvailability(): Promise<{ available: boolean; version?: string; error?: string }> {
-        // Return cached result if available
-        if (this._openmcAvailable !== undefined) {
+    async checkOpenMCAvailability(): Promise<{ 
+        available: boolean; 
+        version?: string; 
+        error?: string;
+        needsConfig?: boolean;
+    }> {
+        // First check if nuke-core is configured
+        if (!this.nukeCoreService.isConfigured()) {
             return {
-                available: this._openmcAvailable,
-                version: this._openmcVersion,
-                error: this._openmcAvailable ? undefined : 'OpenMC not available'
+                available: false,
+                error: 'Nuke Core is not configured. Please configure Python in Settings → Nuke.',
+                needsConfig: true
             };
         }
         
-        try {
-            const result = await this.backendService.checkOpenMC();
-            this._openmcAvailable = result.available;
-            this._openmcVersion = result.version;
-            return result;
-        } catch (error) {
-            console.error('[OpenMC Studio] Error checking OpenMC availability:', error);
-            this._openmcAvailable = false;
+        // Use nuke-core's validation
+        const validation = await this.nukeCoreService.validateOpenMCSetup();
+        
+        if (!validation.ready) {
             return {
                 available: false,
-                error: error instanceof Error ? error.message : String(error)
+                error: validation.errors.join('\n') || 'OpenMC is not properly configured',
+                needsConfig: !validation.pythonConfigured
             };
         }
+        
+        return {
+            available: true,
+            version: validation.openmcAvailable ? undefined : undefined
+        };
+    }
+
+    /**
+     * Get the cross-sections path from nuke-core.
+     */
+    getCrossSectionsPath(): string | undefined {
+        return this.nukeCoreService.getCrossSectionsPath();
     }
 
     /**
@@ -129,20 +107,6 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
      */
     get isReady(): boolean {
         return this._isReady;
-    }
-
-    /**
-     * Whether OpenMC is available (cached from last check).
-     */
-    get openmcAvailable(): boolean | undefined {
-        return this._openmcAvailable;
-    }
-
-    /**
-     * OpenMC version if available.
-     */
-    get openmcVersion(): string | undefined {
-        return this._openmcVersion;
     }
 
     /**
@@ -157,5 +121,12 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
      */
     getBackendService(): OpenMCStudioBackendService {
         return this.backendService;
+    }
+    
+    /**
+     * Get the nuke-core service for advanced operations.
+     */
+    getNukeCoreService(): NukeCoreService {
+        return this.nukeCoreService;
     }
 }

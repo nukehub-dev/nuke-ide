@@ -209,8 +209,7 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         
         // Simulation commands
         commands.registerCommand(OpenMCStudioCommands.RUN_SIMULATION, {
-            execute: () => this.runSimulation(),
-            isEnabled: () => this.studioService.openmcAvailable ?? false
+            execute: () => this.runSimulation()
         });
         
         commands.registerCommand(OpenMCStudioCommands.STOP_SIMULATION, {

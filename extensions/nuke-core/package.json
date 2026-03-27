@@ -1,0 +1,44 @@
+{
+  "name": "nuke-core",
+  "version": "1.0.0",
+  "description": "Core infrastructure for NukeIDE - Python environment, configuration, and shared utilities",
+  "keywords": [
+    "theia-extension",
+    "python",
+    "conda"
+  ],
+  "license": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub/nuke-ide/issues"
+  },
+  "homepage": "https://github.com/nukehub/nuke-ide",
+  "main": "lib/common/index.js",
+  "types": "lib/common/index.d.ts",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf lib",
+    "watch": "tsc -w",
+    "prepare": "yarn clean && yarn build"
+  },
+  "dependencies": {
+    "@theia/core": "1.69.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/nuke-core-frontend-module",
+      "backend": "lib/node/nuke-core-backend-module"
+    }
+  ]
+}

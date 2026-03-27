@@ -10,6 +10,9 @@
   ],
   "references": [
     {
+      "path": "../nuke-core"
+    },
+    {
       "path": "../nuke-visualizer"
     },
     {

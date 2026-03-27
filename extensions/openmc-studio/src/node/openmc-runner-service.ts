@@ -32,6 +32,7 @@ import {
     SimulationProgress,
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core';
 
 interface RunningSimulation {
     processId: string;
@@ -40,19 +41,16 @@ interface RunningSimulation {
     request: SimulationRunRequest;
 }
 
-export interface PythonConfig {
-    pythonPath?: string;
-    condaEnv?: string;
-}
-
 @injectable()
 export class OpenMCRunnerService {
     
     @inject(ProcessManager)
     protected readonly processManager: ProcessManager;
 
+    @inject(NukeCoreBackendService)
+    protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
+
     private runningSimulations = new Map<string, RunningSimulation>();
-    private pythonConfig: PythonConfig = {};
     private client?: OpenMCStudioClient;
 
     /**
@@ -63,11 +61,11 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Set Python configuration (shared with nuke-visualizer).
+     * Set Python configuration.
      */
-    async setPythonConfig(config: PythonConfig): Promise<void> {
-        this.pythonConfig = config;
-        console.log(`[OpenMC Runner] Python config updated: ${JSON.stringify(config)}`);
+    async setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void> {
+        console.log(`[OpenMC Runner] Python config: ${JSON.stringify(config)}`);
+        await this.nukeCoreService.setConfig(config);
     }
 
     /**
@@ -86,130 +84,26 @@ export class OpenMCRunnerService {
      * Also verifies that OpenMC is available in the detected Python.
      */
     protected async detectPythonCommand(): Promise<{ command: string; warning?: string; version?: string }> {
-        // 1. Try explicitly configured Python path first
-        if (this.pythonConfig.pythonPath) {
-            this.log(`Using configured Python: ${this.pythonConfig.pythonPath}`);
-            const version = await this.getPythonVersion(this.pythonConfig.pythonPath);
-            const openmcCheck = await this.checkOpenMCInPython(this.pythonConfig.pythonPath);
-            if (!openmcCheck.available) {
-                throw new Error(`Configured Python does not have OpenMC installed. ${openmcCheck.error}\nPath: ${this.pythonConfig.pythonPath}`);
-            }
-            return { command: this.pythonConfig.pythonPath, version };
+        // Use nuke-core's Python detection
+        const detectionResult = await this.nukeCoreService.detectPython();
+        
+        if (!detectionResult.success || !detectionResult.command) {
+            throw new Error(detectionResult.error || 'Failed to detect Python. Configure Python in Settings → Nuke.');
         }
-
-        // 2. Try conda environment
-        if (this.pythonConfig.condaEnv) {
-            this.log(`Looking for conda environment: ${this.pythonConfig.condaEnv}`);
-            const condaPython = await this.findCondaPython(this.pythonConfig.condaEnv);
-            if (condaPython) {
-                this.log(`Found conda Python: ${condaPython}`);
-                const version = await this.getPythonVersion(condaPython);
-                const openmcCheck = await this.checkOpenMCInPython(condaPython);
-                if (!openmcCheck.available) {
-                    throw new Error(
-                        `Conda environment '${this.pythonConfig.condaEnv}' does not have OpenMC installed.\n` +
-                        `${openmcCheck.error}\n` +
-                        `Activate the environment and install: conda activate ${this.pythonConfig.condaEnv} && pip install openmc`
-                    );
-                }
-                return { command: condaPython, version };
-            }
+        
+        // Verify OpenMC is available via nuke-core
+        const openmcCheck = await this.nukeCoreService.checkOpenMC();
+        if (!openmcCheck.available) {
             throw new Error(
-                `Conda environment '${this.pythonConfig.condaEnv}' not found.\n` +
-                `Available environments can be listed with: conda env list`
+                `Python detected but OpenMC not available: ${openmcCheck.error}`
             );
         }
-
-        // 3. Try to detect conda environment with 'openmc' name
-        this.log(`Looking for auto-detected 'openmc' conda environment...`);
-        const openmcCondaPython = await this.findCondaPython('openmc');
-        if (openmcCondaPython) {
-            this.log(`Found conda environment 'openmc': ${openmcCondaPython}`);
-            const version = await this.getPythonVersion(openmcCondaPython);
-            const openmcCheck = await this.checkOpenMCInPython(openmcCondaPython);
-            if (openmcCheck.available) {
-                return { 
-                    command: openmcCondaPython,
-                    version,
-                    warning: `Using auto-detected conda environment 'openmc'. Configure 'nukeVisualizer.condaEnv' to use a specific environment.`
-                };
-            }
-        }
-
-        // 4. Try 'python' in PATH
-        this.log(`Trying system Python...`);
-        try {
-            const { execSync } = await import('child_process');
-            execSync('python --version', { stdio: 'ignore' });
-            const version = await this.getPythonVersion('python');
-            const openmcCheck = await this.checkOpenMCInPython('python');
-            if (openmcCheck.available) {
-                return { 
-                    command: 'python',
-                    version,
-                    warning: `Using system Python with OpenMC. For better control, configure 'nukeVisualizer.pythonPath' or 'nukeVisualizer.condaEnv'.`
-                };
-            }
-            this.log(`System Python found but OpenMC not available: ${openmcCheck.error}`);
-        } catch {
-            // python not available
-        }
         
-        // 5. Try 'python3' in PATH
-        try {
-            const { execSync } = await import('child_process');
-            execSync('python3 --version', { stdio: 'ignore' });
-            const version = await this.getPythonVersion('python3');
-            const openmcCheck = await this.checkOpenMCInPython('python3');
-            if (openmcCheck.available) {
-                return { 
-                    command: 'python3',
-                    version,
-                    warning: `Using system Python with OpenMC. For better control, configure 'nukeVisualizer.pythonPath' or 'nukeVisualizer.condaEnv'.`
-                };
-            }
-            this.log(`Python3 found but OpenMC not available: ${openmcCheck.error}`);
-        } catch {
-            // python3 not available
-        }
-        
-        // None worked - provide helpful error
-        throw new Error(
-            'Could not find Python with OpenMC installed.\n\n' +
-            'Options to fix:\n' +
-            '1. Install OpenMC in current Python: pip install openmc\n' +
-            '2. Create conda environment: conda create -n openmc python=3.10 openmc\n' +
-            '3. Set Python path in preferences: nukeVisualizer.pythonPath\n' +
-            '4. Set conda environment in preferences: nukeVisualizer.condaEnv'
-        );
-    }
-
-    /**
-     * Get Python version string.
-     */
-    protected async getPythonVersion(pythonPath: string): Promise<string | undefined> {
-        try {
-            const { execSync } = await import('child_process');
-            return execSync(`"${pythonPath}" --version`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-        } catch {
-            return undefined;
-        }
-    }
-
-    /**
-     * Check if OpenMC is available in the given Python.
-     */
-    protected async checkOpenMCInPython(pythonPath: string): Promise<{ available: boolean; version?: string; error?: string }> {
-        try {
-            const { execSync } = await import('child_process');
-            const version = execSync(
-                `"${pythonPath}" -c "import openmc; print(openmc.__version__)"`,
-                { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-            ).trim();
-            return { available: true, version };
-        } catch {
-            return { available: false, error: 'OpenMC module not found' };
-        }
+        return {
+            command: detectionResult.command,
+            version: openmcCheck.version,
+            warning: detectionResult.warning
+        };
     }
 
     /**
@@ -245,106 +139,51 @@ export class OpenMCRunnerService {
             }
         }
         
-        // Fallback: try to find via 'which' or 'where'
-        try {
-            const { execSync } = await import('child_process');
-            const whichCmd = isWindows ? 'where' : 'which';
-            const openmcPath = execSync(`${whichCmd} ${openmcName}`, { 
-                encoding: 'utf-8', 
-                stdio: ['pipe', 'pipe', 'ignore'] 
-            }).trim().split('\n')[0];
-            if (openmcPath && fs.existsSync(openmcPath)) {
-                return openmcPath;
-            }
-        } catch {
-            // Not found in PATH
-        }
-        
         // Last resort: assume it's in the same directory as Python
         this.log(`Warning: Could not find openmc executable, assuming it's in: ${openmcInSameDir}`);
         return openmcInSameDir;
-    }
-
-    /**
-     * Find Python in a conda environment.
-     */
-    protected async findCondaPython(envName: string): Promise<string | undefined> {
-        try {
-            const { execSync } = await import('child_process');
-            
-            // Get conda base path
-            const condaBase = execSync('conda info --base', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-            
-            // Construct path to Python in the environment
-            const isWindows = process.platform === 'win32';
-            const pythonPath = isWindows
-                ? `${condaBase}/envs/${envName}/python.exe`
-                : `${condaBase}/envs/${envName}/bin/python`;
-            
-            // Check if it exists
-            const { existsSync } = await import('fs');
-            if (existsSync(pythonPath)) {
-                return pythonPath;
-            }
-        } catch {
-            // Conda not available or environment not found
-        }
-        return undefined;
     }
 
     // ============================================================================
     // OpenMC Availability Check
     // ============================================================================
 
+    /**
+     * Check if OpenMC is available.
+     */
     async checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }> {
-        try {
-            const pythonInfo = await this.detectPythonCommand();
-            const pythonCommand = pythonInfo.command;
-            const { execSync } = await import('child_process');
-            
-            // Check for openmc module in Python
-            let version: string;
-            try {
-                version = execSync(
-                    `"${pythonCommand}" -c "import openmc; print(openmc.__version__)"`,
-                    { encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] }
-                ).trim();
-            } catch {
-                return {
-                    available: false,
-                    error: `OpenMC Python module not found in ${pythonCommand}. Install with: pip install openmc`,
-                    path: pythonCommand
-                };
-            }
-            
-            // Also verify the openmc executable exists
-            try {
-                const openmcExe = await this.findOpenMCExecutable(pythonCommand);
-                // Test the executable
-                execSync(`"${openmcExe}" --version`, { 
-                    encoding: 'utf-8', 
-                    timeout: 5000, 
-                    stdio: ['pipe', 'pipe', 'ignore'] 
-                });
-                
-                return {
-                    available: true,
-                    version,
-                    path: openmcExe,
-                    error: pythonInfo.warning
-                };
-            } catch {
-                return {
-                    available: false,
-                    error: `OpenMC Python module found (${version}) but 'openmc' executable not found. Try reinstalling: pip install --force-reinstall openmc`,
-                    path: pythonCommand
-                };
-            }
-            
-        } catch (error) {
+        // Delegate to nuke-core for Python/OpenMC check
+        const result = await this.nukeCoreService.checkOpenMC();
+        
+        if (!result.available) {
             return {
                 available: false,
-                error: error instanceof Error ? error.message : String(error)
+                error: result.error || 'OpenMC not available'
+            };
+        }
+        
+        // Find the openmc executable path
+        try {
+            const pythonCommand = await this.nukeCoreService.getPythonCommand();
+            if (!pythonCommand) {
+                return {
+                    available: true,
+                    version: result.version,
+                    error: undefined
+                };
+            }
+            const openmcExe = await this.findOpenMCExecutable(pythonCommand);
+            return {
+                available: true,
+                version: result.version,
+                path: openmcExe,
+                error: undefined
+            };
+        } catch {
+            return {
+                available: true,
+                version: result.version,
+                error: undefined
             };
         }
     }
