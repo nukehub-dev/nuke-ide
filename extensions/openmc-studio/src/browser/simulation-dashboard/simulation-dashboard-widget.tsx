@@ -26,6 +26,7 @@ import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCStudioService } from '../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-runner';
+import { NukeCoreService } from 'nuke-core';
 import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,
@@ -75,6 +76,9 @@ export class SimulationDashboardWidget extends ReactWidget {
 
     @inject(PreferenceService)
     protected readonly preferences!: PreferenceService;
+
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService!: NukeCoreService;
 
     private activeTab: DashboardTab = 'settings';
     private isRunning = false;
@@ -1885,9 +1889,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         // Check OpenMC availability first
         const openmcCheck = await this.studioService.checkOpenMCAvailability();
         if (!openmcCheck.available) {
-            this.messageService.error(`OpenMC not available: ${openmcCheck.error}. Please configure Python path in nuke-visualizer preferences.`);
+            this.messageService.error(`OpenMC not available: ${openmcCheck.error}. Please configure Python path in Nuke Utils preferences.`);
             this.logToConsole(`OpenMC not available: ${openmcCheck.error}`, 'error');
-            this.logToConsole('Please set nukeVisualizer.pythonPath or nukeVisualizer.condaEnv in preferences', 'error');
+            this.logToConsole('Please set nuke.condaEnv in preferences', 'error');
             return;
         }
 
@@ -1930,12 +1934,11 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.logToConsole(`Generated XML files: ${xmlResult.generatedFiles?.join(', ')}`);
 
             // Check and log cross-sections path
-            const xsPath = this.preferences.get('nukeVisualizer.openmcCrossSectionsPath') as string | undefined
-                || this.preferences.get('openmcStudio.crossSectionsPath') as string | undefined;
+            const xsPath = this.nukeCoreService.getCrossSectionsPath();
             if (xsPath) {
                 this.logToConsole(`Using cross-sections: ${xsPath}`);
             } else {
-                this.logToConsole('Warning: No cross-sections path configured. Set nukeVisualizer.openmcCrossSectionsPath in preferences.', 'warn');
+                this.logToConsole('Warning: No cross-sections path configured. Set nuke.openmcCrossSections in preferences.', 'warn');
             }
 
             // Run simulation

@@ -10,10 +10,10 @@
       "path": "applications/browser"
     },
     {
-      "path": "extensions/nukelab-menu"
+      "path": "extensions/nuke-essentials"
     },
     {
-      "path": "extensions/nuke-essentials"
+      "path": "extensions/nuke-core"
     },
     {
       "path": "extensions/nuke-sysmon"
@@ -23,6 +23,12 @@
     },
     {
       "path": "extensions/openmc-studio"
+    },
+    {
+      "path": "extensions/nukelab-menu"
+    },
+    {
+      "path": "extensions/nukelab-pwa"
     }
   ]
 }

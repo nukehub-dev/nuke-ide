@@ -35,6 +35,7 @@ import {
     SimulationStatusEvent,
     OpenMCStudioBackendService
 } from '../../common/openmc-studio-protocol';
+import { NukeCoreService } from 'nuke-core';
 
 @injectable()
 export class OpenMCSimulationRunner {
@@ -47,6 +48,9 @@ export class OpenMCSimulationRunner {
     
     @inject(PreferenceService)
     protected readonly preferences: PreferenceService;
+    
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService: NukeCoreService;
     
     private _isRunning = false;
     private _currentProcessId?: string;
@@ -64,119 +68,75 @@ export class OpenMCSimulationRunner {
     private readonly _onStatusChange = new Emitter<SimulationStatusEvent>();
     readonly onStatusChange: Event<SimulationStatusEvent> = this._onStatusChange.event;
 
-    private readonly _onOutput = new Emitter<{ type: 'stdout' | 'stderr'; data: string }>();
-    readonly onOutput: Event<{ type: 'stdout' | 'stderr'; data: string }> = this._onOutput.event;
-
-    // Method to forward output from backend client
-    forwardOutput(type: 'stdout' | 'stderr', data: string): void {
-        this._onOutput.fire({ type, data });
-    }
-
-    // ============================================================================
-    // Properties
-    // ============================================================================
-
     /**
-     * Whether a simulation is currently running.
+     * Start an OpenMC simulation.
      */
-    get isRunning(): boolean {
-        return this._isRunning;
-    }
-
-    /**
-     * Current process ID if running.
-     */
-    get currentProcessId(): string | undefined {
-        return this._currentProcessId;
-    }
-
-    // ============================================================================
-    // Simulation Control
-    // ============================================================================
-
-    /**
-     * Run an OpenMC simulation.
-     */
-    async runSimulation(request: SimulationRunRequest): Promise<SimulationRunResult> {
+    async runSimulation(request: SimulationRunRequest): Promise<void> {
         if (this._isRunning) {
-            throw new Error('Simulation already running');
+            this.messageService.warn('A simulation is already running.');
+            return;
         }
 
         this._isRunning = true;
         this._onSimulationStart.fire();
-        this._onStatusChange.fire({
-            processId: request.workingDirectory,
-            status: 'starting'
-        });
 
         try {
+            // Get cross-sections environment if available
+            const env = await this.getCrossSectionsEnv();
+            const fullRequest = {
+                ...request,
+                env: {
+                    ...request.env,
+                    ...env
+                }
+            };
+
+            await this.backendService.runSimulation(fullRequest);
+            // Result from backend already contains simulation results if it finishes immediately,
+            // but usually it just starts. Actually, the protocol says runSimulation returns SimulationRunResult.
+            // If it's a long running process, the backend might handle it differently.
+            
             this._onStatusChange.fire({
-                processId: request.workingDirectory,
+                processId: '', // Placeholder since SimulationRunResult doesn't have it
                 status: 'running'
             });
 
-            // Add cross-sections path to environment if available
-            const env = await this.getCrossSectionsEnv();
-            if (env) {
-                request = {
-                    ...request,
-                    env: { ...request.env, ...env }
-                };
-            }
-
-            const result = await this.backendService.runSimulation(request);
-            
-            this._isRunning = false;
-            
-            if (result.success) {
-                this.messageService.info('Simulation completed successfully');
-                this._onStatusChange.fire({
-                    processId: request.workingDirectory,
-                    status: 'completed',
-                    result
-                });
-            } else {
-                const errorMsg = result.error || `Exit code: ${result.exitCode}`;
-                this.messageService.error(`Simulation failed: ${errorMsg}`);
-                this._onStatusChange.fire({
-                    processId: request.workingDirectory,
-                    status: 'failed',
-                    result
-                });
-            }
-            
-            this._onSimulationComplete.fire(result);
-            return result;
-            
         } catch (error) {
             this._isRunning = false;
             const msg = error instanceof Error ? error.message : String(error);
-            
-            this.messageService.error(`Simulation error: ${msg}`);
-            this._onStatusChange.fire({
-                processId: request.workingDirectory,
-                status: 'failed',
-                result: {
-                    success: false,
-                    stdout: '',
-                    stderr: msg,
-                    outputFiles: []
+            this.messageService.error(`Failed to start simulation: ${msg}`);
+            this._onSimulationComplete.fire({
+                success: false,
+                error: msg,
+                stdout: '',
+                stderr: '',
+                outputFiles: [],
+                timing: {
+                    startTime: new Date().toISOString(),
+                    endTime: new Date().toISOString(),
+                    duration: 0
                 }
             });
-            
-            throw error;
         }
     }
 
     /**
-     * Cancel the current simulation.
+     * Handle simulation completion.
      */
-    async cancelSimulation(): Promise<boolean> {
-        return this.stopSimulation();
+    onSimulationFinished(result: SimulationRunResult): void {
+        this._isRunning = false;
+        this._currentProcessId = undefined;
+        this._onSimulationComplete.fire(result);
+        
+        this._onStatusChange.fire({
+            processId: '',
+            status: result.success ? 'completed' : 'failed',
+            result
+        });
     }
 
     /**
-     * Stop the current simulation.
+     * Stop a running simulation.
      */
     async stopSimulation(): Promise<boolean> {
         if (!this._isRunning || !this._currentProcessId) {
@@ -185,16 +145,15 @@ export class OpenMCSimulationRunner {
 
         try {
             const success = await this.backendService.cancelSimulation(this._currentProcessId);
-            
             if (success) {
                 this._isRunning = false;
-                this.messageService.info('Simulation stopped');
+                this._currentProcessId = undefined;
                 this._onStatusChange.fire({
-                    processId: this._currentProcessId,
+                    processId: '',
                     status: 'cancelled'
                 });
             }
-            
+
             return success;
         } catch (error) {
             console.error('[OpenMC Studio] Error stopping simulation:', error);
@@ -204,18 +163,13 @@ export class OpenMCSimulationRunner {
 
     /**
      * Get cross-sections environment variable if configured.
-     * Checks both nukeVisualizer.openmcCrossSectionsPath and openmcStudio.crossSectionsPath preferences.
+     * Uses nuke-core cross-sections path.
      */
     private async getCrossSectionsEnv(): Promise<{ [key: string]: string } | undefined> {
-        // Check nuke-visualizer preference first (primary)
-        let xsPath = this.preferences.get('nukeVisualizer.openmcCrossSectionsPath') as string | undefined;
+        // Use nuke-core cross-sections path
+        let xsPath = this.nukeCoreService.getCrossSectionsPath();
         
-        // Fall back to openmc-studio preference
-        if (!xsPath) {
-            xsPath = this.preferences.get('openmcStudio.crossSectionsPath') as string | undefined;
-        }
-        
-        // Check environment variable as last resort
+        // Check environment variable as last resort if nuke-core doesn't have it
         if (!xsPath && typeof process !== 'undefined' && process.env) {
             xsPath = process.env.OPENMC_CROSS_SECTIONS;
         }

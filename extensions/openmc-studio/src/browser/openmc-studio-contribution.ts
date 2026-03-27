@@ -120,7 +120,7 @@ export namespace OpenMCStudioCommands {
         label: 'Import from XML...'
     };
     
-    // View commands (Phase 1+)
+    // View commands
     export const OPEN_SIMULATION_DASHBOARD: Command = {
         id: 'openmc.openSimulationDashboard',
         category: CATEGORY,

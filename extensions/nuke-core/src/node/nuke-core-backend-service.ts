@@ -167,7 +167,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
             return {
                 success: true,
                 command: openmcCondaPython,
-                warning: `Using auto-detected conda environment 'openmc'. Configure 'nukeVisualizer.condaEnv' to use a specific environment.`
+                warning: `Using auto-detected conda environment 'openmc'. Configure 'nuke.condaEnv' to use a specific environment.`
             };
         }
 
@@ -179,7 +179,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
             return {
                 success: true,
                 command: 'python',
-                warning: `Using system Python. For better results, configure 'nukeVisualizer.pythonPath' or 'nukeVisualizer.condaEnv'.`
+                warning: `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`
             };
         } catch {
             // 5. Try 'python3' in PATH
@@ -190,12 +190,12 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
                 return {
                     success: true,
                     command: 'python3',
-                    warning: `Using system Python. For better results, configure 'nukeVisualizer.pythonPath' or 'nukeVisualizer.condaEnv'.`
+                    warning: `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`
                 };
             } catch {
                 return {
                     success: false,
-                    error: 'Could not find Python. Please configure nukeVisualizer.pythonPath or nukeVisualizer.condaEnv in preferences.'
+                    error: 'Could not find Python. Please configure nuke.pythonPath or nuke.condaEnv in preferences.'
                 };
             }
         }

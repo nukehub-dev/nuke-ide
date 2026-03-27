@@ -98,11 +98,12 @@
     "@theia/vsx-registry": "1.69.0",
     "@theia/workspace": "1.69.0",
     "nuke-essentials": "0.1.2",
-    "nukelab-menu": "0.1.2",
-    "nukelab-pwa": "0.1.2",
+    "nuke-core": "1.0.0",
     "nuke-sysmon": "0.1.0",
     "nuke-visualizer": "0.1.2",
-    "openmc-studio": "0.1.0"
+    "openmc-studio": "0.1.0",
+    "nukelab-menu": "0.1.2",
+    "nukelab-pwa": "0.1.2"
   },
   "devDependencies": {
     "@theia/cli": "1.69.0"

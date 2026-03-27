@@ -108,7 +108,7 @@ export class NukeCoreService {
         if (this.isConfigured()) {
             return undefined;
         }
-        return 'Nuke Core is not configured. Please set Python Path or Conda Environment in Settings → Nuke.';
+        return 'Nuke Core is not configured. Please set Python Path or Conda Environment in Settings → Nuke Utils.';
     }
 
     /**

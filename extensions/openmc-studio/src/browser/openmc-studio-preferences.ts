@@ -18,8 +18,6 @@
  * OpenMC Studio Preferences
  * 
  * Preferences for OpenMC Studio extension.
- * Note: Python path and conda environment are shared with nuke-visualizer
- * via 'nukeVisualizer.pythonPath' and 'nukeVisualizer.condaEnv'.
  * 
  * @module openmc-studio/browser
  */
@@ -35,16 +33,6 @@ import {
 
 export const OpenMCStudioPreferenceSchema: PreferenceSchema = {
     properties: {
-        'openmcStudio.openmcPath': {
-            type: 'string',
-            default: '',
-            description: 'Path to OpenMC executable. Leave empty to use Python module (python -m openmc).'
-        },
-        'openmcStudio.crossSectionsPath': {
-            type: 'string',
-            default: '',
-            description: 'Path to OpenMC cross_sections.xml file. If not set, uses OPENMC_CROSS_SECTIONS environment variable.'
-        },
         'openmcStudio.defaultParticles': {
             type: 'number',
             default: 1000,
@@ -64,8 +52,6 @@ export const OpenMCStudioPreferenceSchema: PreferenceSchema = {
 };
 
 export interface OpenMCStudioConfiguration {
-    'openmcStudio.openmcPath': string;
-    'openmcStudio.crossSectionsPath': string;
     'openmcStudio.defaultParticles': number;
     'openmcStudio.defaultBatches': number;
     'openmcStudio.defaultInactive': number;

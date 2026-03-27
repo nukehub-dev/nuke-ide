@@ -134,7 +134,6 @@ export interface XMLImportResult {
 export interface SimulationRunRequest {
     /** Working directory containing XML files */
     workingDirectory: string;
-    /** OpenMC executable path (optional, uses system PATH if not set) */
     openmcPath?: string;
     /** MPI configuration */
     mpi?: {

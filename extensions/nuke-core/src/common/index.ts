@@ -10,6 +10,5 @@ export * from './nuke-core-protocol';
 // Re-export browser service for convenience
 export { NukeCoreService } from '../browser/nuke-core-service';
 
-// Re-export backend service interface and implementation
+// Re-export backend service interface
 export { NukeCoreBackendServiceInterface, NukeCoreBackendService } from './nuke-core-protocol';
-export { NukeCoreBackendServiceImpl } from '../node/nuke-core-backend-service';
