@@ -32,7 +32,7 @@ import {
     SimulationProgress,
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
-import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 
 interface RunningSimulation {
     processId: string;

@@ -35,7 +35,7 @@ import {
     SimulationStatusEvent,
     OpenMCStudioBackendService
 } from '../../common/openmc-studio-protocol';
-import { NukeCoreService } from 'nuke-core';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
 export class OpenMCSimulationRunner {

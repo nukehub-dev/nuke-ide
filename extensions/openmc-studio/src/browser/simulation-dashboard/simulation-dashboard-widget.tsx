@@ -26,7 +26,7 @@ import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCStudioService } from '../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-runner';
-import { NukeCoreService } from 'nuke-core';
+import { NukeCoreService } from 'nuke-core/lib/common';
 import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,

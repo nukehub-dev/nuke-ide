@@ -28,7 +28,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
-import { NukeCoreService } from 'nuke-core';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
 export class OpenMCStudioService implements FrontendApplicationContribution {
