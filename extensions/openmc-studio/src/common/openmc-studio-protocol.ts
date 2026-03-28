@@ -480,11 +480,11 @@ export interface CADImportRequest {
     format?: CADFileFormat;
     /** Import options */
     options?: {
-        /** Tolerance for surface approximation (reserved for Phase 3) */
+        /** Tolerance for surface approximation in cm (default: 0.001) */
         tolerance?: number;
         /** Whether to merge coplanar surfaces */
         mergeSurfaces?: boolean;
-        /** Scale factor for the geometry (reserved for Phase 3) */
+        /** Scale factor for the geometry (default: 1.0) */
         scale?: number;
         /** Units of the input file (default: 'cm') */
         units?: 'cm' | 'mm' | 'm' | 'in' | 'ft';

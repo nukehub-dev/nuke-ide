@@ -27,6 +27,8 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // Use CommonJS require for Node.js modules to ensure proper externalization by webpack
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -44,15 +46,15 @@ export interface CADImportRequest {
     /** Import options */
     options?: {
         /** 
-         * Tolerance for surface approximation (default: 0.001).
-         * @deprecated Reserved for Phase 3 - Direct CAD surface conversion
+         * Tolerance for surface approximation in cm (default: 0.001).
+         * Surfaces with deviation less than this will be converted to exact primitives.
          */
         tolerance?: number;
         /** Whether to merge coplanar surfaces */
         mergeSurfaces?: boolean;
         /** 
          * Scale factor for the geometry (default: 1.0).
-         * @deprecated Reserved for Phase 3 - Direct CAD surface conversion
+         * Applied after unit conversion.
          */
         scale?: number;
         /** Units of the input file (default: 'cm') */
@@ -138,8 +140,83 @@ export class OpenMCCADImportService {
                 };
             }
 
-            // Use OpenMC's built-in CAD import capabilities
-            return this.importWithOpenMC(request, support.pythonPath, format);
+            // Find the Python script
+            const scriptPath = this.findCADImporterScript();
+            if (!fs.existsSync(scriptPath)) {
+                return {
+                    success: false,
+                    error: `CAD importer script not found at: ${scriptPath}`
+                };
+            }
+
+            // Build arguments for Python script
+            const units = request.options?.units ?? 'cm';
+            const tolerance = request.options?.tolerance ?? 0.001;
+            const scale = request.options?.scale ?? 1.0;
+            const materialId = request.options?.materialId;
+            const universeId = request.options?.universeId ?? 0;
+            
+            const unitFactor = this.getUnitFactor(units) * scale;
+
+            const args = [
+                scriptPath,
+                request.filePath,
+                '--unit-factor', unitFactor.toString(),
+                '--tolerance', tolerance.toString(),
+                '--universe-id', universeId.toString(),
+                '--output-json'
+            ];
+
+            if (materialId !== undefined) {
+                args.push('--material-id', materialId.toString());
+            }
+
+            // Execute Python script
+            const result = cp.spawnSync(support.pythonPath, args, {
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                maxBuffer: 100 * 1024 * 1024 // 100MB buffer for large geometries
+            });
+
+            const warnings: string[] = [];
+
+            if (result.stderr) {
+                const stderr = result.stderr.toString().trim();
+                if (stderr && !stderr.includes('Warning')) {
+                    warnings.push(`Python stderr: ${stderr.substring(0, 500)}`);
+                }
+            }
+
+            // Parse JSON output
+            const output = result.stdout.toString().trim();
+            const lines = output.split('\n');
+            const jsonLine = lines.find((l: string) => l.startsWith('{') && l.includes('"success"'));
+            
+            if (jsonLine) {
+                try {
+                    const parsed = JSON.parse(jsonLine);
+                    return {
+                        success: parsed.success ?? false,
+                        error: parsed.error,
+                        warnings: [...warnings, ...(parsed.warnings || [])],
+                        surfaces: parsed.surfaces,
+                        cells: parsed.cells,
+                        boundingBox: parsed.boundingBox,
+                        fileInfo: parsed.fileInfo,
+                        summary: parsed.summary
+                    };
+                } catch (parseError) {
+                    const msg = parseError instanceof Error ? parseError.message : String(parseError);
+                    warnings.push(`JSON parse error: ${msg}`);
+                }
+            }
+
+            // If no JSON found, return error with partial output
+            return {
+                success: false,
+                error: `Failed to parse CAD import result. Output: ${output.substring(0, 200)}...`,
+                warnings
+            };
 
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -292,115 +369,54 @@ gmsh.finalize()
         return formatMap[ext || ''];
     }
 
-    private async importWithOpenMC(
-        request: CADImportRequest, 
-        pythonPath: string, 
-        format: CADFileFormat
-    ): Promise<CADImportResult> {
-        const warnings: string[] = [];
-        
-        try {
-            const units = request.options?.units ?? 'cm';
-            // Note: tolerance and scale options reserved for Phase 3 - Direct CAD surface conversion
-
-            // Python script to import CAD using OpenMC's capabilities
-            const script = `
-import openmc
-import sys
-import json
-
-try:
-    # Use OpenMC's CAD import if available
-    result = {
-        'success': True,
-        'surfaces': [],
-        'cells': [],
-        'summary': {
-            'surfacesCreated': 0,
-            'cellsCreated': 0,
-            'approximationsMade': 0
-        }
+    private getUnitFactor(units: string): number {
+        const factors: Record<string, number> = {
+            'mm': 0.1,
+            'cm': 1.0,
+            'm': 100.0,
+            'in': 2.54,
+            'ft': 30.48
+        };
+        return factors[units] ?? 1.0;
     }
-    
-    # Try to read basic geometry info using available libraries
-    try:
-        import gmsh
-        gmsh.initialize()
-        gmsh.open('${request.filePath.replace(/\\/g, '\\\\')}')
+
+    /**
+     * Find the CAD importer Python script.
+     * Follows the same pattern as nuke-visualizer.
+     */
+    private findCADImporterScript(): string {
+        const extensionPath = this.getExtensionPath();
+        const scriptPath = path.resolve(extensionPath, 'python/cad_importer.py');
         
-        # Get all entities
-        entities = gmsh.model.getEntities()
-        
-        # Count solids and surfaces
-        solids = [e for e in entities if e[0] == 3]
-        surfaces = [e for e in entities if e[0] == 2]
-        
-        result['fileInfo'] = {
-            'format': '${format}',
-            'units': '${units}',
-            'solidCount': len(solids),
-            'faceCount': len(surfaces),
-            'edgeCount': len([e for e in entities if e[0] == 1])
+        if (fs.existsSync(scriptPath)) {
+            return scriptPath;
         }
+
+        // Fallback search in common locations
+        const fallbackPaths = [
+            path.resolve(__dirname, '../../python/cad_importer.py'),
+            path.resolve(process.cwd(), 'extensions/openmc-studio/python/cad_importer.py'),
+            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/cad_importer.py'),
+        ];
         
-        # Try to get bounding box
-        if entities:
-            bbox = gmsh.model.getBoundingBox(-1, -1)
-            result['boundingBox'] = {
-                'min': [bbox[0], bbox[1], bbox[2]],
-                'max': [bbox[3], bbox[4], bbox[5]]
+        for (const fp of fallbackPaths) {
+            if (fs.existsSync(fp)) {
+                return fp;
             }
-        
-        gmsh.finalize()
-        
-    except Exception as e:
-        result['warnings'] = [f'gmsh preview failed: {str(e)}']
-    
-    print(json.dumps(result))
-    
-except Exception as e:
-    error_result = {'success': False, 'error': str(e)}
-    print(json.dumps(error_result))
-`;
+        }
 
-            const result = cp.spawnSync(pythonPath, ['-c', script], {
-                encoding: 'utf-8',
-                stdio: ['pipe', 'pipe', 'pipe'],
-                maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large outputs
-            });
+        return scriptPath;
+    }
 
-            // Find JSON output in the result
-            const output = result.stdout.toString().trim();
-            const lines = output.split('\n');
-            const jsonLine = lines.find((l: string) => l.startsWith('{'));
-            
-            if (jsonLine) {
-                const parsed = JSON.parse(jsonLine);
-                return {
-                    success: parsed.success ?? false,
-                    error: parsed.error,
-                    warnings: [...warnings, ...(parsed.warnings || [])],
-                    surfaces: parsed.surfaces,
-                    cells: parsed.cells,
-                    boundingBox: parsed.boundingBox,
-                    fileInfo: parsed.fileInfo,
-                    summary: parsed.summary
-                };
-            }
-
-            return {
-                success: false,
-                error: 'Failed to parse import result',
-                warnings
-            };
-
-        } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            return {
-                success: false,
-                error: `OpenMC import failed: ${msg}`,
-                warnings
-            };
+    /**
+     * Get the extension root path.
+     */
+    private getExtensionPath(): string {
+        try {
+            return path.dirname(require.resolve('openmc-studio/package.json'));
+        } catch (e) {
+            // Fallback to __dirname if require.resolve fails
+            return path.resolve(__dirname, '../..');
         }
     }
 }

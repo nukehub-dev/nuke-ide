@@ -1684,8 +1684,12 @@ export class CSGBuilderWidget extends ReactWidget {
         // Log warnings if any
         if (result.warnings && result.warnings.length > 0) {
             console.warn('[CSG Builder] CAD import warnings:', result.warnings);
-            for (const warning of result.warnings) {
+            // Only show first 5 warnings as toast messages
+            for (const warning of result.warnings.slice(0, 5)) {
                 this.messageService.warn(warning);
+            }
+            if (result.warnings.length > 5) {
+                this.messageService.warn(`... and ${result.warnings.length - 5} more warnings (see console)`);
             }
         }
 
@@ -1709,8 +1713,169 @@ export class CSGBuilderWidget extends ReactWidget {
             console.log('[CSG Builder] CAD file info:', result.fileInfo);
         }
 
+        // Add imported surfaces and cells to the state
+        if (result.surfaces && result.surfaces.length > 0) {
+            this.addImportedGeometry(result.surfaces, result.cells || []);
+        }
+
         // Update the widget
         this.update();
+    }
+
+    private addImportedGeometry(
+        surfaces: { type: string; coefficients: number[]; name?: string }[],
+        cells: { id: number; name?: string; region: string; material?: string; universe?: number }[]
+    ): void {
+        const state = this.stateManager.getState();
+        
+        // Find next available IDs
+        const nextSurfaceId = this.getNextSurfaceId(state);
+        const nextCellId = this.getNextCellId(state);
+        
+        // Create ID mapping from imported IDs to new IDs
+        const surfaceIdMap = new Map<number, number>();
+        
+        // Add surfaces
+        for (let i = 0; i < surfaces.length; i++) {
+            const imported = surfaces[i];
+            const newId = nextSurfaceId + i;
+            surfaceIdMap.set(i + 1, newId); // Imported surfaces are 1-indexed
+            
+            // Convert surface type and coefficients
+            const surfaceType = this.mapCADSurfaceType(imported.type);
+            const coefficients = this.convertCoefficients(surfaceType, imported.coefficients);
+            
+            const newSurface: OpenMCSurface = {
+                id: newId,
+                type: surfaceType,
+                coefficients: coefficients as any,
+                name: imported.name || `${surfaceType}_${newId}`,
+                boundary: 'transmission'
+            };
+            
+            state.geometry.surfaces.push(newSurface);
+        }
+        
+        // Add cells with updated region references
+        for (let i = 0; i < cells.length; i++) {
+            const imported = cells[i];
+            const newId = nextCellId + i;
+            
+            // Remap surface IDs in region expression
+            const remappedRegion = this.remapRegionSurfaceIds(imported.region, surfaceIdMap);
+            
+            const newCell: OpenMCCell = {
+                id: newId,
+                name: imported.name || `Cell_${newId}`,
+                regionString: remappedRegion,
+                fillType: imported.material === 'void' ? 'void' : 'material',
+                fillId: imported.material && imported.material !== 'void' ? parseInt(imported.material, 10) : undefined
+            };
+            
+            state.geometry.cells.push(newCell);
+        }
+        
+        // Update state
+        this.stateManager.setState(state);
+        
+        // Switch to appropriate tab
+        if (surfaces.length > 0) {
+            this.activeTab = 'surfaces';
+        }
+    }
+
+    private getNextSurfaceId(state: OpenMCState): number {
+        const ids = state.geometry.surfaces.map(s => s.id);
+        return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    private getNextCellId(state: OpenMCState): number {
+        const ids = state.geometry.cells.map(c => c.id);
+        return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    private mapCADSurfaceType(cadType: string): OpenMCSurfaceType {
+        const typeMap: Record<string, OpenMCSurfaceType> = {
+            'plane': 'plane',
+            'x-plane': 'x-plane',
+            'y-plane': 'y-plane',
+            'z-plane': 'z-plane',
+            'sphere': 'sphere',
+            'x-cylinder': 'x-cylinder',
+            'y-cylinder': 'y-cylinder',
+            'z-cylinder': 'z-cylinder',
+            'cylinder': 'cylinder',
+            'x-cone': 'x-cone',
+            'y-cone': 'y-cone',
+            'z-cone': 'z-cone',
+            'x-torus': 'x-torus',
+            'y-torus': 'y-torus',
+            'z-torus': 'z-torus',
+            'quadric': 'quadric'
+        };
+        return typeMap[cadType] || 'plane';
+    }
+
+    private convertCoefficients(type: OpenMCSurfaceType, coeffs: number[]): Record<string, number> {
+        // Convert array coefficients to object format based on surface type
+        switch (type) {
+            case 'plane':
+                // Plane: [a, b, c, d] where ax + by + cz = d
+                return { a: coeffs[0], b: coeffs[1], c: coeffs[2], d: coeffs[3] };
+            case 'x-plane':
+                return { x0: coeffs[0] };
+            case 'y-plane':
+                return { y0: coeffs[0] };
+            case 'z-plane':
+                return { z0: coeffs[0] };
+            case 'sphere':
+                // Sphere: [x0, y0, z0, r]
+                return { x0: coeffs[0], y0: coeffs[1], z0: coeffs[2], r: coeffs[3] };
+            case 'x-cylinder':
+                // x-cylinder: [x0, y0, z0, ... axis ignored, r]
+                return { y0: coeffs[1], z0: coeffs[2], r: coeffs[6] };
+            case 'y-cylinder':
+                return { x0: coeffs[0], z0: coeffs[2], r: coeffs[6] };
+            case 'z-cylinder':
+                return { x0: coeffs[0], y0: coeffs[1], r: coeffs[6] };
+            case 'cylinder':
+                // General cylinder: [x0, y0, z0, vx, vy, vz, r]
+                return { x0: coeffs[0], y0: coeffs[1], z0: coeffs[2], r: coeffs[6], vx: coeffs[3], vy: coeffs[4], vz: coeffs[5] };
+            case 'x-cone':
+            case 'y-cone':
+            case 'z-cone':
+                // Cone: [x0, y0, z0, r2]
+                return { x0: coeffs[0], y0: coeffs[1], z0: coeffs[2], r2: coeffs[3] };
+            case 'x-torus':
+            case 'y-torus':
+            case 'z-torus':
+                // Torus: [x0, y0, z0, a, b, c]
+                return { x0: coeffs[0], y0: coeffs[1], z0: coeffs[2], a: coeffs[3], b: coeffs[4], c: coeffs[5] };
+            case 'quadric':
+                // Quadric: [a, b, c, d, e, f, g, h, j, k]
+                return {
+                    a: coeffs[0], b: coeffs[1], c: coeffs[2], d: coeffs[3], e: coeffs[4],
+                    f: coeffs[5], g: coeffs[6], h: coeffs[7], j: coeffs[8], k: coeffs[9]
+                };
+            default:
+                // Fallback - return all coefficients indexed
+                const obj: Record<string, number> = {};
+                coeffs.forEach((v, i) => { obj[`c${i}`] = v; });
+                return obj;
+        }
+    }
+
+    private remapRegionSurfaceIds(region: string, idMap: Map<number, number>): string {
+        // Replace surface IDs in region expression
+        // Handles patterns like "-1", "+1", "-1 & +2", etc.
+        return region.replace(/([+-]?)(\d+)/g, (match, sign, idStr) => {
+            const oldId = parseInt(idStr, 10);
+            const newId = idMap.get(oldId);
+            if (newId !== undefined) {
+                return `${sign}${newId}`;
+            }
+            return match; // Keep original if not found
+        });
     }
 
     // ============================================================================
