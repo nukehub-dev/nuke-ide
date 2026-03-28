@@ -72,6 +72,34 @@ export interface ListEnvironmentsResult {
     selected?: PythonEnvironment;
 }
 
+/** Package dependency to check */
+export interface PackageDependency {
+    /** Package name to import (e.g., 'trame', 'openmc') */
+    name: string;
+    /** Optional submodule path for version check (e.g., 'app' for trame.app) */
+    submodule?: string;
+    /** Whether this package is required or optional */
+    required?: boolean;
+}
+
+/** Result of dependency check */
+export interface DependencyCheckResult {
+    /** Whether all required packages are available */
+    available: boolean;
+    /** List of missing required packages */
+    missing: string[];
+    /** Package versions that were found */
+    versions: Record<string, string>;
+}
+
+/** Extended Python detection with required packages */
+export interface PythonDetectionOptions {
+    /** Required packages that must be present */
+    requiredPackages?: PackageDependency[];
+    /** Conda environment names to try for auto-detection (in order) */
+    autoDetectEnvs?: string[];
+}
+
 /** Backend service interface */
 export interface NukeCoreBackendServiceInterface {
     /** Set Python configuration */
@@ -83,11 +111,20 @@ export interface NukeCoreBackendServiceInterface {
     /** Detect Python command based on current config */
     detectPython(): Promise<PythonDetectionResult>;
     
+    /**
+     * Detect Python with specific package requirements.
+     * This will find a Python environment that has all required packages.
+     */
+    detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }>;
+    
+    /** 
+     * Check if specific packages are available in a Python environment.
+     * If pythonPath is not provided, uses the currently configured/detected Python.
+     */
+    checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult>;
+    
     /** List available Python environments */
     listEnvironments(): Promise<ListEnvironmentsResult>;
-    
-    /** Check if OpenMC is available in the current Python environment */
-    checkOpenMC(): Promise<{ available: boolean; version?: string; error?: string }>;
     
     /** Get the Python command to use (cached detection result) */
     getPythonCommand(): Promise<string | undefined>;

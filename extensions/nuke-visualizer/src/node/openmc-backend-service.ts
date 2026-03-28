@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
@@ -31,6 +31,7 @@ import {
     PythonConfig,
     VisualizerClient
 } from '../common/visualizer-protocol';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 
 interface OpenMCProcess {
     process: RawProcess;
@@ -48,12 +49,20 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
 
+    @inject(NukeCoreBackendService)
+    protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
+
     setClient(client: VisualizerClient): void {
         this.client = client;
     }
 
     async setPythonConfig(config: PythonConfig): Promise<void> {
         this.pythonConfig = config;
+        // Also update nuke-core config
+        await this.nukeCoreService.setConfig({
+            pythonPath: config.pythonPath,
+            condaEnv: config.condaEnv
+        });
         console.log(`[OpenMC] Python config updated: ${JSON.stringify(config)}`);
     }
 
@@ -495,10 +504,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const warning = pythonInfo.warning;
             
-            // Check for h5py
-            try {
-                execSync(`"${pythonCommand}" -c "import h5py"`, { stdio: 'ignore' });
-            } catch {
+            // Check for h5py using nuke-core
+            const h5pyCheck = await this.nukeCoreService.checkDependencies(
+                [{ name: 'h5py' }],
+                pythonCommand
+            );
+            
+            if (!h5pyCheck.available) {
                 return {
                     available: false,
                     message: `h5py not installed in ${pythonCommand}. Run: pip install h5py`,
@@ -644,10 +656,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const warning = pythonInfo.warning;
             
-            // Check for openmc module
-            try {
-                execSync(`"${pythonCommand}" -c "import openmc"`, { stdio: 'ignore' });
-            } catch {
+            // Check for openmc module using nuke-core
+            const openmcCheck = await this.nukeCoreService.checkDependencies(
+                [{ name: 'openmc' }],
+                pythonCommand
+            );
+            
+            if (!openmcCheck.available) {
                 return {
                     available: false,
                     message: `OpenMC Python module not installed in ${pythonCommand}. Run: pip install openmc`,
@@ -1306,123 +1321,31 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     private async detectPythonCommand(): Promise<{ command: string; warning?: string }> {
-        const warnings: string[] = [];
-
-        // 1. Check pythonConfig.pythonPath first (user preference)
-        if (this.pythonConfig.pythonPath && fs.existsSync(this.pythonConfig.pythonPath)) {
-            if (this.testPython(this.pythonConfig.pythonPath)) {
-                return { command: this.pythonConfig.pythonPath };
-            }
-            const msg = `Configured Python at ${this.pythonConfig.pythonPath} is missing required dependencies (h5py, openmc). Using fallback.`;
-            console.warn(`[OpenMC] ${msg}`);
-            warnings.push(msg);
-        } else if (this.pythonConfig.pythonPath) {
-            const msg = `Configured Python path does not exist: ${this.pythonConfig.pythonPath}. Using fallback.`;
-            console.warn(`[OpenMC] ${msg}`);
-            warnings.push(msg);
+        // Sync config with nuke-core
+        if (this.pythonConfig.pythonPath || this.pythonConfig.condaEnv) {
+            await this.nukeCoreService.setConfig({
+                pythonPath: this.pythonConfig.pythonPath,
+                condaEnv: this.pythonConfig.condaEnv
+            });
         }
-
-        // 2. Check pythonConfig.condaEnv (user preference for conda env name)
-        if (this.pythonConfig.condaEnv) {
-            const condaPython = this.findCondaPython(this.pythonConfig.condaEnv);
-            if (condaPython && this.testPython(condaPython)) {
-                return { 
-                    command: condaPython,
-                    warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                };
-            }
-            const msg = `Conda environment '${this.pythonConfig.condaEnv}' not found or missing dependencies. Using fallback.`;
-            console.warn(`[OpenMC] ${msg}`);
-            warnings.push(msg);
+        
+        // Use nuke-core to detect Python with OpenMC-specific requirements
+        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
+            requiredPackages: [
+                { name: 'h5py' },
+                { name: 'openmc' }
+            ],
+            autoDetectEnvs: ['visualizer', 'trame', 'openmc', 'nuke-ide']
+        });
+        
+        if (!detectionResult.success || !detectionResult.command) {
+            throw new Error(detectionResult.error || 'Failed to detect Python with h5py and openmc. Configure Python in Settings → Nuke.');
         }
-
-        // 3. Try common conda envs if not configured
-        const commonCondaEnvs = ['visualizer', 'trame', 'openmc', 'nuke-ide'];
-        for (const envName of commonCondaEnvs) {
-            const condaPython = this.findCondaPython(envName);
-            if (condaPython && this.testPython(condaPython)) {
-                const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
-                const fallbackMsg = `Using auto-detected conda environment: ${envName}`;
-                return { 
-                    command: condaPython, 
-                    warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
-                };
-            }
-        }
-
-        // 4. Check CONDA_PREFIX env var (if shell has activated conda)
-        const condaPrefix = process.env.CONDA_PREFIX;
-        if (condaPrefix) {
-            const condaPython = path.join(condaPrefix, 'bin', 'python');
-            if (fs.existsSync(condaPython) && this.testPython(condaPython)) {
-                const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
-                const fallbackMsg = `Using active conda environment: ${path.basename(condaPrefix)}`;
-                return { 
-                    command: condaPython,
-                    warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
-                };
-            }
-        }
-
-        // 5. Try system commands
-        const candidates = ['pvpython', 'python3', 'python'];
-        for (const cmd of candidates) {
-            try {
-                // Use which to get absolute path
-                const cmdPath = execSync(`which ${cmd}`, { encoding: 'utf8' }).trim();
-                if (cmdPath && this.testPython(cmdPath)) {
-                    const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
-                    const fallbackMsg = `Using system ${cmd} from PATH: ${cmdPath}`;
-                    return { 
-                        command: cmdPath,
-                        warning: warning ? `${warning} ${fallbackMsg}` : fallbackMsg
-                    };
-                }
-            } catch {
-                // not found
-            }
-        }
-
-        // Final fallback to python3 if all detection fails
-        const msg = '[OpenMC] All Python detection methods failed. Falling back to default python3.';
-        console.warn(msg);
-        return { 
-            command: 'python3',
-            warning: warnings.length > 0 ? `${warnings.join(' ')} ${msg}` : msg
+        
+        return {
+            command: detectionResult.command,
+            warning: detectionResult.warning
         };
-    }
-
-    private findCondaPython(envName: string): string | undefined {
-        const homeDir = os.homedir();
-        const condaBasePaths = [
-            path.join(homeDir, '.conda', 'envs'),
-            path.join(homeDir, 'anaconda3', 'envs'),
-            path.join(homeDir, 'miniconda3', 'envs'),
-            '/opt/conda/envs',
-            '/opt/miniconda3/envs',
-            '/opt/anaconda3/envs',
-            '/usr/local/conda/envs',
-            '/usr/local/miniconda3/envs',
-            '/usr/local/anaconda3/envs',
-        ];
-
-        for (const condaPath of condaBasePaths) {
-            const envPython = path.join(condaPath, envName, 'bin', 'python');
-            if (fs.existsSync(envPython)) {
-                return envPython;
-            }
-        }
-        return undefined;
-    }
-
-    private testPython(pythonPath: string): boolean {
-        try {
-            // Check for critical dependencies h5py and openmc
-            execSync(`"${pythonPath}" -c "import h5py; import openmc"`, { stdio: 'ignore' });
-            return true;
-        } catch {
-            return false;
-        }
     }
 
     private getExtensionPath(): string {

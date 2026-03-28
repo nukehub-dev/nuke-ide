@@ -19,7 +19,7 @@ import { injectable, postConstruct, inject } from '@theia/core/shared/inversify'
 import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
 import { CommandRegistry } from '@theia/core/lib/common/command';
-import { VisualizerBackendService, PythonConfig } from '../common/visualizer-protocol';
+import { VisualizerBackendService } from '../common/visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
 
 @injectable()
@@ -573,12 +573,6 @@ export class VisualizerWidget extends ReactWidget {
         this.update();
 
         try {
-            // Build config from preferences
-            const config: PythonConfig = {
-                pythonPath: this.preferences['nukeVisualizer.pythonPath'] || undefined,
-                condaEnv: this.preferences['nukeVisualizer.condaEnv'] || undefined,
-            };
-            
             // Detect current theme using multiple methods
             let theme = 'dark'; // default
             try {
@@ -613,7 +607,7 @@ export class VisualizerWidget extends ReactWidget {
 
             }
             console.log('[Visualizer] Requesting server start from backend...');
-            const result = await this.visualizerBackend.startServer(filePath, config, theme);
+            const result = await this.visualizerBackend.startServer(filePath, undefined, theme);
             
             // Check again after async call
             if (currentId !== this.currentLoadId) {

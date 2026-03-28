@@ -20,8 +20,7 @@ import { BackendApplicationContribution } from '@theia/core/lib/node/backend-app
 import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
-import * as os from 'os';
-import { spawnSync, execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { 
     VisualizerBackendService, 
     PythonConfig, 
@@ -33,6 +32,7 @@ import {
     ScreenshotResult,
     DEFAULT_VISUALIZATION_STATE
 } from '../common/visualizer-protocol';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 
 @injectable()
 export class VisualizerBackendServiceImpl implements VisualizerBackendService, BackendApplicationContribution {
@@ -42,6 +42,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
+
+    @inject(NukeCoreBackendService)
+    protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
     setClient(client: VisualizerClient): void {
         this.client = client;
@@ -242,62 +245,57 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
         this.log('Checking environment...');
-        const pythonInfo = await this.detectPythonCommand(config);
+        
+        // Set config in nuke-core if provided
+        if (config?.pythonPath || config?.condaEnv) {
+            await this.nukeCoreService.setConfig({
+                pythonPath: config.pythonPath,
+                condaEnv: config.condaEnv
+            });
+        }
+        
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            throw new Error('No Python environment configured. Please set Python path in preferences.');
+        }
         
         const info: EnvironmentInfo = {
-            pythonPath: pythonInfo.command,
+            pythonPath: pythonCommand,
             pythonVersion: 'unknown',
             paraviewInstalled: false,
             trameInstalled: false,
             moabInstalled: false,
-            warning: pythonInfo.warning
         };
 
         try {
-            info.pythonVersion = execSync(`"${pythonInfo.command}" --version`, { encoding: 'utf8' }).trim();
+            info.pythonVersion = execSync(`"${pythonCommand}" --version`, { encoding: 'utf8' }).trim();
         } catch (e) {
             this.errorLog('Failed to get python version');
         }
 
-        // Check paraview
-        try {
-            const pvOutput = execSync(`"${pythonInfo.command}" -c "import paraview; print(paraview.__version__)"`, { encoding: 'utf8' }).trim();
-            info.paraviewInstalled = true;
-            info.paraviewVersion = pvOutput;
-        } catch (e) {
-            info.paraviewInstalled = false;
-        }
+        // Use nuke-core to check dependencies
+        const depCheck = await this.nukeCoreService.checkDependencies([
+            { name: 'trame', submodule: 'app' },
+            { name: 'paraview' },
+            { name: 'pymoab', required: false }
+        ], pythonCommand);
 
-        // Check trame
-        try {
-            // Try trame.app first (the main submodule that has __version__)
-            const trameOutput = execSync(`"${pythonInfo.command}" -c "import trame.app; print(trame.app.__version__)"`, { encoding: 'utf8' }).trim();
-            info.trameInstalled = true;
-            info.trameVersion = trameOutput;
-        } catch (e) {
-            // Fallback: just check if trame can be imported
-            try {
-                execSync(`"${pythonInfo.command}" -c "import trame"`, { stdio: 'ignore' });
-                info.trameInstalled = true;
-                info.trameVersion = 'installed (version unknown)';
-            } catch {
-                info.trameInstalled = false;
-            }
-        }
-
-        // Check moab (pymoab)
-        try {
-            execSync(`"${pythonInfo.command}" -c "from pymoab import core"`, { stdio: 'ignore' });
+        info.trameInstalled = depCheck.versions['trame'] !== undefined;
+        info.trameVersion = depCheck.versions['trame'];
+        info.paraviewInstalled = depCheck.versions['paraview'] !== undefined;
+        info.paraviewVersion = depCheck.versions['paraview'];
+        
+        // Check moab separately (optional, with fallback to mbconvert CLI)
+        if (depCheck.versions['pymoab']) {
             info.moabInstalled = true;
-            // pymoab doesn't have a direct __version__ in some versions, but we can check if it works
-            info.moabVersion = 'Available (pymoab)';
-        } catch (e) {
+            info.moabVersion = depCheck.versions['pymoab'];
+        } else {
             // Check mbconvert as fallback
             try {
                 execSync('mbconvert --version', { stdio: 'ignore' });
                 info.moabInstalled = true;
                 info.moabVersion = 'Available (mbconvert CLI)';
-            } catch (e2) {
+            } catch {
                 info.moabInstalled = false;
             }
         }
@@ -306,184 +304,31 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
     }
 
     private async detectPythonCommand(config?: PythonConfig): Promise<{ command: string; env?: NodeJS.ProcessEnv; description?: string; warning?: string }> {
-        const errors: string[] = [];
-        const warnings: string[] = [];
+        // Set config in nuke-core if provided
+        if (config?.pythonPath || config?.condaEnv) {
+            await this.nukeCoreService.setConfig({
+                pythonPath: config.pythonPath,
+                condaEnv: config.condaEnv
+            });
+        }
         
-        // Helper to test Python and collect missing dependencies
-        const testAndCollect = (pythonPath: string, context: string): { success: boolean; missing: string[] } => {
-            const result = this.testPythonWithDetails(pythonPath);
-            if (!result.success) {
-                errors.push(`${context}: Python at ${pythonPath} missing ${result.missing.join(' and ')}`);
-            }
-            return result;
+        // Use nuke-core to detect Python with visualizer-specific requirements
+        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
+            requiredPackages: [
+                { name: 'trame' },
+                { name: 'paraview', submodule: 'simple' }
+            ],
+            autoDetectEnvs: ['visualizer', 'trame', 'paraview', 'pv']
+        });
+        
+        if (!detectionResult.success || !detectionResult.command) {
+            throw new Error(detectionResult.error || 'Failed to detect Python with trame and paraview. Configure Python in Settings → Nuke Visualizer.');
+        }
+        
+        return {
+            command: detectionResult.command,
+            warning: detectionResult.warning
         };
-        
-        // 1. Check config.pythonPath first (user preference)
-        if (config?.pythonPath) {
-            if (fs.existsSync(config.pythonPath)) {
-                const stat = fs.statSync(config.pythonPath);
-                if (stat.isDirectory()) {
-                    const msg = `Configured Python path is a directory, not an executable: ${config.pythonPath}`;
-                    errors.push(msg);
-                    warnings.push(msg);
-                    console.log(`[VisualizerBackend] Configured python is a directory, skipping: ${config.pythonPath}`);
-                } else {
-                    console.log(`[VisualizerBackend] Testing configured python: ${config.pythonPath}`);
-                    const result = testAndCollect(config.pythonPath, 'Configured python');
-                    if (result.success) {
-                        console.log(`[VisualizerBackend] Using configured python: ${config.pythonPath}`);
-                        return { 
-                            command: config.pythonPath, 
-                            description: 'user configured pythonPath',
-                            warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                        };
-                    } else {
-                        console.log(`[VisualizerBackend] Configured python exists but missing dependencies`);
-                        warnings.push(`Configured Python at ${config.pythonPath} is missing required dependencies. Using fallback.`);
-                    }
-                }
-            } else {
-                const msg = `Configured Python path does not exist: ${config.pythonPath}`;
-                errors.push(msg);
-                warnings.push(msg);
-                console.log(`[VisualizerBackend] Configured python path does not exist: ${config.pythonPath}`);
-            }
-        }
-        
-        // 2. Check config.condaEnv (user preference for conda env name)
-        if (config?.condaEnv) {
-            const condaPython = this.findCondaPython(config.condaEnv);
-            if (condaPython) {
-                console.log(`[VisualizerBackend] Testing conda env '${config.condaEnv}': ${condaPython}`);
-                const result = testAndCollect(condaPython, `Conda env '${config.condaEnv}'`);
-                if (result.success) {
-                    console.log(`[VisualizerBackend] Using conda env '${config.condaEnv}': ${condaPython}`);
-                    return { 
-                        command: condaPython, 
-                        description: `conda env (${config.condaEnv})`,
-                        warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                    };
-                }
-            } else {
-                errors.push(`Conda environment '${config.condaEnv}' not found`);
-            }
-        }
-        
-        // 3. Check CONDA_PREFIX env var (if shell has activated conda)
-        const condaPrefix = process.env.CONDA_PREFIX;
-        if (condaPrefix) {
-            const condaPython = path.join(condaPrefix, 'bin', 'python');
-            if (fs.existsSync(condaPython)) {
-                console.log(`[VisualizerBackend] Testing conda environment: ${condaPython}`);
-                const result = testAndCollect(condaPython, `Active conda env '${path.basename(condaPrefix)}'`);
-                if (result.success) {
-                    console.log(`[VisualizerBackend] Using conda env: ${condaPython}`);
-                    return { 
-                        command: condaPython, 
-                        description: `conda env (${path.basename(condaPrefix)})`,
-                        warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                    };
-                }
-            }
-        }
-        
-        // 4. Auto-detect common conda envs
-        const commonCondaEnvs = ['visualizer', 'trame', 'paraview', 'pv'];
-        for (const envName of commonCondaEnvs) {
-            const condaPython = this.findCondaPython(envName);
-            if (condaPython) {
-                console.log(`[VisualizerBackend] Testing conda env '${envName}': ${condaPython}`);
-                const result = testAndCollect(condaPython, `Auto-detected conda env '${envName}'`);
-                if (result.success) {
-                    console.log(`[VisualizerBackend] Found conda env '${envName}': ${condaPython}`);
-                    return { 
-                        command: condaPython, 
-                        description: `conda env (${envName})`,
-                        warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                    };
-                }
-            }
-        }
-        
-        // 5. Check environment variable for Python path
-        const envPythonPath = process.env.VISUALIZER_PYTHON_PATH;
-        if (envPythonPath && fs.existsSync(envPythonPath)) {
-            console.log(`[VisualizerBackend] Testing Python from env var: ${envPythonPath}`);
-            const result = testAndCollect(envPythonPath, 'Environment variable VISUALIZER_PYTHON_PATH');
-            if (result.success) {
-                console.log(`[VisualizerBackend] Using Python from env var: ${envPythonPath}`);
-                return { 
-                    command: envPythonPath, 
-                    description: 'from environment variable',
-                    warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                };
-            }
-        }
-        
-        // 6. Try python3/python from system PATH
-        for (const cmd of ['python3', 'python']) {
-            try {
-                const cmdPath = execSync(`which ${cmd}`, { encoding: 'utf8' }).trim();
-                if (cmdPath) {
-                    console.log(`[VisualizerBackend] Testing ${cmd} from PATH: ${cmdPath}`);
-                    const result = testAndCollect(cmdPath, `System ${cmd}`);
-                    if (result.success) {
-                        console.log(`[VisualizerBackend] Using ${cmd} from PATH: ${cmdPath}`);
-                        return { 
-                            command: cmdPath, 
-                            description: `${cmd} (from PATH)`,
-                            warning: warnings.length > 0 ? warnings.join(' ') : undefined
-                        };
-                    }
-                }
-            } catch {
-                // not found
-            }
-        }
-        
-        // No suitable Python found
-        const errorMessage = `Unable to find a Python interpreter with both trame and ParaView installed.\n\n` +
-            `Please configure a Python path in Preferences → Nuke Visualizer.\n\n` +
-            `Details:\n${errors.map(e => '  • ' + e).join('\n')}`;
-        throw new Error(errorMessage);
-    }
-    
-    private findCondaPython(envName: string): string | undefined {
-        const homeDir = os.homedir();
-        const condaBasePaths = [
-            path.join(homeDir, '.conda', 'envs'),
-            path.join(homeDir, 'anaconda3', 'envs'),
-            path.join(homeDir, 'miniconda3', 'envs'),
-            '/opt/conda/envs',
-            '/opt/miniconda3/envs',
-            '/opt/anaconda3/envs',
-            '/usr/local/conda/envs',
-            '/usr/local/miniconda3/envs',
-            '/usr/local/anaconda3/envs',
-        ];
-        
-        for (const condaPath of condaBasePaths) {
-            const envPython = path.join(condaPath, envName, 'bin', 'python');
-            if (fs.existsSync(envPython)) {
-                return envPython;
-            }
-        }
-        return undefined;
-    }
-
-    private testPythonWithDetails(pythonPath: string): { success: boolean; missing: string[] } {
-        const missing: string[] = [];
-        try {
-            execSync(`"${pythonPath}" -c "import trame"`, { stdio: 'ignore' });
-        } catch {
-            missing.push('trame (visualizer engine)');
-        }
-        try {
-            execSync(`"${pythonPath}" -c "from paraview import simple"`, { stdio: 'ignore' });
-        } catch {
-            missing.push('paraview');
-        }
-        return { success: missing.length === 0, missing };
     }
 
     private getExtensionPath(): string {

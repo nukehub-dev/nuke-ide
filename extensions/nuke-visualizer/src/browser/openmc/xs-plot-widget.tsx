@@ -31,8 +31,7 @@ import {
 } from '../../common/visualizer-protocol';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
-import { VisualizerPreferences } from '../visualizer-preferences';
-import { PreferenceService } from '@theia/core/lib/common/preferences';
+import { NukeCoreService } from 'nuke-core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
@@ -133,17 +132,14 @@ export class XSPlotWidget extends ReactWidget {
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
 
-    @inject(VisualizerPreferences)
-    protected readonly preferences: VisualizerPreferences;
-
-    @inject(PreferenceService)
-    protected readonly preferenceService: PreferenceService;
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
     @inject(CommandRegistry)
     protected readonly commandRegistry: CommandRegistry;
+
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService: NukeCoreService;
 
     @postConstruct()
     protected init(): void {
@@ -154,20 +150,18 @@ export class XSPlotWidget extends ReactWidget {
         this.title.closable = true;
         this.node.tabIndex = 0;
 
-        // Load cross-section path preference
-        this.crossSectionsPath = this.preferences['nukeVisualizer.openmcCrossSectionsPath'];
+        // Load cross-section path from nuke-core
+        this.crossSectionsPath = this.nukeCoreService.getCrossSectionsPath() || '';
         
         // Initialize nuclides input from selected nuclides
         this.nuclidesInput = this.selectedNuclides.join(', ');
         
-        // Subscribe to preference changes
-        this.preferenceService.onPreferenceChanged(e => {
-            if (e.preferenceName === 'nukeVisualizer.openmcCrossSectionsPath') {
-                // Re-read the preference value
-                this.crossSectionsPath = this.preferences['nukeVisualizer.openmcCrossSectionsPath'];
-                this.loadAvailableNuclides();
-                this.update();
-            }
+        // Subscribe to nuke-core preference changes
+        this.nukeCoreService.onEnvironmentChanged(() => {
+            // Re-read the cross-sections path
+            this.crossSectionsPath = this.nukeCoreService.getCrossSectionsPath() || '';
+            this.loadAvailableNuclides();
+            this.update();
         });
 
         // Listen for theme changes to re-render the plot
@@ -1665,7 +1659,7 @@ export class XSPlotWidget extends ReactWidget {
         }
 
         try {
-            await this.preferenceService.set('nukeVisualizer.openmcCrossSectionsPath', this.crossSectionsPath);
+            await this.nukeCoreService.setCrossSectionsPath(this.crossSectionsPath);
             this.showSetupDialog = false;
             this.messageService.info(`Cross-section path saved: ${this.crossSectionsPath}`);
             this.update();

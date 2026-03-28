@@ -1889,9 +1889,8 @@ export class SimulationDashboardWidget extends ReactWidget {
         // Check OpenMC availability first
         const openmcCheck = await this.studioService.checkOpenMCAvailability();
         if (!openmcCheck.available) {
-            this.messageService.error(`OpenMC not available: ${openmcCheck.error}. Please configure Python path in Nuke Utils preferences.`);
-            this.logToConsole(`OpenMC not available: ${openmcCheck.error}`, 'error');
-            this.logToConsole('Please set nuke.condaEnv in preferences', 'error');
+            this.messageService.error(openmcCheck.error || 'OpenMC is not available');
+            this.logToConsole(openmcCheck.error || 'OpenMC is not available', 'error');
             return;
         }
 

@@ -31,7 +31,10 @@ import {
     PythonConfig,
     PythonEnvironment,
     PythonDetectionResult,
-    ListEnvironmentsResult
+    ListEnvironmentsResult,
+    PackageDependency,
+    DependencyCheckResult,
+    PythonDetectionOptions
 } from '../common/nuke-core-protocol';
 
 @injectable()
@@ -60,30 +63,6 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
         }
         const result = await this.doDetectPython();
         return result.success ? result.command : undefined;
-    }
-
-    async checkOpenMC(): Promise<{ available: boolean; version?: string; error?: string }> {
-        const pythonResult = await this.doDetectPython();
-        if (!pythonResult.success) {
-            return { available: false, error: pythonResult.error };
-        }
-
-        const pythonCmd = pythonResult.command!;
-        
-        try {
-            const { execSync } = await import('child_process');
-            const output = execSync(
-                `${pythonCmd} -c "import openmc; print(openmc.__version__)"`,
-                { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-            ).trim();
-            
-            return { available: true, version: output };
-        } catch (error) {
-            return {
-                available: false,
-                error: `OpenMC Python module not found in ${pythonCmd}. Install with: pip install openmc`
-            };
-        }
     }
 
     async listEnvironments(): Promise<ListEnvironmentsResult> {
@@ -131,19 +110,38 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
         return { environments, selected };
     }
 
-    private async doDetectPython(): Promise<PythonDetectionResult> {
+    async detectPythonWithRequirements(
+        options: PythonDetectionOptions
+    ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+        const { requiredPackages = [], autoDetectEnvs = [] } = options;
+        const errors: string[] = [];
+        const warnings: string[] = [];
+
+        // Helper to test Python with dependencies
+        const testPythonWithDeps = async (pythonPath: string): Promise<{ success: boolean; missing: string[] }> => {
+            if (requiredPackages.length === 0) {
+                return { success: true, missing: [] };
+            }
+            const result = await this.checkDependencies(requiredPackages, pythonPath);
+            return { success: result.available, missing: result.missing };
+        };
+
         // 1. Try explicitly configured Python path first
         if (this.config.pythonPath) {
             try {
                 const { execSync } = await import('child_process');
                 execSync(`"${this.config.pythonPath}" --version`, { stdio: 'ignore' });
-                this.cachedPythonCommand = this.config.pythonPath;
-                return { success: true, command: this.config.pythonPath };
+                
+                const depCheck = await testPythonWithDeps(this.config.pythonPath);
+                if (depCheck.success) {
+                    this.cachedPythonCommand = this.config.pythonPath;
+                    return { success: true, command: this.config.pythonPath };
+                } else {
+                    errors.push(`Configured Python at ${this.config.pythonPath} is missing: ${depCheck.missing.join(', ')}`);
+                    warnings.push(`Configured Python is missing required packages. Using fallback.`);
+                }
             } catch {
-                return {
-                    success: false,
-                    error: `Configured Python path not valid: ${this.config.pythonPath}`
-                };
+                errors.push(`Configured Python path not valid: ${this.config.pythonPath}`);
             }
         }
 
@@ -151,80 +149,222 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
         if (this.config.condaEnv) {
             const condaPython = await this.findCondaPython(this.config.condaEnv);
             if (condaPython) {
-                this.cachedPythonCommand = condaPython;
-                return { success: true, command: condaPython };
+                const depCheck = await testPythonWithDeps(condaPython);
+                if (depCheck.success) {
+                    this.cachedPythonCommand = condaPython;
+                    return { 
+                        success: true, 
+                        command: condaPython,
+                        warning: warnings.length > 0 ? warnings.join(' ') : undefined
+                    };
+                } else {
+                    errors.push(`Conda env '${this.config.condaEnv}' is missing: ${depCheck.missing.join(', ')}`);
+                }
+            } else {
+                errors.push(`Conda environment '${this.config.condaEnv}' not found`);
             }
-            return {
-                success: false,
-                error: `Conda environment '${this.config.condaEnv}' not found`
-            };
         }
 
-        // 3. Try to detect conda environment with 'openmc' name
-        const openmcCondaPython = await this.findCondaPython('openmc');
-        if (openmcCondaPython) {
-            this.cachedPythonCommand = openmcCondaPython;
-            return {
-                success: true,
-                command: openmcCondaPython,
-                warning: `Using auto-detected conda environment 'openmc'. Configure 'nuke.condaEnv' to use a specific environment.`
-            };
+        // 3. Check CONDA_PREFIX env var (if shell has activated conda)
+        const condaPrefix = process.env.CONDA_PREFIX;
+        if (condaPrefix) {
+            const path = await import('path');
+            const condaPython = path.join(condaPrefix, 'bin', 'python');
+            const { existsSync } = await import('fs');
+            if (existsSync(condaPython)) {
+                const depCheck = await testPythonWithDeps(condaPython);
+                if (depCheck.success) {
+                    this.cachedPythonCommand = condaPython;
+                    const envName = path.basename(condaPrefix);
+                    const warning = warnings.length > 0 
+                        ? `${warnings.join(' ')} Using active conda environment '${envName}'.` 
+                        : `Using active conda environment '${envName}'.`;
+                    return { success: true, command: condaPython, warning };
+                } else {
+                    errors.push(`Active conda env '${path.basename(condaPrefix)}' is missing: ${depCheck.missing.join(', ')}`);
+                }
+            }
+        }
+
+        // 4. Try auto-detect conda environments (in order)
+        for (const envName of autoDetectEnvs) {
+            const condaPython = await this.findCondaPython(envName);
+            if (condaPython) {
+                const depCheck = await testPythonWithDeps(condaPython);
+                if (depCheck.success) {
+                    this.cachedPythonCommand = condaPython;
+                    const warning = warnings.length > 0 
+                        ? `${warnings.join(' ')} Using auto-detected conda environment '${envName}'.` 
+                        : `Using auto-detected conda environment '${envName}'. Configure 'nuke.condaEnv' to use a specific environment.`;
+                    return { success: true, command: condaPython, warning };
+                } else {
+                    errors.push(`Auto-detected conda env '${envName}' is missing: ${depCheck.missing.join(', ')}`);
+                }
+            }
         }
 
         // 4. Try 'python' in PATH
         try {
             const { execSync } = await import('child_process');
             execSync('python --version', { stdio: 'ignore' });
-            this.cachedPythonCommand = 'python';
-            return {
-                success: true,
-                command: 'python',
-                warning: `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`
-            };
+            const depCheck = await testPythonWithDeps('python');
+            if (depCheck.success) {
+                this.cachedPythonCommand = 'python';
+                const warning = warnings.length > 0 
+                    ? `${warnings.join(' ')} Using system Python.` 
+                    : `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`;
+                return { success: true, command: 'python', warning };
+            } else {
+                errors.push(`System Python is missing: ${depCheck.missing.join(', ')}`);
+            }
         } catch {
-            // 5. Try 'python3' in PATH
-            try {
-                const { execSync } = await import('child_process');
-                execSync('python3 --version', { stdio: 'ignore' });
+            // not found
+        }
+
+        // 7. Try 'python3' in PATH
+        try {
+            const { execSync } = await import('child_process');
+            execSync('python3 --version', { stdio: 'ignore' });
+            const depCheck = await testPythonWithDeps('python3');
+            if (depCheck.success) {
                 this.cachedPythonCommand = 'python3';
-                return {
-                    success: true,
-                    command: 'python3',
-                    warning: `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`
-                };
+                const warning = warnings.length > 0 
+                    ? `${warnings.join(' ')} Using system Python 3.` 
+                    : `Using system Python 3. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`;
+                return { success: true, command: 'python3', warning };
+            } else {
+                errors.push(`System Python 3 is missing: ${depCheck.missing.join(', ')}`);
+            }
+        } catch {
+            // not found
+        }
+
+        // No suitable Python found
+        const errorMessage = `Unable to find a Python interpreter with required packages.\n\n` +
+            `Required packages: ${requiredPackages.map(p => p.name).join(', ')}\n\n` +
+            `Details:\n${errors.map(e => '  • ' + e).join('\n')}`;
+        
+        return {
+            success: false,
+            error: errorMessage
+        };
+    }
+
+    async checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult> {
+        const targetPython = pythonPath || this.cachedPythonCommand || 'python';
+        const missing: string[] = [];
+        const versions: Record<string, string> = {};
+
+        const { execSync } = await import('child_process');
+
+        for (const pkg of packages) {
+            try {
+                // Try to get version
+                const versionCmd = pkg.submodule 
+                    ? `import ${pkg.name}.${pkg.submodule}; print(${pkg.name}.${pkg.submodule}.__version__)`
+                    : `import ${pkg.name}; print(${pkg.name}.__version__)`;
+                
+                try {
+                    const version = execSync(
+                        `"${targetPython}" -c "${versionCmd}"`,
+                        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+                    ).trim();
+                    versions[pkg.name] = version;
+                } catch {
+                    // Version check failed, but package might still be importable
+                    execSync(`"${targetPython}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`, 
+                        { stdio: 'ignore' });
+                    versions[pkg.name] = 'installed (version unknown)';
+                }
             } catch {
-                return {
-                    success: false,
-                    error: 'Could not find Python. Please configure nuke.pythonPath or nuke.condaEnv in preferences.'
-                };
+                if (pkg.required !== false) {
+                    missing.push(pkg.name);
+                }
             }
         }
+
+        return {
+            available: missing.length === 0,
+            missing,
+            versions
+        };
+    }
+
+    private async doDetectPython(): Promise<PythonDetectionResult> {
+        // Use the new method with no requirements
+        const result = await this.detectPythonWithRequirements({});
+        return {
+            success: result.success,
+            command: result.command,
+            warning: result.warning,
+            error: result.error
+        };
     }
 
     private async findCondaPython(envName: string): Promise<string | undefined> {
+        const { execSync } = await import('child_process');
+        const { existsSync } = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        
+        // Try 1: Use conda info --base (most reliable if conda is available)
         try {
-            const { execSync } = await import('child_process');
-            
-            // Get conda base path
             const condaBase = execSync('conda info --base', { 
                 encoding: 'utf-8', 
                 stdio: ['pipe', 'pipe', 'ignore'] 
             }).trim();
             
-            // Construct path to Python in the environment
             const isWindows = process.platform === 'win32';
             const pythonPath = isWindows
-                ? `${condaBase}/envs/${envName}/python.exe`
-                : `${condaBase}/envs/${envName}/bin/python`;
+                ? path.join(condaBase, 'envs', envName, 'python.exe')
+                : path.join(condaBase, 'envs', envName, 'bin', 'python');
             
-            // Check if it exists
-            const { existsSync } = await import('fs');
             if (existsSync(pythonPath)) {
                 return pythonPath;
             }
         } catch {
-            // Conda not available or environment not found
+            // Conda command not available, fall through to hardcoded paths
         }
+        
+        // Try 2: Search common conda installation paths
+        const homeDir = os.homedir();
+        const isWindows = process.platform === 'win32';
+        
+        const condaBasePaths = isWindows ? [
+            path.join(homeDir, '.conda', 'envs'),
+            path.join(homeDir, 'Anaconda3', 'envs'),
+            path.join(homeDir, 'Miniconda3', 'envs'),
+            path.join(homeDir, 'mambaforge', 'envs'),
+            path.join(homeDir, 'miniforge', 'envs'),
+            'C:\\ProgramData\\Anaconda3\\envs',
+            'C:\\ProgramData\\Miniconda3\\envs',
+        ] : [
+            path.join(homeDir, '.conda', 'envs'),
+            path.join(homeDir, 'anaconda3', 'envs'),
+            path.join(homeDir, 'miniconda3', 'envs'),
+            path.join(homeDir, 'mambaforge', 'envs'),
+            path.join(homeDir, 'miniforge', 'envs'),
+            '/opt/conda/envs',
+            '/opt/miniconda3/envs',
+            '/opt/anaconda3/envs',
+            '/opt/mambaforge/envs',
+            '/opt/miniforge/envs',
+            '/usr/local/conda/envs',
+            '/usr/local/miniconda3/envs',
+            '/usr/local/anaconda3/envs',
+            '/usr/local/mambaforge/envs',
+            '/usr/local/miniforge/envs',
+        ];
+        
+        for (const condaPath of condaBasePaths) {
+            const envPython = isWindows
+                ? path.join(condaPath, envName, 'python.exe')
+                : path.join(condaPath, envName, 'bin', 'python');
+            if (existsSync(envPython)) {
+                return envPython;
+            }
+        }
+        
         return undefined;
     }
 

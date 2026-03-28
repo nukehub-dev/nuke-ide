@@ -48,7 +48,6 @@ export class NukeCoreService {
     protected readonly preferences: PreferenceService;
 
     private currentConfig: PythonConfig = {};
-    private cachedOpenMCCheck?: { available: boolean; version?: string; error?: string };
     
     private readonly _onEnvironmentChanged = new Emitter<PythonEnvironmentChangedEvent>();
     readonly onEnvironmentChanged: Event<PythonEnvironmentChangedEvent> = this._onEnvironmentChanged.event;
@@ -67,8 +66,6 @@ export class NukeCoreService {
                 event.preferenceName === 'nuke.openmcCrossSections') {
                 console.log(`[NukeCore] Preference changed: ${event.preferenceName}`);
                 this.syncFromPreferences();
-                // Clear cached OpenMC check when config changes
-                this.cachedOpenMCCheck = undefined;
             }
         });
     }
@@ -151,29 +148,6 @@ export class NukeCoreService {
     }
 
     /**
-     * Check if OpenMC is available in the current Python environment.
-     * Caches the result for subsequent calls.
-     */
-    async checkOpenMC(): Promise<{ available: boolean; version?: string; error?: string }> {
-        // Return cached result if available
-        if (this.cachedOpenMCCheck) {
-            return this.cachedOpenMCCheck;
-        }
-        
-        // Check if configured first
-        if (!this.isConfigured()) {
-            return {
-                available: false,
-                error: this.getConfigError()
-            };
-        }
-        
-        const result = await this.backend.checkOpenMC();
-        this.cachedOpenMCCheck = result;
-        return result;
-    }
-    
-    /**
      * Get the OpenMC cross-sections path.
      * Returns the configured path or environment variable.
      */
@@ -213,21 +187,18 @@ export class NukeCoreService {
         const errors: string[] = [];
         const warnings: string[] = [];
         
-        // Check Python configuration
-        const pythonConfigured = this.isConfigured();
-        if (!pythonConfigured) {
-            errors.push('Python not configured. Set nuke.pythonPath or nuke.condaEnv in Settings.');
+        // Check Python detection with OpenMC requirement (auto-detects if not configured)
+        const pythonDetection = await this.backend.detectPythonWithRequirements({
+            requiredPackages: [{ name: 'openmc' }],
+            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
+        });
+        const pythonConfigured = pythonDetection.success || this.isConfigured();
+        if (!pythonDetection.success) {
+            errors.push(`Python detection failed: ${pythonDetection.error || 'Could not find Python with OpenMC'}. Set nuke.pythonPath or nuke.condaEnv in Settings.`);
         }
         
-        // Check OpenMC availability
-        let openmcAvailable = false;
-        if (pythonConfigured) {
-            const openmcCheck = await this.checkOpenMC();
-            openmcAvailable = openmcCheck.available;
-            if (!openmcAvailable) {
-                errors.push(`OpenMC not available: ${openmcCheck.error}`);
-            }
-        }
+        // OpenMC is guaranteed available if pythonDetection succeeded
+        const openmcAvailable = pythonDetection.success;
         
         // Check cross-sections path
         const crossSectionsPath = this.getCrossSectionsPath();
@@ -237,7 +208,7 @@ export class NukeCoreService {
         }
         
         return {
-            ready: pythonConfigured && openmcAvailable,
+            ready: pythonDetection.success && openmcAvailable,
             pythonConfigured,
             openmcAvailable,
             crossSectionsSet,

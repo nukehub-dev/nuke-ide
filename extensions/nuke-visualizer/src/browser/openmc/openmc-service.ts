@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { Emitter, Event } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
@@ -26,7 +26,6 @@ import {
     XSPlotRequest,
     XSPlotData,
     XSGroupStructuresResponse,
-    PythonConfig,
     OpenMCHeatmapData,
     OpenMCHeatmapPlane
 } from '../../common/visualizer-protocol';
@@ -34,6 +33,7 @@ import { VisualizerWidget } from '../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCMultiScoreData } from '../plotly/plotly-utils';
 import { VisualizerPreferences } from '../visualizer-preferences';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -79,6 +79,9 @@ export class OpenMCService {
     @inject(VisualizerPreferences)
     protected readonly preferences: VisualizerPreferences;
 
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService: NukeCoreService;
+
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
 
@@ -87,24 +90,6 @@ export class OpenMCService {
 
     private currentStatepoint: OpenMCStatepointInfo | null = null;
     private currentTallies: OpenMCTallyInfo[] = [];
-
-    @postConstruct()
-    protected init(): void {
-        this.updatePythonConfig();
-        this.preferences.onPreferenceChanged(event => {
-            if (event.preferenceName === 'nukeVisualizer.pythonPath' || event.preferenceName === 'nukeVisualizer.condaEnv') {
-                this.updatePythonConfig();
-            }
-        });
-    }
-
-    protected updatePythonConfig(): void {
-        const config: PythonConfig = {
-            pythonPath: this.preferences['nukeVisualizer.pythonPath'] || undefined,
-            condaEnv: this.preferences['nukeVisualizer.condaEnv'] || undefined,
-        };
-        this.openmcBackend.setPythonConfig(config);
-    }
 
     /**
      * Check if OpenMC integration is available.
@@ -759,11 +744,11 @@ export class OpenMCService {
         });
 
         try {
-            // Add cross-section path from preferences if not already set
+            // Add cross-section path from nuke-core if not already set
             if (!request.crossSectionsPath) {
-                const prefPath = this.preferences['nukeVisualizer.openmcCrossSectionsPath'];
-                if (prefPath) {
-                    request.crossSectionsPath = prefPath;
+                const corePath = this.nukeCoreService.getCrossSectionsPath();
+                if (corePath) {
+                    request.crossSectionsPath = corePath;
                 }
             }
 

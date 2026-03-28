@@ -25,34 +25,16 @@ import {
 
 export const VisualizerPreferenceSchema: PreferenceSchema = {
     properties: {
-        'nukeVisualizer.pythonPath': {
-            type: 'string',
-            default: '',
-            description: 'Path to Python executable with both visualizer and ParaView installed (e.g., /home/user/anaconda3/envs/visualizer/bin/python). Leave empty for auto-detection.'
-        },
-        'nukeVisualizer.condaEnv': {
-            type: 'string',
-            default: '',
-            description: 'Conda environment name containing visualizer and ParaView (e.g., visualizer). Leave empty for auto-detection.'
-        },
         'nukeVisualizer.serverTimeout': {
             type: 'number',
             default: 30,
             description: 'Timeout in seconds to wait for visualizer server to start.'
-        },
-        'nukeVisualizer.openmcCrossSectionsPath': {
-            type: 'string',
-            default: '',
-            description: 'Path to OpenMC cross_sections.xml file for XS plotting. If not set, uses OPENMC_CROSS_SECTIONS environment variable.'
         }
     }
 };
 
 export interface VisualizerConfiguration {
-    'nukeVisualizer.pythonPath': string;
-    'nukeVisualizer.condaEnv': string;
     'nukeVisualizer.serverTimeout': number;
-    'nukeVisualizer.openmcCrossSectionsPath': string;
 }
 
 export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceContribution');

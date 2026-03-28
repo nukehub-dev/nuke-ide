@@ -15,23 +15,17 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { CommandRegistry, MenuModelRegistry, MessageService } from '@theia/core/lib/common';
+import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
 import { AbstractViewContribution, OpenHandler, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from './visualizer-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { CommonMenus } from '@theia/core/lib/browser';
 import { VisualizerBackendService } from '../common/visualizer-protocol';
-import { VisualizerPreferences } from './visualizer-preferences';
 
 export const VisualizerCommand = {
     id: VisualizerWidget.ID,
     label: 'Open Nuke Visualizer'
-};
-
-export const VisualizerCheckEnvironmentCommand = {
-    id: 'nuke-visualizer.check-environment',
-    label: 'Nuke Visualizer: Check Environment'
 };
 
 @injectable()
@@ -44,12 +38,6 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
 
     @inject(VisualizerBackendService)
     protected readonly visualizerBackend: VisualizerBackendService;
-
-    @inject(VisualizerPreferences)
-    protected readonly preferences: VisualizerPreferences;
-
-    @inject(MessageService)
-    protected readonly messageService: MessageService;
 
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
@@ -75,10 +63,6 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
         commands.registerCommand(VisualizerCommand, {
             execute: () => this.openView({ reveal: true, activate: true }),
         });
-
-        commands.registerCommand(VisualizerCheckEnvironmentCommand, {
-            execute: () => this.checkEnvironment(),
-        });
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
@@ -87,41 +71,6 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             label: VisualizerCommand.label,
             order: 'a20'
         });
-
-        menus.registerMenuAction(CommonMenus.HELP, {
-            commandId: VisualizerCheckEnvironmentCommand.id,
-            label: VisualizerCheckEnvironmentCommand.label,
-            order: 'a30'
-        });
-    }
-
-    private async checkEnvironment(): Promise<void> {
-        this.messageService.info('Checking Nuke Visualizer environment...');
-        try {
-            const config = {
-                pythonPath: this.preferences['nukeVisualizer.pythonPath'] || undefined,
-                condaEnv: this.preferences['nukeVisualizer.condaEnv'] || undefined,
-            };
-            const info = await this.visualizerBackend.checkEnvironment(config);
-            
-            let message = `Python: ${info.pythonPath}\n`;
-            message += `Version: ${info.pythonVersion}\n\n`;
-            message += `ParaView: ${info.paraviewInstalled ? '✅ ' + info.paraviewVersion : '❌ Not found'}\n`;
-            message += `Trame: ${info.trameInstalled ? '✅ ' + info.trameVersion : '❌ Not found'}\n`;
-            message += `MOAB: ${info.moabInstalled ? '✅ ' + info.moabVersion : '❌ Not found'}\n`;
-            
-            if (info.warning) {
-                message += `\nWarning: ${info.warning}`;
-            }
-
-            if (!info.paraviewInstalled || !info.trameInstalled) {
-                this.messageService.error(message);
-            } else {
-                this.messageService.info(message);
-            }
-        } catch (error) {
-            this.messageService.error(`Environment check failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
     }
 
     canHandle(uri: URI): number {

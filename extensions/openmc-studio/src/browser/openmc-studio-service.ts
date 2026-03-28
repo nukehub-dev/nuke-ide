@@ -69,29 +69,19 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
         error?: string;
         needsConfig?: boolean;
     }> {
-        // First check if nuke-core is configured
-        if (!this.nukeCoreService.isConfigured()) {
-            return {
-                available: false,
-                error: 'Nuke Core is not configured. Please configure Python in Settings → Nuke.',
-                needsConfig: true
-            };
-        }
-        
-        // Use nuke-core's validation
+        // Use nuke-core's validation (includes auto-detection)
         const validation = await this.nukeCoreService.validateOpenMCSetup();
         
         if (!validation.ready) {
             return {
                 available: false,
                 error: validation.errors.join('\n') || 'OpenMC is not properly configured',
-                needsConfig: !validation.pythonConfigured
+                needsConfig: validation.errors.some(e => e.includes('Python detection failed') || e.includes('Python not configured'))
             };
         }
         
         return {
-            available: true,
-            version: validation.openmcAvailable ? undefined : undefined
+            available: true
         };
     }
 

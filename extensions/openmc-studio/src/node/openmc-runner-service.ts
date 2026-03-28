@@ -84,24 +84,34 @@ export class OpenMCRunnerService {
      * Also verifies that OpenMC is available in the detected Python.
      */
     protected async detectPythonCommand(): Promise<{ command: string; warning?: string; version?: string }> {
-        // Use nuke-core's Python detection
-        const detectionResult = await this.nukeCoreService.detectPython();
+        // Use nuke-core's Python detection with OpenMC requirements
+        // If this succeeds, OpenMC is guaranteed to be available
+        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
+            requiredPackages: [
+                { name: 'openmc' }
+            ],
+            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
+        });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python. Configure Python in Settings → Nuke.');
+            throw new Error(detectionResult.error || 'Failed to detect Python with OpenMC. Configure Python in Settings → Nuke.');
         }
         
-        // Verify OpenMC is available via nuke-core
-        const openmcCheck = await this.nukeCoreService.checkOpenMC();
-        if (!openmcCheck.available) {
-            throw new Error(
-                `Python detected but OpenMC not available: ${openmcCheck.error}`
+        // Try to get OpenMC version (best effort - we know it's there from the detection)
+        let version: string | undefined;
+        try {
+            const depCheck = await this.nukeCoreService.checkDependencies(
+                [{ name: 'openmc' }],
+                detectionResult.command
             );
+            version = depCheck.versions['openmc'];
+        } catch {
+            // Version check failed but OpenMC is available (validated by detectPythonWithRequirements)
         }
         
         return {
             command: detectionResult.command,
-            version: openmcCheck.version,
+            version,
             warning: detectionResult.warning
         };
     }
@@ -152,37 +162,41 @@ export class OpenMCRunnerService {
      * Check if OpenMC is available.
      */
     async checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }> {
-        // Delegate to nuke-core for Python/OpenMC check
-        const result = await this.nukeCoreService.checkOpenMC();
-        
-        if (!result.available) {
+        // Get Python command
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
             return {
                 available: false,
-                error: result.error || 'OpenMC not available'
+                error: 'No Python environment configured'
+            };
+        }
+        
+        // Check for openmc using nuke-core
+        const depCheck = await this.nukeCoreService.checkDependencies(
+            [{ name: 'openmc' }],
+            pythonCommand
+        );
+        
+        if (!depCheck.available) {
+            return {
+                available: false,
+                error: `OpenMC not installed in ${pythonCommand}. Run: pip install openmc`
             };
         }
         
         // Find the openmc executable path
         try {
-            const pythonCommand = await this.nukeCoreService.getPythonCommand();
-            if (!pythonCommand) {
-                return {
-                    available: true,
-                    version: result.version,
-                    error: undefined
-                };
-            }
             const openmcExe = await this.findOpenMCExecutable(pythonCommand);
             return {
                 available: true,
-                version: result.version,
+                version: depCheck.versions['openmc'],
                 path: openmcExe,
                 error: undefined
             };
         } catch {
             return {
                 available: true,
-                version: result.version,
+                version: depCheck.versions['openmc'],
                 error: undefined
             };
         }
