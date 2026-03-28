@@ -82,7 +82,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
                 ref={childRef}
                 onMouseEnter={showTooltip}
                 onMouseLeave={hideTooltip}
-                style={{ display: 'inline-block' }}
             >
                 {children}
             </span>

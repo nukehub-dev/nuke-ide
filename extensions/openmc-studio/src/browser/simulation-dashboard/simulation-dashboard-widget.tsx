@@ -359,11 +359,13 @@ export class SimulationDashboardWidget extends ReactWidget {
                             </button>
                         </div>
                     ) : (
-                        <h2 onClick={() => this.startEditProjectName()} title='Click to rename'>
-                            <i className='codicon codicon-symbol-method'></i>
-                            {state.metadata.name}
-                            <i className='codicon codicon-edit edit-icon'></i>
-                        </h2>
+                        <Tooltip content='Click to rename' position='bottom'>
+                            <h2 onClick={() => this.startEditProjectName()}>
+                                <i className='codicon codicon-symbol-method'></i>
+                                {state.metadata.name}
+                                <i className='codicon codicon-edit edit-icon'></i>
+                            </h2>
+                        </Tooltip>
                     )}
                     {state.metadata.description && !this.editingProjectName && (
                         <p className='project-description'>{state.metadata.description}</p>
@@ -1956,6 +1958,8 @@ export class SimulationDashboardWidget extends ReactWidget {
         await this.simulationRunner.stopSimulation();
         this.messageService.info('Simulation stopped');
         this.logToConsole('Simulation stopped by user');
+        // Force UI update in case status change event hasn't propagated yet
+        this.update();
     }
 
     private async validateModel(): Promise<{ valid: boolean; issues: ValidationIssue[] }> {
