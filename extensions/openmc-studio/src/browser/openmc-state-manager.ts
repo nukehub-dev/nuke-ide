@@ -36,6 +36,8 @@ import {
     OpenMCTally,
     OpenMCMesh,
     OpenMCSettings,
+    OpenMCUniverse,
+    OpenMCLattice,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
@@ -440,6 +442,170 @@ export class OpenMCStateManager {
             
             this._onStateChange.fire({
                 path: `meshes.${id}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    // ============================================================================
+    // Universe CRUD Operations
+    // ============================================================================
+
+    /**
+     * Add a universe.
+     */
+    addUniverse(universe: OpenMCUniverse): void {
+        this._state.geometry.universes.push(universe);
+        this.markDirty();
+        
+        this._onStateChange.fire({
+            path: `geometry.universes.${universe.id}`,
+            type: 'add',
+            value: universe
+        });
+    }
+
+    /**
+     * Update a universe.
+     */
+    updateUniverse(id: number, updates: Partial<OpenMCUniverse>): void {
+        const index = this._state.geometry.universes.findIndex(u => u.id === id);
+        if (index >= 0) {
+            const oldValue = this._state.geometry.universes[index];
+            this._state.geometry.universes[index] = { ...oldValue, ...updates };
+            this.markDirty();
+            
+            this._onStateChange.fire({
+                path: `geometry.universes.${id}`,
+                type: 'update',
+                value: this._state.geometry.universes[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove a universe.
+     */
+    removeUniverse(id: number): void {
+        // Don't allow removing root universe (id: 0)
+        if (id === 0) {
+            throw new Error('Cannot remove root universe');
+        }
+        
+        const index = this._state.geometry.universes.findIndex(u => u.id === id);
+        if (index >= 0) {
+            const oldValue = this._state.geometry.universes[index];
+            this._state.geometry.universes.splice(index, 1);
+            this.markDirty();
+            
+            this._onStateChange.fire({
+                path: `geometry.universes.${id}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Assign a cell to a universe.
+     */
+    assignCellToUniverse(cellId: number, universeId: number): void {
+        const universe = this._state.geometry.universes.find(u => u.id === universeId);
+        if (!universe) {
+            throw new Error(`Universe ${universeId} not found`);
+        }
+
+        // Remove cell from all other universes first
+        this._state.geometry.universes.forEach(u => {
+            const idx = u.cellIds.indexOf(cellId);
+            if (idx >= 0) {
+                u.cellIds.splice(idx, 1);
+            }
+        });
+
+        // Add to target universe if not already there
+        if (!universe.cellIds.includes(cellId)) {
+            universe.cellIds.push(cellId);
+        }
+
+        this.markDirty();
+        this._onStateChange.fire({
+            path: `geometry.universes.${universeId}.cellIds`,
+            type: 'update',
+            value: universe.cellIds
+        });
+    }
+
+    /**
+     * Remove a cell from a universe.
+     */
+    removeCellFromUniverse(cellId: number, universeId: number): void {
+        const universe = this._state.geometry.universes.find(u => u.id === universeId);
+        if (universe) {
+            const idx = universe.cellIds.indexOf(cellId);
+            if (idx >= 0) {
+                universe.cellIds.splice(idx, 1);
+                this.markDirty();
+                this._onStateChange.fire({
+                    path: `geometry.universes.${universeId}.cellIds`,
+                    type: 'update',
+                    value: universe.cellIds
+                });
+            }
+        }
+    }
+
+    // ============================================================================
+    // Lattice CRUD Operations
+    // ============================================================================
+
+    /**
+     * Add a lattice.
+     */
+    addLattice(lattice: OpenMCLattice): void {
+        this._state.geometry.lattices.push(lattice);
+        this.markDirty();
+        
+        this._onStateChange.fire({
+            path: `geometry.lattices.${lattice.id}`,
+            type: 'add',
+            value: lattice
+        });
+    }
+
+    /**
+     * Update a lattice.
+     */
+    updateLattice(id: number, updates: Partial<OpenMCLattice>): void {
+        const index = this._state.geometry.lattices.findIndex(l => l.id === id);
+        if (index >= 0) {
+            const oldValue = this._state.geometry.lattices[index];
+            this._state.geometry.lattices[index] = { ...oldValue, ...updates } as OpenMCLattice;
+            this.markDirty();
+            
+            this._onStateChange.fire({
+                path: `geometry.lattices.${id}`,
+                type: 'update',
+                value: this._state.geometry.lattices[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove a lattice.
+     */
+    removeLattice(id: number): void {
+        const index = this._state.geometry.lattices.findIndex(l => l.id === id);
+        if (index >= 0) {
+            const oldValue = this._state.geometry.lattices[index];
+            this._state.geometry.lattices.splice(index, 1);
+            this.markDirty();
+            
+            this._onStateChange.fire({
+                path: `geometry.lattices.${id}`,
                 type: 'delete',
                 oldValue
             });

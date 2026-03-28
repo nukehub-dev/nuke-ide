@@ -38,6 +38,7 @@ import {
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
+import { OpenMCCADImportService } from './cad-import-service';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -55,6 +56,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     
     // OpenMC runner service
     bind(OpenMCRunnerService).toSelf().inSingletonScope();
+    
+    // CAD import service (uses nuke-core for Python detection)
+    bind(OpenMCCADImportService).toSelf().inSingletonScope();
     
     // Main backend service implementation
     bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();
@@ -94,3 +98,4 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
 export { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 export { OpenMCRunnerService } from './openmc-runner-service';
 export { XMLGenerationService } from './xml-generation-service';
+export { OpenMCCADImportService } from './cad-import-service';

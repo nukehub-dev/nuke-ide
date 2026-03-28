@@ -24,6 +24,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { OpenMCStudioBackendService, CADImportResult } from '../../common/openmc-studio-protocol';
 import {
     OpenMCState,
     OpenMCSurface,
@@ -33,7 +34,8 @@ import {
     OpenMCRegionNode,
     OpenMCBoundaryCondition,
     OpenMCFillType,
-    OpenMCUniverse
+    OpenMCUniverse,
+    OpenMCLattice
 } from '../../common/openmc-state-schema';
 
 // Import from nuke-visualizer for 3D preview
@@ -164,6 +166,9 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
 
+    @inject(OpenMCStudioBackendService)
+    protected readonly backendService!: OpenMCStudioBackendService;
+
     private activeTab: CSGBuilderTab = 'surfaces';
     
     // 3D Preview widget reference
@@ -259,6 +264,15 @@ export class CSGBuilderWidget extends ReactWidget {
                         >
                             <i className='codicon codicon-folder-opened'></i>
                             Import XML
+                        </button>
+                    </Tooltip>
+                    <Tooltip content='Import CAD file (STEP/IGES) - uses nuke-core' position='bottom'>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => this.importCADFile()}
+                        >
+                            <i className='codicon codicon-file-code'></i>
+                            Import CAD
                         </button>
                     </Tooltip>
                     {this.renderSaveButtons()}
@@ -1079,10 +1093,24 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className='lattices-section'>
                     <div className='tab-toolbar'>
                         <h3>Lattices</h3>
-                        <span className='coming-soon-badge'>Coming in Phase 3</span>
+                        <Tooltip content='Create a new rectangular lattice'>
+                            <button
+                                className='theia-button primary'
+                                onClick={() => this.createRectLattice()}
+                            >
+                                <i className='codicon codicon-add'></i> Add Rect Lattice
+                            </button>
+                        </Tooltip>
                     </div>
-                    <div className='empty-state small'>
-                        <p>Lattice creation will be available in the next phase.</p>
+                    
+                    <div className='lattices-list'>
+                        {state.geometry.lattices.length === 0 ? (
+                            <div className='empty-state small'>
+                                <p>No lattices defined. Create a lattice to arrange universes in a grid.</p>
+                            </div>
+                        ) : (
+                            state.geometry.lattices.map(lattice => this.renderLatticeCard(lattice))
+                        )}
                     </div>
                 </div>
             </div>
@@ -1116,6 +1144,142 @@ export class CSGBuilderWidget extends ReactWidget {
             case 'lattice': return 'grid';
             default: return 'question';
         }
+    }
+
+    // ============================================================================
+    // Lattice Actions
+    // ============================================================================
+
+    private createRectLattice(): void {
+        const id = this.stateManager.getNextLatticeId();
+        const lattice: OpenMCLattice = {
+            id,
+            type: 'rect',
+            name: `Lattice ${id}`,
+            lowerLeft: [-10, -10, -10],
+            pitch: [1, 1, 1],
+            dimensions: [3, 3, 1],
+            universes: [[[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+                        [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+                        [[0, 0, 0], [0, 0, 0], [0, 0, 0]]]
+        } as OpenMCLattice;
+        
+        this.stateManager.addLattice(lattice);
+        this.messageService.info(`Created rectangular lattice #${id}`);
+    }
+
+    private deleteLattice(id: number): void {
+        // Check if lattice is used in any cells
+        const state = this.stateManager.getState();
+        const usedInCells = state.geometry.cells.filter(cell => 
+            cell.fillType === 'lattice' && cell.fillId === id
+        );
+        
+        if (usedInCells.length > 0) {
+            this.messageService.warn(`Lattice #${id} is used in cells: ${usedInCells.map(c => `#${c.id}`).join(', ')}. Remove from cells first.`);
+            return;
+        }
+
+        this.stateManager.removeLattice(id);
+        this.messageService.info(`Deleted lattice #${id}`);
+    }
+
+    private renderLatticeCard(lattice: OpenMCLattice): React.ReactNode {
+        const isRect = lattice.type === 'rect' || !lattice.type;
+        const isHex = lattice.type && lattice.type.startsWith('hex');
+        
+        return (
+            <div key={lattice.id} className='lattice-card'>
+                <div className='lattice-header'>
+                    <div className='lattice-info'>
+                        <span className='lattice-id'>#{lattice.id}</span>
+                        <span className='lattice-name'>{lattice.name || `Lattice ${lattice.id}`}</span>
+                        <span className={`lattice-type-badge ${lattice.type || 'rect'}`}>
+                            {isRect ? 'Rectangular' : isHex ? 'Hexagonal' : lattice.type}
+                        </span>
+                    </div>
+                    <div className='lattice-actions'>
+                        <Tooltip content='Delete Lattice'>
+                            <button
+                                className='theia-button secondary small danger'
+                                onClick={() => this.deleteLattice(lattice.id)}
+                            >
+                                <i className='codicon codicon-trash'></i>
+                            </button>
+                        </Tooltip>
+                    </div>
+                </div>
+                <div className='lattice-details'>
+                    {isRect && (
+                        <>
+                            <div className='lattice-param'>
+                                <label>Dimensions:</label>
+                                <span>{(lattice as any).dimensions?.join(' × ')}</span>
+                            </div>
+                            <div className='lattice-param'>
+                                <label>Pitch:</label>
+                                <span>{(lattice as any).pitch?.join(', ')} cm</span>
+                            </div>
+                            <div className='lattice-param'>
+                                <label>Lower Left:</label>
+                                <span>{(lattice as any).lowerLeft?.join(', ')} cm</span>
+                            </div>
+                        </>
+                    )}
+                    {lattice.outer !== undefined && (
+                        <div className='lattice-param'>
+                            <label>Outer Universe:</label>
+                            <span>#{lattice.outer}</span>
+                        </div>
+                    )}
+                </div>
+                <div className='lattice-universes'>
+                    <label>Universe Grid:</label>
+                    <div className='universe-grid-preview'>
+                        {this.renderUniverseGridPreview(lattice)}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    private renderUniverseGridPreview(lattice: OpenMCLattice): React.ReactNode {
+        // Simple visual preview of the lattice structure
+        const universes = lattice.universes;
+        if (!universes || universes.length === 0) {
+            return <span className='empty-preview'>No universes defined</span>;
+        }
+
+        if (lattice.type === 'rect' || !lattice.type) {
+            const rectLat = lattice as any;
+            const nx = rectLat.dimensions?.[0] || 1;
+            const ny = rectLat.dimensions?.[1] || 1;
+            
+            return (
+                <div className='rect-grid-preview' style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${nx}, 24px)`,
+                    gap: '2px'
+                }}>
+                    {Array.from({ length: ny }).map((_, row) => 
+                        Array.from({ length: nx }).map((__, col) => {
+                            const univId = universes[ny - 1 - row]?.[col]?.[0] || 0;
+                            return (
+                                <div 
+                                    key={`${row}-${col}`}
+                                    className={`grid-cell ${univId === 0 ? 'empty' : 'filled'}`}
+                                    title={`Position [${col}, ${ny - 1 - row}]: Universe ${univId}`}
+                                >
+                                    {univId !== 0 && <span>{univId}</span>}
+                                </div>
+                            );
+                        })
+                    ).flat()}
+                </div>
+            );
+        }
+
+        return <span className='grid-placeholder'>{lattice.type} lattice preview</span>;
     }
 
     // ============================================================================
@@ -1459,6 +1623,97 @@ export class CSGBuilderWidget extends ReactWidget {
     }
 
     // ============================================================================
+    // CAD Import
+    // ============================================================================
+
+    private async importCADFile(): Promise<void> {
+        const support = await this.backendService.checkCADSupport();
+        
+        if (!support.available) {
+            this.messageService.warn(
+                'CAD import requires gmsh or OpenCASCADE. ' +
+                'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
+            );
+        }
+
+        const uri = await this.fileDialogService.showOpenDialog({
+            title: 'Select CAD File (STEP/IGES)',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'STEP Files': ['step', 'stp'],
+                'IGES Files': ['iges', 'igs'],
+                'BREP Files': ['brep'],
+                'STL Files': ['stl'],
+                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl']
+            }
+        });
+        
+        if (!uri) {
+            return;
+        }
+
+        this.messageService.info('Importing CAD file...');
+
+        try {
+            const result = await this.backendService.importCAD({
+                filePath: uri.path.toString(),
+                options: {
+                    tolerance: 0.001,
+                    units: 'cm',
+                    scale: 1.0
+                }
+            });
+
+            if (result.success) {
+                await this.handleCADImportResult(result);
+            } else {
+                this.messageService.error(`CAD import failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.messageService.error(`Error importing CAD: ${error}`);
+        }
+    }
+
+    private async handleCADImportResult(result: CADImportResult): Promise<void> {
+        if (!result.success) {
+            return;
+        }
+
+        // Log warnings if any
+        if (result.warnings && result.warnings.length > 0) {
+            console.warn('[CSG Builder] CAD import warnings:', result.warnings);
+            for (const warning of result.warnings) {
+                this.messageService.warn(warning);
+            }
+        }
+
+        // Show summary
+        const summary = result.summary;
+        if (summary) {
+            if (summary.cellsCreated > 0 || summary.surfacesCreated > 0) {
+                this.messageService.info(
+                    `CAD import complete: ${summary.surfacesCreated} surfaces, ` +
+                    `${summary.cellsCreated} cells created`
+                );
+            } else {
+                this.messageService.info(
+                    'CAD file loaded. Geometry extraction may require manual configuration.'
+                );
+            }
+        }
+
+        // Show file info
+        if (result.fileInfo) {
+            console.log('[CSG Builder] CAD file info:', result.fileInfo);
+        }
+
+        // Update the widget
+        this.update();
+    }
+
+    // ============================================================================
     // Material Import
     // ============================================================================
 
@@ -1580,64 +1835,42 @@ export class CSGBuilderWidget extends ReactWidget {
             cellIds: []
         };
         
-        // Add to state manually since stateManager doesn't have a direct method
-        const state = this.stateManager.getState();
-        state.geometry.universes.push(universe);
-        this.stateManager.setState(state);
+        this.stateManager.addUniverse(universe);
         this.messageService.info(`Created universe #${id}`);
     }
 
     private deleteUniverse(id: number): void {
+        // Check if universe is used in any cells
         const state = this.stateManager.getState();
-        const idx = state.geometry.universes.findIndex(u => u.id === id);
-        if (idx >= 0) {
-            // Check if universe is used in any cells
-            const usedInCells = state.geometry.cells.filter(cell => 
-                cell.fillType === 'universe' && cell.fillId === id
-            );
-            
-            if (usedInCells.length > 0) {
-                this.messageService.warn(`Universe #${id} is used in cells: ${usedInCells.map(c => `#${c.id}`).join(', ')}. Remove from cells first.`);
-                return;
-            }
+        const usedInCells = state.geometry.cells.filter(cell => 
+            cell.fillType === 'universe' && cell.fillId === id
+        );
+        
+        if (usedInCells.length > 0) {
+            this.messageService.warn(`Universe #${id} is used in cells: ${usedInCells.map(c => `#${c.id}`).join(', ')}. Remove from cells first.`);
+            return;
+        }
 
-            state.geometry.universes.splice(idx, 1);
-            this.stateManager.setState(state);
+        try {
+            this.stateManager.removeUniverse(id);
             this.messageService.info(`Deleted universe #${id}`);
+        } catch (error) {
+            this.messageService.error(`Cannot delete universe: ${error}`);
         }
     }
 
     private assignCellToUniverse(cellId: number, universeId: number): void {
-        const state = this.stateManager.getState();
-        
-        // Remove cell from all universes first
-        state.geometry.universes.forEach(u => {
-            const idx = u.cellIds.indexOf(cellId);
-            if (idx >= 0) {
-                u.cellIds.splice(idx, 1);
-            }
-        });
-        
-        // Add to target universe
-        const universe = state.geometry.universes.find(u => u.id === universeId);
-        if (universe) {
-            universe.cellIds.push(cellId);
-            this.stateManager.setState(state);
+        try {
+            this.stateManager.assignCellToUniverse(cellId, universeId);
             this.messageService.info(`Assigned cell #${cellId} to universe #${universeId}`);
+        } catch (error) {
+            this.messageService.error(`Failed to assign cell: ${error}`);
         }
     }
 
     private removeCellFromUniverse(cellId: number, universeId: number): void {
-        const state = this.stateManager.getState();
-        const universe = state.geometry.universes.find(u => u.id === universeId);
-        if (universe) {
-            const idx = universe.cellIds.indexOf(cellId);
-            if (idx >= 0) {
-                universe.cellIds.splice(idx, 1);
-                this.stateManager.setState(state);
-                this.messageService.info(`Removed cell #${cellId} from universe #${universeId}`);
-            }
-        }
+        this.stateManager.removeCellFromUniverse(cellId, universeId);
+        this.messageService.info(`Removed cell #${cellId} from universe #${universeId}`);
     }
 
     // ============================================================================

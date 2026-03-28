@@ -439,6 +439,102 @@ export interface OpenMCStudioBackendService {
     
     /** Suggest mesh ID */
     suggestMeshId(state: OpenMCState): Promise<number>;
+    
+    // === CAD Import ===
+    
+    /** Check if CAD import dependencies are available */
+    checkCADSupport(): Promise<{
+        available: boolean;
+        libraries: {
+            openCascade: boolean;
+            gmsh: boolean;
+            cadQuery: boolean;
+        };
+        pythonPath?: string;
+    }>;
+    
+    /** Import a CAD file and convert to OpenMC-compatible CSG */
+    importCAD(request: CADImportRequest): Promise<CADImportResult>;
+    
+    /** Preview CAD file info without full import */
+    previewCAD(filePath: string): Promise<{
+        format: string;
+        solidCount: number;
+        faceCount: number;
+        bounds?: { min: [number, number, number]; max: [number, number, number] };
+    }>;
+}
+
+// ============================================================================
+// CAD Import Types
+// ============================================================================
+
+/** Supported CAD file formats */
+export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl';
+
+/** CAD import request */
+export interface CADImportRequest {
+    /** Path to the CAD file */
+    filePath: string;
+    /** File format (auto-detected if not specified) */
+    format?: CADFileFormat;
+    /** Import options */
+    options?: {
+        /** Tolerance for surface approximation (reserved for Phase 3) */
+        tolerance?: number;
+        /** Whether to merge coplanar surfaces */
+        mergeSurfaces?: boolean;
+        /** Scale factor for the geometry (reserved for Phase 3) */
+        scale?: number;
+        /** Units of the input file (default: 'cm') */
+        units?: 'cm' | 'mm' | 'm' | 'in' | 'ft';
+        /** Material assignment for imported geometry */
+        materialId?: number;
+        /** Universe to place the imported geometry in */
+        universeId?: number;
+    };
+}
+
+/** CAD import result */
+export interface CADImportResult {
+    /** Whether import was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Warning messages */
+    warnings?: string[];
+    /** Imported surfaces */
+    surfaces?: {
+        type: string;
+        coefficients: number[];
+        name?: string;
+    }[];
+    /** Imported cells */
+    cells?: {
+        id: number;
+        name?: string;
+        region: string;
+        material?: string;
+    }[];
+    /** Bounding box of the imported geometry */
+    boundingBox?: {
+        min: [number, number, number];
+        max: [number, number, number];
+    };
+    /** Original file info */
+    fileInfo?: {
+        format: string;
+        units: string;
+        solidCount: number;
+        faceCount: number;
+        edgeCount: number;
+    };
+    /** Conversion summary */
+    summary?: {
+        surfacesCreated: number;
+        cellsCreated: number;
+        approximationsMade: number;
+    };
 }
 
 // ============================================================================

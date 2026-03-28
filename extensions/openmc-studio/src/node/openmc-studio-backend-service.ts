@@ -52,6 +52,7 @@ import {
 import { OpenMCState, OpenMCProjectFile } from '../common/openmc-state-schema';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
+import { OpenMCCADImportService } from './cad-import-service';
 
 @injectable()
 export class OpenMCStudioBackendServiceImpl 
@@ -62,6 +63,9 @@ export class OpenMCStudioBackendServiceImpl
     
     @inject(XMLGenerationService)
     protected readonly xmlService: XMLGenerationService;
+    
+    @inject(OpenMCCADImportService)
+    protected readonly cadService: OpenMCCADImportService;
 
     /**
      * Set the client for receiving log messages.
@@ -1049,5 +1053,34 @@ export class OpenMCStudioBackendServiceImpl
     async suggestMeshId(state: OpenMCState): Promise<number> {
         const ids = state.meshes.map(m => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    // ============================================================================
+    // CAD Import
+    // ============================================================================
+
+    async checkCADSupport(): Promise<{
+        available: boolean;
+        libraries: {
+            openCascade: boolean;
+            gmsh: boolean;
+            cadQuery: boolean;
+        };
+        pythonPath?: string;
+    }> {
+        return this.cadService.checkCADSupport();
+    }
+
+    async importCAD(request: import('../common/openmc-studio-protocol').CADImportRequest): Promise<import('../common/openmc-studio-protocol').CADImportResult> {
+        return this.cadService.importCAD(request);
+    }
+
+    async previewCAD(filePath: string): Promise<{
+        format: string;
+        solidCount: number;
+        faceCount: number;
+        bounds?: { min: [number, number, number]; max: [number, number, number] };
+    }> {
+        return this.cadService.previewCAD(filePath);
     }
 }

@@ -1129,6 +1129,8 @@
 .simulation-dashboard .status-running {
     background: linear-gradient(135deg, var(--theia-inputValidation-warningBackground) 0%, var(--theia-editorWidget-background) 100%);
     color: var(--theia-inputValidation-warningBorder);
+    padding: 4px;
+    border-radius: 6px;
     border: 1px solid var(--theia-inputValidation-warningBorder);
     animation: status-pulse 2s infinite;
 }

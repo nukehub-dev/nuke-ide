@@ -1025,6 +1025,175 @@
     border-top: 1px solid var(--theia-panel-border);
 }
 
+/* ============================================================================
+   Lattice UI Styles
+   ============================================================================ */
+.csg-builder .lattices-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.csg-builder .lattice-card {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.csg-builder .lattice-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.csg-builder .lattice-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.csg-builder .lattice-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.csg-builder .lattice-id {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-badge-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.csg-builder .lattice-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.csg-builder .lattice-type-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.csg-builder .lattice-type-badge.rect {
+    background: var(--theia-inputValidation-successBackground);
+    color: var(--theia-inputValidation-successBorder);
+}
+
+.csg-builder .lattice-type-badge.hex,
+.csg-builder .lattice-type-badge.x-hex,
+.csg-builder .lattice-type-badge.y-hex {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.csg-builder .lattice-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.csg-builder .lattice-card:hover .lattice-actions {
+    opacity: 1;
+}
+
+.csg-builder .lattice-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
+
+.csg-builder .lattice-param {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.csg-builder .lattice-param label {
+    color: var(--theia-descriptionForeground);
+    min-width: 90px;
+    font-size: 11px;
+}
+
+.csg-builder .lattice-param span {
+    font-family: var(--theia-code-font-family);
+}
+
+.csg-builder .lattice-universes {
+    border-top: 1px solid var(--theia-panel-border);
+    padding-top: 12px;
+}
+
+.csg-builder .lattice-universes > label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.csg-builder .universe-grid-preview {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.csg-builder .rect-grid-preview {
+    display: grid;
+    gap: 2px;
+    padding: 8px;
+    background: var(--theia-panel-background);
+    border-radius: 6px;
+}
+
+.csg-builder .rect-grid-preview .grid-cell {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: var(--theia-code-font-family);
+}
+
+.csg-builder .rect-grid-preview .grid-cell.empty {
+    background: var(--theia-panel-background);
+    border-style: dashed;
+}
+
+.csg-builder .rect-grid-preview .grid-cell.filled {
+    background: var(--theia-inputValidation-infoBackground);
+    border-color: var(--theia-inputValidation-infoBorder);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.csg-builder .rect-grid-preview .grid-cell:hover {
+    transform: scale(1.1);
+    z-index: 1;
+}
+
+.csg-builder .grid-placeholder,
+.csg-builder .empty-preview {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
 .csg-builder .coming-soon-badge {
     font-size: 10px;
     padding: 2px 8px;
