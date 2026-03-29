@@ -190,8 +190,8 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
-    async convertDagmc(filePath: string): Promise<string> {
-        this.log(`Starting DAGMC conversion: ${filePath}`);
+    async convertDagmc(filePath: string, volumeId?: number): Promise<string> {
+        this.log(`Starting DAGMC conversion: ${filePath}${volumeId !== undefined ? ` (volume ${volumeId})` : ''}`);
         
         // Find the dagmc converter script
         const converterScript = this.findDagmcConverterScript();
@@ -201,12 +201,18 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         this.log(`[Converter] Using Python: ${pythonInfo.command}`);
         
         try {
-            this.log(`[Converter] Command: "${pythonInfo.command}" "${converterScript}" "${filePath}"`);
+            // Build command arguments
+            const args = [converterScript, filePath];
+            if (volumeId !== undefined) {
+                args.push('--volume', String(volumeId));
+            }
+            
+            this.log(`[Converter] Command: "${pythonInfo.command}" "${args.join('" "')}"`);
+            
             // Run the converter script
-            // Using spawnSync to better handle stdout/stderr on failure
             const result = spawnSync(
                 pythonInfo.command,
-                [converterScript, filePath],
+                args,
                 { encoding: 'utf8' }
             );
             
@@ -228,8 +234,15 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 }
             }
             
-            // Fallback: try to infer VTK path (replace .h5m with .vtk)
-            const vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
+            // Fallback: try to infer VTK path
+            let vtkPath: string;
+            if (volumeId !== undefined) {
+                // Volume extraction output
+                vtkPath = filePath.replace(/\.h5m$/i, `_${volumeId}.vtk`);
+            } else {
+                vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
+            }
+            
             if (fs.existsSync(vtkPath)) {
                 this.log(`[Converter] Success (inferred): ${vtkPath}`);
                 return vtkPath;

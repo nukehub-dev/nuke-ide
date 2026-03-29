@@ -89,10 +89,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(VisualizerWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(context => ({
         id: VisualizerWidget.ID,
-        createWidget: (options?: { uri: string; id?: string }) => {
+        createWidget: (options?: { uri: string; id?: string; volumeId?: number }) => {
             const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
             if (options?.uri) {
-                widget.setUri(new URI(options.uri));
+                widget.setUri(new URI(options.uri), options.volumeId);
             }
             // Allow setting a custom widget ID for multiple instances
             if (options?.id) {

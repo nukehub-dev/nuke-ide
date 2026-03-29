@@ -133,7 +133,13 @@ export interface VisualizerBackendService {
     stopServer(port: number): Promise<void>;
     
     /** Convert DAGMC .h5m file to VTK format */
-    convertDagmc(filePath: string): Promise<string>;
+    /**
+     * Convert DAGMC H5M file to VTK for visualization.
+     * @param filePath Path to the H5M file
+     * @param volumeId Optional volume ID to extract only that volume
+     * @returns Path to the generated VTK file
+     */
+    convertDagmc(filePath: string, volumeId?: number): Promise<string>;
     
     /** Check Python environment for dependencies */
     checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;

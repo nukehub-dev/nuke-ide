@@ -43,6 +43,7 @@ export class VisualizerWidget extends ReactWidget {
     private currentFile: string | null = null;
     private currentFileUri: URI | null = null;
     private currentLoadId: number = 0;
+    private highlightVolumeId: number | undefined = undefined;
 
     @inject(VisualizerBackendService)
     protected readonly visualizerBackend: VisualizerBackendService;
@@ -82,9 +83,10 @@ export class VisualizerWidget extends ReactWidget {
      * Set the file URI and update the widget ID to be unique.
      * This should be called by the factory or contribution to differentiate widgets.
      */
-    public setUri(uri: URI): void {
+    public setUri(uri: URI, volumeId?: number): void {
         this.currentFileUri = uri;
         this.currentFile = uri.path.toString();
+        this.highlightVolumeId = volumeId;
         // Use a unique ID based on the file path so Theia can manage multiple instances
         this.id = `${VisualizerWidget.ID}:${this.currentFile}`;
         this.title.label = `Visualizer: ${uri.path.base}`;
@@ -432,13 +434,26 @@ export class VisualizerWidget extends ReactWidget {
         );
     }
 
-    public async loadFile(fileUri: URI): Promise<void> {
+    public async loadFile(fileUri: URI, volumeId?: number): Promise<void> {
         const loadId = ++this.currentLoadId;
         const filePath = fileUri.path.toString();
         
-        // If already showing this file, just activate
-        if (this.currentFile === filePath && this.serverUrl) {
-
+        // Check if volume changed (before updating)
+        const volumeChanged = volumeId !== undefined && this.highlightVolumeId !== volumeId;
+        const wasShowingSingleVolume = this.highlightVolumeId !== undefined;
+        
+        // Update highlight volume ID: set if provided, clear if explicitly undefined
+        if (volumeId !== undefined) {
+            this.highlightVolumeId = volumeId;
+        } else {
+            // Clear volume ID to show full model
+            this.highlightVolumeId = undefined;
+        }
+        
+        // If already showing this file with the same volume, just activate
+        // Also reload if we were showing a single volume and now want full model
+        const needReload = wasShowingSingleVolume && volumeId === undefined;
+        if (this.currentFile === filePath && this.serverUrl && !volumeChanged && !needReload) {
             this.ensureClosable();
             this.update();
             return;
@@ -522,17 +537,18 @@ export class VisualizerWidget extends ReactWidget {
     private async convertAndLoadDAGMC(h5mPath: string, loadId: number): Promise<void> {
         if (loadId !== this.currentLoadId) return;
 
-        this.statusMessage = `Converting DAGMC file: ${h5mPath}...`;
+        const volumeInfo = this.highlightVolumeId !== undefined ? ` (volume ${this.highlightVolumeId})` : '';
+        this.statusMessage = `Converting DAGMC file: ${h5mPath}${volumeInfo}...`;
         this.update();
         
         try {
             // Use backend service to convert DAGMC to VTK
-            const vtkPath = await this.visualizerBackend.convertDagmc(h5mPath);
+            // Pass volumeId to extract only that volume if specified
+            const vtkPath = await this.visualizerBackend.convertDagmc(h5mPath, this.highlightVolumeId);
             
             // Check if still the active load
             if (loadId !== this.currentLoadId) return;
             
-
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
             

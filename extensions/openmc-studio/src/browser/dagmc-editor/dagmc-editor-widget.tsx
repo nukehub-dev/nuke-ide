@@ -608,8 +608,8 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </div>
 
                     <div className='inspector-actions'>
-                        <button className='theia-button primary full-width' onClick={() => this.preview3D()}>
-                            <i className='codicon codicon-globe'></i> Isolate in 3D View
+                        <button className='theia-button primary full-width' onClick={() => this.preview3D(volume.id)}>
+                            <i className='codicon codicon-globe'></i> View in 3D
                         </button>
                     </div>
                 </div>
@@ -1155,16 +1155,17 @@ export class DAGMCEditorWidget extends ReactWidget {
         this.messageService.info(`Deleted group "${groupName}"`);
     }
 
-    private async preview3D(): Promise<void> {
+    private async preview3D(highlightVolumeId?: number): Promise<void> {
         if (!this.modelData) return;
 
         try {
             const fileUri = new URI(this.modelData.filePath);
 
-            // Open or create the Visualizer widget (properly handles H5M files)
+            // Open or create the Visualizer widget with optional volume highlighting
+            // The widget factory will pass the volumeId to setUri
             const widget = await this.widgetManager.getOrCreateWidget<VisualizerWidget>(
                 VisualizerWidget.ID,
-                { uri: this.modelData.filePath }
+                { uri: this.modelData.filePath, volumeId: highlightVolumeId }
             );
 
             // Show widget
@@ -1173,8 +1174,8 @@ export class DAGMCEditorWidget extends ReactWidget {
             }
             await this.shell.activateWidget(widget.id);
 
-            // Load the file (VisualizerWidget handles H5M conversion internally)
-            await widget.loadFile(fileUri);
+            // Load the file (VisualizerWidget handles H5M conversion with volume extraction)
+            await widget.loadFile(fileUri, highlightVolumeId);
 
         } catch (error) {
             this.messageService.error(`3D view error: ${error}`);

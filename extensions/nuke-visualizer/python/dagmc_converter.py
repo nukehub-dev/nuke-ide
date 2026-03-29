@@ -52,6 +52,106 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     return str(output_path)
 
 
+def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = None) -> str:
+    """
+    Convert a single DAGMC volume to VTK format.
+    
+    This extracts just the triangles belonging to a specific volume,
+    creating a clean VTK file for isolated visualization.
+    
+    Args:
+        h5m_path: Path to the input .h5m file
+        volume_id: ID of the volume to extract
+        output_path: Optional output path. If None, uses temp directory.
+        
+    Returns:
+        Path to the generated .vtk file
+    """
+    import numpy as np
+    
+    h5m_path = Path(h5m_path)
+    if not h5m_path.exists():
+        raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
+    
+    # Load with pydagmc
+    try:
+        import pydagmc as dagmc
+        from pymoab import types
+    except ImportError as e:
+        raise ImportError(f"pydagmc not available: {e}")
+    
+    model = dagmc.Model(str(h5m_path))
+    
+    # Get the volume to extract
+    volume = model.volumes_by_id.get(volume_id)
+    if volume is None:
+        raise ValueError(f"Volume {volume_id} not found in {h5m_path}")
+    
+    print(f"[DAGMC] Extracting volume {volume_id} ({volume.num_triangles} triangles)...")
+    
+    # Collect all triangles and vertices
+    triangles = []
+    vertex_map = {}
+    vertices = []
+    
+    for surf in volume.surfaces:
+        tris = model.mb.get_entities_by_type(surf.handle, types.MBTRI)
+        for tri in tris:
+            tri_verts = model.mb.get_connectivity(tri)
+            coords = model.mb.get_coords(tri_verts).reshape(-1, 3)
+            
+            # Map vertices to indices (deduplicate)
+            tri_indices = []
+            for coord in coords:
+                key = tuple(coord)
+                if key not in vertex_map:
+                    vertex_map[key] = len(vertices)
+                    vertices.append(coord)
+                tri_indices.append(vertex_map[key])
+            
+            triangles.append(tri_indices)
+    
+    if not triangles:
+        raise ValueError(f"Volume {volume_id} has no triangles")
+    
+    print(f"[DAGMC]   Unique vertices: {len(vertices)}, Triangles: {len(triangles)}")
+    
+    # Create VTK unstructured grid
+    import vtk
+    
+    points = vtk.vtkPoints()
+    for v in vertices:
+        points.InsertNextPoint(v)
+    
+    grid = vtk.vtkUnstructuredGrid()
+    grid.SetPoints(points)
+    
+    # Add triangles
+    for tri in triangles:
+        triangle = vtk.vtkTriangle()
+        for i, idx in enumerate(tri):
+            triangle.GetPointIds().SetId(i, idx)
+        grid.InsertNextCell(triangle.GetCellType(), triangle.GetPointIds())
+    
+    # Determine output path
+    if output_path is None:
+        output_path = Path(tempfile.gettempdir()) / f"volume_{volume_id}_{h5m_path.stem}.vtu"
+    else:
+        output_path = Path(output_path)
+        # Use .vtu extension for XML VTK format
+        if output_path.suffix == '.vtk':
+            output_path = output_path.with_suffix('.vtu')
+    
+    # Write to file
+    writer = vtk.vtkXMLUnstructuredGridWriter()
+    writer.SetFileName(str(output_path))
+    writer.SetInputData(grid)
+    writer.Write()
+    
+    print(f"[DAGMC] Volume {volume_id} ({len(triangles)} triangles) -> {output_path}")
+    return str(output_path)
+
+
 def _compute_triangle_area(p0, p1, p2) -> float:
     """Compute area of a triangle given three points."""
     import numpy as np
@@ -226,7 +326,7 @@ def get_cache_path(h5m_path: str, cache_dir: str = None,
     
     Args:
         h5m_path: Path to the H5M file
-        cache_dir: Optional cache directory. If None, uses system temp dir
+        cache_dir: Optional cache directory. Uses system temp dir if None.
         filtered: Whether this is a filtered (graveyard removed) version
         
     Returns:
@@ -334,23 +434,43 @@ if __name__ == "__main__":
     import sys
     
     if len(sys.argv) < 2:
-        print("Usage: python dagmc_converter.py <h5m_file> [output_dir]")
+        print("Usage: python dagmc_converter.py <h5m_file> [output_dir] [--volume VOLUME_ID]")
         print("\nConverts DAGMC .h5m files to VTK format with graveyard filtering.")
+        print("\nOptions:")
+        print("  --volume VOLUME_ID  Extract only a specific volume")
         sys.exit(1)
     
     h5m_file = sys.argv[1]
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    output_dir = None
+    volume_id = None
     
-    result = convert_h5m_to_vtk_cached(
-        h5m_file, 
-        use_cache=True,
-        cache_dir=output_dir,
-        do_filter_graveyard=True,
-        max_cell_area=100.0
-    )
+    # Parse arguments
+    i = 2
+    while i < len(sys.argv):
+        if sys.argv[i] == '--volume' and i + 1 < len(sys.argv):
+            volume_id = int(sys.argv[i + 1])
+            i += 2
+        else:
+            output_dir = sys.argv[i]
+            i += 1
     
-    print(f"\nConversion complete!")
-    print(f"  Output: {result['vtk_path']}")
-    print(f"  From cache: {result['from_cache']}")
-    print(f"  Original cells: {result['original_cells']}")
-    print(f"  Filtered cells: {result['filtered_cells']}")
+    if volume_id is not None:
+        # Single volume extraction
+        output_path = convert_h5m_volume_to_vtk(h5m_file, volume_id)
+        print(f"\nVolume extraction complete!")
+        print(f"  Output: {output_path}")
+    else:
+        # Full model conversion
+        result = convert_h5m_to_vtk_cached(
+            h5m_file, 
+            use_cache=True,
+            cache_dir=output_dir,
+            do_filter_graveyard=True,
+            max_cell_area=100.0
+        )
+        
+        print(f"\nConversion complete!")
+        print(f"  Output: {result['vtk_path']}")
+        print(f"  From cache: {result['from_cache']}")
+        print(f"  Original cells: {result['original_cells']}")
+        print(f"  Filtered cells: {result['filtered_cells']}")
