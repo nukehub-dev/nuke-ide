@@ -1388,6 +1388,24 @@
     font-size: 14px;
 }
 
+.simulation-dashboard .empty-state.dagmc-info {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.03) 100%);
+    border: 1px dashed rgba(102, 126, 234, 0.3);
+    border-radius: 8px;
+    padding: 40px 20px;
+}
+
+.simulation-dashboard .empty-state.dagmc-info i {
+    color: #667eea;
+    opacity: 0.6;
+}
+
+.simulation-dashboard .empty-state.dagmc-info .empty-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
 /* ============================================================================
    Button Styles (Enhanced)
    ============================================================================ */
@@ -1551,6 +1569,11 @@
     border-color: var(--theia-inputValidation-infoBorder);
 }
 
+.simulation-dashboard .checklist-item.partial {
+    background: var(--theia-inputValidation-warningBackground);
+    border-color: var(--theia-inputValidation-warningBorder);
+}
+
 .simulation-dashboard .checklist-icon {
     display: flex;
     align-items: center;
@@ -1566,6 +1589,12 @@
 .simulation-dashboard .checklist-item.done .checklist-icon {
     background: var(--theia-inputValidation-infoBorder);
     border-color: var(--theia-inputValidation-infoBorder);
+    color: white;
+}
+
+.simulation-dashboard .checklist-item.partial .checklist-icon {
+    background: var(--theia-inputValidation-warningBorder);
+    border-color: var(--theia-inputValidation-warningBorder);
     color: white;
 }
 
@@ -1715,4 +1744,191 @@
 .simulation-dashboard select:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
+}
+
+/* ============================================================================
+   DAGMC Mode Banner
+   ============================================================================ */
+
+.simulation-dashboard .dagmc-mode-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    margin: 16px 20px 16px 20px;
+    background: var(--theia-button-background);
+    border-radius: 8px;
+    color: var(--theia-button-foreground);
+    box-shadow: 0 2px 8px var(--theia-widget-shadow);
+    animation: card-fade-in 0.3s ease;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-button-hoverBackground);
+    border-radius: 6px;
+    font-size: 20px;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-info strong {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-info span {
+    font-size: 12px;
+    color: var(--theia-button-secondaryForeground, var(--theia-descriptionForeground));
+    font-family: var(--theia-monospace-font-family);
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-badge {
+    padding: 4px 12px;
+    background: var(--theia-button-hoverBackground);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ============================================================================
+   DAGMC Geometry Section in Simulation Tab
+   ============================================================================ */
+
+.simulation-dashboard .simulation-info.dagmc-geometry {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-focusBorder);
+}
+
+.simulation-dashboard .simulation-info.dagmc-geometry .info-header h4 {
+    color: var(--theia-focusBorder);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .dagmc-filename {
+    font-family: var(--theia-monospace-font-family);
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .dagmc-note {
+    background: var(--theia-inputValidation-infoBackground);
+    border-left: 3px solid var(--theia-focusBorder);
+}
+
+.simulation-dashboard .dagmc-note i {
+    color: var(--theia-focusBorder);
+}
+
+/* ============================================================================
+   DAGMC Materials Panel in Materials Tab
+   ============================================================================ */
+
+.simulation-dashboard .dagmc-materials-panel {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.simulation-dashboard .dagmc-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.simulation-dashboard .dagmc-panel-header h4 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .dagmc-badge {
+    padding: 4px 12px;
+    background: var(--theia-inputValidation-infoBackground);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-focusBorder);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .dagmc-panel-description {
+    margin: 0 0 16px 0;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .dagmc-materials-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.simulation-dashboard .dagmc-material-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 12px;
+    transition: all 0.2s ease;
+}
+
+.simulation-dashboard .dagmc-material-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 2px 8px var(--theia-widget-shadow);
+}
+
+.simulation-dashboard .dagmc-mat-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--theia-editor-foreground);
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .dagmc-mat-stats {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+    margin-bottom: 8px;
+}
+
+.simulation-dashboard .dagmc-mat-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.simulation-dashboard .dagmc-mat-status.matched {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .dagmc-mat-status.missing {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
 }

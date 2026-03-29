@@ -93,7 +93,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
             warn: (message: string) => {
                 window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
             },
-            onSimulationStatus: () => {},
+            onSimulationStatus: (event) => {
+                window.dispatchEvent(new CustomEvent('openmc-simulation-status', { detail: event }));
+            },
             onProgress: () => {},
             onStateChange: () => {}
         };

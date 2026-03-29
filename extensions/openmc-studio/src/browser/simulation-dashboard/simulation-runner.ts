@@ -70,6 +70,8 @@ export class OpenMCSimulationRunner {
 
     /**
      * Start an OpenMC simulation.
+     * Note: This method returns immediately and the simulation runs asynchronously.
+     * Listen to onStatusChange and onSimulationComplete events for updates.
      */
     async runSimulation(request: SimulationRunRequest): Promise<void> {
         if (this._isRunning) {
@@ -91,18 +93,62 @@ export class OpenMCSimulationRunner {
                 }
             };
 
-            await this.backendService.runSimulation(fullRequest);
-            // Result from backend already contains simulation results if it finishes immediately,
-            // but usually it just starts. Actually, the protocol says runSimulation returns SimulationRunResult.
-            // If it's a long running process, the backend might handle it differently.
-            
+            // Fire starting status
             this._onStatusChange.fire({
-                processId: '', // Placeholder since SimulationRunResult doesn't have it
+                processId: '',
+                status: 'starting'
+            });
+
+            // Start simulation non-blocking - returns processId immediately
+            const response = await this.backendService.startSimulation(fullRequest);
+            
+            if (!response.success) {
+                this._isRunning = false;
+                const errorMsg = response.error || 'Failed to start simulation';
+                this.messageService.error(errorMsg);
+                this._onSimulationComplete.fire({
+                    success: false,
+                    error: errorMsg,
+                    stdout: '',
+                    stderr: '',
+                    outputFiles: [],
+                    timing: {
+                        startTime: new Date().toISOString(),
+                        endTime: new Date().toISOString(),
+                        duration: 0
+                    }
+                });
+                this._onStatusChange.fire({
+                    processId: '',
+                    status: 'failed',
+                    result: {
+                        success: false,
+                        error: errorMsg,
+                        stdout: '',
+                        stderr: '',
+                        outputFiles: [],
+                        timing: {
+                            startTime: new Date().toISOString(),
+                            endTime: new Date().toISOString(),
+                            duration: 0
+                        }
+                    }
+                });
+                return;
+            }
+
+            // Store processId for cancellation
+            this._currentProcessId = response.processId;
+            
+            // Fire running status
+            this._onStatusChange.fire({
+                processId: response.processId,
                 status: 'running'
             });
 
         } catch (error) {
             this._isRunning = false;
+            this._currentProcessId = undefined;
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to start simulation: ${msg}`);
             this._onSimulationComplete.fire({

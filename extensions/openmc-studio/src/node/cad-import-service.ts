@@ -35,7 +35,7 @@ import * as fs from 'fs';
 const cp = require('child_process');
 
 /** Supported CAD file formats */
-export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl';
+export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl' | 'h5m' | 'dagmc';
 
 /** CAD import request */
 export interface CADImportRequest {
@@ -66,6 +66,10 @@ export interface CADImportRequest {
     };
 }
 
+// Import DAGMCInfo from schema
+import type { DAGMCInfo, DAGMCVolume, DAGMCMaterialInfo } from '../common/openmc-state-schema';
+export { DAGMCInfo, DAGMCVolume, DAGMCMaterialInfo };
+
 /** CAD import result */
 export interface CADImportResult {
     /** Whether import was successful */
@@ -74,13 +78,13 @@ export interface CADImportResult {
     error?: string;
     /** Warning messages */
     warnings?: string[];
-    /** Imported surfaces */
+    /** Imported surfaces (CSG conversion) */
     surfaces?: {
         type: string;
         coefficients: number[];
         name?: string;
     }[];
-    /** Imported cells */
+    /** Imported cells (CSG conversion) */
     cells?: {
         id: number;
         name?: string;
@@ -98,7 +102,26 @@ export interface CADImportResult {
         units: string;
         solidCount: number;
         faceCount: number;
-        edgeCount: number;
+        edgeCount?: number;
+        vertexCount?: number;
+        materials?: string[];
+        facetingTolerance?: number;
+        dagmc?: boolean;
+        // DAGMC-specific fields
+        fileName?: string;
+        fileSizeMB?: number;
+        volumeCount?: number;
+        surfaceCount?: number;
+        totalTriangles?: number;
+        totalSurfaceArea?: number;
+        materialsData?: Record<string, { volumeCount: number; totalTriangles: number }>;
+        volumesData?: Array<{
+            id: number;
+            material: string;
+            numTriangles: number;
+            boundingBox?: { min: number[]; max: number[] };
+        }>;
+        groups?: string[];
     };
     /** Conversion summary */
     summary?: {
@@ -106,6 +129,8 @@ export interface CADImportResult {
         cellsCreated: number;
         approximationsMade: number;
     };
+    /** DAGMC model information (when importing .h5m files) */
+    dagmcInfo?: DAGMCInfo;
 }
 
 @injectable()
@@ -120,23 +145,27 @@ export class OpenMCCADImportService {
 
     async importCAD(request: CADImportRequest): Promise<CADImportResult> {
         try {
-            // Check CAD support (this uses nuke-core's detectPythonWithRequirements
-            // to find a Python environment with CAD libraries)
-            const support = await this.checkCADSupport();
-            if (!support.available || !support.pythonPath) {
-                return {
-                    success: false,
-                    error: 'CAD import requires gmsh or OpenCASCADE. ' +
-                           'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
-                };
-            }
-
             // Detect format if not specified
             const format = request.format || this.detectFormatFromPath(request.filePath);
             if (!format) {
                 return {
                     success: false,
                     error: 'Unable to detect CAD file format from path. Please specify format explicitly.'
+                };
+            }
+
+            // Handle DAGMC files differently - they are used directly, not converted
+            if (format === 'h5m' || format === 'dagmc') {
+                return this.importDAGMC(request.filePath);
+            }
+
+            // Check CAD support for non-DAGMC formats
+            const support = await this.checkCADSupport();
+            if (!support.available || !support.pythonPath) {
+                return {
+                    success: false,
+                    error: 'CAD import requires gmsh or OpenCASCADE. ' +
+                           'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
                 };
             }
 
@@ -280,7 +309,170 @@ export class OpenMCCADImportService {
     }
 
     async getSupportedCADFormats(): Promise<CADFileFormat[]> {
-        return ['step', 'iges', 'stp', 'igs', 'brep', 'stl'];
+        return ['step', 'iges', 'stp', 'igs', 'brep', 'stl', 'h5m', 'dagmc'];
+    }
+
+    /**
+     * Import DAGMC file (.h5m).
+     * DAGMC files are used directly in OpenMC, not converted to CSG.
+     * We just extract information about the file.
+     */
+    private async importDAGMC(filePath: string): Promise<CADImportResult> {
+        const warnings: string[] = [];
+        
+        try {
+            // Find Python with pymoab
+            const result = await this.coreService.detectPythonWithRequirements({
+                requiredPackages: [
+                    { name: 'pymoab', required: false }
+                ],
+                autoDetectEnvs: ['openmc', 'dagmc']
+            });
+
+            if (!result.success || !result.command) {
+                return {
+                    success: false,
+                    error: 'DAGMC import requires pymoab. Install with: conda install -c conda-forge moab'
+                };
+            }
+
+            const pythonPath = result.command;
+            
+            // Find the DAGMC info script
+            const scriptPath = this.findDAGMCInfoScript();
+            if (!fs.existsSync(scriptPath)) {
+                return {
+                    success: false,
+                    error: `DAGMC info script not found at: ${scriptPath}`
+                };
+            }
+
+            // Execute DAGMC info script
+            const args = [scriptPath, filePath, '--output-json'];
+            
+            const execResult = cp.spawnSync(pythonPath, args, {
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                maxBuffer: 50 * 1024 * 1024
+            });
+
+            if (execResult.stderr) {
+                const stderr = execResult.stderr.toString().trim();
+                if (stderr) {
+                    warnings.push(`pymoab stderr: ${stderr.substring(0, 200)}`);
+                }
+            }
+
+            // Parse JSON output
+            const output = execResult.stdout.toString().trim();
+            const lines = output.split('\n');
+            const jsonLine = lines.find((l: string) => l.startsWith('{') && l.includes('"success"'));
+            
+            if (jsonLine) {
+                const parsed = JSON.parse(jsonLine);
+                
+                if (!parsed.success) {
+                    return {
+                        success: false,
+                        error: parsed.error || 'Failed to read DAGMC file',
+                        warnings
+                    };
+                }
+
+                // Build DAGMCInfo object
+                const dagmcInfo: DAGMCInfo = {
+                    filePath: filePath,
+                    fileName: parsed.fileName || filePath.split('/').pop() || 'unknown.h5m',
+                    volumeCount: parsed.volumeCount || 0,
+                    surfaceCount: parsed.surfaceCount || 0,
+                    vertices: parsed.totalTriangles || 0,
+                    materials: parsed.materials || {},
+                    volumes: (parsed.volumes || []).map((v: any) => ({
+                        id: v.id,
+                        material: v.material,
+                        numTriangles: v.numTriangles,
+                        boundingBox: {
+                            min: v.boundingBox?.min || [0, 0, 0],
+                            max: v.boundingBox?.max || [0, 0, 0]
+                        }
+                    })),
+                    boundingBox: {
+                        min: parsed.boundingBox?.min || [0, 0, 0],
+                        max: parsed.boundingBox?.max || [0, 0, 0]
+                    },
+                    fileSizeMB: parsed.fileSizeMB,
+                    totalSurfaceArea: parsed.totalSurfaceArea
+                };
+
+                return {
+                    success: true,
+                    warnings,
+                    fileInfo: {
+                        format: 'h5m',
+                        units: 'cm',
+                        solidCount: parsed.volumeCount || 0,
+                        faceCount: parsed.surfaceCount || 0,
+                        vertexCount: parsed.totalTriangles || 0,
+                        materials: parsed.materials ? Object.keys(parsed.materials) : [],
+                        facetingTolerance: parsed.facetingTolerance,
+                        dagmc: true,
+                        // Rich DAGMC-specific data
+                        fileName: parsed.fileName,
+                        fileSizeMB: parsed.fileSizeMB,
+                        volumeCount: parsed.volumeCount,
+                        surfaceCount: parsed.surfaceCount,
+                        totalTriangles: parsed.totalTriangles,
+                        totalSurfaceArea: parsed.totalSurfaceArea,
+                        materialsData: parsed.materials,
+                        volumesData: parsed.volumes,
+                        groups: parsed.groups
+                    },
+                    boundingBox: parsed.boundingBox,
+                    dagmcInfo
+                };
+            }
+
+            return {
+                success: false,
+                error: 'Failed to parse DAGMC info result',
+                warnings
+            };
+
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return {
+                success: false,
+                error: `DAGMC import failed: ${msg}`,
+                warnings
+            };
+        }
+    }
+
+    /**
+     * Find the DAGMC info Python script.
+     */
+    private findDAGMCInfoScript(): string {
+        const extensionPath = this.getExtensionPath();
+        const scriptPath = path.resolve(extensionPath, 'python/dagmc_info.py');
+        
+        if (fs.existsSync(scriptPath)) {
+            return scriptPath;
+        }
+
+        // Fallback search in common locations
+        const fallbackPaths = [
+            path.resolve(__dirname, '../../python/dagmc_info.py'),
+            path.resolve(process.cwd(), 'extensions/openmc-studio/python/dagmc_info.py'),
+            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/dagmc_info.py'),
+        ];
+        
+        for (const fp of fallbackPaths) {
+            if (fs.existsSync(fp)) {
+                return fp;
+            }
+        }
+
+        return scriptPath;
     }
 
     async previewCAD(filePath: string): Promise<{
@@ -364,7 +556,8 @@ gmsh.finalize()
             'iges': 'iges',
             'igs': 'igs',
             'brep': 'brep',
-            'stl': 'stl'
+            'stl': 'stl',
+            'h5m': 'h5m'
         };
         return formatMap[ext || ''];
     }

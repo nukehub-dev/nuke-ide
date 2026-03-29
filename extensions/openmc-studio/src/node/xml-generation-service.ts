@@ -87,13 +87,22 @@ export class XMLGenerationService {
                 this.log(`Generated materials.xml`);
             }
             
-            // Generate geometry.xml
+            // Generate geometry.xml (empty for DAGMC - geometry is in the .h5m file)
             if (request.files.geometry) {
                 const geometryPath = path.join(request.outputDirectory, 'geometry.xml');
-                const geometryXml = this.generateGeometryXML(request.state);
-                fs.writeFileSync(geometryPath, geometryXml);
-                generatedFiles.push(geometryPath);
-                this.log(`Generated geometry.xml`);
+                if (request.state.settings.dagmcFile) {
+                    // DAGMC mode: generate geometry.xml with dagmc_universe reference
+                    const dagmcGeometryXml = this.generateDAGMCGeometryXML();
+                    fs.writeFileSync(geometryPath, dagmcGeometryXml);
+                    generatedFiles.push(geometryPath);
+                    this.log(`Generated geometry.xml with DAGMC reference`);
+                } else {
+                    // CSG mode: generate full geometry.xml
+                    const geometryXml = this.generateGeometryXML(request.state);
+                    fs.writeFileSync(geometryPath, geometryXml);
+                    generatedFiles.push(geometryPath);
+                    this.log(`Generated geometry.xml`);
+                }
             }
             
             // Generate settings.xml
@@ -103,6 +112,20 @@ export class XMLGenerationService {
                 fs.writeFileSync(settingsPath, settingsXml);
                 generatedFiles.push(settingsPath);
                 this.log(`Generated settings.xml`);
+            }
+            
+            // Copy DAGMC file to output directory as geometry.h5m (required by OpenMC)
+            if (request.state.settings.dagmcFile) {
+                const dagmcSource = request.state.settings.dagmcFile;
+                const dagmcDest = path.join(request.outputDirectory, 'geometry.h5m');
+                try {
+                    fs.copyFileSync(dagmcSource, dagmcDest);
+                    generatedFiles.push(dagmcDest);
+                    this.log(`Copied DAGMC file to geometry.h5m`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.log(`Warning: Failed to copy DAGMC file: ${msg}`);
+                }
             }
             
             // Generate tallies.xml
@@ -153,8 +176,40 @@ export class XMLGenerationService {
             ''
         ];
         
+        // Debug logging for DAGMC
+        if (state.settings.dagmcFile) {
+            this.log(`DAGMC mode detected. dagmcFile: ${state.settings.dagmcFile}`);
+            this.log(`dagmcInfo present: ${!!state.settings.dagmcInfo}`);
+            if (state.settings.dagmcInfo?.materials) {
+                const matNames = Object.keys(state.settings.dagmcInfo.materials);
+                this.log(`DAGMC materials found: ${matNames.join(', ')}`);
+            } else {
+                this.log('No DAGMC materials found in dagmcInfo');
+            }
+        }
+        
+        // Add user-defined materials
         for (const material of state.materials) {
             lines.push(this.generateMaterialElement(material));
+        }
+        
+        // For DAGMC mode: check for missing materials (user must create them)
+        if (state.settings.dagmcInfo?.materials) {
+            const dagmcMaterials = state.settings.dagmcInfo.materials;
+            const existingMaterialNames = new Set(state.materials.map(m => m.name.toLowerCase()));
+            
+            const missingMaterials: string[] = [];
+            
+            for (const dagmcMaterialName of Object.keys(dagmcMaterials)) {
+                if (!existingMaterialNames.has(dagmcMaterialName.toLowerCase())) {
+                    missingMaterials.push(dagmcMaterialName);
+                }
+            }
+            
+            if (missingMaterials.length > 0) {
+                this.log(`WARNING: DAGMC materials not defined: ${missingMaterials.join(', ')}. ` +
+                    `Create these materials in the Materials tab with appropriate nuclides.`);
+            }
         }
         
         lines.push('</materials>');
@@ -221,6 +276,17 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
+    /**
+     * Generate a geometry.xml for DAGMC mode.
+     * Contains a dagmc_universe element referencing the DAGMC file.
+     */
+    private generateDAGMCGeometryXML(): string {
+        return `<?xml version="1.0"?>
+<geometry>
+  <dagmc_universe filename="geometry.h5m" id="1" />
+</geometry>`;
+    }
+
     private generateSurfaceElement(surface: OpenMCSurface): string {
         // Always use 'vacuum' for boundaries to allow particles to escape
         // 'transmission' causes particles to get lost when crossing surfaces
@@ -229,12 +295,78 @@ export class XMLGenerationService {
         const boundaryAttr = ` boundary="${boundary}"`;
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
         
-        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${surface.type}"${boundaryAttr}${nameAttr}/>`;
+        // Map internal surface type to OpenMC-compatible type
+        const openmcType = this.mapSurfaceTypeToOpenMC(surface);
+        
+        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${nameAttr}/>`;
+    }
+
+    /**
+     * Map internal surface type to OpenMC-compatible surface type.
+     * OpenMC doesn't support generic 'cylinder' type - only x-cylinder, y-cylinder, z-cylinder.
+     */
+    private mapSurfaceTypeToOpenMC(surface: OpenMCSurface): string {
+        const type = surface.type;
+        const coeffs = surface.coefficients as any;
+        
+        // Handle generic cylinder type - determine axis from direction vector
+        if (type === 'cylinder') {
+            // Generic cylinder has: x0, y0, z0, r, vx, vy, vz (center and direction vector)
+            const vx = coeffs.vx ?? 0;
+            const vy = coeffs.vy ?? 0;
+            const vz = coeffs.vz ?? 1; // default to z-axis
+            
+            // Determine principal axis from direction vector
+            const absVx = Math.abs(vx);
+            const absVy = Math.abs(vy);
+            const absVz = Math.abs(vz);
+            
+            if (absVx >= absVy && absVx >= absVz) {
+                return 'x-cylinder';
+            } else if (absVy >= absVx && absVy >= absVz) {
+                return 'y-cylinder';
+            } else {
+                return 'z-cylinder';
+            }
+        }
+        
+        // All other types map directly
+        return type;
     }
 
     private coeffsToString(surface: OpenMCSurface): string {
-        // Format coefficients based on surface type
-        const values = Object.values(surface.coefficients);
+        const type = surface.type;
+        const coeffs = surface.coefficients as any;
+        
+        // Handle generic cylinder - need to output only relevant coefficients for axis-aligned
+        if (type === 'cylinder') {
+            const x0 = coeffs.x0 ?? 0;
+            const y0 = coeffs.y0 ?? 0;
+            const z0 = coeffs.z0 ?? 0;
+            const r = coeffs.r ?? 1;
+            const vx = coeffs.vx ?? 0;
+            const vy = coeffs.vy ?? 0;
+            const vz = coeffs.vz ?? 1;
+            
+            // Determine which axis the cylinder is aligned with
+            const absVx = Math.abs(vx);
+            const absVy = Math.abs(vy);
+            const absVz = Math.abs(vz);
+            
+            if (absVx >= absVy && absVx >= absVz) {
+                // x-cylinder: y0, z0, r
+                return `${y0} ${z0} ${r}`;
+            } else if (absVy >= absVx && absVy >= absVz) {
+                // y-cylinder: x0, z0, r
+                return `${x0} ${z0} ${r}`;
+            } else {
+                // z-cylinder: x0, y0, r
+                return `${x0} ${y0} ${r}`;
+            }
+        }
+        
+        // All other types - format coefficients directly
+        const values = Object.values(coeffs);
         return values.join(' ');
     }
 
@@ -397,6 +529,13 @@ export class XMLGenerationService {
         // Photon transport
         if (settings.photonTransport) {
             lines.push(`  <photon_transport>true</photon_transport>`);
+        }
+        
+        // DAGMC geometry file
+        if (settings.dagmcFile) {
+            lines.push('');
+            lines.push('  <!-- DAGMC Geometry -->');
+            lines.push(`  <dagmc>true</dagmc>`);
         }
         
         lines.push('</settings>');

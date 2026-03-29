@@ -209,6 +209,44 @@ export type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
 };
 
 // ============================================================================
+// DAGMC Geometry
+// ============================================================================
+
+/** DAGMC volume information */
+export interface DAGMCVolume {
+    id: number;
+    material: string;
+    numTriangles: number;
+    boundingBox: {
+        min: [number, number, number];
+        max: [number, number, number];
+    };
+}
+
+/** DAGMC material information */
+export interface DAGMCMaterialInfo {
+    volumeCount: number;
+    totalTriangles: number;
+}
+
+/** DAGMC model information (from pydagmc) */
+export interface DAGMCInfo {
+    filePath: string;
+    fileName: string;
+    volumeCount: number;
+    surfaceCount: number;
+    vertices: number;
+    materials: Record<string, DAGMCMaterialInfo>;
+    volumes: DAGMCVolume[];
+    boundingBox: {
+        min: [number, number, number];
+        max: [number, number, number];
+    };
+    fileSizeMB?: number;
+    totalSurfaceArea?: number;
+}
+
+// ============================================================================
 // Geometry - Complete
 // ============================================================================
 
@@ -516,6 +554,10 @@ export interface OpenMCSettings {
         tolerance?: number;
         multipole?: boolean;
     };
+    /** DAGMC geometry file path (for direct CAD geometry) */
+    dagmcFile?: string;
+    /** DAGMC model information (populated when importing DAGMC file) */
+    dagmcInfo?: DAGMCInfo;
     /** Resonance scattering settings */
     resonanceScattering?: {
         enable?: boolean;

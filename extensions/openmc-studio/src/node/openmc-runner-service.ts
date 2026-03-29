@@ -369,22 +369,210 @@ export class OpenMCRunnerService {
         });
     }
 
+    /**
+     * Start simulation non-blocking - returns immediately with processId.
+     * Status updates are sent via the client interface.
+     */
+    async startSimulation(request: SimulationRunRequest): Promise<{ processId: string; success: boolean; error?: string }> {
+        const processId = `sim-${Date.now()}`;
+        
+        this.log(`Starting simulation ${processId} in ${request.workingDirectory}`);
+        
+        const { spawn } = await import('child_process');
+        
+        // Detect Python command
+        this.log('Detecting Python environment...');
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        
+        if (!pythonCommand) {
+            return {
+                processId,
+                success: false,
+                error: 'Python with OpenMC not found. Please check your environment.'
+            };
+        }
+        
+        this.log(`Using Python: ${pythonCommand}${pythonInfo.version ? ` (${pythonInfo.version})` : ''}`);
+        if (pythonInfo.warning) {
+            this.log(`Note: ${pythonInfo.warning}`);
+        }
+        
+        // Build command - find openmc executable
+        const openmcExe = await this.findOpenMCExecutable(pythonCommand);
+        
+        let command: string;
+        let args: string[];
+        
+        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
+            command = 'mpirun';
+            args = ['-np', String(request.mpi.processes), openmcExe];
+        } else {
+            command = openmcExe;
+            args = [];
+        }
+        
+        // Add any additional arguments
+        if (request.args) {
+            args.push(...request.args);
+        }
+        
+        // Build environment - ensure PATH includes Python bin directory
+        const path = await import('path');
+        const pythonBinDir = path.dirname(pythonCommand);
+        const currentPath = process.env.PATH || '';
+        const newPath = currentPath.includes(pythonBinDir) 
+            ? currentPath 
+            : `${pythonBinDir}:${currentPath}`;
+        
+        this.log(`Environment PATH includes: ${pythonBinDir}`);
+        
+        try {
+            const env = {
+                ...process.env,
+                PATH: newPath,
+                ...request.env
+            };
+            
+            const childProcess = spawn(command, args, {
+                cwd: request.workingDirectory,
+                env,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            
+            const startTime = new Date();
+            let stdout = '';
+            let stderr = '';
+            
+            // Store running simulation
+            this.runningSimulations.set(processId, {
+                processId,
+                process: childProcess,
+                startTime,
+                request
+            });
+            
+            // Notify client that simulation is starting
+            this.client?.onSimulationStatus({
+                processId,
+                status: 'starting'
+            });
+            
+            // Handle stdout
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stdout += chunk;
+                this.client?.log(chunk);
+                this.parseProgress(chunk);
+            });
+            
+            // Handle stderr
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stderr += chunk;
+                this.client?.warn(chunk);
+            });
+            
+            // Handle process exit
+            childProcess.on('close', (code: number | null) => {
+                this.runningSimulations.delete(processId);
+                
+                const endTime = new Date();
+                const duration = (endTime.getTime() - startTime.getTime()) / 1000;
+                
+                // Get output files
+                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                
+                const success = code === 0;
+                let error: string | undefined;
+                
+                if (!success) {
+                    if (code !== null) {
+                        error = `Process exited with code ${code}`;
+                    } else {
+                        error = 'Process was terminated';
+                    }
+                    if (stderr) {
+                        const stderrExcerpt = stderr.split('\n').slice(0, 5).join('\n');
+                        error += `\nStderr: ${stderrExcerpt}`;
+                    }
+                }
+                
+                // Notify client of completion
+                this.client?.onSimulationStatus({
+                    processId,
+                    status: success ? 'completed' : 'failed',
+                    result: {
+                        success,
+                        exitCode: code ?? undefined,
+                        stdout,
+                        stderr,
+                        error,
+                        outputFiles,
+                        timing: {
+                            startTime: startTime.toISOString(),
+                            endTime: endTime.toISOString(),
+                            duration
+                        }
+                    }
+                });
+            });
+            
+            // Handle errors
+            childProcess.on('error', (error: Error) => {
+                this.runningSimulations.delete(processId);
+                this.client?.onSimulationStatus({
+                    processId,
+                    status: 'failed',
+                    result: {
+                        success: false,
+                        error: error.message,
+                        stdout,
+                        stderr,
+                        outputFiles: []
+                    }
+                });
+            });
+            
+            // Return immediately with processId
+            return { processId, success: true };
+            
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.log(`Error starting simulation: ${errorMsg}`);
+            return {
+                processId,
+                success: false,
+                error: errorMsg
+            };
+        }
+    }
+
     async cancelSimulation(processId: string): Promise<boolean> {
         const simulation = this.runningSimulations.get(processId);
         
         if (!simulation) {
+            this.log(`Cancel failed: simulation ${processId} not found`);
             return false;
         }
         
         try {
+            this.log(`Cancelling simulation ${processId}...`);
             simulation.process.kill('SIGTERM');
             
-            // Force kill after 5 seconds if still running
+            // Force kill after 3 seconds if still running
             setTimeout(() => {
                 if (!simulation.process.killed) {
+                    this.log(`Force killing simulation ${processId}...`);
                     simulation.process.kill('SIGKILL');
                 }
-            }, 5000);
+            }, 3000);
+            
+            // Notify client
+            this.client?.onSimulationStatus({
+                processId,
+                status: 'cancelled'
+            });
             
             return true;
         } catch (error) {

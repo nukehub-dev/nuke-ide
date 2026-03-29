@@ -35,7 +35,8 @@ import {
     OpenMCBoundaryCondition,
     OpenMCFillType,
     OpenMCUniverse,
-    OpenMCLattice
+    OpenMCLattice,
+    DAGMCInfo
 } from '../../common/openmc-state-schema';
 
 // Import from nuke-visualizer for 3D preview
@@ -186,6 +187,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Save location - if set, auto-saves happen here
     private saveOutputPath?: string;
     private autoSaveDebounceTimer?: number;
+    
+    // DAGMC info from imported file
+    private dagmcInfo?: DAGMCInfo;
 
     // Cell form state
     private editingCell?: OpenMCCell;
@@ -220,9 +224,10 @@ export class CSGBuilderWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         const state = this.stateManager.getState();
+        const isDagmcMode = !!state.settings.dagmcFile;
 
         return (
-            <div className='csg-builder'>
+            <div className={`csg-builder ${isDagmcMode ? 'dagmc' : ''}`}>
                 {this.renderHeader()}
                 {this.renderTabs()}
                 <div className='csg-builder-content'>
@@ -266,7 +271,7 @@ export class CSGBuilderWidget extends ReactWidget {
                             Import XML
                         </button>
                     </Tooltip>
-                    <Tooltip content='Import CAD file (STEP/IGES) - uses nuke-core' position='bottom'>
+                    <Tooltip content='Import CAD file (STEP/IGES/DAGMC)' position='bottom'>
                         <button
                             className='theia-button secondary'
                             onClick={() => this.importCADFile()}
@@ -296,6 +301,9 @@ export class CSGBuilderWidget extends ReactWidget {
     }
 
     private renderTabs(): React.ReactNode {
+        const state = this.stateManager.getState();
+        const isDagmcMode = !!state.settings.dagmcFile;
+        
         const tabs: { id: CSGBuilderTab; label: string; icon: string }[] = [
             { id: 'surfaces', label: 'Surfaces', icon: 'codicon-circle' },
             { id: 'cells', label: 'Cells', icon: 'codicon-package' },
@@ -307,7 +315,7 @@ export class CSGBuilderWidget extends ReactWidget {
                 {tabs.map(tab => (
                     <button
                         key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''} ${isDagmcMode ? 'dagmc-mode' : ''}`}
                         onClick={() => {
                             this.activeTab = tab.id;
                             this.cancelForm();
@@ -327,6 +335,13 @@ export class CSGBuilderWidget extends ReactWidget {
     // ============================================================================
 
     private renderSurfacesTab(state: OpenMCState): React.ReactNode {
+        const dagmcFile = state.settings.dagmcFile;
+        
+        // If DAGMC file is loaded, show DAGMC info instead of CSG surface editor
+        if (dagmcFile) {
+            return this.renderDAGMCSurfacesTab(state, dagmcFile);
+        }
+        
         return (
             <div className='surfaces-tab'>
                 {/* Surface Editor Panel - Shows when editing/creating */}
@@ -411,6 +426,122 @@ export class CSGBuilderWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    private renderDAGMCSurfacesTab(state: OpenMCState, dagmcFile: string): React.ReactNode {
+        const info = this.dagmcInfo;
+        const fileName = info?.fileName || dagmcFile.split('/').pop() || dagmcFile;
+        
+        return (
+            <div className='surfaces-tab dagmc-mode'>
+                <div className='dagmc-info-panel'>
+                    <div className='dagmc-header'>
+                        <div className='dagmc-icon'>
+                            <i className='codicon codicon-file-code'></i>
+                        </div>
+                        <div className='dagmc-title'>
+                            <h3>DAGMC Faceted Geometry</h3>
+                            <span className='dagmc-filename'>{fileName} {info?.fileSizeMB && `(${(info.fileSizeMB).toFixed(2)} MB)`}</span>
+                        </div>
+                        <Tooltip content='Clear DAGMC file and switch to CSG mode' position='left'>
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => this.clearDagmcFile()}
+                            >
+                                <i className='codicon codicon-close'></i>
+                                Clear
+                            </button>
+                        </Tooltip>
+                    </div>
+                    
+                    <div className='dagmc-description'>
+                        <p>
+                            This simulation uses <strong>DAGMC (Direct Accelerated Geometry Monte Carlo)</strong> faceted mesh geometry.
+                        </p>
+                        <p className='dagmc-note'>
+                            DAGMC files contain triangulated surfaces that are used directly by OpenMC.
+                            CSG surface editing is disabled while DAGMC mode is active.
+                        </p>
+                    </div>
+                    
+                    {/* DAGMC Stats Grid */}
+                    {info && (
+                        <div className='dagmc-stats-grid'>
+                            <div className='dagmc-stat-box primary'>
+                                <span className='stat-value'>{info.volumeCount}</span>
+                                <span className='stat-label'>Volumes</span>
+                            </div>
+                            <div className='dagmc-stat-box primary'>
+                                <span className='stat-value'>{info.surfaceCount}</span>
+                                <span className='stat-label'>Surfaces</span>
+                            </div>
+                            <div className='dagmc-stat-box primary'>
+                                <span className='stat-value'>{info.vertices?.toLocaleString()}</span>
+                                <span className='stat-label'>Triangles</span>
+                            </div>
+                            <div className='dagmc-stat-box secondary'>
+                                <span className='stat-value'>{info.totalSurfaceArea?.toFixed(0)}</span>
+                                <span className='stat-label'>Surface Area (cm²)</span>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Materials Section */}
+                    {info && info.materials && Object.keys(info.materials).length > 0 && (
+                        <div className='dagmc-materials-section'>
+                            <h4><i className='codicon codicon-symbol-color'></i> Materials ({Object.keys(info.materials).length})</h4>
+                            <div className='dagmc-materials-list'>
+                                {Object.entries(info.materials).map(([name, data]) => (
+                                    <div key={name} className='dagmc-material-item'>
+                                        <span className='material-name'>{name}</span>
+                                        <span className='material-stats'>
+                                            {data.volumeCount} vol{(data.volumeCount ?? 0) > 1 ? 's' : ''}, {' '}
+                                            {(data.totalTriangles ?? 0).toLocaleString()} tri
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Volumes Section */}
+                    {info && info.volumes && info.volumes.length > 0 && (
+                        <div className='dagmc-volumes-section'>
+                            <h4><i className='codicon codicon-package'></i> Volumes ({info.volumes.length})</h4>
+                            <div className='dagmc-volumes-list'>
+                                {info.volumes.map(vol => (
+                                    <div key={vol.id} className='dagmc-volume-item'>
+                                        <span className='volume-id'>Vol {vol.id}</span>
+                                        <span className='volume-material'>{vol.material}</span>
+                                        <span className='volume-triangles'>{vol.numTriangles?.toLocaleString()} tri</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                
+                {state.geometry.surfaces.length > 0 && (
+                    <div className='csg-surfaces-note'>
+                        <i className='codicon codicon-info'></i>
+                        <span>
+                            Note: You have {state.geometry.surfaces.length} CSG surfaces defined, 
+                            but they will be ignored when using DAGMC geometry.
+                        </span>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    private clearDagmcFile(): void {
+        const state = this.stateManager.getState();
+        delete state.settings.dagmcFile;
+        delete state.settings.dagmcInfo;
+        this.dagmcInfo = undefined;
+        this.stateManager.setState(state);
+        this.messageService.info('DAGMC file cleared. Switched to CSG mode.');
+        this.update();
     }
 
     private renderSurfaceCoeffsPreview(surface: OpenMCSurface): React.ReactNode {
@@ -551,6 +682,13 @@ export class CSGBuilderWidget extends ReactWidget {
     // ============================================================================
 
     private renderCellsTab(state: OpenMCState): React.ReactNode {
+        const dagmcFile = state.settings.dagmcFile;
+        
+        // If DAGMC mode, show DAGMC volumes
+        if (dagmcFile) {
+            return this.renderDAGMCCellsTab(state);
+        }
+        
         return (
             <div className='cells-tab'>
                 <div className='tab-toolbar'>
@@ -626,6 +764,108 @@ export class CSGBuilderWidget extends ReactWidget {
                             </div>
                         ))
                     )}
+                </div>
+            </div>
+        );
+    }
+
+    private renderDAGMCCellsTab(state: OpenMCState): React.ReactNode {
+        // Use dagmcInfo from state if available, otherwise fall back to local
+        const info = state.settings.dagmcInfo || this.dagmcInfo;
+        
+        // If no detailed info available, show a simplified view
+        if (!info) {
+            const dagmcFile = state.settings.dagmcFile;
+            return (
+                <div className='cells-tab dagmc-mode'>
+                    <div className='tab-toolbar'>
+                        <h3><i className='codicon codicon-file-code'></i> DAGMC Volumes</h3>
+                        <span className='dagmc-badge'>DAGMC Mode</span>
+                    </div>
+                    <div className='dagmc-volumes-intro'>
+                        <p>
+                            <i className='codicon codicon-info'></i>{' '}
+                            DAGMC mode is active. Volumes are defined in the faceted geometry file.
+                        </p>
+                    </div>
+                    <div className='empty-state'>
+                        <i className='codicon codicon-file-code'></i>
+                        <p>DAGMC file loaded: {dagmcFile?.split('/').pop() || dagmcFile}</p>
+                        <p className='empty-hint'>
+                            Open this file directly in CSG Builder to see detailed volume information.
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className='cells-tab dagmc-mode'>
+                <div className='tab-toolbar'>
+                    <h3><i className='codicon codicon-file-code'></i> DAGMC Volumes</h3>
+                    <span className='dagmc-badge'>DAGMC Mode</span>
+                </div>
+
+                <div className='dagmc-volumes-intro'>
+                    <p>
+                        These volumes are defined in the DAGMC geometry file. 
+                        Each volume is automatically a cell with its assigned material.
+                    </p>
+                </div>
+
+                <div className='cells-list dagmc-volumes-list'>
+                    {info.volumes.length === 0 ? (
+                        <div className='empty-state'>
+                            <i className='codicon codicon-package'></i>
+                            <p>No volumes found in DAGMC file.</p>
+                        </div>
+                    ) : (
+                        info.volumes.map(volume => (
+                            <div key={volume.id} className='cell-card dagmc-volume'>
+                                <div className='cell-header'>
+                                    <div className='cell-info'>
+                                        <span className='cell-id'>Vol #{volume.id}</span>
+                                        <span className='cell-name'>Volume {volume.id}</span>
+                                        <span className='cell-fill-badge material'>
+                                            <i className='codicon codicon-symbol-color'></i>
+                                            {volume.material || 'No material'}
+                                        </span>
+                                    </div>
+                                    <div className='cell-actions'>
+                                        <Tooltip content={`${volume.numTriangles.toLocaleString()} triangles`} position='top'>
+                                            <span className='triangle-count'>
+                                                <i className='codicon codicon-triangle-up'></i>
+                                                {volume.numTriangles.toLocaleString()}
+                                            </span>
+                                        </Tooltip>
+                                    </div>
+                                </div>
+                                <div className='cell-details'>
+                                    <div className='cell-fill'>
+                                        <label>Material:</label>
+                                        <span className='fill-value material'>
+                                            {volume.material || 'Not assigned'}
+                                        </span>
+                                    </div>
+                                    <div className='cell-bounds'>
+                                        <label>Bounds:</label>
+                                        <code className='bounds-code'>
+                                            [{volume.boundingBox.min.map(v => v.toFixed(1)).join(', ')}] to 
+                                            [{volume.boundingBox.max.map(v => v.toFixed(1)).join(', ')}]
+                                        </code>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+                
+                <div className='dagmc-volumes-summary'>
+                    <div className='summary-stats'>
+                        <span><strong>{info.volumes.length}</strong> volumes</span>
+                        <span><strong>{info.vertices.toLocaleString()}</strong> triangles</span>
+                        <span><strong>{Object.keys(info.materials).length}</strong> materials</span>
+                    </div>
                 </div>
             </div>
         );
@@ -956,6 +1196,12 @@ export class CSGBuilderWidget extends ReactWidget {
     // ============================================================================
 
     private renderUniversesTab(state: OpenMCState): React.ReactNode {
+        // Check DAGMC mode
+        const dagmcFile = state.settings.dagmcFile;
+        if (dagmcFile) {
+            return this.renderDAGMCUniversesTab(state);
+        }
+
         // Get unassigned cells (not in any universe)
         const assignedCellIds = new Set<number>();
         state.geometry.universes.forEach(u => u.cellIds.forEach(id => assignedCellIds.add(id)));
@@ -1111,6 +1357,63 @@ export class CSGBuilderWidget extends ReactWidget {
                         ) : (
                             state.geometry.lattices.map(lattice => this.renderLatticeCard(lattice))
                         )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * Render DAGMC mode info for Universes tab.
+     * DAGMC uses an implicit universe structure - volumes are in universe 0 by default.
+     */
+    private renderDAGMCUniversesTab(state: OpenMCState): React.ReactNode {
+        const info = this.dagmcInfo;
+        const volumeCount = info?.volumeCount || 0;
+
+        return (
+            <div className='universes-tab dagmc-mode'>
+                <div className='tab-toolbar'>
+                    <h3>Universes</h3>
+                    <span className='dagmc-badge'>DAGMC Mode</span>
+                </div>
+
+                <div className='dagmc-volumes-intro'>
+                    <p>
+                        <i className='codicon codicon-info'></i>{' '}
+                        DAGMC geometry uses an implicit universe structure. All volumes are automatically 
+                        placed in the root universe (ID: 0). Universe editing is not applicable for DAGMC models.
+                    </p>
+                </div>
+
+                <div className='dagmc-info-panel'>
+                    <div className='dagmc-header'>
+                        <div className='dagmc-icon'>
+                            <i className='codicon codicon-globe'></i>
+                        </div>
+                        <div className='dagmc-title'>
+                            <h3>Root Universe</h3>
+                            <span className='dagmc-filename'>ID: 0 (implicit)</span>
+                        </div>
+                    </div>
+
+                    <div className='dagmc-description'>
+                        <p>
+                            In DAGMC mode, all {volumeCount} volume(s) from the faceted geometry file 
+                            are automatically included in the root universe. This is handled internally 
+                            by OpenMC's DAGMC interface.
+                        </p>
+                    </div>
+
+                    <div className='dagmc-stats-grid'>
+                        <div className='dagmc-stat-box primary'>
+                            <span className='stat-value'>1</span>
+                            <span className='stat-label'>Universe</span>
+                        </div>
+                        <div className='dagmc-stat-box primary'>
+                            <span className='stat-value'>{volumeCount}</span>
+                            <span className='stat-label'>Volumes</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1646,7 +1949,8 @@ export class CSGBuilderWidget extends ReactWidget {
                 'IGES Files': ['iges', 'igs'],
                 'BREP Files': ['brep'],
                 'STL Files': ['stl'],
-                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl']
+                'DAGMC Files': ['h5m'],
+                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m']
             }
         });
         
@@ -1656,9 +1960,11 @@ export class CSGBuilderWidget extends ReactWidget {
 
         this.messageService.info('Importing CAD file...');
 
+        const filePath = uri.path.toString();
+        
         try {
             const result = await this.backendService.importCAD({
-                filePath: uri.path.toString(),
+                filePath: filePath,
                 options: {
                     tolerance: 0.001,
                     units: 'cm',
@@ -1667,7 +1973,7 @@ export class CSGBuilderWidget extends ReactWidget {
             });
 
             if (result.success) {
-                await this.handleCADImportResult(result);
+                await this.handleCADImportResult(result, filePath);
             } else {
                 this.messageService.error(`CAD import failed: ${result.error}`);
             }
@@ -1676,7 +1982,7 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
-    private async handleCADImportResult(result: CADImportResult): Promise<void> {
+    private async handleCADImportResult(result: CADImportResult, filePath?: string): Promise<void> {
         if (!result.success) {
             return;
         }
@@ -1693,7 +1999,60 @@ export class CSGBuilderWidget extends ReactWidget {
             }
         }
 
-        // Show summary
+        // Handle DAGMC files differently - they are used directly
+        if (result.fileInfo?.dagmc && result.fileInfo) {
+            // Use dagmcInfo from result if available, otherwise build from fileInfo
+            const dagmcInfo: DAGMCInfo = result.dagmcInfo || {
+                filePath: filePath || '',
+                fileName: result.fileInfo.fileName || filePath?.split('/').pop() || 'unknown.h5m',
+                volumeCount: result.fileInfo.solidCount || 0,
+                surfaceCount: result.fileInfo.faceCount || 0,
+                vertices: result.fileInfo.vertexCount || 0,
+                materials: result.fileInfo.materialsData || {},
+                volumes: (result.fileInfo.volumesData || []).map((v: any) => ({
+                    id: v.id,
+                    material: v.material,
+                    numTriangles: v.numTriangles,
+                    boundingBox: {
+                        min: (v.boundingBox?.min || [0, 0, 0]) as [number, number, number],
+                        max: (v.boundingBox?.max || [0, 0, 0]) as [number, number, number]
+                    }
+                })),
+                boundingBox: {
+                    min: (result.fileInfo.boundingBox?.min || [0, 0, 0]) as [number, number, number],
+                    max: (result.fileInfo.boundingBox?.max || [0, 0, 0]) as [number, number, number]
+                },
+                fileSizeMB: result.fileInfo.fileSizeMB,
+                totalSurfaceArea: result.fileInfo.totalSurfaceArea
+            };
+            
+            // Store rich DAGMC info for display (local cache)
+            this.dagmcInfo = dagmcInfo;
+            
+            const matCount = Object.keys(dagmcInfo.materials).length;
+            this.messageService.info(
+                `DAGMC file loaded: ${dagmcInfo.volumeCount} volumes, ` +
+                `${dagmcInfo.surfaceCount} surfaces, ` +
+                `${matCount} materials`
+            );
+            
+            // Store DAGMC file path AND dagmcInfo in settings for use in simulation
+            if (filePath) {
+                const state = this.stateManager.getState();
+                state.settings.dagmcFile = filePath;
+                state.settings.dagmcInfo = dagmcInfo;
+                this.stateManager.setState(state);
+                this.messageService.info(
+                    'DAGMC geometry will be used for simulation. ' +
+                    'Settings updated with DAGMC file path.'
+                );
+            }
+            
+            this.update();
+            return;
+        }
+
+        // Show summary for CSG conversion
         const summary = result.summary;
         if (summary) {
             if (summary.cellsCreated > 0 || summary.surfacesCreated > 0) {

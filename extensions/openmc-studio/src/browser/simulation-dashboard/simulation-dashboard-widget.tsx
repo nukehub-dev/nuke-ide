@@ -39,7 +39,7 @@ import {
     OpenMCSourceSpatial,
     OpenMCSourceEnergy
 } from '../../common/openmc-state-schema';
-import { SimulationProgress, ValidationIssue } from '../../common/openmc-studio-protocol';
+import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../common/openmc-studio-protocol';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 
 // Tab types for the dashboard
@@ -241,7 +241,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         });
 
         this.simulationRunner.onStatusChange(event => {
+            const wasRunning = this.isRunning;
             this.isRunning = event.status === 'running' || event.status === 'starting';
+            
+            // Log state change for debugging
+            console.log(`[Simulation] Status: ${event.status}, isRunning: ${this.isRunning} (was: ${wasRunning})`);
             
             // Log status changes to console
             if (event.status === 'completed') {
@@ -265,7 +269,11 @@ export class SimulationDashboardWidget extends ReactWidget {
             
             if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
                 this.simulationProgress = undefined;
+                // Force a reset of running state for terminal states
+                this.isRunning = false;
             }
+            
+            // Force immediate re-render
             this.update();
         });
 
@@ -285,8 +293,65 @@ export class SimulationDashboardWidget extends ReactWidget {
             }
         }) as EventListener);
 
+        // Listen to simulation status events from backend
+        window.addEventListener('openmc-simulation-status', ((evt: CustomEvent) => {
+            const event = evt.detail as SimulationStatusEvent;
+            console.log('[Simulation] Status event:', event.status, 'processId:', event.processId);
+            
+            // Update running state based on status
+            if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
+                this.isRunning = false;
+                this.simulationProgress = undefined;
+                if (event.result) {
+                    this.simulationRunner.onSimulationFinished(event.result);
+                }
+                
+                // Log final status to console
+                if (event.status === 'completed') {
+                    this.logToConsole('Simulation completed successfully');
+                    if (event.result?.timing) {
+                        this.logToConsole(`Duration: ${event.result.timing.duration.toFixed(1)}s`);
+                    }
+                } else if (event.status === 'failed') {
+                    this.logToConsole(`Simulation failed: ${event.result?.error || 'Unknown error'}`, 'error');
+                } else if (event.status === 'cancelled') {
+                    this.logToConsole('Simulation cancelled by user', 'warn');
+                }
+            } else if (event.status === 'running' || event.status === 'starting') {
+                this.isRunning = true;
+            }
+            
+            this.update();
+        }) as EventListener);
+
         this.updateTitle();
         this.update();
+        
+        // Set up periodic state sync to prevent UI from getting stuck
+        setInterval(() => {
+            // If we think we're running but the runner doesn't, sync the state
+            if (this.isRunning && !this.simulationRunner['_isRunning']) {
+                console.log('[Simulation] State sync: resetting isRunning flag');
+                this.isRunning = false;
+                this.simulationProgress = undefined;
+                this.update();
+            }
+        }, 2000); // Check every 2 seconds
+    }
+    
+    /**
+     * Called when the widget is activated (becomes visible/focused).
+     * Sync the running state with the simulation runner.
+     */
+    protected onActivateRequest(msg: any): void {
+        super.onActivateRequest(msg);
+        // Sync state with runner when widget becomes active
+        const runnerState = (this.simulationRunner as any)['_isRunning'];
+        if (this.isRunning !== runnerState) {
+            console.log(`[Simulation] Sync on activate: widget=${this.isRunning}, runner=${runnerState}`);
+            this.isRunning = runnerState;
+            this.update();
+        }
     }
 
     private updateTitle(): void {
@@ -445,6 +510,18 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         return (
             <div className='settings-tab'>
+                {/* DAGMC Mode Indicator */}
+                {settings.dagmcFile && (
+                    <div className='dagmc-mode-banner'>
+                        <div className='dagmc-icon'><i className='codicon codicon-file-code'></i></div>
+                        <div className='dagmc-info'>
+                            <strong>DAGMC Geometry Active</strong>
+                            <span>{settings.dagmcFile.split('/').pop()}</span>
+                        </div>
+                        <span className='dagmc-badge'>DAGMC Mode</span>
+                    </div>
+                )}
+                
                 {/* Quick Start Guide */}
                 <div className='quick-start-guide'>
                     <h4><i className='codicon codicon-book'></i> Quick Start Guide</h4>
@@ -951,30 +1028,72 @@ export class SimulationDashboardWidget extends ReactWidget {
     // ============================================================================
 
     private renderMaterialsTab(state: OpenMCState): React.ReactNode {
+        // Get DAGMC materials from fileInfo if available
+        const dagmcMaterials = state.settings.dagmcFile ? 
+            (this.getDAGMCMaterialsFromState(state) || {}) : {};
+        const hasDagmcMaterials = Object.keys(dagmcMaterials).length > 0;
+        
         return (
             <div className='materials-tab'>
-                {/* Instructions */}
-                <div className='instructions-panel'>
-                    <h4><i className='codicon codicon-lightbulb'></i> How to Create Materials</h4>
-                    <div className='instruction-steps'>
-                        <div className='step'>
-                            <span className='step-number'>1</span>
-                            <span>Enter a name and density for your material</span>
+                {/* DAGMC Materials Section */}
+                {hasDagmcMaterials && (
+                    <div className='dagmc-materials-panel'>
+                        <div className='dagmc-panel-header'>
+                            <h4><i className='codicon codicon-file-code'></i> DAGMC Materials</h4>
+                            <span className='dagmc-badge'>From {state.settings.dagmcFile?.split('/').pop()}</span>
                         </div>
-                        <div className='step'>
-                            <span className='step-number'>2</span>
-                            <span>Add nuclides (e.g., U235, O16) with fractions</span>
-                        </div>
-                        <div className='step'>
-                            <span className='step-number'>3</span>
-                            <span>For depletion: Check "Depletable" and enter volume</span>
-                        </div>
-                        <div className='step'>
-                            <span className='step-number'>4</span>
-                            <span>For moderators: Add S(α,β) thermal scattering data</span>
+                        <p className='dagmc-panel-description'>
+                            These materials are defined in the DAGMC geometry file. 
+                            You should create matching materials below for OpenMC to use.
+                        </p>
+                        <div className='dagmc-materials-grid'>
+                            {Object.entries(dagmcMaterials).map(([name, data]) => (
+                                <div key={name} className='dagmc-material-card'>
+                                    <div className='dagmc-mat-name'>{name}</div>
+                                    <div className='dagmc-mat-stats'>
+                                        {data.volumeCount} volume{(data.volumeCount || 0) !== 1 ? 's' : ''}, {' '}
+                                        {(data.totalTriangles || 0).toLocaleString()} triangles
+                                    </div>
+                                    {/* Check if matching material exists */}
+                                    {state.materials.some(m => m.name.toLowerCase() === name.toLowerCase()) ? (
+                                        <span className='dagmc-mat-status matched'>
+                                            <i className='codicon codicon-check'></i> Matched
+                                        </span>
+                                    ) : (
+                                        <span className='dagmc-mat-status missing'>
+                                            <i className='codicon codicon-warning'></i> No match
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     </div>
-                </div>
+                )}
+
+                {/* Instructions */}
+                {!hasDagmcMaterials && (
+                    <div className='instructions-panel'>
+                        <h4><i className='codicon codicon-lightbulb'></i> How to Create Materials</h4>
+                        <div className='instruction-steps'>
+                            <div className='step'>
+                                <span className='step-number'>1</span>
+                                <span>Enter a name and density for your material</span>
+                            </div>
+                            <div className='step'>
+                                <span className='step-number'>2</span>
+                                <span>Add nuclides (e.g., U235, O16) with fractions</span>
+                            </div>
+                            <div className='step'>
+                                <span className='step-number'>3</span>
+                                <span>For depletion: Check "Depletable" and enter volume</span>
+                            </div>
+                            <div className='step'>
+                                <span className='step-number'>4</span>
+                                <span>For moderators: Add S(α,β) thermal scattering data</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className='materials-toolbar'>
                     <button
@@ -998,10 +1117,16 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 <div className='materials-list'>
-                    {state.materials.length === 0 ? (
+                    {state.materials.length === 0 && !hasDagmcMaterials ? (
                         <div className='empty-state'>
                             <i className='codicon codicon-info'></i>
                             <p>No materials defined. Click "Add Material" to create your first material.</p>
+                        </div>
+                    ) : state.materials.length === 0 && hasDagmcMaterials ? (
+                        <div className='empty-state dagmc-info'>
+                            <i className='codicon codicon-file-code'></i>
+                            <p>No OpenMC materials defined yet.</p>
+                            <p className='empty-hint'>DAGMC geometry has {Object.keys(dagmcMaterials).length} material(s). Create matching materials above.</p>
                         </div>
                     ) : (
                         state.materials.map(material => (
@@ -1367,48 +1492,122 @@ export class SimulationDashboardWidget extends ReactWidget {
                 <div className='quick-actions-panel'>
                     <h4><i className='codicon codicon-rocket'></i> Setup Checklist</h4>
                     <div className='checklist-grid'>
-                        <div className={`checklist-item ${state.materials.length > 0 ? 'done' : ''}`}>
-                            <div className='checklist-icon'>
-                                <i className={`codicon codicon-${state.materials.length > 0 ? 'check' : 'circle-outline'}`}></i>
-                            </div>
-                            <div className='checklist-content'>
-                                <span className='checklist-title'>Materials</span>
-                                <span className='checklist-status'>
-                                    {state.materials.length > 0 ? `${state.materials.length} defined` : 'Not configured'}
-                                </span>
-                            </div>
-                        </div>
+                        {/* Materials Check - only counts OpenMC materials */}
+                        {(() => {
+                            const openMCMaterialCount = state.materials.length;
+                            const dagmcMaterials = state.settings.dagmcInfo?.materials;
+                            const dagmcMaterialCount = dagmcMaterials ? Object.keys(dagmcMaterials).length : 0;
+                            const hasDagmcFile = !!state.settings.dagmcFile;
+                            
+                            // For DAGMC mode: materials are 'done' only when user has created OpenMC materials
+                            // that match the DAGMC material names
+                            let isMaterialsDone: boolean;
+                            let statusText: string;
+                            let statusClass: string;
+                            
+                            if (hasDagmcFile) {
+                                if (dagmcMaterialCount === 0) {
+                                    // No materials in DAGMC file - user needs to check their geometry export
+                                    isMaterialsDone = openMCMaterialCount > 0;
+                                    statusText = openMCMaterialCount > 0 
+                                        ? `${openMCMaterialCount} defined` 
+                                        : '0 defined (no DAGMC mats found)';
+                                    statusClass = openMCMaterialCount > 0 ? 'done' : '';
+                                } else if (openMCMaterialCount === 0) {
+                                    // DAGMC has materials but user hasn't created OpenMC materials yet
+                                    isMaterialsDone = false;
+                                    statusText = `0 / ${dagmcMaterialCount} DAGMC materials configured`;
+                                    statusClass = '';
+                                } else {
+                                    // Check if all DAGMC materials have matching OpenMC materials
+                                    const openMCMaterialNames = new Set(state.materials.map(m => m.name.toLowerCase()));
+                                    const missingDagmcMats = Object.keys(dagmcMaterials!).filter(
+                                        dm => !openMCMaterialNames.has(dm.toLowerCase())
+                                    );
+                                    const definedCount = dagmcMaterialCount - missingDagmcMats.length;
+                                    
+                                    isMaterialsDone = missingDagmcMats.length === 0;
+                                    statusText = `${definedCount} / ${dagmcMaterialCount} DAGMC materials defined`;
+                                    statusClass = isMaterialsDone ? 'done' : 'partial';
+                                }
+                            } else {
+                                // CSG mode
+                                isMaterialsDone = openMCMaterialCount > 0;
+                                statusText = openMCMaterialCount > 0 
+                                    ? `${openMCMaterialCount} defined` 
+                                    : 'Not configured';
+                                statusClass = isMaterialsDone ? 'done' : '';
+                            }
+                            
+                            return (
+                                <div className={`checklist-item ${statusClass}`}>
+                                    <div className='checklist-icon'>
+                                        <i className={`codicon codicon-${isMaterialsDone ? 'check' : 'circle-outline'}`}></i>
+                                    </div>
+                                    <div className='checklist-content'>
+                                        <span className='checklist-title'>Materials</span>
+                                        <span className='checklist-status'>{statusText}</span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                         
-                        <div className={`checklist-item ${state.geometry.cells.length > 0 ? 'done' : ''}`}>
-                            <div className='checklist-icon'>
-                                <i className={`codicon codicon-${state.geometry.cells.length > 0 ? 'check' : 'circle-outline'}`}></i>
-                            </div>
-                            <div className='checklist-content'>
-                                <span className='checklist-title'>Geometry</span>
-                                <span className='checklist-status'>
-                                    {state.geometry.cells.length > 0 ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces` : 'Not configured'}
-                                </span>
-                            </div>
-                            {state.geometry.cells.length === 0 ? (
-                                <Tooltip content='Create geometry using CSG Builder'>
-                                    <button
-                                        className='theia-button primary small open-csg-btn'
-                                        onClick={() => this.openCSGBuilder()}
-                                    >
-                                        <i className='codicon codicon-graph'></i> Open CSG Builder
-                                    </button>
-                                </Tooltip>
-                            ) : (
-                                <Tooltip content='Edit geometry in CSG Builder'>
-                                    <button
-                                        className='theia-button secondary small open-csg-btn'
-                                        onClick={() => this.openCSGBuilder()}
-                                    >
-                                        <i className='codicon codicon-edit'></i> Edit
-                                    </button>
-                                </Tooltip>
-                            )}
-                        </div>
+                        {/* Geometry Check - includes both CSG and DAGMC geometry */}
+                        {(() => {
+                            const hasCSG = state.geometry.cells.length > 0;
+                            const hasDagmc = !!state.settings.dagmcFile;
+                            const dagmcVolumeCount = state.settings.dagmcInfo?.volumeCount || 0;
+                            const isGeometryDone = hasCSG || hasDagmc;
+                            
+                            return (
+                                <div className={`checklist-item ${isGeometryDone ? 'done' : ''}`}>
+                                    <div className='checklist-icon'>
+                                        <i className={`codicon codicon-${isGeometryDone ? 'check' : 'circle-outline'}`}></i>
+                                    </div>
+                                    <div className='checklist-content'>
+                                        <span className='checklist-title'>Geometry</span>
+                                        <span className='checklist-status'>
+                                            {hasCSG 
+                                                ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces`
+                                                : hasDagmc 
+                                                    ? `${dagmcVolumeCount} DAGMC volumes`
+                                                    : 'Not configured'}
+                                        </span>
+                                    </div>
+                                    {!hasDagmc && (
+                                        state.geometry.cells.length === 0 ? (
+                                            <Tooltip content='Create geometry using CSG Builder'>
+                                                <button
+                                                    className='theia-button primary small open-csg-btn'
+                                                    onClick={() => this.openCSGBuilder()}
+                                                >
+                                                    <i className='codicon codicon-graph'></i> Open CSG Builder
+                                                </button>
+                                            </Tooltip>
+                                        ) : (
+                                            <Tooltip content='Edit geometry in CSG Builder'>
+                                                <button
+                                                    className='theia-button secondary small open-csg-btn'
+                                                    onClick={() => this.openCSGBuilder()}
+                                                >
+                                                    <i className='codicon codicon-edit'></i> Edit
+                                                </button>
+                                            </Tooltip>
+                                        )
+                                    )}
+                                    {hasDagmc && (
+                                        <Tooltip content='View DAGMC geometry in CSG Builder'>
+                                            <button
+                                                className='theia-button secondary small open-csg-btn'
+                                                onClick={() => this.openCSGBuilder()}
+                                            >
+                                                <i className='codicon codicon-file-code'></i> View
+                                            </button>
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            );
+                        })()}
                         
                         <div className={`checklist-item ${state.settings.sources.length > 0 ? 'done' : ''}`}>
                             <div className='checklist-icon'>
@@ -1542,11 +1741,11 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
                 </div>
 
-                {/* Geometry Summary */}
-                {state.geometry.cells.length > 0 && (
+                {/* Geometry Summary - CSG */}
+                {state.geometry.cells.length > 0 && !state.settings.dagmcFile && (
                     <div className='simulation-info'>
                         <div className='info-header'>
-                            <h4>Geometry Summary</h4>
+                            <h4>CSG Geometry Summary</h4>
                             <Tooltip content='Open CSG Builder to edit geometry'>
                                 <button
                                     className='theia-button secondary small'
@@ -1580,6 +1779,39 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 <span>Surface types: {Array.from(new Set(state.geometry.surfaces.map(s => s.type))).join(', ')}</span>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* Geometry Summary - DAGMC */}
+                {state.settings.dagmcFile && (
+                    <div className='simulation-info dagmc-geometry'>
+                        <div className='info-header'>
+                            <h4><i className='codicon codicon-file-code'></i> DAGMC Geometry</h4>
+                            <Tooltip content='Open CSG Builder to view DAGMC details'>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => this.openCSGBuilder()}
+                                >
+                                    <i className='codicon codicon-eye'></i> View Details
+                                </button>
+                            </Tooltip>
+                        </div>
+                        <div className='info-grid'>
+                            <div className='info-item'>
+                                <label>File:</label>
+                                <span className='dagmc-filename' title={state.settings.dagmcFile}>
+                                    {state.settings.dagmcFile.split('/').pop()}
+                                </span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Type:</label>
+                                <span>Faceted Mesh (DAGMC)</span>
+                            </div>
+                        </div>
+                        <div className='info-footer dagmc-note'>
+                            <i className='codicon codicon-info'></i>
+                            <span>DAGMC geometry is used directly. No CSG surfaces/cells needed.</span>
+                        </div>
                     </div>
                 )}
 
@@ -1799,15 +2031,19 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         this.logToConsole(`Generating XML files in ${uri.path.toString()}...`);
 
+        const state = this.stateManager.getState();
+        const hasCSG = state.geometry.cells.length > 0;
+        const hasDagmc = !!state.settings.dagmcFile;
+        
         try {
             const result = await this.xmlService.generateXML({
-                state: this.stateManager.getState(),
+                state,
                 outputDirectory: uri.path.toString(),
                 files: {
                     materials: true,
                     settings: true,
-                    geometry: this.stateManager.getState().geometry.cells.length > 0,
-                    tallies: this.stateManager.getState().tallies.length > 0,
+                    geometry: hasCSG || hasDagmc,  // Generate for DAGMC too (needs dagmc_universe reference)
+                    tallies: state.tallies.length > 0,
                     plots: false
                 }
             });
@@ -1911,17 +2147,21 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
         this.logToConsole(`Using OpenMC: ${openmcCheck.version || 'unknown version'}`);
 
+        const simState = this.stateManager.getState();
+        const simHasCSG = simState.geometry.cells.length > 0;
+        const simHasDagmc = !!simState.settings.dagmcFile;
+
         try {
             // Generate XML first
             this.logToConsole('Generating XML files...');
             const xmlResult = await this.xmlService.generateXML({
-                state: this.stateManager.getState(),
+                state: simState,
                 outputDirectory: uri.path.toString(),
                 files: {
                     materials: true,
                     settings: true,
-                    geometry: this.stateManager.getState().geometry.cells.length > 0,
-                    tallies: this.stateManager.getState().tallies.length > 0,
+                    geometry: simHasCSG || simHasDagmc,  // Generate for DAGMC too (needs dagmc_universe reference)
+                    tallies: simState.tallies.length > 0,
                     plots: false
                 }
             });
@@ -1944,9 +2184,11 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             // Run simulation
             this.logToConsole('Starting OpenMC simulation...');
-            await this.simulationRunner.runSimulation({
+            // Note: runSimulation returns immediately, completion handled by events
+            this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()
             });
+            this.logToConsole('Simulation started (running in background)');
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Error running simulation: ${msg}`);
@@ -1955,10 +2197,20 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     private async stopSimulation(): Promise<void> {
-        await this.simulationRunner.stopSimulation();
-        this.messageService.info('Simulation stopped');
-        this.logToConsole('Simulation stopped by user');
-        // Force UI update in case status change event hasn't propagated yet
+        this.logToConsole('Stopping simulation...');
+        const success = await this.simulationRunner.stopSimulation();
+        
+        if (success) {
+            this.messageService.info('Simulation stopped');
+            this.logToConsole('Simulation stopped by user');
+        } else {
+            this.messageService.warn('Failed to stop simulation');
+            this.logToConsole('Failed to stop simulation', 'warn');
+        }
+        
+        // Force reset of running state regardless of success
+        this.isRunning = false;
+        this.simulationProgress = undefined;
         this.update();
     }
 
@@ -2171,7 +2423,12 @@ export class SimulationDashboardWidget extends ReactWidget {
     private setSourceToSphereCenter(index: number): void {
         const state = this.stateManager.getState();
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         // Find first sphere
@@ -2204,7 +2461,12 @@ export class SimulationDashboardWidget extends ReactWidget {
     private snapSourceToGeometry(index: number): void {
         const state = this.stateManager.getState();
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         // Debug: log geometry info
@@ -2232,6 +2494,14 @@ export class SimulationDashboardWidget extends ReactWidget {
         
         // Update source based on its type
         const spatial = source.spatial as any;
+        
+        console.log(`[SnapToGeometry] Source type: ${spatial.type}, current bounds:`, {
+            lowerLeft: spatial.lowerLeft,
+            upperRight: spatial.upperRight,
+            origin: spatial.origin,
+            center: spatial.center,
+            radius: spatial.radius
+        });
         
         if (spatial.type === 'point') {
             // Set point to center of geometry
@@ -2285,6 +2555,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.logToConsole(`Source ${index + 1} snapped to geometry bounds`);
+        this.logToConsole(`  New bounds: lowerLeft=[${spatial.lowerLeft?.join(', ')}], upperRight=[${spatial.upperRight?.join(', ')}]`);
+        
+        // Force immediate update
+        this.update();
     }
 
     /**
@@ -2301,7 +2575,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
         
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         (source.spatial as any).origin = [
@@ -2329,7 +2608,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
         
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         const size = [
@@ -2369,7 +2653,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
         
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         const c = sphere.coefficients as any;
@@ -2400,7 +2689,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
         
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         const center = [
@@ -2428,7 +2722,12 @@ export class SimulationDashboardWidget extends ReactWidget {
     private setSourceToCylinderAxis(index: number): void {
         const state = this.stateManager.getState();
         const settings = state.settings;
-        const newSources = [...settings.sources];
+        // Deep clone sources to avoid mutating original state
+        const newSources = settings.sources.map((s, i) => 
+            i === index 
+                ? { ...s, spatial: { ...s.spatial } }
+                : { ...s }
+        );
         const source = newSources[index];
         
         // Find first cylinder
@@ -2471,6 +2770,15 @@ export class SimulationDashboardWidget extends ReactWidget {
      * Calculate bounding box from geometry surfaces
      */
     private calculateGeometryBounds(state: OpenMCState): { min: number[]; max: number[] } | null {
+        // First check for DAGMC geometry bounds
+        if (state.settings.dagmcInfo?.boundingBox) {
+            console.log('[SnapToGeometry] Using DAGMC bounds:', state.settings.dagmcInfo.boundingBox);
+            return {
+                min: state.settings.dagmcInfo.boundingBox.min,
+                max: state.settings.dagmcInfo.boundingBox.max
+            };
+        }
+        
         if (state.geometry.surfaces.length === 0) {
             console.log('[SnapToGeometry] No surfaces found');
             return null;
@@ -2643,6 +2951,15 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.newMaterialColor = material.color || '#4A90D9';
         this.showNewMaterialForm = true;
         this.update();
+    }
+
+    private getDAGMCMaterialsFromState(state: OpenMCState): Record<string, { volumeCount: number; totalTriangles: number }> | undefined {
+        // Get DAGMC info from settings (set by CSGBuilder when importing DAGMC file)
+        const dagmcInfo = state.settings.dagmcInfo;
+        if (dagmcInfo?.materials) {
+            return dagmcInfo.materials;
+        }
+        return undefined;
     }
 
     private duplicateMaterial(material: OpenMCMaterial): void {

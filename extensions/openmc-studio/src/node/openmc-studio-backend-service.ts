@@ -36,6 +36,7 @@ import {
     XMLValidationResult,
     SimulationRunRequest,
     SimulationRunResult,
+    StartSimulationResponse,
     ValidationRequest,
     ValidationResult,
     OverlapCheckRequest,
@@ -650,6 +651,11 @@ export class OpenMCStudioBackendServiceImpl
         return this.runnerService.runSimulation(request);
     }
 
+    async startSimulation(request: SimulationRunRequest): Promise<StartSimulationResponse> {
+        this.log(`Starting simulation in ${request.workingDirectory}`);
+        return this.runnerService.startSimulation(request);
+    }
+
     async cancelSimulation(processId: string): Promise<boolean> {
         this.log(`Cancelling simulation ${processId}`);
         return this.runnerService.cancelSimulation(processId);
@@ -673,8 +679,12 @@ export class OpenMCStudioBackendServiceImpl
         const issues: ValidationResult['issues'] = [];
         const { geometry, materials, settings } = request.state;
         
-        // Basic validation
-        if (!materials || materials.length === 0) {
+        // Basic validation - skip materials check for DAGMC (materials are in the file)
+        const dagmcMaterials = settings.dagmcInfo?.materials;
+        const hasDagmcMaterials = dagmcMaterials && Object.keys(dagmcMaterials).length > 0;
+        const hasOpenMCMaterials = materials && materials.length > 0;
+        
+        if (!hasOpenMCMaterials && !hasDagmcMaterials) {
             issues.push({
                 severity: 'error',
                 category: 'materials',
@@ -683,12 +693,55 @@ export class OpenMCStudioBackendServiceImpl
             });
         }
         
-        if (!geometry.cells || geometry.cells.length === 0) {
+        // For DAGMC: check that OpenMC materials match DAGMC material names
+        if (settings.dagmcFile && dagmcMaterials) {
+            const dagmcMaterialNames = Object.keys(dagmcMaterials);
+            
+            if (dagmcMaterialNames.length === 0) {
+                // DAGMC file has no materials - this might be an issue with the export
+                issues.push({
+                    severity: 'warning',
+                    category: 'materials',
+                    message: 'DAGMC file contains no material assignments',
+                    suggestion: 'Check your geometry export - materials should be assigned to volumes before faceting'
+                });
+            } else if (!hasOpenMCMaterials) {
+                // DAGMC has materials but no OpenMC materials defined
+                issues.push({
+                    severity: 'warning',
+                    category: 'materials',
+                    message: `DAGMC geometry requires ${dagmcMaterialNames.length} material(s): ${dagmcMaterialNames.join(', ')}`,
+                    suggestion: 'Create OpenMC materials with matching names in the Materials tab'
+                });
+            } else {
+                // Check for missing materials
+                const openMCMaterialNames = new Set(materials.map(m => m.name.toLowerCase()));
+                const missingMaterials: string[] = [];
+                
+                for (const dagmcMatName of dagmcMaterialNames) {
+                    if (!openMCMaterialNames.has(dagmcMatName.toLowerCase())) {
+                        missingMaterials.push(dagmcMatName);
+                    }
+                }
+                
+                if (missingMaterials.length > 0) {
+                    issues.push({
+                        severity: 'warning',
+                        category: 'materials',
+                        message: `Missing OpenMC materials: ${missingMaterials.join(', ')}`,
+                        suggestion: `Create these materials in the Materials tab to match DAGMC material names`
+                    });
+                }
+            }
+        }
+        
+        // Only check for CSG cells if not using DAGMC geometry
+        if (!settings.dagmcFile && (!geometry.cells || geometry.cells.length === 0)) {
             issues.push({
                 severity: 'error',
                 category: 'geometry',
                 message: 'No cells defined',
-                suggestion: 'Add at least one cell to the geometry'
+                suggestion: 'Add at least one cell to the geometry or import a DAGMC file'
             });
         }
         
@@ -763,8 +816,37 @@ export class OpenMCStudioBackendServiceImpl
             }
         }
         
-        // Check for fissile material in eigenvalue mode
-        if (settings.run.mode === 'eigenvalue') {
+        // For DAGMC: validate source is within geometry bounds
+        if (settings.dagmcFile && settings.dagmcInfo?.boundingBox && settings.sources.length > 0) {
+            const geomBounds = settings.dagmcInfo.boundingBox;
+            for (const source of settings.sources) {
+                const spatial = source.spatial as any;
+                if (spatial.type === 'box' && spatial.lowerLeft && spatial.upperRight) {
+                    // Check if source box extends beyond geometry bounds
+                    const sourceExtendsBeyond = 
+                        spatial.lowerLeft[0] < geomBounds.min[0] ||
+                        spatial.lowerLeft[1] < geomBounds.min[1] ||
+                        spatial.lowerLeft[2] < geomBounds.min[2] ||
+                        spatial.upperRight[0] > geomBounds.max[0] ||
+                        spatial.upperRight[1] > geomBounds.max[1] ||
+                        spatial.upperRight[2] > geomBounds.max[2];
+                    
+                    if (sourceExtendsBeyond) {
+                        issues.push({
+                            severity: 'warning',
+                            category: 'settings',
+                            message: `Source extends beyond DAGMC geometry bounds`,
+                            suggestion: `Source box [${spatial.lowerLeft.join(',')}] to [${spatial.upperRight.join(',')}] ` +
+                                      `extends beyond geometry [${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
+                                      `Particles born outside volumes will be lost. Use "Snap to Geometry" to fix.`
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Check for fissile material in eigenvalue mode (skip for DAGMC - materials are in the file)
+        if (settings.run.mode === 'eigenvalue' && !settings.dagmcFile) {
             const fissileNuclides = ['U233', 'U235', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 
                                      'Am241', 'Am242', 'Am243', 'Cm242', 'Cm243', 'Cm244', 'Cm245', 'Cm246'];
             

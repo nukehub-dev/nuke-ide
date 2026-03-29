@@ -29,7 +29,8 @@ import {
     OpenMCProjectTemplate,
     OpenMCSurface,
     OpenMCCell,
-    OPENMC_STATE_SCHEMA_VERSION
+    OPENMC_STATE_SCHEMA_VERSION,
+    DAGMCInfo
 } from './openmc-state-schema';
 
 export { OPENMC_STATE_SCHEMA_VERSION };
@@ -193,6 +194,16 @@ export interface SimulationRunResult {
         endTime: string;
         duration: number;
     };
+}
+
+/** Start simulation response (non-blocking) */
+export interface StartSimulationResponse {
+    /** Process ID for tracking/cancelling */
+    processId: string;
+    /** Whether start was successful */
+    success: boolean;
+    /** Error message if failed to start */
+    error?: string;
 }
 
 // ============================================================================
@@ -380,8 +391,11 @@ export interface OpenMCStudioBackendService {
     
     // === Simulation ===
     
-    /** Run OpenMC simulation */
+    /** Run OpenMC simulation (blocking - returns when complete) */
     runSimulation(request: SimulationRunRequest): Promise<SimulationRunResult>;
+    
+    /** Start OpenMC simulation (non-blocking - returns immediately with processId) */
+    startSimulation(request: SimulationRunRequest): Promise<StartSimulationResponse>;
     
     /** Cancel running simulation */
     cancelSimulation(processId: string): Promise<boolean>;
@@ -470,7 +484,7 @@ export interface OpenMCStudioBackendService {
 // ============================================================================
 
 /** Supported CAD file formats */
-export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl';
+export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl' | 'h5m' | 'dagmc';
 
 /** CAD import request */
 export interface CADImportRequest {
@@ -503,13 +517,13 @@ export interface CADImportResult {
     error?: string;
     /** Warning messages */
     warnings?: string[];
-    /** Imported surfaces */
+    /** Imported surfaces (CSG conversion) */
     surfaces?: {
         type: string;
         coefficients: number[];
         name?: string;
     }[];
-    /** Imported cells */
+    /** Imported cells (CSG conversion) */
     cells?: {
         id: number;
         name?: string;
@@ -527,7 +541,27 @@ export interface CADImportResult {
         units: string;
         solidCount: number;
         faceCount: number;
-        edgeCount: number;
+        edgeCount?: number;
+        vertexCount?: number;
+        materials?: string[];
+        facetingTolerance?: number;
+        dagmc?: boolean;
+        // DAGMC-specific fields
+        fileName?: string;
+        fileSizeMB?: number;
+        volumeCount?: number;
+        surfaceCount?: number;
+        totalTriangles?: number;
+        totalSurfaceArea?: number;
+        materialsData?: Record<string, { volumeCount: number; totalTriangles: number }>;
+        volumesData?: Array<{
+            id: number;
+            material: string;
+            numTriangles: number;
+            boundingBox?: { min: number[]; max: number[] };
+        }>;
+        groups?: string[];
+        boundingBox?: { min: number[]; max: number[] };
     };
     /** Conversion summary */
     summary?: {
@@ -535,6 +569,8 @@ export interface CADImportResult {
         cellsCreated: number;
         approximationsMade: number;
     };
+    /** DAGMC model information (when importing .h5m files) */
+    dagmcInfo?: DAGMCInfo;
 }
 
 // ============================================================================
