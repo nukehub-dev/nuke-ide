@@ -39,6 +39,7 @@ import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service'
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
+import { DAGMCEditorService } from './dagmc-editor-service';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -59,6 +60,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     
     // CAD import service (uses nuke-core for Python detection)
     bind(OpenMCCADImportService).toSelf().inSingletonScope();
+    
+    // DAGMC Editor service (uses pydagmc for DAGMC editing)
+    bind(DAGMCEditorService).toSelf().inSingletonScope();
     
     // Main backend service implementation
     bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();
@@ -99,3 +103,4 @@ export { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service'
 export { OpenMCRunnerService } from './openmc-runner-service';
 export { XMLGenerationService } from './xml-generation-service';
 export { OpenMCCADImportService } from './cad-import-service';
+export { DAGMCEditorService } from './dagmc-editor-service';

@@ -219,7 +219,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             this.log(`[Converter] Output: ${result.stdout}`);
             
             // Parse output to find converted file path
-            const match = result.stdout.match(/Conversion complete: (.+)/);
+            const match = result.stdout.match(/Output: (.+)/);
             if (match) {
                 const vtkPath = match[1].trim();
                 if (fs.existsSync(vtkPath)) {

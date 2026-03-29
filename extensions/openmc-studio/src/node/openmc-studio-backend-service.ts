@@ -54,6 +54,7 @@ import { OpenMCState, OpenMCProjectFile } from '../common/openmc-state-schema';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
+import { DAGMCEditorService } from './dagmc-editor-service';
 
 @injectable()
 export class OpenMCStudioBackendServiceImpl 
@@ -67,6 +68,9 @@ export class OpenMCStudioBackendServiceImpl
     
     @inject(OpenMCCADImportService)
     protected readonly cadService: OpenMCCADImportService;
+    
+    @inject(DAGMCEditorService)
+    protected readonly dagmcEditorService: DAGMCEditorService;
 
     /**
      * Set the client for receiving log messages.
@@ -1164,5 +1168,66 @@ export class OpenMCStudioBackendServiceImpl
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }> {
         return this.cadService.previewCAD(filePath);
+    }
+
+    // ============================================================================
+    // DAGMC Editor
+    // ============================================================================
+
+    async dagmcLoad(filePath: string): Promise<{
+        success: boolean;
+        data?: {
+            filePath: string;
+            fileName: string;
+            fileSizeMB: number;
+            volumeCount: number;
+            surfaceCount: number;
+            vertices: number;
+            materials: Record<string, { volumeCount: number; volumes: number[] }>;
+            volumes: Array<{
+                id: number;
+                material?: string;
+                numTriangles: number;
+                boundingBox: { min: number[]; max: number[] };
+            }>;
+            groups: Array<{
+                name: string;
+                type: string;
+                volumeCount: number;
+                volumes: number[];
+            }>;
+            boundingBox: { min: number[]; max: number[] };
+        };
+        error?: string;
+    }> {
+        this.log(`Loading DAGMC file: ${filePath}`);
+        return this.dagmcEditorService.loadModel(filePath);
+    }
+
+    async dagmcAssignMaterial(filePath: string, volumeId: number, materialName: string): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }> {
+        this.log(`Assigning material "${materialName}" to volume ${volumeId} in ${filePath}`);
+        return this.dagmcEditorService.assignMaterial(filePath, volumeId, materialName);
+    }
+
+    async dagmcCreateGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }> {
+        this.log(`Creating group "${groupName}" in ${filePath}`);
+        return this.dagmcEditorService.createGroup(filePath, groupName, volumeIds);
+    }
+
+    async dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }> {
+        this.log(`Deleting group "${groupName}" from ${filePath}`);
+        return this.dagmcEditorService.deleteGroup(filePath, groupName);
     }
 }

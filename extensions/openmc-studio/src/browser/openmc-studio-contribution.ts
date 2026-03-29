@@ -149,8 +149,9 @@ export namespace OpenMCStudioMenus {
     export const OPENMC = [...MAIN_MENU_BAR, '7_openmc'];
     export const OPENMC_PROJECT = [...OPENMC, '1_project'];
     export const OPENMC_SIMULATION = [...OPENMC, '2_simulation'];
-    export const OPENMC_XML = [...OPENMC, '3_xml'];
-    export const OPENMC_VIEW = [...OPENMC, '4_view'];
+    export const OPENMC_GEOMETRY = [...OPENMC, '3_geometry'];
+    export const OPENMC_XML = [...OPENMC, '4_xml'];
+    export const OPENMC_VIEW = [...OPENMC, '5_view'];
 }
 
 // ============================================================================
@@ -303,16 +304,18 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             order: 'b'
         });
         
+        // Geometry menu items
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_GEOMETRY, {
+            commandId: OpenMCStudioCommands.OPEN_CSG_BUILDER.id,
+            label: 'CSG Builder',
+            order: 'a'
+        });
+        
         // View menu items (Phase 1+)
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
             commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
             label: 'Simulation Dashboard',
             order: 'a'
-        });
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_CSG_BUILDER.id,
-            label: 'CSG Builder',
-            order: 'b'
         });
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
             commandId: OpenMCStudioCommands.OPEN_TALLY_CONFIGURATOR.id,

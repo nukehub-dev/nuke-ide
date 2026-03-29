@@ -477,6 +477,57 @@ export interface OpenMCStudioBackendService {
         faceCount: number;
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }>;
+    
+    // === DAGMC Editor ===
+    
+    /** Load DAGMC file and return model information */
+    dagmcLoad(filePath: string): Promise<{
+        success: boolean;
+        data?: {
+            filePath: string;
+            fileName: string;
+            fileSizeMB: number;
+            volumeCount: number;
+            surfaceCount: number;
+            vertices: number;
+            materials: Record<string, { volumeCount: number; volumes: number[] }>;
+            volumes: Array<{
+                id: number;
+                material?: string;
+                numTriangles: number;
+                boundingBox: { min: number[]; max: number[] };
+            }>;
+            groups: Array<{
+                name: string;
+                type: string;
+                volumeCount: number;
+                volumes: number[];
+            }>;
+            boundingBox: { min: number[]; max: number[] };
+        };
+        error?: string;
+    }>;
+    
+    /** Assign material to a volume in DAGMC file */
+    dagmcAssignMaterial(filePath: string, volumeId: number, materialName: string): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }>;
+    
+    /** Create a new group in DAGMC file */
+    dagmcCreateGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }>;
+    
+    /** Delete a group from DAGMC file */
+    dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }>;
 }
 
 // ============================================================================

@@ -41,6 +41,7 @@ import {
 } from '../../common/openmc-state-schema';
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../common/openmc-studio-protocol';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
+import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 // Tab types for the dashboard
 export type DashboardTab = 'settings' | 'materials' | 'simulation';
@@ -79,6 +80,9 @@ export class SimulationDashboardWidget extends ReactWidget {
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService!: NukeCoreService;
+
+    @inject(DAGMCEditorContribution)
+    protected readonly dagmcEditorContribution!: DAGMCEditorContribution;
 
     private activeTab: DashboardTab = 'settings';
     private isRunning = false;
@@ -407,21 +411,25 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 }}
                                 placeholder='Description (optional)'
                             />
-                            <button
-                                className='theia-button primary small'
-                                onClick={() => this.saveProjectName()}
-                            >
-                                <i className='codicon codicon-check'></i>
-                            </button>
-                            <button
-                                className='theia-button secondary small'
-                                onClick={() => {
-                                    this.editingProjectName = false;
-                                    this.update();
-                                }}
-                            >
-                                <i className='codicon codicon-close'></i>
-                            </button>
+                            <Tooltip content='Save' position='top'>
+                                <button
+                                    className='theia-button primary small'
+                                    onClick={() => this.saveProjectName()}
+                                >
+                                    <i className='codicon codicon-check'></i>
+                                </button>
+                            </Tooltip>
+                            <Tooltip content='Cancel' position='top'>
+                                <button
+                                    className='theia-button secondary small'
+                                    onClick={() => {
+                                        this.editingProjectName = false;
+                                        this.update();
+                                    }}
+                                >
+                                    <i className='codicon codicon-close'></i>
+                                </button>
+                            </Tooltip>
                         </div>
                     ) : (
                         <Tooltip content='Click to rename' position='bottom'>
@@ -518,7 +526,18 @@ export class SimulationDashboardWidget extends ReactWidget {
                             <strong>DAGMC Geometry Active</strong>
                             <span>{settings.dagmcFile.split('/').pop()}</span>
                         </div>
-                        <span className='dagmc-badge'>DAGMC Mode</span>
+                        <div className='dagmc-actions'>
+                            <Tooltip content='Edit DAGMC geometry' position='bottom'>
+                                <button
+                                    className='dagmc-edit-btn'
+                                    onClick={() => this.openDagmcEditor()}
+                                >
+                                    <i className='codicon codicon-edit'></i>
+                                    Edit
+                                </button>
+                            </Tooltip>
+                            <span className='dagmc-badge'>DAGMC Mode</span>
+                        </div>
                     </div>
                 )}
                 
@@ -642,12 +661,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                     <h3>
                         <i className='codicon codicon-source-control'></i>
                         Source Definition
-                        <button
-                            className='theia-button secondary small'
-                            onClick={() => this.addSource()}
-                        >
-                            <i className='codicon codicon-add'></i> Add Source
-                        </button>
+                            <button
+                                className='theia-button secondary small'
+                                onClick={() => this.addSource()}
+                            >
+                                <i className='codicon codicon-add'></i> Add Source
+                            </button>
                     </h3>
 
                     {settings.sources.length === 0 ? (
@@ -1136,14 +1155,18 @@ export class SimulationDashboardWidget extends ReactWidget {
                                         <span className='material-id'>#{material.id}</span>
                                         <span className='material-name'>{material.name}</span>
                                         {material.isDepletable && (
-                                            <span className='depletable-badge' title='Depletable material'>
-                                                <i className='codicon codicon-history'></i>
-                                            </span>
+                                            <Tooltip content='Depletable material' position='top'>
+                                                <span className='depletable-badge'>
+                                                    <i className='codicon codicon-history'></i>
+                                                </span>
+                                            </Tooltip>
                                         )}
                                         {material.thermalScattering && material.thermalScattering.length > 0 && (
-                                            <span className='thermal-badge' title='Has thermal scattering'>
-                                                <i className='codicon codicon-flame'></i>
-                                            </span>
+                                            <Tooltip content='Has thermal scattering' position='top'>
+                                                <span className='thermal-badge'>
+                                                    <i className='codicon codicon-flame'></i>
+                                                </span>
+                                            </Tooltip>
                                         )}
                                     </div>
                                     <div className='material-actions'>
@@ -1391,15 +1414,17 @@ export class SimulationDashboardWidget extends ReactWidget {
                             </Tooltip>
                         </div>
                     ))}
-                    <button
-                        className='theia-button secondary small'
-                        onClick={() => {
-                            this.newMaterialThermalScattering.push({ name: '', fraction: 1.0 });
-                            this.update();
-                        }}
-                    >
-                        <i className='codicon codicon-add'></i> Add S(α,β)
-                    </button>
+                    <Tooltip content='Add thermal scattering data' position='right'>
+                        <button
+                            className='theia-button secondary small'
+                            onClick={() => {
+                                this.newMaterialThermalScattering.push({ name: '', fraction: 1.0 });
+                                this.update();
+                            }}
+                        >
+                            <i className='codicon codicon-add'></i> Add S(α,β)
+                        </button>
+                    </Tooltip>
                 </div>
 
                 <div className='nuclides-section'>
@@ -1448,15 +1473,17 @@ export class SimulationDashboardWidget extends ReactWidget {
                             </Tooltip>
                         </div>
                     ))}
-                    <button
-                        className='theia-button secondary small'
-                        onClick={() => {
-                            this.newMaterialNuclides.push({ name: '', fraction: 1.0, fractionType: 'ao' });
-                            this.update();
-                        }}
-                    >
-                        <i className='codicon codicon-add'></i> Add Nuclide
-                    </button>
+                    <Tooltip content='Add Nuclide' position='right'>
+                        <button
+                            className='theia-button secondary small'
+                            onClick={() => {
+                                this.newMaterialNuclides.push({ name: '', fraction: 1.0, fractionType: 'ao' });
+                                this.update();
+                            }}
+                        >
+                            <i className='codicon codicon-add'></i> Add Nuclide
+                        </button>
+                    </Tooltip>
                 </div>
 
                 <div className='form-actions'>
@@ -1799,9 +1826,11 @@ export class SimulationDashboardWidget extends ReactWidget {
                         <div className='info-grid'>
                             <div className='info-item'>
                                 <label>File:</label>
-                                <span className='dagmc-filename' title={state.settings.dagmcFile}>
-                                    {state.settings.dagmcFile.split('/').pop()}
-                                </span>
+                                <Tooltip content={state.settings.dagmcFile} position='bottom'>
+                                    <span className='dagmc-filename'>
+                                        {state.settings.dagmcFile.split('/').pop()}
+                                    </span>
+                                </Tooltip>
                             </div>
                             <div className='info-item'>
                                 <label>Type:</label>
@@ -1917,6 +1946,13 @@ export class SimulationDashboardWidget extends ReactWidget {
         const widget = await this.widgetManager.getOrCreateWidget(CSGBuilderWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
+    }
+
+    private async openDagmcEditor(): Promise<void> {
+        const state = this.stateManager.getState();
+        if (state.settings.dagmcFile) {
+            await this.dagmcEditorContribution.openDAGMCEditor(state.settings.dagmcFile);
+        }
     }
 
     private async newProject(): Promise<void> {

@@ -23,7 +23,7 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { OpenMCStudioBackendService, CADImportResult } from '../../common/openmc-studio-protocol';
 import {
     OpenMCState,
@@ -42,6 +42,7 @@ import {
 // Import from nuke-visualizer for 3D preview
 import { OpenMCService } from 'nuke-visualizer/lib/browser/openmc/openmc-service';
 import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/openmc/openmc-geometry-3d-widget';
+import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 export type CSGBuilderTab = 'surfaces' | 'cells' | 'universes';
 
@@ -167,6 +168,9 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
 
+    @inject(DAGMCEditorContribution)
+    protected readonly dagmcEditorContribution!: DAGMCEditorContribution;
+
     @inject(OpenMCStudioBackendService)
     protected readonly backendService!: OpenMCStudioBackendService;
 
@@ -228,7 +232,7 @@ export class CSGBuilderWidget extends ReactWidget {
 
         return (
             <div className={`csg-builder ${isDagmcMode ? 'dagmc' : ''}`}>
-                {this.renderHeader()}
+                {this.renderHeader(isDagmcMode)}
                 {this.renderTabs()}
                 <div className='csg-builder-content'>
                     {this.activeTab === 'surfaces' && this.renderSurfacesTab(state)}
@@ -239,7 +243,7 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
-    private renderHeader(): React.ReactNode {
+    private renderHeader(isDagmcMode: boolean): React.ReactNode {
         return (
             <div className='csg-builder-header'>
                 <div className='header-info'>
@@ -252,16 +256,28 @@ export class CSGBuilderWidget extends ReactWidget {
                     </p>
                 </div>
                 <div className='header-actions'>
-                    <Tooltip content='Preview geometry in 3D viewer' position='bottom'>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.previewGeometry()}
-                            disabled={this.stateManager.getState().geometry.cells.length === 0}
-                        >
-                            <i className='codicon codicon-globe'></i>
-                            Preview 3D
-                        </button>
-                    </Tooltip>
+                    {isDagmcMode ? (
+                        <Tooltip content='Edit DAGMC geometry' position='bottom'>
+                            <button
+                                className='theia-button secondary dagmc-editor-btn'
+                                onClick={() => this.openDagmcEditor()}
+                            >
+                                <i className='codicon codicon-file-code'></i>
+                                DAGMC Editor
+                            </button>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip content='Preview geometry in 3D viewer' position='bottom'>
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => this.previewGeometry()}
+                                disabled={this.stateManager.getState().geometry.cells.length === 0}
+                            >
+                                <i className='codicon codicon-globe'></i>
+                                Preview 3D
+                            </button>
+                        </Tooltip>
+                    )}
                     <Tooltip content='Import geometry from XML files' position='bottom'>
                         <button
                             className='theia-button secondary'
@@ -399,20 +415,23 @@ export class CSGBuilderWidget extends ReactWidget {
                                                 </span>
                                             </div>
                                             <div className='surface-item-actions'>
-                                                <button
-                                                    className='theia-button secondary small'
-                                                    onClick={() => this.startEditSurface(surface)}
-                                                    title='Edit Surface'
-                                                >
-                                                    <i className='codicon codicon-edit'></i>
-                                                </button>
-                                                <button
-                                                    className='theia-button secondary small danger'
-                                                    onClick={() => this.deleteSurface(surface.id)}
-                                                    title='Delete Surface'
-                                                >
-                                                    <i className='codicon codicon-trash'></i>
-                                                </button>
+                                                <Tooltip content='Edit Surface' position="bottom">
+                                                    <button
+                                                        className='theia-button secondary small'
+                                                        onClick={() => this.startEditSurface(surface)}
+                                                    >
+                                                        <i className='codicon codicon-edit'></i>
+                                                    </button>
+                                                </Tooltip>
+
+                                                <Tooltip content='Delete Surface' position="bottom">
+                                                    <button
+                                                        className='theia-button secondary small danger'
+                                                        onClick={() => this.deleteSurface(surface.id)}
+                                                    >
+                                                        <i className='codicon codicon-trash'></i>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
                                         </div>
                                         <div className='surface-item-coeffs'>
@@ -595,9 +614,11 @@ export class CSGBuilderWidget extends ReactWidget {
                         <i className={`codicon codicon-${isEditing ? 'edit' : 'add'}`}></i>
                         {isEditing ? `Edit Surface #${this.editingSurface!.id}` : `Create New ${template.name}`}
                     </h4>
-                    <button className='panel-close' onClick={() => this.cancelForm()} title='Close'>
-                        <i className='codicon codicon-close'></i>
-                    </button>
+                    <Tooltip content='Close' position="bottom">
+                        <button className='panel-close' onClick={() => this.cancelForm()}>
+                            <i className='codicon codicon-close'></i>
+                        </button>
+                    </Tooltip>
                 </div>
                 <div className='panel-content'>
                     <div className='form-row'>
@@ -708,7 +729,6 @@ export class CSGBuilderWidget extends ReactWidget {
                         <div className='empty-state'>
                             <i className='codicon codicon-package'></i>
                             <p>No cells defined yet. Click "Add Cell" to create one.</p>
-                            <p className='empty-hint'>Each cell needs a region (surfaces) and a fill (material/universe/void).</p>
                         </div>
                     ) : (
                         state.geometry.cells.map(cell => (
@@ -717,10 +737,13 @@ export class CSGBuilderWidget extends ReactWidget {
                                     <div className='cell-info'>
                                         <span className='cell-id'>#{cell.id}</span>
                                         <span className='cell-name'>{cell.name || `Cell ${cell.id}`}</span>
-                                        <span className={`cell-fill-badge ${cell.fillType}`} title='Click Edit to change fill type'>
-                                            <i className={`codicon codicon-${this.getFillIcon(cell.fillType)}`}></i>
-                                            {cell.fillType}
-                                        </span>
+
+                                        <Tooltip content='Click Edit to change fill type' position="bottom">
+                                            <span className={`cell-fill-badge ${cell.fillType}`}>
+                                                <i className={`codicon codicon-${this.getFillIcon(cell.fillType)}`}></i>
+                                                {cell.fillType}
+                                            </span>
+                                        </Tooltip>
                                     </div>
                                     <div className='cell-actions'>
                                         <Tooltip content='Edit Cell' position='top'>
@@ -1568,13 +1591,12 @@ export class CSGBuilderWidget extends ReactWidget {
                         Array.from({ length: nx }).map((__, col) => {
                             const univId = universes[ny - 1 - row]?.[col]?.[0] || 0;
                             return (
-                                <div 
+                                <LatticeGridCell
                                     key={`${row}-${col}`}
-                                    className={`grid-cell ${univId === 0 ? 'empty' : 'filled'}`}
-                                    title={`Position [${col}, ${ny - 1 - row}]: Universe ${univId}`}
-                                >
-                                    {univId !== 0 && <span>{univId}</span>}
-                                </div>
+                                    univId={univId}
+                                    col={col}
+                                    row={ny - 1 - row}
+                                />
                             );
                         })
                     ).flat()}
@@ -2597,6 +2619,15 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    private async openDagmcEditor(): Promise<void> {
+        const state = this.stateManager.getState();
+        if (state.settings.dagmcFile) {
+            await this.dagmcEditorContribution.openDAGMCEditor(state.settings.dagmcFile);
+        } else {
+            this.messageService.warn('No DAGMC file loaded');
+        }
+    }
+
     // ============================================================================
     // Form Utilities
     // ============================================================================
@@ -2620,3 +2651,33 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 }
+
+// ============================================================================
+// Lattice Grid Cell Component (for performance with useTooltip)
+// ============================================================================
+
+interface LatticeGridCellProps {
+    univId: number;
+    col: number;
+    row: number;
+}
+
+const LatticeGridCell: React.FC<LatticeGridCellProps> = ({ univId, col, row }) => {
+    const { onMouseEnter, onMouseLeave, tooltipElement } = useTooltip(
+        `Position [${col}, ${row}]: Universe ${univId}`,
+        'top'
+    );
+
+    return (
+        <>
+            <div
+                className={`grid-cell ${univId === 0 ? 'empty' : 'filled'}`}
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+            >
+                {univId !== 0 && <span>{univId}</span>}
+            </div>
+            {tooltipElement}
+        </>
+    );
+};

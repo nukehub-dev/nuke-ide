@@ -1791,6 +1791,32 @@
     font-family: var(--theia-monospace-font-family);
 }
 
+.simulation-dashboard .dagmc-mode-banner .dagmc-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-edit-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--theia-button-hoverBackground);
+    border: none;
+    border-radius: 6px;
+    color: var(--theia-button-foreground);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.simulation-dashboard .dagmc-mode-banner .dagmc-edit-btn:hover {
+    background: var(--theia-button-activeBackground);
+    transform: translateY(-1px);
+}
+
 .simulation-dashboard .dagmc-mode-banner .dagmc-badge {
     padding: 4px 12px;
     background: var(--theia-button-hoverBackground);

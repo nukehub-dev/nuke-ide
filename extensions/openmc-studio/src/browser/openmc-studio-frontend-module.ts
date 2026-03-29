@@ -55,11 +55,14 @@ import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
+import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
+import { DAGMCEditorContribution } from './dagmc-editor/dagmc-editor-contribution';
 // import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
 
 // Import CSS
 import './simulation-dashboard/simulation-dashboard.css';
 import './csg-builder/csg-builder.css';
+import './dagmc-editor/dagmc-editor.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -148,6 +151,19 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
         id: CSGBuilderWidget.ID,
         createWidget: () => container.get(CSGBuilderWidget)
     })).inSingletonScope();
+    
+    // DAGMC Editor Widget - Phase 4
+    bind(DAGMCEditorWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: DAGMCEditorWidget.ID,
+        createWidget: () => container.get(DAGMCEditorWidget)
+    })).inSingletonScope();
+    
+    // DAGMC Editor Contribution
+    bind(DAGMCEditorContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(DAGMCEditorContribution);
+    bind(MenuContribution).toService(DAGMCEditorContribution);
+    bind(FrontendApplicationContribution).toService(DAGMCEditorContribution);
     
     // Tally Configurator Widget - Phase 3
     // bind(TallyConfiguratorWidget).toSelf();
