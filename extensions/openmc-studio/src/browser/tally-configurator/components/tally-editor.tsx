@@ -16,7 +16,7 @@
 
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCTally, OpenMCMesh } from '../../../common/openmc-state-schema';
+import { OpenMCTally, OpenMCMesh, OpenMCTallyScore } from '../../../common/openmc-state-schema';
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
@@ -31,6 +31,11 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, onUpdat
     const hasMeshFilter = tally.filters.some(f => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
+
+    // In OpenMC, track-length estimator only works with flux score
+    const trackLengthCompatibleScores: OpenMCTallyScore[] = ['flux'];
+    const hasIncompatibleScores = isTrackLength && tally.scores.some(s => !trackLengthCompatibleScores.includes(s));
+    const incompatibleScores = tally.scores.filter(s => !trackLengthCompatibleScores.includes(s));
 
     return (
         <div className='tally-editor'>
@@ -77,6 +82,13 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, onUpdat
                             <p className='validation-warning'>
                                 <i className='codicon codicon-warning'></i>
                                 Track-length estimator requires a mesh filter. Please add a mesh filter or switch to collision/analog estimator.
+                            </p>
+                        )}
+                        {hasIncompatibleScores && (
+                            <p className='validation-error'>
+                                <i className='codicon codicon-error'></i>
+                                Track-length estimator only works with the 'flux' score. 
+                                Score(s) '{incompatibleScores.join(', ')}' require collision or analog estimator.
                             </p>
                         )}
                     </div>

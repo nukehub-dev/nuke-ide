@@ -94,6 +94,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     private consoleOutput: { type: 'info' | 'error' | 'warn'; message: string; timestamp: Date }[] = [];
     private consoleMaximized = false;
     private consoleContentRef = React.createRef<HTMLDivElement>();
+    private consolePanelRef = React.createRef<HTMLDivElement>();
 
     // Form state for new material
     private newMaterialName = '';
@@ -1851,6 +1852,10 @@ export class SimulationDashboardWidget extends ReactWidget {
                             <label>Tallies:</label>
                             <span>{state.tallies?.length || 0}</span>
                         </div>
+                        <div className='info-item'>
+                            <label>Meshes:</label>
+                            <span>{state.meshes?.length || 0}</span>
+                        </div>
                     </div>
                 </div>
 
@@ -1931,7 +1936,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 {/* Console Output */}
-                <div className={`console-panel ${this.consoleMaximized ? 'maximized' : ''}`}>
+                <div ref={this.consolePanelRef} className={`console-panel ${this.consoleMaximized ? 'maximized' : ''}`}>
                     <div className='console-header'>
                         <h4><i className='codicon codicon-terminal'></i> Simulation Output</h4>
                         <div className='console-actions'>
@@ -2309,6 +2314,13 @@ export class SimulationDashboardWidget extends ReactWidget {
             // Auto-expand and focus the Simulation Output console
             this.consoleMaximized = true;
             this.update();
+            // Scroll to Simulation Output panel after UI update
+            setTimeout(() => {
+                const panel = this.consolePanelRef.current;
+                if (panel) {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
             // Note: runSimulation returns immediately, completion handled by events
             this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()
