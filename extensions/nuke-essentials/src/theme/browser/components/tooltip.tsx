@@ -15,6 +15,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import * as ReactDOM from '@theia/core/shared/react-dom';
 
 interface TooltipProps {
     content: string;
@@ -76,6 +77,20 @@ export const Tooltip: React.FC<TooltipProps> = ({
         };
     }, []);
 
+    const tooltipElement = visible && coords ? (
+        <div
+            className={`nuke-tooltip nuke-tooltip-${position}`}
+            style={{
+                position: 'fixed',
+                left: coords.x,
+                top: coords.y,
+                zIndex: 99999,
+            }}
+        >
+            {content}
+        </div>
+    ) : null;
+
     return (
         <>
             <span
@@ -85,19 +100,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
             >
                 {children}
             </span>
-            {visible && coords && (
-                <div
-                    className={`nuke-tooltip nuke-tooltip-${position}`}
-                    style={{
-                        position: 'fixed',
-                        left: coords.x,
-                        top: coords.y,
-                        zIndex: 99999,
-                    }}
-                >
-                    {content}
-                </div>
-            )}
+            {tooltipElement && ReactDOM.createPortal(tooltipElement, document.body)}
         </>
     );
 };
@@ -149,17 +152,20 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
     }, []);
 
     const tooltipElement = visible ? (
-        <div
-            className={`nuke-tooltip nuke-tooltip-${position}`}
-            style={{
-                position: 'fixed',
-                left: coords.x,
-                top: coords.y,
-                zIndex: 99999,
-            }}
-        >
-            {content}
-        </div>
+        ReactDOM.createPortal(
+            <div
+                className={`nuke-tooltip nuke-tooltip-${position}`}
+                style={{
+                    position: 'fixed',
+                    left: coords.x,
+                    top: coords.y,
+                    zIndex: 99999,
+                }}
+            >
+                {content}
+            </div>,
+            document.body
+        )
     ) : null;
 
     return { onMouseEnter, onMouseLeave, tooltipElement };

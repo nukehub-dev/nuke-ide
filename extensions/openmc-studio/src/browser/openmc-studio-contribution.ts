@@ -239,10 +239,6 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         commands.registerCommand(OpenMCStudioCommands.OPEN_CSG_BUILDER, {
             execute: () => this.openCSGBuilder()
         });
-        
-        commands.registerCommand(OpenMCStudioCommands.OPEN_TALLY_CONFIGURATOR, {
-            execute: () => this.openTallyConfigurator()
-        });
     }
 
     // ============================================================================
@@ -316,11 +312,6 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
             label: 'Simulation Dashboard',
             order: 'a'
-        });
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_TALLY_CONFIGURATOR.id,
-            label: 'Tally Configurator',
-            order: 'c'
         });
     }
 
@@ -519,14 +510,8 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     }
     
     protected async openCSGBuilder(): Promise<void> {
-        console.log('[OpenMC Studio] Open CSG builder command');
         const widget = await this.widgetManager.getOrCreateWidget<CSGBuilderWidget>(CSGBuilderWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
-    }
-    
-    protected async openTallyConfigurator(): Promise<void> {
-        console.log('[OpenMC Studio] Open tally configurator command');
-        // TODO: Open TallyConfiguratorWidget (Phase 3)
     }
 }

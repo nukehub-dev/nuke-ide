@@ -36,6 +36,9 @@ import {
     OpenMCMaterial,
     OpenMCTally,
     OpenMCMesh,
+    OpenMCRegularMesh,
+    OpenMCCylindricalMesh,
+    OpenMCSphericalMesh,
     OpenMCLattice,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings
@@ -690,41 +693,106 @@ export class XMLGenerationService {
             lines.push(this.generateMeshElement(mesh));
         }
         
-        // Add tallies
+        // Collect all unique filters and assign them IDs
+        const filterMap = new Map<string, { id: number; type: string; bins: number[]; meshId?: number }>();
+        let nextFilterId = 1;
+        
         for (const tally of state.tallies) {
-            lines.push(this.generateTallyElement(tally));
+            for (const filter of tally.filters) {
+                // Create a unique key for this filter
+                const key = this.getFilterKey(filter);
+                if (!filterMap.has(key)) {
+                    filterMap.set(key, {
+                        id: nextFilterId++,
+                        type: filter.type,
+                        bins: filter.bins,
+                        meshId: filter.meshId
+                    });
+                }
+            }
+        }
+        
+        // Generate filter elements at the top level
+        for (const filter of filterMap.values()) {
+            lines.push(this.generateFilterElement(filter));
+        }
+        
+        // Add tallies with filter references
+        for (const tally of state.tallies) {
+            lines.push(this.generateTallyElement(tally, filterMap));
         }
         
         lines.push('</tallies>');
         
         return lines.join('\n');
     }
+    
+    private getFilterKey(filter: any): string {
+        // Create a unique key based on filter type, bins, and meshId
+        const baseKey = `${filter.type}:${filter.bins.join(',')}`;
+        if (filter.meshId !== undefined) {
+            return `${baseKey}:mesh${filter.meshId}`;
+        }
+        return baseKey;
+    }
 
     private generateMeshElement(mesh: OpenMCMesh): string {
         const lines: string[] = [];
-        
+
         if (mesh.type === 'regular') {
-            const regularMesh = mesh as any;
+            const regularMesh = mesh as OpenMCRegularMesh;
             lines.push(`  <mesh id="${mesh.id}" type="regular">`);
             lines.push(`    <lower_left>${regularMesh.lowerLeft.join(' ')}</lower_left>`);
             lines.push(`    <upper_right>${regularMesh.upperRight.join(' ')}</upper_right>`);
             lines.push(`    <dimension>${regularMesh.dimension.join(' ')}</dimension>`);
             lines.push('  </mesh>');
+        } else if (mesh.type === 'cylindrical') {
+            const cylMesh = mesh as OpenMCCylindricalMesh;
+            lines.push(`  <mesh id="${mesh.id}" type="cylindrical">`);
+            if (cylMesh.origin) {
+                lines.push(`    <origin>${cylMesh.origin.join(' ')}</origin>`);
+            }
+            if (cylMesh.axis) {
+                lines.push(`    <axis>${cylMesh.axis.join(' ')}</axis>`);
+            }
+            lines.push(`    <r_grid>${cylMesh.rGrid.join(' ')}</r_grid>`);
+            lines.push(`    <phi_grid>${cylMesh.phiGrid.join(' ')}</phi_grid>`);
+            lines.push(`    <z_grid>${cylMesh.zGrid.join(' ')}</z_grid>`);
+            lines.push('  </mesh>');
+        } else if (mesh.type === 'spherical') {
+            const sphMesh = mesh as OpenMCSphericalMesh;
+            lines.push(`  <mesh id="${mesh.id}" type="spherical">`);
+            if (sphMesh.origin) {
+                lines.push(`    <origin>${sphMesh.origin.join(' ')}</origin>`);
+            }
+            lines.push(`    <r_grid>${sphMesh.rGrid.join(' ')}</r_grid>`);
+            lines.push(`    <theta_grid>${sphMesh.thetaGrid.join(' ')}</theta_grid>`);
+            lines.push(`    <phi_grid>${sphMesh.phiGrid.join(' ')}</phi_grid>`);
+            lines.push('  </mesh>');
         }
-        
+
         lines.push('');
         return lines.join('\n');
     }
-
-    private generateTallyElement(tally: OpenMCTally): string {
+    private generateTallyElement(tally: OpenMCTally, filterMap: Map<string, any>): string {
         const lines: string[] = [];
         
         const nameAttr = tally.name ? ` name="${this.escapeXml(tally.name)}"` : '';
         lines.push(`  <tally id="${tally.id}"${nameAttr}>`);
         
-        // Add filters
+        // Collect filter IDs for this tally
+        const filterIds: number[] = [];
         for (const filter of tally.filters) {
-            lines.push(this.generateFilterElement(filter));
+            const key = this.getFilterKey(filter);
+            const filterDef = filterMap.get(key);
+            if (filterDef) {
+                filterIds.push(filterDef.id);
+            }
+        }
+        
+        // Add filters reference if there are any filters
+        if (filterIds.length > 0) {
+            lines.push(`    <filters>${filterIds.join(' ')}</filters>`);
         }
         
         // Add nuclides
@@ -732,9 +800,9 @@ export class XMLGenerationService {
             lines.push(`    <nuclide>${nuclide}</nuclide>`);
         }
         
-        // Add scores
-        for (const score of tally.scores) {
-            lines.push(`    <score>${score}</score>`);
+        // Add scores - space-separated in a single element
+        if (tally.scores.length > 0) {
+            lines.push(`    <scores>${tally.scores.join(' ')}</scores>`);
         }
         
         // Estimator
@@ -751,9 +819,16 @@ export class XMLGenerationService {
     private generateFilterElement(filter: any): string {
         const lines: string[] = [];
         
-        lines.push(`    <filter type="${filter.type}">`);
-        lines.push(`      <bins>${filter.bins.join(' ')}</bins>`);
-        lines.push('    </filter>');
+        // Mesh filter needs a mesh attribute
+        if (filter.meshId !== undefined) {
+            lines.push(`  <filter id="${filter.id}" type="mesh">`);
+            lines.push(`    <bins>${filter.bins.join(' ')}</bins>`);
+        } else {
+            lines.push(`  <filter id="${filter.id}" type="${filter.type}">`);
+            lines.push(`    <bins>${filter.bins.join(' ')}</bins>`);
+        }
+        lines.push('  </filter>');
+        lines.push('');
         
         return lines.join('\n');
     }

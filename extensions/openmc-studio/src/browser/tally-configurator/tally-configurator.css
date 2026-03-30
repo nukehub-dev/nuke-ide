@@ -1,0 +1,906 @@
+/* ============================================================================
+   Tally Configurator
+   All classes are scoped under .tally-configurator-container to avoid conflicts
+   ============================================================================ */
+
+@keyframes builder-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes card-pop {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.tally-configurator-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    font-family: var(--theia-ui-font-family);
+    animation: builder-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .tally-configurator-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.tally-configurator-container .tally-configurator-header .header-info h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.tally-configurator-container .tally-configurator-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+    font-size: 20px;
+}
+
+.tally-configurator-container .tally-configurator-header .header-description {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .tally-configurator-header .header-stats {
+    display: flex;
+    gap: 24px;
+}
+
+.tally-configurator-container .tally-configurator-header .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.tally-configurator-container .tally-configurator-header .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+}
+
+.tally-configurator-container .tally-configurator-header .stat-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tally-configurator-container .tally-configurator-tabs {
+    display: flex;
+    background: var(--theia-tabBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    padding: 0 12px;
+    gap: 4px;
+}
+
+.tally-configurator-container .tab-button {
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--theia-tabBar-inactiveForeground);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.tally-configurator-container .tab-button::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--theia-focusBorder);
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+}
+
+.tally-configurator-container .tab-button:hover {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.tally-configurator-container .tab-button:hover::after {
+    width: 30%;
+}
+
+.tally-configurator-container .tab-button.active {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-activeBackground);
+}
+
+.tally-configurator-container .tab-button.active::after {
+    width: 100%;
+}
+
+.tally-configurator-container .tally-configurator-content {
+    flex: 1;
+    overflow: hidden;
+}
+
+.tally-configurator-container .tallies-tab-container, 
+.tally-configurator-container .meshes-tab-container {
+    display: flex;
+    height: 100%;
+}
+
+.tally-configurator-container .left-panel {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    border-right: 1px solid var(--theia-panel-border);
+    background-color: var(--theia-editor-background);
+}
+
+.tally-configurator-container .tally-list-panel, 
+.tally-configurator-container .mesh-list-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.tally-configurator-container .quick-add-panel {
+    padding: 15px;
+    border-top: 1px solid var(--theia-panel-border);
+    background-color: var(--theia-panel-background);
+}
+
+.tally-configurator-container .quick-add-panel h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.9em;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+}
+
+.tally-configurator-container .template-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tally-configurator-container .template-buttons button {
+    background-color: var(--theia-button-secondaryBackground, var(--theia-panel-border));
+    color: var(--theia-button-secondaryForeground, var(--theia-foreground));
+    border: none;
+    padding: 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 0.85em;
+    text-align: left;
+}
+
+.tally-configurator-container .template-buttons button:hover:not(:disabled) {
+    background-color: var(--theia-button-secondaryHoverBackground, var(--theia-list-hoverBackground));
+}
+
+.tally-configurator-container .template-buttons button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tally-configurator-container .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: none;
+}
+
+.tally-configurator-container .panel-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tally-configurator-container .list-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    cursor: pointer;
+    position: relative;
+}
+
+.tally-configurator-container .list-item:hover {
+    background-color: var(--theia-list-hoverBackground);
+}
+
+.tally-configurator-container .list-item.active {
+    background-color: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.tally-configurator-container .tally-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.tally-configurator-container .mesh-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.tally-configurator-container .mesh-item-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tally-configurator-container .mesh-item-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .mesh-item-id {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-badge-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.tally-configurator-container .mesh-item-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.tally-configurator-container .mesh-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: capitalize;
+    font-weight: 600;
+}
+
+.tally-configurator-container .mesh-type-badge.regular {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.tally-configurator-container .mesh-type-badge.cylindrical {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.tally-configurator-container .mesh-type-badge.spherical {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.tally-configurator-container .mesh-item-details {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-dimensions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tally-configurator-container .tally-item-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tally-configurator-container .tally-item-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .tally-item-id {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-badge-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.tally-configurator-container .tally-item-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.tally-configurator-container .tally-item-details {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .tally-scores,
+.tally-configurator-container .tally-filters,
+.tally-configurator-container .tally-nuclides {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tally-configurator-container .item-icon {
+    margin-right: 12px;
+    font-size: 1.2em;
+    color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .item-info {
+    flex: 1;
+}
+
+.tally-configurator-container .item-name {
+    font-weight: bold;
+    font-size: 0.9em;
+}
+
+.tally-configurator-container .item-details {
+    font-size: 0.8em;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .delete-item-btn {
+    background: none;
+    border: none;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+    padding: 4px;
+    opacity: 0;
+}
+
+.tally-configurator-container .tally-card:hover .delete-item-btn,
+.tally-configurator-container .mesh-card:hover .delete-item-btn {
+    opacity: 1;
+}
+
+.tally-configurator-container .delete-item-btn:hover {
+    color: var(--theia-errorForeground);
+}
+.tally-configurator-container .form-group label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tally-configurator-container .form-group input[type='text'],
+.tally-configurator-container .form-group input[type='number'],
+.tally-configurator-container .form-group select {
+    padding: 8px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+
+.tally-configurator-container hr {
+    border: none;
+    border-top: 1px solid var(--theia-panel-border);
+    margin: 20px 0;
+}
+
+/* Tally Editor Specific Styles */
+.tally-configurator-container .editor-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 30px;
+}
+
+.tally-configurator-container .section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.tally-configurator-container .section-info-icon {
+    color: var(--theia-descriptionForeground);
+    cursor: help;
+    opacity: 0.7;
+    transition: opacity 150ms;
+}
+
+.tally-configurator-container .section-info-icon:hover {
+    opacity: 1;
+    color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .editor-header {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.tally-configurator-container .editor-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .editor-header .editor-description {
+    margin: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .form-hint {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.tally-configurator-container .score-category {
+    margin-bottom: 15px;
+}
+
+.tally-configurator-container .category-label {
+    font-size: 0.85em;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+}
+
+.tally-configurator-container .score-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.tally-configurator-container .score-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.tally-configurator-container .filter-list {
+    margin-bottom: 15px;
+}
+
+.tally-configurator-container .filter-item {
+    background-color: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    margin-bottom: 10px;
+    padding: 10px;
+}
+
+.tally-configurator-container .filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.tally-configurator-container .filter-type-badge {
+    background-color: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    text-transform: uppercase;
+}
+
+.tally-configurator-container .remove-filter-btn {
+    background: none;
+    border: none;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.tally-configurator-container .remove-filter-btn:hover {
+    color: var(--theia-errorForeground);
+}
+
+.tally-configurator-container .add-filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tally-configurator-container .nuclide-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    min-height: 28px;
+}
+
+.tally-configurator-container .nuclide-empty-hint {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+    opacity: 0.6;
+}
+
+.tally-configurator-container .nuclide-badge {
+    background-color: var(--theia-focusBorder);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.tally-configurator-container .nuclide-name {
+    font-weight: 500;
+}
+
+.tally-configurator-container .remove-nuclide-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    opacity: 0.8;
+    transition: opacity 150ms;
+}
+
+.tally-configurator-container .remove-nuclide-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.tally-configurator-container .nuclide-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.tally-configurator-container .nuclide-input-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tally-configurator-container .nuclide-input-wrapper input {
+    padding: 8px 12px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .nuclide-input-wrapper input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.15);
+}
+
+.tally-configurator-container .nuclide-input-hint {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-left: 4px;
+}
+
+.tally-configurator-container .nuclide-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .nuclide-add-btn {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.tally-configurator-container .nuclide-add-btn:hover:not(:disabled) {
+    background: var(--theia-button-hoverBackground);
+}
+
+.tally-configurator-container .nuclide-add-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.tally-configurator-container .nuclide-reset-btn {
+    background: var(--theia-secondaryButton-background, var(--theia-button-secondaryBackground, #5a5a5a));
+    color: var(--theia-secondaryButton-foreground, var(--theia-button-foreground));
+}
+
+.tally-configurator-container .nuclide-reset-btn:hover {
+    background: var(--theia-secondaryButton-hoverBackground, var(--theia-list-hoverBackground));
+}
+
+.tally-configurator-container .coord-inputs {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.tally-configurator-container .coord-inputs input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Mesh Editor Specific Styles */
+.tally-configurator-container .mesh-type-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.tally-configurator-container .editor-toolbar {
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.tally-configurator-container .editor-toolbar .add-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .editor-toolbar .add-button:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.tally-configurator-container .editor-toolbar .add-button i {
+    font-size: 14px;
+}
+
+/* Better section spacing */
+.tally-configurator-container .editor-section {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .editor-section h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .section-description {
+    margin: 4px 0 16px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.4;
+}
+
+/* Better button styling */
+.tally-configurator-container .add-button {
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .add-button:hover:not(:disabled) {
+    background-color: var(--theia-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tally-configurator-container .add-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Better input focus states */
+.tally-configurator-container .form-group input:focus,
+.tally-configurator-container .form-group select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.15);
+}
+
+/* Better form group spacing */
+.tally-configurator-container .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.tally-configurator-container .form-group:last-child {
+    margin-bottom: 0;
+}
+
+/* Better form row layout */
+.tally-configurator-container .form-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.tally-configurator-container .form-row:last-child {
+    margin-bottom: 0;
+}
+
+.tally-configurator-container .form-row .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+/* Enhanced card hover effects */
+.tally-configurator-container .tally-card:hover,
+.tally-configurator-container .mesh-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tally-configurator-container .tally-card.active,
+.tally-configurator-container .mesh-card.active {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    box-shadow: 0 2px 8px rgba(243, 117, 36, 0.2);
+}
+
+/* Better empty state styling */
+.tally-configurator-container .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    border: 2px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    margin: 20px;
+}
+
+.tally-configurator-container .empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+    opacity: 0.3;
+}
+
+.tally-configurator-container .empty-state p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.tally-configurator-container .empty-hint {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 8px;
+    opacity: 0.7;
+}
+
+/* Validation warnings */
+.tally-configurator-container .validation-warning {
+    font-size: 11px;
+    color: var(--theia-errorForeground);
+    margin-top: 4px;
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.tally-configurator-container .validation-warning i {
+    margin-top: 1px;
+}
+
+/* Validation errors */
+.tally-configurator-container .validation-error {
+    font-size: 11px;
+    color: var(--theia-errorForeground);
+    margin-top: 4px;
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.tally-configurator-container .validation-error i {
+    margin-top: 1px;
+}

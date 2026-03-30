@@ -57,12 +57,14 @@ import { SimulationDashboardWidget } from './simulation-dashboard/simulation-das
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
 import { DAGMCEditorContribution } from './dagmc-editor/dagmc-editor-contribution';
-// import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
+import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
+import { TallyConfiguratorContribution } from './tally-configurator/tally-configurator-contribution';
 
 // Import CSS
 import './simulation-dashboard/simulation-dashboard.css';
 import './csg-builder/csg-builder.css';
 import './dagmc-editor/dagmc-editor.css';
+import './tally-configurator/tally-configurator.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -166,11 +168,17 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(FrontendApplicationContribution).toService(DAGMCEditorContribution);
     
     // Tally Configurator Widget - Phase 3
-    // bind(TallyConfiguratorWidget).toSelf();
-    // bind(WidgetFactory).toDynamicValue(({ container }) => ({
-    //     id: TallyConfiguratorWidget.ID,
-    //     createWidget: () => container.get(TallyConfiguratorWidget)
-    // })).inSingletonScope();
+    bind(TallyConfiguratorWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: TallyConfiguratorWidget.ID,
+        createWidget: () => container.get(TallyConfiguratorWidget)
+    })).inSingletonScope();
+
+    // Tally Configurator Contribution
+    bind(TallyConfiguratorContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(TallyConfiguratorContribution);
+    bind(MenuContribution).toService(TallyConfiguratorContribution);
+    bind(FrontendApplicationContribution).toService(TallyConfiguratorContribution);
 
     console.log('[OpenMC Studio] Frontend module initialized');
 });

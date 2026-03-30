@@ -41,10 +41,11 @@ import {
 } from '../../common/openmc-state-schema';
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../common/openmc-studio-protocol';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
+import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurator-widget';
 import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 // Tab types for the dashboard
-export type DashboardTab = 'settings' | 'materials' | 'simulation';
+export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'simulation';
 
 @injectable()
 export class SimulationDashboardWidget extends ReactWidget {
@@ -374,6 +375,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 <div className='dashboard-content'>
                     {this.activeTab === 'settings' && this.renderSettingsTab(state)}
                     {this.activeTab === 'materials' && this.renderMaterialsTab(state)}
+                    {this.activeTab === 'tallies' && this.renderTalliesTab(state)}
                     {this.activeTab === 'simulation' && this.renderSimulationTab(state)}
                 </div>
             </div>
@@ -486,6 +488,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         const tabs: { id: DashboardTab; label: string; icon: string }[] = [
             { id: 'settings', label: 'Settings', icon: 'codicon-settings' },
             { id: 'materials', label: 'Materials', icon: 'codicon-symbol-color' },
+            { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
             { id: 'simulation', label: 'Simulation', icon: 'codicon-play' }
         ];
 
@@ -1509,6 +1512,65 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     // ============================================================================
+    // Tallies Tab
+    // ============================================================================
+
+    private renderTalliesTab(state: OpenMCState): React.ReactNode {
+        const tallies = state.tallies || [];
+        const meshes = state.meshes || [];
+
+        return (
+            <div className='tallies-tab'>
+                <div className='instructions-panel'>
+                    <h4><i className='codicon codicon-graph-line'></i> Tally Configuration</h4>
+                    <p>Tallies allow you to record physical quantities during the simulation (flux, reaction rates, etc.).</p>
+                    <button 
+                        className='theia-button primary'
+                        onClick={() => this.openTallyConfigurator()}
+                    >
+                        <i className='codicon codicon-edit'></i> Open Tally Configurator
+                    </button>
+                </div>
+
+                <div className='summary-cards'>
+                    <div className='summary-card'>
+                        <div className='summary-value'>{tallies.length}</div>
+                        <div className='summary-label'>Tallies Defined</div>
+                    </div>
+                    <div className='summary-card'>
+                        <div className='summary-value'>{meshes.length}</div>
+                        <div className='summary-label'>Meshes Defined</div>
+                    </div>
+                </div>
+
+                {tallies.length > 0 && (
+                    <div className='tallies-list-preview'>
+                        <h4>Active Tallies</h4>
+                        {tallies.map(tally => (
+                            <div key={tally.id} className='tally-preview-card'>
+                                <div className='tally-preview-header'>
+                                    <strong>{tally.name || `Tally ${tally.id}`}</strong>
+                                    <span className='tally-id'>#{tally.id}</span>
+                                </div>
+                                <div className='tally-preview-details'>
+                                    <span>Scores: {tally.scores.join(', ')}</span>
+                                    <span>Filters: {tally.filters.length}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    private async openTallyConfigurator(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget(TallyConfiguratorWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+    }
+
+    // ============================================================================
     // Simulation Tab
     // ============================================================================
 
@@ -1647,6 +1709,26 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 </span>
                             </div>
                         </div>
+                        
+                        {/* Tallies Check */}
+                        {(() => {
+                            const tallies = state.tallies || [];
+                            const hasTallies = tallies.length > 0;
+                            
+                            return (
+                                <div className={`checklist-item ${hasTallies ? 'done' : ''}`}>
+                                    <div className='checklist-icon'>
+                                        <i className={`codicon codicon-${hasTallies ? 'check' : 'circle-outline'}`}></i>
+                                    </div>
+                                    <div className='checklist-content'>
+                                        <span className='checklist-title'>Tallies</span>
+                                        <span className='checklist-status'>
+                                            {hasTallies ? `${tallies.length} defined` : 'Optional - none configured'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -1764,6 +1846,10 @@ export class SimulationDashboardWidget extends ReactWidget {
                         <div className='info-item'>
                             <label>Cells:</label>
                             <span>{state.geometry.cells.length}</span>
+                        </div>
+                        <div className='info-item'>
+                            <label>Tallies:</label>
+                            <span>{state.tallies?.length || 0}</span>
                         </div>
                     </div>
                 </div>
@@ -2220,6 +2306,9 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             // Run simulation
             this.logToConsole('Starting OpenMC simulation...');
+            // Auto-expand and focus the Simulation Output console
+            this.consoleMaximized = true;
+            this.update();
             // Note: runSimulation returns immediately, completion handled by events
             this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()

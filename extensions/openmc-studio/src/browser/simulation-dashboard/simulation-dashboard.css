@@ -1958,3 +1958,122 @@
     background: var(--theia-inputValidation-warningBackground);
     color: var(--theia-inputValidation-warningBorder);
 }
+
+/* ============================================================================
+   Tallies Tab
+   ============================================================================ */
+.simulation-dashboard .tallies-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px;
+    animation: dashboard-tab-fade 0.3s ease;
+}
+
+.simulation-dashboard .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.simulation-dashboard .summary-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 8px var(--theia-widget-shadow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.simulation-dashboard .summary-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 4px 12px var(--theia-widget-shadow);
+}
+
+.simulation-dashboard .summary-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    line-height: 1.2;
+}
+
+.simulation-dashboard .summary-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .tallies-list-preview h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-editor-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .tally-preview-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.simulation-dashboard .tally-preview-card:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .tally-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.simulation-dashboard .tally-preview-header strong {
+    font-size: 14px;
+    color: var(--theia-editor-foreground);
+}
+
+.simulation-dashboard .tally-id {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--theia-badge-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.simulation-dashboard .tally-preview-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .tally-preview-details span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.simulation-dashboard .tally-preview-details span::before {
+    content: '•';
+    color: var(--theia-focusBorder);
+}
