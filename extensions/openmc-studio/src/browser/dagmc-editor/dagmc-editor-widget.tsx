@@ -545,35 +545,39 @@ export class DAGMCEditorWidget extends ReactWidget {
                                         />
                                     </div>
                                     <div className='editor-actions'>
-                                        <button 
-                                            className='action-btn confirm' 
-                                            title='Save (Enter)'
-                                            onClick={() => this.assignMaterial(volume.id, this.editingMaterial!.newMaterial)}
-                                        >
-                                            <i className='codicon codicon-check'></i>
-                                        </button>
-                                        <button 
-                                            className='action-btn cancel' 
-                                            title='Cancel (Esc)'
-                                            onClick={() => { this.editingMaterial = null; this.update(); }}
-                                        >
-                                            <i className='codicon codicon-close'></i>
-                                        </button>
+                                        <Tooltip content='Save (Enter)' position='top'>
+                                            <button 
+                                                className='action-btn confirm'
+                                                onClick={() => this.assignMaterial(volume.id, this.editingMaterial!.newMaterial)}
+                                            >
+                                                <i className='codicon codicon-check'></i>
+                                            </button>
+                                        </Tooltip>
+                                        <Tooltip content='Cancel (Esc)' position='top'>
+                                            <button 
+                                                className='action-btn cancel'
+                                                onClick={() => { this.editingMaterial = null; this.update(); }}
+                                            >
+                                                <i className='codicon codicon-close'></i>
+                                            </button>
+                                        </Tooltip>
                                     </div>
                                 </div>
                             ) : (
                                 <div className={`detail-material ${volume.material ? 'assigned' : 'unassigned'}`}>
                                     <i className='codicon codicon-symbol-color'></i>
                                     <span className='material-text'>{volume.material || 'No material assigned'}</span>
-                                    <button 
-                                        className='edit-btn'
-                                        onClick={() => { 
-                                            this.editingMaterial = { volumeId: volume.id, newMaterial: volume.material || '' };
-                                            this.update();
-                                        }}
-                                    >
-                                        <i className='codicon codicon-edit'></i>
-                                    </button>
+                                    <Tooltip content='Edit Material' position='top'>
+                                        <button 
+                                            className='edit-btn'
+                                            onClick={() => { 
+                                                this.editingMaterial = { volumeId: volume.id, newMaterial: volume.material || '' };
+                                                this.update();
+                                            }}
+                                        >
+                                            <i className='codicon codicon-edit'></i>
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             )}
                         </div>
@@ -648,7 +652,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                             const coverage = (matTriangles / totalTriangles) * 100;
 
                             return (
-                                <div key={name} className='material-card premium'>
+                                <div key={name} className='material-card'>
                                     <div className='material-card-main'>
                                         <div className='material-header'>
                                             <div className='material-icon'>
@@ -690,11 +694,13 @@ export class DAGMCEditorWidget extends ReactWidget {
                                             )}
                                         </div>
                                         <div className='material-actions'>
-                                            <Tooltip content='View in 3D' position='top'>
-                                                <button className='action-btn' onClick={() => this.preview3D()}>
-                                                    <i className='codicon codicon-globe'></i>
-                                                </button>
-                                            </Tooltip>
+                                            {data.volumes.length > 0 && (
+                                                <Tooltip content={`View volume ${data.volumes[0]} in 3D`} position='top'>
+                                                    <button className='action-btn' onClick={() => this.preview3D(data.volumes[0])}>
+                                                        <i className='codicon codicon-globe'></i>
+                                                    </button>
+                                                </Tooltip>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -728,7 +734,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 </div>
 
                 {this.showCreateGroup && (
-                    <div className='create-group-premium'>
+                    <div className='create-group'>
                         <div className='form-content'>
                             <div className='input-group'>
                                 <label>New Group Name</label>
@@ -771,7 +777,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                         </div>
                     ) : (
                         this.modelData.groups.map(group => (
-                            <div key={group.name} className={`group-card premium ${group.type}`}>
+                            <div key={group.name} className={`group-card ${group.type}`}>
                                 <div className='group-card-main'>
                                     <div className='group-header'>
                                         <div className={`group-icon ${group.type}`}>
@@ -812,11 +818,6 @@ export class DAGMCEditorWidget extends ReactWidget {
                                                 onClick={() => this.deleteGroup(group.name)}
                                             >
                                                 <i className='codicon codicon-trash'></i>
-                                            </button>
-                                        </Tooltip>
-                                        <Tooltip content='Isolate Group' position='top'>
-                                            <button className='action-btn'>
-                                                <i className='codicon codicon-globe'></i>
                                             </button>
                                         </Tooltip>
                                     </div>

@@ -520,7 +520,7 @@
 }
 
 /* ============================================================================
-   Volumes Grid - Premium Redesign
+   Volumes Grid
    ============================================================================ */
 
 .volumes-grid {
@@ -655,7 +655,7 @@
     background: rgba(0, 0, 0, 0.1);
 }
 
-/* Material Chip - Premium */
+/* Material Chip */
 .volume-card .volume-material-chip {
     display: inline-flex;
     align-items: center;
@@ -880,10 +880,10 @@
 }
 
 /* ============================================================================
-   Materials Tab - Premium Upgrades
+   Materials Tab
    ============================================================================ */
 
-.material-card.premium {
+.material-card {
     display: flex;
     flex-direction: column;
     padding: 0;
@@ -894,29 +894,29 @@
     border: 1px solid var(--theia-panel-border);
 }
 
-.material-card.premium:hover {
+.material-card:hover {
     border-color: var(--theia-focusBorder);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.material-card.premium .material-card-main {
+.material-card .material-card-main {
     padding: 16px;
     flex: 1;
 }
 
-.material-card.premium .material-header {
+.material-card .material-header {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 12px;
 }
 
-.material-card.premium .material-info {
+.material-card .material-info {
     flex: 1;
     min-width: 0;
 }
 
-.material-card.premium .material-name {
+.material-card .material-name {
     font-size: 15px;
     font-weight: 700;
     color: var(--theia-foreground);
@@ -925,7 +925,7 @@
     text-overflow: ellipsis;
 }
 
-.material-card.premium .material-meta {
+.material-card .material-meta {
     font-size: 10px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
@@ -933,7 +933,7 @@
     margin-top: 2px;
 }
 
-.material-card.premium .material-count-big {
+.material-card .material-count-big {
     font-size: 24px;
     font-weight: 800;
     color: var(--theia-focusBorder);
@@ -941,25 +941,25 @@
     opacity: 0.8;
 }
 
-.material-card.premium .coverage-indicator {
+.material-card .coverage-indicator {
     margin-top: 12px;
 }
 
-.material-card.premium .bar-track {
+.material-card .bar-track {
     height: 6px;
     background: var(--theia-panel-background);
     border-radius: 3px;
     overflow: hidden;
 }
 
-.material-card.premium .bar-fill {
+.material-card .bar-fill {
     height: 100%;
     background: var(--theia-focusBorder);
     border-radius: 3px;
     transition: width 0.6s ease;
 }
 
-.material-card.premium .material-card-footer {
+.material-card .material-card-footer {
     padding: 12px 16px;
     background: rgba(0, 0, 0, 0.05);
     border-top: 1px solid var(--theia-panel-border);
@@ -968,10 +968,40 @@
     justify-content: space-between;
 }
 
-.material-card.premium .material-volumes-preview {
+.material-card .material-volumes-preview {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+}
+
+.material-card .material-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.material-card:hover .material-actions {
+    opacity: 1;
+}
+
+.material-actions .action-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.material-actions .action-btn:hover {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-foreground);
 }
 
 .volume-tag.mini {
@@ -996,7 +1026,7 @@
 }
 
 /* ============================================================================
-   Groups Tab - Premium Upgrades
+   Groups Tab
    ============================================================================ */
 
 .groups-grid {
@@ -1005,7 +1035,7 @@
     gap: 16px;
 }
 
-.group-card.premium {
+.group-card {
     padding: 0;
     border-radius: 12px;
     border-left-width: 6px;
@@ -1017,31 +1047,31 @@
     overflow: hidden;
 }
 
-.group-card.premium:hover {
+.group-card:hover {
     border-color: var(--theia-focusBorder);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.group-card.premium.material {
+.group-card.material {
     border-left-color: var(--theia-inputValidation-infoBorder);
 }
 
-.group-card.premium.boundary {
+.group-card.boundary {
     border-left-color: var(--theia-inputValidation-warningBorder);
 }
 
-.group-card.premium .group-card-main {
+.group-card .group-card-main {
     padding: 16px;
 }
 
-.group-card.premium .group-header {
+.group-card .group-header {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
 }
 
-.group-card.premium .group-icon {
+.group-card .group-icon {
     width: 40px;
     height: 40px;
     border-radius: 8px;
@@ -1051,7 +1081,7 @@
     background: var(--theia-panel-background);
 }
 
-.group-card.premium .group-name {
+.group-card .group-name {
     font-size: 15px;
     font-weight: 700;
     flex: 1;
@@ -1060,7 +1090,7 @@
     text-overflow: ellipsis;
 }
 
-.group-card.premium .group-type-label {
+.group-card .group-type-label {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 1px;
@@ -1068,7 +1098,7 @@
     margin-top: 2px;
 }
 
-.group-card.premium .group-count-badge {
+.group-card .group-count-badge {
     background: var(--theia-panel-background);
     padding: 4px 10px;
     border-radius: 6px;
@@ -1077,7 +1107,7 @@
     color: var(--theia-focusBorder);
 }
 
-.group-card.premium .group-volumes-grid {
+.group-card .group-volumes-grid {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -1086,7 +1116,7 @@
     padding-right: 4px;
 }
 
-.group-card.premium .group-card-footer {
+.group-card .group-card-footer {
     padding: 10px 16px;
     background: rgba(0, 0, 0, 0.05);
     border-top: 1px solid var(--theia-panel-border);
@@ -1094,12 +1124,12 @@
     justify-content: flex-end;
 }
 
-.group-card.premium .group-actions {
+.group-card .group-actions {
     display: flex;
     gap: 8px;
 }
 
-.group-card.premium .action-btn {
+.group-card .action-btn {
     width: 28px;
     height: 28px;
     display: flex;
@@ -1113,18 +1143,18 @@
     transition: all 0.2s ease;
 }
 
-.group-card.premium .action-btn:hover {
+.group-card .action-btn:hover {
     background: var(--theia-list-hoverBackground);
     color: var(--theia-foreground);
 }
 
-.group-card.premium .action-btn.delete:hover {
+.group-card .action-btn.delete:hover {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
 }
 
-/* Create Group Premium Form */
-.create-group-premium {
+/* Create Group */
+.create-group {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-focusBorder);
     border-radius: 12px;
@@ -1134,13 +1164,13 @@
     animation: dagmc-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.create-group-premium .form-content {
+.create-group .form-content {
     display: flex;
     flex-direction: column;
     gap: 16px;
 }
 
-.create-group-premium .input-group label {
+.create-group .input-group label {
     display: block;
     font-size: 11px;
     font-weight: 600;
@@ -1149,7 +1179,7 @@
     margin-bottom: 8px;
 }
 
-.create-group-premium .input-wrapper {
+.create-group .input-wrapper {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1160,11 +1190,11 @@
     transition: border-color 0.2s;
 }
 
-.create-group-premium .input-wrapper:focus-within {
+.create-group .input-wrapper:focus-within {
     border-color: var(--theia-focusBorder);
 }
 
-.create-group-premium .input-wrapper input {
+.create-group .input-wrapper input {
     flex: 1;
     background: transparent;
     border: none;
@@ -1173,7 +1203,7 @@
     outline: none;
 }
 
-.create-group-premium .form-info {
+.create-group .form-info {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1184,7 +1214,7 @@
     border-radius: 6px;
 }
 
-.create-group-premium .theia-button {
+.create-group .theia-button {
     align-self: flex-start;
     padding: 8px 24px;
     border-radius: 6px;
