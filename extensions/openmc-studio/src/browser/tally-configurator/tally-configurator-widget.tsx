@@ -147,6 +147,8 @@ export class TallyConfiguratorWidget extends ReactWidget {
                             <button onClick={() => this.addTemplateTally('meshFlux')} disabled={meshes.length === 0}>Mesh Flux</button>
                             <button onClick={() => this.addTemplateTally('cellFission')}>Cell Fission</button>
                             <button onClick={() => this.addTemplateTally('surfaceCurrent')}>Surface Current</button>
+                            <button onClick={() => this.addTemplateTally('activation')}>Activation</button>
+                            <button onClick={() => this.addTemplateTally('heating')}>Heating</button>
                         </div>
                     </div>
                 </div>
@@ -232,7 +234,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.setState({ selectedMeshId: nextId, editingMesh: newMesh });
     }
 
-    protected addTemplateTally(template: 'meshFlux' | 'cellFission' | 'surfaceCurrent'): void {
+    protected addTemplateTally(template: 'meshFlux' | 'cellFission' | 'surfaceCurrent' | 'activation' | 'heating'): void {
         const nextId = this.stateManager.getNextTallyId();
         const meshes = this.stateManager.getState().meshes || [];
         let newTally: OpenMCTally;
@@ -263,6 +265,24 @@ export class TallyConfiguratorWidget extends ReactWidget {
                     scores: ['current'],
                     nuclides: ['total'],
                     filters: [{ type: 'surface', bins: [1] }]
+                };
+                break;
+            case 'activation':
+                newTally = {
+                    id: nextId,
+                    name: `Activation Tally`,
+                    scores: ['activation'],
+                    nuclides: ['total'],
+                    filters: [{ type: 'energy', bins: [0, 2e7] }]
+                };
+                break;
+            case 'heating':
+                newTally = {
+                    id: nextId,
+                    name: `Heating Tally`,
+                    scores: ['heating'],
+                    nuclides: ['total'],
+                    filters: []
                 };
                 break;
         }

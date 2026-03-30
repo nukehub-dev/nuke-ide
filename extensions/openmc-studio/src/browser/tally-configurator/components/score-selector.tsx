@@ -36,8 +36,25 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
         category: 'Reaction Rates',
         scores: [
             { value: 'scatter', label: 'Scatter' },
+            { value: 'elastic', label: 'Elastic' },
             { value: 'nu-fission', label: 'nu-Fission' },
+            { value: 'nu-scatter', label: 'nu-Scatter' },
             { value: 'kappa-fission', label: 'kappa-Fission' },
+            { value: 'prompt-nu-fission', label: 'Prompt nu-Fission' },
+            { value: 'delayed-nu-fission', label: 'Delayed nu-Fission' },
+        ]
+    },
+    {
+        category: 'Legendre Moments',
+        scores: [
+            { value: 'scatter-1', label: 'P1 Scatter' },
+            { value: 'scatter-2', label: 'P2 Scatter' },
+            { value: 'scatter-3', label: 'P3 Scatter' },
+            { value: 'scatter-4', label: 'P4 Scatter' },
+            { value: 'nu-fission-1', label: 'P1 nu-Fission' },
+            { value: 'nu-fission-2', label: 'P2 nu-Fission' },
+            { value: 'nu-fission-3', label: 'P3 nu-Fission' },
+            { value: 'nu-fission-4', label: 'P4 nu-Fission' },
         ]
     },
     {
@@ -45,8 +62,10 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
         scores: [
             { value: 'current', label: 'Current' },
             { value: 'heating', label: 'Heating' },
+            { value: 'heating-local', label: 'Heating (Local)' },
             { value: 'events', label: 'Events' },
             { value: 'inverse-velocity', label: 'Inverse Velocity' },
+            { value: 'activation', label: 'Activation' },
         ]
     }
 ];
