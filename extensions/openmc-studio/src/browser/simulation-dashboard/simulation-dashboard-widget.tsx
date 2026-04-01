@@ -42,10 +42,11 @@ import {
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../common/openmc-studio-protocol';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurator-widget';
+import { DepletionTimeline } from './depletion-timeline';
 import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 // Tab types for the dashboard
-export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'simulation';
+export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'depletion' | 'simulation';
 
 @injectable()
 export class SimulationDashboardWidget extends ReactWidget {
@@ -377,6 +378,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     {this.activeTab === 'settings' && this.renderSettingsTab(state)}
                     {this.activeTab === 'materials' && this.renderMaterialsTab(state)}
                     {this.activeTab === 'tallies' && this.renderTalliesTab(state)}
+                    {this.activeTab === 'depletion' && this.renderDepletionTab(state)}
                     {this.activeTab === 'simulation' && this.renderSimulationTab(state)}
                 </div>
             </div>
@@ -490,6 +492,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             { id: 'settings', label: 'Settings', icon: 'codicon-settings' },
             { id: 'materials', label: 'Materials', icon: 'codicon-symbol-color' },
             { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
+            { id: 'depletion', label: 'Depletion', icon: 'codicon-history' },
             { id: 'simulation', label: 'Simulation', icon: 'codicon-play' }
         ];
 
@@ -1575,6 +1578,212 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Simulation Tab
     // ============================================================================
 
+    private renderDepletionTab(state: OpenMCState): React.ReactNode {
+        const depletion = state.depletion || { timeSteps: [], power: 0, enabled: false };
+        const hasDepletableMaterials = state.materials.some(m => m.isDepletable);
+        const isEnabled = depletion.enabled;
+
+        return (
+            <div className='depletion-tab'>
+                {/* Enable/Disable Card */}
+                <div className={`depletion-enable-card ${isEnabled ? 'enabled' : ''}`}>
+                    <div className='enable-card-content'>
+                        <div className='enable-icon'>
+                            <i className={`codicon ${isEnabled ? 'codicon-check' : 'codicon-history'}`}></i>
+                        </div>
+                        <div className='enable-text'>
+                            <h3>Depletion Analysis</h3>
+                            <p>{isEnabled 
+                                ? 'Track fuel burnup and isotopic evolution over time.' 
+                                : 'Enable to track how material composition changes during reactor operation.'}</p>
+                        </div>
+                        <button 
+                            className={`theia-button ${isEnabled ? 'secondary' : 'primary'}`}
+                            onClick={() => this.stateManager.updateDepletion({ enabled: !isEnabled })}
+                        >
+                            <i className={`codicon ${isEnabled ? 'codicon-close' : 'codicon-play'}`}></i>
+                            {isEnabled ? 'Disable' : 'Enable'}
+                        </button>
+                    </div>
+                    
+                    {!isEnabled && (
+                        <div className='enable-benefits'>
+                            <div className='benefit-item'>
+                                <i className='codicon codicon-flame'></i>
+                                <span>Track fuel burnup</span>
+                            </div>
+                            <div className='benefit-item'>
+                                <i className='codicon codicon-radioactive'></i>
+                                <span>Monitor waste buildup</span>
+                            </div>
+                            <div className='benefit-item'>
+                                <i className='codicon codicon-graph-line'></i>
+                                <span>Analyze reactivity changes</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {isEnabled && (
+                    <>
+                        {/* Physics Configuration */}
+                        <div className='settings-section depletion-config'>
+                            <h3><i className='codicon codicon-gear'></i> Physics Configuration</h3>
+                            
+                            <div className='config-grid'>
+                                <div className='config-item'>
+                                    <label>
+                                        <i className='codicon codicon-file-code'></i>
+                                        Chain File
+                                        <Tooltip content='XML file with decay constants and fission yields for all isotopes' position='top'>
+                                            <i className='codicon codicon-info info-icon'></i>
+                                        </Tooltip>
+                                    </label>
+                                    <div className='file-input-group'>
+                                        <input 
+                                            type='text' 
+                                            value={depletion.chainFile || ''} 
+                                            onChange={(e) => this.stateManager.updateDepletion({ chainFile: e.target.value })}
+                                            placeholder='Select chain.xml file...'
+                                        />
+                                        <button className='theia-button secondary' onClick={() => this.browseChainFile()}>
+                                            <i className='codicon codicon-folder-opened'></i>
+                                            Browse
+                                        </button>
+                                    </div>
+                                    <span className='config-hint'>Contains nuclide decay and fission yield data</span>
+                                </div>
+                                
+                                <div className='config-item'>
+                                    <label>
+                                        <i className='codicon codicon-symbol-method'></i>
+                                        Integration Method
+                                    </label>
+                                    <select 
+                                        value={(depletion as any).solver || 'predictor-corrector'} 
+                                        onChange={(e) => this.stateManager.updateDepletion({ solver: e.target.value as any })}
+                                    >
+                                        <option value='predictor-corrector'>Predictor-Corrector (Standard)</option>
+                                        <option value='ce-cm'>CE-CM (High Accuracy)</option>
+                                        <option value='leapfrog'>Leapfrog</option>
+                                        <option value='si-rk4'>SI-RK4 (Stochastic Implicit)</option>
+                                    </select>
+                                    <span className='config-hint'>Algorithm for solving depletion equations</span>
+                                </div>
+                            </div>
+
+                            <div className='config-grid single'>
+                                <div className='config-item'>
+                                    <label>
+                                        <i className='codicon codicon-zap'></i>
+                                        Power Level
+                                    </label>
+                                    <div className='power-input-unit'>
+                                        <input 
+                                            type='number' 
+                                            min={0}
+                                            step='any'
+                                            value={depletion.power || depletion.powerDensity || 0} 
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                if (depletion.powerDensity !== undefined) {
+                                                    this.stateManager.updateDepletion({ powerDensity: val, power: undefined });
+                                                } else {
+                                                    this.stateManager.updateDepletion({ power: val, powerDensity: undefined });
+                                                }
+                                            }}
+                                        />
+                                        <select 
+                                            value={depletion.powerDensity !== undefined ? 'power_density' : 'power'}
+                                            onChange={(e) => {
+                                                const val = depletion.power || depletion.powerDensity || 0;
+                                                if (e.target.value === 'power_density') {
+                                                    this.stateManager.updateDepletion({ powerDensity: val, power: undefined });
+                                                } else {
+                                                    this.stateManager.updateDepletion({ power: val, powerDensity: undefined });
+                                                }
+                                            }}
+                                        >
+                                            <option value='power'>Watts (Total)</option>
+                                            <option value='power_density'>W/g (Density)</option>
+                                        </select>
+                                    </div>
+                                    <span className='config-hint'>Reactor operating power for depletion calculations</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Materials Section */}
+                        <div className='settings-section'>
+                            <h3><i className='codicon codicon-layers'></i> Depletable Materials</h3>
+                            
+                            {!hasDepletableMaterials ? (
+                                <div className='depletion-warning-box'>
+                                    <i className='codicon codicon-warning'></i>
+                                    <div className='warning-content'>
+                                        <strong>No Depletable Materials Configured</strong>
+                                        <p>Go to the <strong>Materials</strong> tab and enable "Depletable" for fuel materials you want to track.</p>
+                                    </div>
+                                    <button className='theia-button primary' onClick={() => { this.activeTab = 'materials'; this.update(); }}>
+                                        Go to Materials
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className='depletion-materials-grid'>
+                                    {this.renderDepletableMaterialsSection(state)}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Timeline Editor */}
+                        {hasDepletableMaterials && (
+                            <div className='settings-section timeline-section'>
+                                <DepletionTimeline 
+                                    depletion={depletion as any}
+                                    onChange={(updates) => this.stateManager.updateDepletion(updates)}
+                                    onToggleDecayOnly={(idx) => this.stateManager.toggleDecayOnlyStep(idx)}
+                                />
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    protected async browseChainFile(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Select OpenMC Depletion Chain File',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: {
+                'OpenMC Chain': ['xml'],
+                'All Files': ['*']
+            }
+        };
+
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (uri) {
+            this.stateManager.updateDepletion({ chainFile: uri.path.toString() });
+        }
+    }
+
+    private renderDepletableMaterialsSection(state: OpenMCState): React.ReactNode {
+        const depletableMaterials = state.materials.filter(m => m.isDepletable);
+
+        return depletableMaterials.map(mat => (
+            <div key={mat.id} className='material-card' style={{ borderLeft: `4px solid ${mat.color || '#4A90D9'}` }}>
+                <div className='material-card-header'>
+                    <div className='material-info'>
+                        <span className='material-id'>#{mat.id}</span>
+                        <span className='material-name'>{mat.name}</span>
+                    </div>
+                    <i className='codicon codicon-check' style={{ color: 'var(--theia-focusBorder)', fontSize: '14px' }}></i>
+                </div>
+            </div>
+        ));
+    }
+
     private renderSimulationTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='simulation-tab'>
@@ -1730,6 +1939,32 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 </div>
                             );
                         })()}
+
+                        {/* Depletion Check */}
+                        {(() => {
+                            const depletion = state.depletion;
+                            const isEnabled = !!depletion?.enabled;
+                            const stepCount = depletion?.timeSteps?.length || 0;
+                            const isDone = !isEnabled || (isEnabled && stepCount > 0 && !!depletion?.chainFile);
+                            
+                            return (
+                                <div className={`checklist-item ${isEnabled ? (isDone ? 'done' : 'partial') : ''}`}>
+                                    <div className='checklist-icon'>
+                                        <i className={`codicon codicon-${isEnabled ? (isDone ? 'check' : 'warning') : 'circle-outline'}`}></i>
+                                    </div>
+                                    <div className='checklist-content'>
+                                        <span className='checklist-title'>Depletion</span>
+                                        <span className='checklist-status'>
+                                            {!isEnabled 
+                                                ? 'Disabled' 
+                                                : isDone 
+                                                    ? `Enabled (${stepCount} steps)` 
+                                                    : `Enabled (Missing ${!depletion?.chainFile ? 'chain file' : 'steps'})`}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -1858,6 +2093,37 @@ export class SimulationDashboardWidget extends ReactWidget {
                         </div>
                     </div>
                 </div>
+
+                {/* Depletion Summary */}
+                {state.depletion?.enabled && (
+                    <div className='simulation-info'>
+                        <div className='info-header'>
+                            <h4>Depletion Summary</h4>
+                        </div>
+                        <div className='info-grid'>
+                            <div className='info-item'>
+                                <label>Steps:</label>
+                                <span>{state.depletion.timeSteps.length}</span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Power:</label>
+                                <span>{state.depletion.power || state.depletion.powerDensity || 0} {state.depletion.powerDensity ? 'W/g' : 'Watts'}</span>
+                            </div>
+                            <div className='info-item'>
+                                <label>Chain File:</label>
+                                <Tooltip content={state.depletion.chainFile || 'Not set'} position='top'>
+                                    <span className='file-path-summary'>
+                                        {state.depletion.chainFile?.split('/').pop() || 'Not set'}
+                                    </span>
+                                </Tooltip>
+                            </div>
+                            <div className='info-item'>
+                                <label>Solver:</label>
+                                <span style={{ textTransform: 'uppercase' }}>{state.depletion.solver}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Geometry Summary - CSG */}
                 {state.geometry.cells.length > 0 && !state.settings.dagmcFile && (

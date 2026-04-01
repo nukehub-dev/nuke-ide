@@ -500,8 +500,8 @@ export class XMLGenerationService {
             lines.push(`  <seed>${settings.seed}</seed>`);
         }
         
-        // Source rejection fraction
-        if (settings.sourceRejectionFraction !== undefined) {
+        // Source rejection fraction (must be > 0)
+        if (settings.sourceRejectionFraction !== undefined && settings.sourceRejectionFraction > 0) {
             lines.push(`  <source_rejection_fraction>${settings.sourceRejectionFraction}</source_rejection_fraction>`);
         }
         
@@ -540,7 +540,67 @@ export class XMLGenerationService {
             lines.push('  <!-- DAGMC Geometry -->');
             lines.push(`  <dagmc>true</dagmc>`);
         }
-        
+
+        // Depletion settings (for reference - actual depletion requires Python API)
+        if (state.depletion?.enabled) {
+            lines.push('');
+            lines.push('  <!-- Depletion Settings (requires Python API to run) -->');
+            lines.push('  <depletion>');
+            if (state.depletion.chainFile) {
+                lines.push(`    <chain_file>${state.depletion.chainFile}</chain_file>`);
+            }
+            if (state.depletion.timeSteps && state.depletion.timeSteps.length > 0) {
+                const timeSteps = state.depletion.timeSteps.map(ts => {
+                    // If it's a string like "1 d", convert to seconds
+                    if (typeof ts === 'string') {
+                        const match = ts.match(/^([\d.]+)\s*([smhdwy])$/i);
+                        if (match) {
+                            const value = parseFloat(match[1]);
+                            const unit = match[2].toLowerCase();
+                            const multipliers: { [key: string]: number } = {
+                                's': 1,
+                                'm': 60,
+                                'h': 3600,
+                                'd': 86400,
+                                'w': 604800,
+                                'y': 31536000
+                            };
+                            return Math.round(value * (multipliers[unit] || 1));
+                        }
+                    }
+                    return Number(ts);
+                });
+                lines.push(`    <time_steps>${timeSteps.join(' ')}</time_steps>`);
+            }
+            // Calculate and write power
+            let totalPower = state.depletion.power;
+            
+            // If powerDensity is specified, calculate total power from depletable materials
+            if (totalPower === undefined && state.depletion.powerDensity !== undefined && state.materials) {
+                let totalMassG = 0;
+                for (const mat of state.materials) {
+                    if (mat.isDepletable && mat.volume) {
+                        // Mass = density (g/cm³) × volume (cm³)
+                        totalMassG += mat.density * mat.volume;
+                    }
+                }
+                if (totalMassG > 0) {
+                    totalPower = state.depletion.powerDensity * totalMassG;
+                }
+            }
+            
+            if (totalPower !== undefined && totalPower > 0) {
+                lines.push(`    <power>${totalPower.toFixed(6)}</power>`);
+            }
+            
+            // Also store power density if specified (for reference)
+            if (state.depletion.powerDensity !== undefined) {
+                lines.push(`    <power_density>${state.depletion.powerDensity}</power_density>`);
+            }
+            
+            lines.push('  </depletion>');
+        }
+
         lines.push('</settings>');
         
         return lines.join('\n');

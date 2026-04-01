@@ -875,6 +875,52 @@ export class OpenMCStudioBackendServiceImpl
             }
         }
         
+        // Check depletion settings
+        const depletion = request.state.depletion;
+        if (depletion?.enabled) {
+            // Check for power
+            const powerValue = depletion.power !== undefined ? depletion.power : depletion.powerDensity;
+            if (powerValue === undefined || powerValue <= 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message: 'Depletion requires power level to be set',
+                    suggestion: 'Set the power level in the Depletion tab under Physics Configuration'
+                });
+            }
+            
+            // Check for chain file
+            if (!depletion.chainFile) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'depletion',
+                    message: 'Depletion chain file not specified',
+                    suggestion: 'Select a chain file in the Depletion tab (e.g., chain_endfb71.xml)'
+                });
+            }
+            
+            // Check for depletable materials
+            const hasDepletableMaterials = materials.some(m => m.isDepletable);
+            if (!hasDepletableMaterials) {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message: 'No depletable materials configured',
+                    suggestion: 'Enable "Depletable" for at least one material in the Materials tab'
+                });
+            }
+            
+            // Check for time steps
+            if (!depletion.timeSteps || depletion.timeSteps.length === 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message: 'No depletion time steps defined',
+                    suggestion: 'Add at least one time step in the Depletion tab under Operational Timeline'
+                });
+            }
+        }
+        
         return {
             valid: issues.filter(i => i.severity === 'error').length === 0,
             issues,

@@ -54,6 +54,113 @@ export class OpenMCRunnerService {
     private client?: OpenMCStudioClient;
 
     /**
+     * Check if depletion is enabled in the working directory by looking for
+     * depletion settings in settings.xml.
+     */
+    private async checkDepletionEnabled(workingDirectory: string): Promise<{ enabled: boolean; settings?: { chainFile?: string; timeSteps: number[]; power?: number; powerDensity?: number } }> {
+        const fs = await import('fs');
+        const path = await import('path');
+        
+        const settingsPath = path.join(workingDirectory, 'settings.xml');
+        if (!fs.existsSync(settingsPath)) {
+            return { enabled: false };
+        }
+        
+        try {
+            const content = fs.readFileSync(settingsPath, 'utf-8');
+            // Check for <depletion> tag
+            const depletionMatch = content.match(/<depletion>[\s\S]*?<\/depletion>/);
+            if (depletionMatch) {
+                const depletionXml = depletionMatch[0];
+                
+                // Extract chain file
+                const chainFileMatch = depletionXml.match(/<chain_file>(.*?)<\/chain_file>/);
+                const chainFile = chainFileMatch ? chainFileMatch[1] : undefined;
+                
+                // Extract time steps
+                const timeStepsMatch = depletionXml.match(/<time_steps>(.*?)<\/time_steps>/);
+                const timeSteps = timeStepsMatch 
+                    ? timeStepsMatch[1].trim().split(/\s+/).map(Number).filter(n => !isNaN(n))
+                    : [];
+                
+                // Extract power
+                const powerMatch = depletionXml.match(/<power>(.*?)<\/power>/);
+                const power = powerMatch ? Number(powerMatch[1]) : undefined;
+                
+                // Extract power density
+                const powerDensityMatch = depletionXml.match(/<power_density>(.*?)<\/power_density>/);
+                const powerDensity = powerDensityMatch ? Number(powerDensityMatch[1]) : undefined;
+                
+                return { 
+                    enabled: true, 
+                    settings: {
+                        chainFile,
+                        timeSteps,
+                        power,
+                        powerDensity
+                    }
+                };
+            }
+            
+            return { enabled: false };
+        } catch (e) {
+            console.error('[OpenMC Runner] Error checking depletion settings:', e);
+            return { enabled: false };
+        }
+    }
+
+    /**
+     * Get the extension root path.
+     * Follows nuke-visualizer pattern.
+     */
+    private async getExtensionPath(): Promise<string> {
+        const path = await import('path');
+        try {
+            return path.dirname(require.resolve('openmc-studio/package.json'));
+        } catch (e) {
+            // Fallback to __dirname if require.resolve fails
+            return path.resolve(__dirname, '../..');
+        }
+    }
+
+    /**
+     * Get the path to the depletion runner script.
+     * Follows nuke-visualizer pattern for robust path resolution.
+     */
+    private async getDepletionRunnerPath(): Promise<string> {
+        const path = await import('path');
+        const fs = await import('fs');
+        
+        // First try the standard extension path
+        const extensionPath = await this.getExtensionPath();
+        const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
+        
+        if (fs.existsSync(scriptPath)) {
+            this.log(`Found depletion script: ${scriptPath}`);
+            return scriptPath;
+        }
+        
+        // Fallback search in common locations (same pattern as nuke-visualizer)
+        const fallbackPaths = [
+            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/run_depletion.py'),
+            path.resolve(process.cwd(), 'extensions/openmc-studio/python/run_depletion.py'),
+            path.resolve(__dirname, '../../python/run_depletion.py'),
+            path.resolve(__dirname, '../../../python/run_depletion.py'),
+        ];
+        
+        for (const fp of fallbackPaths) {
+            this.log(`Checking fallback path: ${fp}`);
+            if (fs.existsSync(fp)) {
+                this.log(`Found depletion script at fallback: ${fp}`);
+                return fp;
+            }
+        }
+        
+        this.log(`Warning: Could not find run_depletion.py, returning default: ${scriptPath}`);
+        return scriptPath;
+    }
+
+    /**
      * Set the client for progress notifications.
      */
     setClient(client: OpenMCStudioClient): void {
@@ -372,11 +479,19 @@ export class OpenMCRunnerService {
     /**
      * Start simulation non-blocking - returns immediately with processId.
      * Status updates are sent via the client interface.
+     * If depletion is enabled in settings.xml, runs depletion via Python API instead.
      */
     async startSimulation(request: SimulationRunRequest): Promise<{ processId: string; success: boolean; error?: string }> {
         const processId = `sim-${Date.now()}`;
         
         this.log(`Starting simulation ${processId} in ${request.workingDirectory}`);
+        
+        // Check if depletion is enabled
+        const depletionCheck = await this.checkDepletionEnabled(request.workingDirectory);
+        if (depletionCheck.enabled && depletionCheck.settings) {
+            this.log('Depletion settings detected - running depletion via Python API');
+            return this.startDepletionSimulation(processId, request, depletionCheck.settings);
+        }
         
         const { spawn } = await import('child_process');
         
@@ -548,6 +663,188 @@ export class OpenMCRunnerService {
         }
     }
 
+    /**
+     * Start depletion simulation using Python API.
+     */
+    private async startDepletionSimulation(
+        processId: string, 
+        request: SimulationRunRequest,
+        depletionSettings: { chainFile?: string; timeSteps: number[]; power?: number; powerDensity?: number }
+    ): Promise<{ processId: string; success: boolean; error?: string }> {
+        const { spawn } = await import('child_process');
+        const path = await import('path');
+        
+        // Detect Python command
+        this.log('Detecting Python environment for depletion...');
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        
+        if (!pythonCommand) {
+            return {
+                processId,
+                success: false,
+                error: 'Python with OpenMC not found. Please check your environment.'
+            };
+        }
+        
+        // Get the depletion runner script path
+        const depletionRunnerPath = await this.getDepletionRunnerPath();
+        
+        // Build command arguments
+        const args: string[] = [
+            depletionRunnerPath,
+            request.workingDirectory,
+            '--time-steps', depletionSettings.timeSteps.join(','),
+        ];
+        
+        if (depletionSettings.chainFile) {
+            args.push('--chain-file', depletionSettings.chainFile);
+        }
+        
+        if (depletionSettings.power !== undefined) {
+            args.push('--power', String(depletionSettings.power));
+        } else if (depletionSettings.powerDensity !== undefined) {
+            args.push('--power-density', String(depletionSettings.powerDensity));
+        }
+        
+        // Default solver and operator
+        args.push('--solver', 'cecm');
+        args.push('--operator', 'coupled');
+        
+        // Add MPI processes if enabled
+        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
+            args.push('--mpi-processes', String(request.mpi.processes));
+        }
+        
+        this.log(`Running depletion: ${pythonCommand} ${args.join(' ')}`);
+        
+        // Build environment
+        const pythonBinDir = path.dirname(pythonCommand);
+        const currentPath = process.env.PATH || '';
+        const newPath = currentPath.includes(pythonBinDir) 
+            ? currentPath 
+            : `${pythonBinDir}:${currentPath}`;
+        
+        try {
+            const env = {
+                ...process.env,
+                PATH: newPath,
+                ...request.env
+            };
+            
+            const childProcess = spawn(pythonCommand, args, {
+                cwd: request.workingDirectory,
+                env,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            
+            const startTime = new Date();
+            let stdout = '';
+            let stderr = '';
+            
+            // Store running simulation
+            this.runningSimulations.set(processId, {
+                processId,
+                process: childProcess,
+                startTime,
+                request
+            });
+            
+            // Notify client that simulation is starting
+            this.client?.onSimulationStatus({
+                processId,
+                status: 'starting'
+            });
+            
+            // Handle stdout
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stdout += chunk;
+                this.client?.log(chunk);
+            });
+            
+            // Handle stderr (includes progress messages from depletion script)
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stderr += chunk;
+                this.client?.log(chunk);
+            });
+            
+            // Handle process exit
+            childProcess.on('close', (code: number | null) => {
+                this.runningSimulations.delete(processId);
+                
+                const endTime = new Date();
+                const duration = (endTime.getTime() - startTime.getTime()) / 1000;
+                
+                // Get output files including depletion results
+                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                
+                const success = code === 0;
+                let error: string | undefined;
+                
+                if (!success) {
+                    if (code !== null) {
+                        error = `Depletion process exited with code ${code}`;
+                    } else {
+                        error = 'Depletion process was terminated';
+                    }
+                    if (stderr) {
+                        const stderrExcerpt = stderr.split('\n').slice(0, 10).join('\n');
+                        error += `\nStderr: ${stderrExcerpt}`;
+                    }
+                }
+                
+                // Notify client of completion
+                this.client?.onSimulationStatus({
+                    processId,
+                    status: success ? 'completed' : 'failed',
+                    result: {
+                        success,
+                        exitCode: code ?? undefined,
+                        stdout,
+                        stderr,
+                        error,
+                        outputFiles,
+                        timing: {
+                            startTime: startTime.toISOString(),
+                            endTime: endTime.toISOString(),
+                            duration
+                        }
+                    }
+                });
+            });
+            
+            // Handle errors
+            childProcess.on('error', (error: Error) => {
+                this.runningSimulations.delete(processId);
+                this.client?.onSimulationStatus({
+                    processId,
+                    status: 'failed',
+                    result: {
+                        success: false,
+                        error: error.message,
+                        stdout,
+                        stderr,
+                        outputFiles: []
+                    }
+                });
+            });
+            
+            // Return immediately with processId
+            return { processId, success: true };
+            
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.log(`Error starting depletion simulation: ${errorMsg}`);
+            return {
+                processId,
+                success: false,
+                error: errorMsg
+            };
+        }
+    }
+
     async cancelSimulation(processId: string): Promise<boolean> {
         const simulation = this.runningSimulations.get(processId);
         
@@ -639,6 +936,18 @@ export class OpenMCRunnerService {
                 }
                 // Check for tally output
                 else if (file.startsWith('tally') && file.endsWith('.out')) {
+                    outputFiles.push(path.join(workingDirectory, file));
+                }
+                // Check for depletion results
+                else if (file === 'depletion_results.h5') {
+                    outputFiles.push(path.join(workingDirectory, file));
+                }
+                // Check for depletion summary
+                else if (file === 'depletion_summary.json') {
+                    outputFiles.push(path.join(workingDirectory, file));
+                }
+                // Check for OpenMC simulation output (from depletion)
+                else if (file === 'openmc_simulation.h5') {
                     outputFiles.push(path.join(workingDirectory, file));
                 }
             }

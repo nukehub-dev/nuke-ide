@@ -780,6 +780,8 @@ export interface OpenMCVarianceReduction {
 
 /** Depletion chain settings */
 export interface OpenMCDepletion {
+    /** Whether depletion analysis is enabled */
+    enabled?: boolean;
     /** Chain file path or URL */
     chainFile?: string;
     /** Operator type: 'coupled', 'independent', 'openmc' */

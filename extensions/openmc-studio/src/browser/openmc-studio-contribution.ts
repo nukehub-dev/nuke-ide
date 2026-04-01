@@ -138,6 +138,36 @@ export namespace OpenMCStudioCommands {
         category: CATEGORY,
         label: 'Open Tally Configurator'
     };
+
+    export const OPEN_VARIANCE_REDUCTION: Command = {
+        id: 'openmc.openVarianceReduction',
+        category: CATEGORY,
+        label: 'Variance Reduction'
+    };
+
+    export const OPEN_SCRIPT_GENERATOR: Command = {
+        id: 'openmc.openScriptGenerator',
+        category: CATEGORY,
+        label: 'Generate Python Script'
+    };
+
+    export const OPEN_SIMULATION_COMPARISON: Command = {
+        id: 'openmc.openSimulationComparison',
+        category: CATEGORY,
+        label: 'Compare Simulations'
+    };
+
+    export const OPEN_OPTIMIZATION: Command = {
+        id: 'openmc.openOptimization',
+        category: CATEGORY,
+        label: 'Optimization'
+    };
+
+    export const OPEN_DAGMC_EDITOR: Command = {
+        id: 'openmc.openDAGMCEditor',
+        category: CATEGORY,
+        label: 'Open DAGMC Editor'
+    };
 }
 
 // ============================================================================
@@ -239,6 +269,23 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         commands.registerCommand(OpenMCStudioCommands.OPEN_CSG_BUILDER, {
             execute: () => this.openCSGBuilder()
         });
+
+        // Phase 4 command placeholders
+        commands.registerCommand(OpenMCStudioCommands.OPEN_VARIANCE_REDUCTION, {
+            execute: () => this.messageService.info('Variance Reduction configuration coming soon!')
+        });
+
+        commands.registerCommand(OpenMCStudioCommands.OPEN_SCRIPT_GENERATOR, {
+            execute: () => this.messageService.info('Python script generator coming soon!')
+        });
+
+        commands.registerCommand(OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON, {
+            execute: () => this.messageService.info('Simulation comparison coming soon!')
+        });
+
+        commands.registerCommand(OpenMCStudioCommands.OPEN_OPTIMIZATION, {
+            execute: () => this.messageService.info('Optimization framework coming soon!')
+        });
     }
 
     // ============================================================================
@@ -312,6 +359,30 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
             label: 'Simulation Dashboard',
             order: 'a'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+            commandId: OpenMCStudioCommands.OPEN_VARIANCE_REDUCTION.id,
+            label: 'Variance Reduction',
+            order: 'e'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+            commandId: OpenMCStudioCommands.OPEN_SCRIPT_GENERATOR.id,
+            label: 'Generate Python Script',
+            order: 'f'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+            commandId: OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON.id,
+            label: 'Compare Simulations',
+            order: 'g'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+            commandId: OpenMCStudioCommands.OPEN_OPTIMIZATION.id,
+            label: 'Optimization',
+            order: 'h'
         });
     }
 

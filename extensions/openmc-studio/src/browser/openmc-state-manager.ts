@@ -448,6 +448,62 @@ export class OpenMCStateManager {
         }
     }
 
+    /**
+     * Update depletion settings.
+     */
+    updateDepletion(updates: Partial<import('../common/openmc-state-schema').OpenMCDepletion>): void {
+        this._state.depletion = { ...(this._state.depletion || { timeSteps: [] }), ...updates } as any;
+        this.markDirty();
+        
+        this._onStateChange.fire({
+            path: 'depletion',
+            type: 'update',
+            value: this._state.depletion
+        });
+    }
+
+    /**
+     * Update variance reduction settings.
+     */
+    updateVarianceReduction(updates: Partial<import('../common/openmc-state-schema').OpenMCVarianceReduction>): void {
+        this._state.varianceReduction = { ...(this._state.varianceReduction || {}), ...updates } as any;
+        this.markDirty();
+        
+        this._onStateChange.fire({
+            path: 'variance-reduction',
+            type: 'update',
+            value: this._state.varianceReduction
+        });
+    }
+
+    /**
+     * Toggle decay-only status for a depletion step.
+     */
+    toggleDecayOnlyStep(stepIndex: number): void {
+        if (!this._state.depletion) {
+            return;
+        }
+        
+        const decayOnlySteps = [...(this._state.depletion.decayOnlySteps || [])];
+        const index = decayOnlySteps.indexOf(stepIndex);
+        
+        if (index >= 0) {
+            decayOnlySteps.splice(index, 1);
+        } else {
+            decayOnlySteps.push(stepIndex);
+            decayOnlySteps.sort((a, b) => a - b);
+        }
+        
+        this._state.depletion.decayOnlySteps = decayOnlySteps;
+        this.markDirty();
+        
+        this._onStateChange.fire({
+            path: 'depletion.decayOnlySteps',
+            type: 'update',
+            value: decayOnlySteps
+        });
+    }
+
     // ============================================================================
     // Universe CRUD Operations
     // ============================================================================

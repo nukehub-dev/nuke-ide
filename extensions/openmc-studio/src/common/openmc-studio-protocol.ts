@@ -234,7 +234,7 @@ export interface ValidationIssue {
     /** Severity level */
     severity: ValidationSeverity;
     /** Issue category */
-    category: 'geometry' | 'materials' | 'settings' | 'tallies' | 'general';
+    category: 'geometry' | 'materials' | 'settings' | 'tallies' | 'depletion' | 'general';
     /** Error code for documentation reference */
     code?: string;
     /** Human-readable message */
