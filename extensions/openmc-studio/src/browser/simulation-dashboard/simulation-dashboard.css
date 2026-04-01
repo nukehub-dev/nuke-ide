@@ -2777,3 +2777,296 @@
 }
 
 
+/* ============================================================================
+   Variance Reduction Tab
+   ============================================================================ */
+
+.simulation-dashboard .variance-reduction-tab {
+    max-width: 100%;
+    animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* VR Info Banner */
+.simulation-dashboard .vr-info-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-left: 4px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    margin-bottom: 24px;
+}
+
+.simulation-dashboard .vr-info-banner > i {
+    font-size: 24px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .vr-info-banner .info-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.simulation-dashboard .vr-info-banner .info-content strong {
+    font-size: 14px;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .vr-info-banner .info-content span {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* VR Enable Card - shared with depletion */
+.simulation-dashboard .vr-enable-card {
+    background: linear-gradient(135deg, var(--theia-editorWidget-background) 0%, var(--theia-list-hoverBackground) 100%);
+    border: 2px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .vr-enable-card.enabled {
+    background: linear-gradient(135deg, rgba(74, 144, 217, 0.1) 0%, rgba(74, 144, 217, 0.05) 100%);
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .vr-enable-card .enable-card-content {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.simulation-dashboard .vr-enable-card .enable-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    background: var(--theia-badge-background);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .vr-enable-card .enable-icon i {
+    font-size: 28px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .vr-enable-card.enabled .enable-icon {
+    background: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .vr-enable-card.enabled .enable-icon i {
+    color: var(--theia-button-foreground);
+}
+
+.simulation-dashboard .vr-enable-card .enable-text {
+    flex: 1;
+}
+
+.simulation-dashboard .vr-enable-card .enable-text h3 {
+    margin: 0 0 6px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .vr-enable-card .enable-text p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.5;
+}
+
+/* VR Warning Box */
+.simulation-dashboard .vr-warning-box {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.simulation-dashboard .vr-warning-box > i {
+    font-size: 32px;
+    color: var(--theia-inputValidation-warningBorder);
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .vr-warning-box .warning-content {
+    flex: 1;
+}
+
+.simulation-dashboard .vr-warning-box .warning-content strong {
+    display: block;
+    font-size: 14px;
+    color: var(--theia-inputValidation-warningBorder);
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .vr-warning-box .warning-content p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--theia-foreground);
+}
+
+/* Mesh Info Card */
+.simulation-dashboard .mesh-info-card {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.simulation-dashboard .mesh-info-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .mesh-info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px 16px;
+}
+
+.simulation-dashboard .mesh-info-grid .info-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.simulation-dashboard .mesh-info-grid .info-item label {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .mesh-info-grid .info-item span {
+    color: var(--theia-foreground);
+    font-family: var(--theia-monospace-font-family);
+}
+
+/* Energy Bounds */
+.simulation-dashboard .energy-bounds-input input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+}
+
+.simulation-dashboard .energy-bounds-preview {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .energy-bounds-preview .preview-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.simulation-dashboard .energy-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.simulation-dashboard .energy-bound-tag {
+    padding: 4px 10px;
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: var(--theia-monospace-font-family);
+}
+
+/* WW Generator Config */
+.simulation-dashboard .ww-generator-config {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+    animation: slide-down 0.2s ease-out;
+}
+
+/* Survival Biasing Section */
+.simulation-dashboard .survival-biasing-section {
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .survival-biasing-section .form-hint {
+    margin-top: 8px;
+    padding-left: 24px;
+}
+
+/* Cutoff Section */
+.simulation-dashboard .cutoff-section {
+    background: var(--theia-editorWidget-background);
+}
+
+/* Tooltip Icon */
+.simulation-dashboard .tooltip-icon {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-left: 4px;
+    cursor: help;
+}
+
+.simulation-dashboard .info-icon {
+    font-size: 12px;
+    opacity: 0.5;
+    cursor: help;
+    margin-left: 4px;
+}
+
+/* Weight Window Editor */
+.simulation-dashboard .weight-window-editor,
+.simulation-dashboard .source-biasing-editor {
+    margin-bottom: 24px;
+}
+
+/* Source Biasing Editor specific */
+.simulation-dashboard .source-biasing-editor .settings-section {
+    margin-top: 16px;
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .simulation-dashboard .vr-enable-card .enable-card-content {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .simulation-dashboard .mesh-info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .simulation-dashboard .energy-groups {
+        flex-direction: column;
+    }
+}

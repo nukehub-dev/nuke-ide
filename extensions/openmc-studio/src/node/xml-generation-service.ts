@@ -601,6 +601,99 @@ export class XMLGenerationService {
             lines.push('  </depletion>');
         }
 
+        // Variance Reduction settings
+        if (state.varianceReduction) {
+            const vr = state.varianceReduction;
+            
+            // Survival biasing
+            if (vr.survivalBiasing) {
+                lines.push('');
+                lines.push('  <!-- Variance Reduction -->');
+                lines.push('  <survival_biasing>true</survival_biasing>');
+            }
+            
+            // Cutoff settings
+            if (vr.cutoff && (vr.cutoff.weight !== undefined || vr.cutoff.weightAvg !== undefined)) {
+                lines.push('  <cutoff>');
+                if (vr.cutoff.weight !== undefined) {
+                    lines.push(`    <weight>${vr.cutoff.weight}</weight>`);
+                }
+                if (vr.cutoff.weightAvg !== undefined) {
+                    lines.push(`    <weight_avg>${vr.cutoff.weightAvg}</weight_avg>`);
+                }
+                lines.push('  </cutoff>');
+            }
+            
+            // Weight window generator
+            if (vr.weightWindowGenerator) {
+                lines.push('  <weight_window_generator>');
+                if (vr.weightWindowGenerator.iterations !== undefined) {
+                    lines.push(`    <iterations>${vr.weightWindowGenerator.iterations}</iterations>`);
+                }
+                if (vr.weightWindowGenerator.particleType) {
+                    lines.push(`    <particle_type>${vr.weightWindowGenerator.particleType}</particle_type>`);
+                }
+                lines.push('  </weight_window_generator>');
+            }
+            
+            // Weight windows
+            if (vr.weightWindows) {
+                const ww = vr.weightWindows;
+                lines.push('  <weight_windows id="1">');
+                
+                if (ww.meshId !== undefined) {
+                    lines.push(`    <mesh>${ww.meshId}</mesh>`);
+                }
+                
+                // Particle type (required, default neutron)
+                lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
+                
+                // Calculate number of mesh cells for bounds array
+                let numCells = 1;
+                const mesh = state.meshes.find((m: OpenMCMesh) => m.id === ww.meshId);
+                if (mesh) {
+                    if (mesh.type === 'regular') {
+                        const regularMesh = mesh as OpenMCRegularMesh;
+                        numCells = regularMesh.dimension[0] * regularMesh.dimension[1] * regularMesh.dimension[2];
+                    } else if (mesh.type === 'cylindrical') {
+                        const cylMesh = mesh as OpenMCCylindricalMesh;
+                        numCells = (cylMesh.rGrid.length - 1) * (cylMesh.phiGrid.length - 1) * (cylMesh.zGrid.length - 1);
+                    } else if (mesh.type === 'spherical') {
+                        const sphMesh = mesh as OpenMCSphericalMesh;
+                        numCells = (sphMesh.rGrid.length - 1) * (sphMesh.thetaGrid.length - 1) * (sphMesh.phiGrid.length - 1);
+                    }
+                }
+                
+                // Number of energy groups (N bounds = N-1 groups)
+                const numEnergyGroups = ww.energyBounds && ww.energyBounds.length > 1 ? ww.energyBounds.length - 1 : 1;
+                const totalBounds = numCells * numEnergyGroups;
+                
+                // Lower ww bounds - must have one value per mesh cell per energy group
+                const lowerBoundValue = typeof ww.lowerBound === 'number' ? ww.lowerBound : 0.5;
+                const lowerBounds = Array(totalBounds).fill(lowerBoundValue);
+                lines.push(`    <lower_ww_bounds>${lowerBounds.join(' ')}</lower_ww_bounds>`);
+                
+                // Upper ww bounds - must have one value per mesh cell per energy group
+                const upperBoundValue = typeof ww.upperBound === 'number' ? ww.upperBound : lowerBoundValue * 2;
+                const upperBounds = Array(totalBounds).fill(upperBoundValue);
+                lines.push(`    <upper_ww_bounds>${upperBounds.join(' ')}</upper_ww_bounds>`);
+                
+                // Survival ratio (default 3.0)
+                lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
+                
+                // Required parameters
+                lines.push(`    <max_split>10</max_split>`);
+                lines.push(`    <weight_cutoff>1e-38</weight_cutoff>`);
+                
+                // Energy bounds
+                if (ww.energyBounds && ww.energyBounds.length > 0) {
+                    lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
+                }
+                
+                lines.push('  </weight_windows>');
+            }
+        }
+
         lines.push('</settings>');
         
         return lines.join('\n');

@@ -43,10 +43,11 @@ import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../.
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurator-widget';
 import { DepletionTimeline } from './depletion-timeline';
+import { WeightWindowEditor, SourceBiasingEditor } from './vr';
 import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 // Tab types for the dashboard
-export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'depletion' | 'simulation';
+export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'depletion' | 'variance-reduction' | 'simulation';
 
 @injectable()
 export class SimulationDashboardWidget extends ReactWidget {
@@ -379,6 +380,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     {this.activeTab === 'materials' && this.renderMaterialsTab(state)}
                     {this.activeTab === 'tallies' && this.renderTalliesTab(state)}
                     {this.activeTab === 'depletion' && this.renderDepletionTab(state)}
+                    {this.activeTab === 'variance-reduction' && this.renderVarianceReductionTab(state)}
                     {this.activeTab === 'simulation' && this.renderSimulationTab(state)}
                 </div>
             </div>
@@ -493,6 +495,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             { id: 'materials', label: 'Materials', icon: 'codicon-symbol-color' },
             { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
             { id: 'depletion', label: 'Depletion', icon: 'codicon-history' },
+            { id: 'variance-reduction', label: 'Variance Reduction', icon: 'codicon-dashboard' },
             { id: 'simulation', label: 'Simulation', icon: 'codicon-play' }
         ];
 
@@ -1784,6 +1787,228 @@ export class SimulationDashboardWidget extends ReactWidget {
         ));
     }
 
+    // ============================================================================
+    // Variance Reduction Tab
+    // ============================================================================
+
+    private renderVarianceReductionTab(state: OpenMCState): React.ReactNode {
+        const vr = state.varianceReduction || {};
+        const meshes = state.meshes || [];
+
+        return (
+            <div className='variance-reduction-tab'>
+                {/* Info Banner */}
+                <div className='info-banner vr-info-banner'>
+                    <i className='codicon codicon-info'></i>
+                    <div className='info-content'>
+                        <strong>Variance Reduction Techniques</strong>
+                        <span>Use these methods to improve simulation efficiency for deep penetration and shielding problems.</span>
+                    </div>
+                </div>
+
+                {/* Survival Biasing Toggle */}
+                <div className='settings-section survival-biasing-section'>
+                    <h3>
+                        <i className='codicon codicon-shield'></i>
+                        Survival Biasing
+                    </h3>
+                    <div className='form-group checkbox'>
+                        <label>
+                            <input
+                                type='checkbox'
+                                checked={vr.survivalBiasing || false}
+                                onChange={(e) => this.stateManager.updateVarianceReduction({
+                                    ...vr,
+                                    survivalBiasing: e.target.checked
+                                })}
+                            />
+                            Enable Survival Biasing (Implicit Capture)
+                        </label>
+                    </div>
+                    <span className='form-hint'>
+                        Instead of terminating absorption events, reduce particle weight and continue tracking.
+                        Recommended for problems with strong absorption.
+                    </span>
+                </div>
+
+                {/* Cutoff Settings */}
+                <div className='settings-section cutoff-section'>
+                    <h3>
+                        <i className='codicon codicon-settings'></i>
+                        Weight Cutoffs
+                    </h3>
+
+                    <div className='form-row'>
+                        <div className='form-group'>
+                            <label>
+                                Weight Cutoff
+                                <Tooltip content='Particles with weight below this value are terminated' position='top'>
+                                    <i className='codicon codicon-info info-icon'></i>
+                                </Tooltip>
+                            </label>
+                            <input
+                                type='number'
+                                min={0}
+                                step={0.001}
+                                value={vr.cutoff?.weight || ''}
+                                placeholder='Default'
+                                onChange={(e) => {
+                                    const weight = e.target.value ? parseFloat(e.target.value) : undefined;
+                                    this.stateManager.updateVarianceReduction({
+                                        ...vr,
+                                        cutoff: { ...vr.cutoff, weight }
+                                    });
+                                }}
+                            />
+                            <span className='form-hint'>Terminate particles below this weight</span>
+                        </div>
+
+                        <div className='form-group'>
+                            <label>
+                                Average Weight Cutoff
+                                <Tooltip content='Threshold for average weight of particles in a cell' position='top'>
+                                    <i className='codicon codicon-info info-icon'></i>
+                                </Tooltip>
+                            </label>
+                            <input
+                                type='number'
+                                min={0}
+                                step={0.001}
+                                value={vr.cutoff?.weightAvg || ''}
+                                placeholder='Default'
+                                onChange={(e) => {
+                                    const weightAvg = e.target.value ? parseFloat(e.target.value) : undefined;
+                                    this.stateManager.updateVarianceReduction({
+                                        ...vr,
+                                        cutoff: { ...vr.cutoff, weightAvg }
+                                    });
+                                }}
+                            />
+                            <span className='form-hint'>Cell-based average weight threshold</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Weight Window Generator */}
+                <div className='settings-section ww-generator-section'>
+                    <h3>
+                        <i className='codicon codicon-rocket'></i>
+                        Weight Window Generator
+                    </h3>
+
+                    <div className='form-group checkbox'>
+                        <label>
+                            <input
+                                type='checkbox'
+                                checked={!!vr.weightWindowGenerator}
+                                onChange={(e) => {
+                                    if (e.target.checked) {
+                                        this.stateManager.updateVarianceReduction({
+                                            ...vr,
+                                            weightWindowGenerator: { iterations: 5, particleType: 'neutron' }
+                                        });
+                                    } else {
+                                        this.stateManager.updateVarianceReduction({
+                                            ...vr,
+                                            weightWindowGenerator: undefined
+                                        });
+                                    }
+                                }}
+                            />
+                            Enable Weight Window Generator
+                        </label>
+                    </div>
+
+                    {vr.weightWindowGenerator && (
+                        <div className='ww-generator-config'>
+                            <div className='form-row'>
+                                <div className='form-group'>
+                                    <label>Iterations</label>
+                                    <input
+                                        type='number'
+                                        min={1}
+                                        max={20}
+                                        value={vr.weightWindowGenerator.iterations || 5}
+                                        onChange={(e) => this.stateManager.updateVarianceReduction({
+                                            ...vr,
+                                            weightWindowGenerator: {
+                                                ...vr.weightWindowGenerator,
+                                                iterations: parseInt(e.target.value) || 5
+                                            }
+                                        })}
+                                    />
+                                    <span className='form-hint'>Number of generations to run for optimization</span>
+                                </div>
+
+                                <div className='form-group'>
+                                    <label>Particle Type</label>
+                                    <select
+                                        value={vr.weightWindowGenerator.particleType || 'neutron'}
+                                        onChange={(e) => this.stateManager.updateVarianceReduction({
+                                            ...vr,
+                                            weightWindowGenerator: {
+                                                ...vr.weightWindowGenerator,
+                                                particleType: e.target.value as 'neutron' | 'photon'
+                                            }
+                                        })}
+                                    >
+                                        <option value='neutron'>Neutron</option>
+                                        <option value='photon'>Photon</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Weight Windows Editor */}
+                <WeightWindowEditor
+                    weightWindows={vr.weightWindows}
+                    meshes={meshes}
+                    onChange={(updates) => this.stateManager.updateVarianceReduction({
+                        ...vr,
+                        weightWindows: { ...vr.weightWindows, ...updates } as any
+                    })}
+                    onToggle={(enabled) => {
+                        if (enabled) {
+                            this.stateManager.updateVarianceReduction({
+                                ...vr,
+                                weightWindows: { meshId: meshes[0]?.id || 0, lowerBound: 0.5 }
+                            });
+                        } else {
+                            this.stateManager.updateVarianceReduction({
+                                ...vr,
+                                weightWindows: undefined
+                            });
+                        }
+                    }}
+                />
+
+                {/* Source Biasing Editor */}
+                <SourceBiasingEditor
+                    sourceBiasing={vr.sourceBiasing}
+                    onChange={(updates) => this.stateManager.updateVarianceReduction({
+                        ...vr,
+                        sourceBiasing: { ...vr.sourceBiasing, ...updates }
+                    })}
+                    onToggle={(enabled) => {
+                        if (enabled) {
+                            this.stateManager.updateVarianceReduction({
+                                ...vr,
+                                sourceBiasing: {}
+                            });
+                        } else {
+                            this.stateManager.updateVarianceReduction({
+                                ...vr,
+                                sourceBiasing: undefined
+                            });
+                        }
+                    }}
+                />
+            </div>
+        );
+    }
+
     private renderSimulationTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='simulation-tab'>
@@ -1965,6 +2190,34 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 </div>
                             );
                         })()}
+
+                        {/* Variance Reduction Check */}
+                        {(() => {
+                            const vr = state.varianceReduction;
+                            const hasVR = !!vr && (
+                                vr.survivalBiasing ||
+                                vr.weightWindows ||
+                                vr.sourceBiasing ||
+                                vr.weightWindowGenerator ||
+                                (vr.cutoff?.weight !== undefined)
+                            );
+                            
+                            return (
+                                <div className={`checklist-item ${hasVR ? 'done' : ''}`}>
+                                    <div className='checklist-icon'>
+                                        <i className={`codicon codicon-${hasVR ? 'check' : 'circle-outline'}`}></i>
+                                    </div>
+                                    <div className='checklist-content'>
+                                        <span className='checklist-title'>Variance Reduction</span>
+                                        <span className='checklist-status'>
+                                            {hasVR 
+                                                ? 'Enabled' 
+                                                : 'Optional - none configured'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -2123,6 +2376,52 @@ export class SimulationDashboardWidget extends ReactWidget {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* Variance Reduction Summary */}
+                {state.varianceReduction && (
+                    (state.varianceReduction.survivalBiasing ||
+                     state.varianceReduction.weightWindows ||
+                     state.varianceReduction.sourceBiasing ||
+                     state.varianceReduction.weightWindowGenerator) && (
+                        <div className='simulation-info'>
+                            <div className='info-header'>
+                                <h4><i className='codicon codicon-dashboard'></i> Variance Reduction</h4>
+                            </div>
+                            <div className='info-grid'>
+                                {state.varianceReduction.survivalBiasing && (
+                                    <div className='info-item'>
+                                        <label>Survival Biasing:</label>
+                                        <span>Enabled</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.weightWindows && (
+                                    <div className='info-item'>
+                                        <label>Weight Windows:</label>
+                                        <span>Mesh {state.varianceReduction.weightWindows.meshId}</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.sourceBiasing && (
+                                    <div className='info-item'>
+                                        <label>Source Biasing:</label>
+                                        <span>Enabled</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.weightWindowGenerator && (
+                                    <div className='info-item'>
+                                        <label>WW Generator:</label>
+                                        <span>{state.varianceReduction.weightWindowGenerator.iterations} iterations</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.cutoff?.weight !== undefined && (
+                                    <div className='info-item'>
+                                        <label>Weight Cutoff:</label>
+                                        <span>{state.varianceReduction.cutoff.weight}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
                 )}
 
                 {/* Geometry Summary - CSG */}

@@ -750,6 +750,16 @@ export interface OpenMCWeightWindows {
     energyBounds?: number[];
 }
 
+/** Source biasing settings */
+export interface OpenMCSourceBiasing {
+    /** Strength bias factor */
+    strengthBias?: number;
+    /** Energy biasing distribution */
+    energyBias?: OpenMCSourceEnergy;
+    /** Spatial biasing distribution */
+    spatialBias?: OpenMCSourceSpatial;
+}
+
 /** Variance reduction settings */
 export interface OpenMCVarianceReduction {
     /** Weight windows definition */
@@ -760,11 +770,7 @@ export interface OpenMCVarianceReduction {
         particleType?: 'neutron' | 'photon';
     };
     /** Source biasing settings */
-    sourceBiasing?: {
-        strengthBias?: number;
-        energyBias?: OpenMCSourceEnergy;
-        spatialBias?: OpenMCSourceSpatial;
-    };
+    sourceBiasing?: OpenMCSourceBiasing;
     /** Survival biasing toggle */
     survivalBiasing?: boolean;
     /** Cutoff settings */

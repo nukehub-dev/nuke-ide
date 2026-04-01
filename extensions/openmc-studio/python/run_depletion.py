@@ -46,9 +46,42 @@ def run_depletion(args):
 
     # Load the model from XML files
     try:
+        import xml.etree.ElementTree as ET
+        
         materials = openmc.Materials.from_xml('materials.xml')
         geometry = openmc.Geometry.from_xml('geometry.xml', materials)
-        settings = openmc.Settings.from_xml('settings.xml')
+        
+        # Load meshes from tallies.xml first (needed for weight windows)
+        meshes = {}
+        if os.path.exists('tallies.xml'):
+            try:
+                tallies_tree = ET.parse('tallies.xml')
+                tallies_root = tallies_tree.getroot()
+                
+                # Load meshes the same way OpenMC does
+                for mesh_elem in tallies_root.findall('mesh'):
+                    mesh_type = mesh_elem.get('type')
+                    mesh_id = int(mesh_elem.get('id'))
+                    
+                    if mesh_type == 'regular':
+                        mesh = openmc.RegularMesh.from_xml_element(mesh_elem)
+                    elif mesh_type == 'cylindrical':
+                        mesh = openmc.CylindricalMesh.from_xml_element(mesh_elem)
+                    elif mesh_type == 'spherical':
+                        mesh = openmc.SphericalMesh.from_xml_element(mesh_elem)
+                    else:
+                        continue
+                    
+                    meshes[mesh_id] = mesh
+                    
+            except Exception as e:
+                log_progress(f"Warning: Could not load meshes from tallies.xml: {e}")
+        
+        # Load settings with meshes dictionary
+        settings_tree = ET.parse('settings.xml')
+        settings_root = settings_tree.getroot()
+        settings = openmc.Settings.from_xml_element(settings_root, meshes)
+        
     except Exception as e:
         log_progress(f"Error loading XML files: {e}")
         raise
