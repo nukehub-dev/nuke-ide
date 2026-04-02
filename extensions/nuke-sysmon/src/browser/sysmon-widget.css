@@ -68,9 +68,7 @@
 
 .sysmon-container {
     padding: 24px;
-    max-width: 1200px;
     margin: 0 auto;
-    /* Ensure content is tall enough to trigger scrolling when needed */
     min-height: 100%;
     height: auto;
 }

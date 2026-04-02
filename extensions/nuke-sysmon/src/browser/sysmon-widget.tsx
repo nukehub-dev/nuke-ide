@@ -36,6 +36,11 @@ export class SysmonWidget extends ReactWidget {
     private loading = true;
     private currentIntervalMs: number = 2000;
 
+    constructor(options?: any) {
+        super(options);
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = SysmonWidget.ID;
@@ -55,56 +60,8 @@ export class SysmonWidget extends ReactWidget {
 
     protected onAfterAttach(msg: Message): void {
         super.onAfterAttach(msg);
-        this.disablePerfectScrollbar();
         this.loadDisks();
         this.startUpdating();
-    }
-
-    private disablePerfectScrollbar(): void {
-        // Remove the .ps class to prevent perfect-scrollbar from activating
-        this.node.classList.remove('ps');
-        
-        // Remove any existing rails
-        const rails = this.node.querySelectorAll('.ps__rail-x, .ps__rail-y');
-        rails.forEach(rail => rail.remove());
-        
-        // Watch for perfect-scrollbar adding elements and remove them immediately
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node instanceof HTMLElement) {
-                        if (node.classList.contains('ps__rail-x') || 
-                            node.classList.contains('ps__rail-y')) {
-                            node.remove();
-                        }
-                    }
-                });
-            });
-            // Also ensure .ps class is never added
-            if (this.node.classList.contains('ps')) {
-                this.node.classList.remove('ps');
-            }
-        });
-        
-        observer.observe(this.node, {
-            childList: true,
-            subtree: false,
-            attributes: true,
-            attributeFilter: ['class']
-        });
-        
-        // Store observer for cleanup
-        (this as any)._psObserver = observer;
-    }
-
-    protected onBeforeDetach(msg: Message): void {
-        super.onBeforeDetach(msg);
-        this.stopUpdating();
-        // Clean up the observer
-        const observer = (this as any)._psObserver;
-        if (observer) {
-            observer.disconnect();
-        }
     }
 
     private get Plotly(): any {
