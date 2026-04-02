@@ -2958,7 +2958,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
-    private async runSimulation(): Promise<void> {
+    public async runSimulation(): Promise<void> {
         // First validate
         const validation = await this.validateModel();
         if (!validation.valid) {
@@ -3038,6 +3038,9 @@ export class SimulationDashboardWidget extends ReactWidget {
                     panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             }, 100);
+            // Set running state immediately for UI responsiveness
+            this.isRunning = true;
+            this.update();
             // Note: runSimulation returns immediately, completion handled by events
             this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString()
@@ -3047,10 +3050,13 @@ export class SimulationDashboardWidget extends ReactWidget {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Error running simulation: ${msg}`);
             this.logToConsole(`Error: ${msg}`, 'error');
+            // Reset running state on error
+            this.isRunning = false;
+            this.update();
         }
     }
 
-    private async stopSimulation(): Promise<void> {
+    public async stopSimulation(): Promise<void> {
         this.logToConsole('Stopping simulation...');
         const success = await this.simulationRunner.stopSimulation();
         
@@ -3066,6 +3072,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.isRunning = false;
         this.simulationProgress = undefined;
         this.update();
+    }
+
+    public get isSimulationRunning(): boolean {
+        return this.isRunning;
     }
 
     private async validateModel(): Promise<{ valid: boolean; issues: ValidationIssue[] }> {

@@ -240,12 +240,25 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         
         // Simulation commands
         commands.registerCommand(OpenMCStudioCommands.RUN_SIMULATION, {
-            execute: () => this.runSimulation()
+            execute: () => this.runSimulation(),
+            isEnabled: () => {
+                const widget = this.widgetManager.tryGetWidget(SimulationDashboardWidget.ID);
+                if (widget instanceof SimulationDashboardWidget) {
+                    return !widget.isSimulationRunning;
+                }
+                return true;
+            }
         });
         
         commands.registerCommand(OpenMCStudioCommands.STOP_SIMULATION, {
             execute: () => this.stopSimulation(),
-            isEnabled: () => false // TODO: Enable when simulation is running
+            isEnabled: () => {
+                const widget = this.widgetManager.tryGetWidget(SimulationDashboardWidget.ID);
+                if (widget instanceof SimulationDashboardWidget) {
+                    return widget.isSimulationRunning;
+                }
+                return false;
+            }
         });
         
         commands.registerCommand(OpenMCStudioCommands.VALIDATE_MODEL, {
@@ -457,6 +470,11 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         // The isVisible callback receives the widget that the toolbar is for
         const isVisible = (widget?: Widget) => widget instanceof SimulationDashboardWidget;
         
+        // Fire onDidChange periodically to update button enabled state
+        const refreshToolbar = () => {
+            this._onDidChangeCurrentWidget.fire();
+        };
+        
         toolbar.registerItem({
             id: OpenMCStudioCommands.RUN_SIMULATION.id,
             command: OpenMCStudioCommands.RUN_SIMULATION.id,
@@ -483,6 +501,9 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             onDidChange: this.onDidChangeCurrentWidget,
             isVisible
         });
+        
+        // Refresh toolbar every second to update enabled state based on simulation running
+        setInterval(refreshToolbar, 1000);
     }
 
     // ============================================================================
@@ -527,14 +548,17 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     protected async runSimulation(): Promise<void> {
         console.log('[OpenMC Studio] Run simulation command');
         await this.openSimulationDashboard();
-        // The run logic will be handled by the user in the dashboard
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            widget.runSimulation();
+        }
     }
     
     protected async stopSimulation(): Promise<void> {
         console.log('[OpenMC Studio] Stop simulation command');
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         if (widget instanceof SimulationDashboardWidget) {
-            // The widget handles stop
+            widget.stopSimulation();
         }
     }
     
