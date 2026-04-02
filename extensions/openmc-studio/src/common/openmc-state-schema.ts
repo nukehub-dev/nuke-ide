@@ -760,6 +760,14 @@ export interface OpenMCSourceBiasing {
     spatialBias?: OpenMCSourceSpatial;
 }
 
+/** Uniform fission site settings */
+export interface OpenMCUFS {
+    /** Whether UFS is enabled */
+    enabled?: boolean;
+    /** Mesh ID for UFS (if not specified, uses weight window mesh) */
+    meshId?: number;
+}
+
 /** Variance reduction settings */
 export interface OpenMCVarianceReduction {
     /** Weight windows definition */
@@ -778,6 +786,8 @@ export interface OpenMCVarianceReduction {
         weight?: number;
         weightAvg?: number;
     };
+    /** Uniform fission site settings */
+    ufs?: OpenMCUFS;
 }
 
 // ============================================================================

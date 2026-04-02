@@ -685,12 +685,26 @@ export class XMLGenerationService {
                 lines.push(`    <max_split>10</max_split>`);
                 lines.push(`    <weight_cutoff>1e-38</weight_cutoff>`);
                 
-                // Energy bounds
-                if (ww.energyBounds && ww.energyBounds.length > 0) {
+                // Energy bounds - REQUIRED by OpenMC
+                // Must have at least 2 bounds to define 1 energy group
+                if (ww.energyBounds && ww.energyBounds.length >= 2) {
                     lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
+                } else {
+                    this.log('Warning: Weight windows require energy_bounds (minimum 2 values)');
                 }
                 
                 lines.push('  </weight_windows>');
+            }
+            
+            // Uniform Fission Site (UFS)
+            if (vr.ufs?.enabled) {
+                lines.push('');
+                lines.push('  <!-- Uniform Fission Site -->');
+                lines.push('  <ufs>');
+                if (vr.ufs.meshId !== undefined) {
+                    lines.push(`    <mesh>${vr.ufs.meshId}</mesh>`);
+                }
+                lines.push('  </ufs>');
             }
         }
 

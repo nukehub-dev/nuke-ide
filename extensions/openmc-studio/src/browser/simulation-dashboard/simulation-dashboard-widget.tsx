@@ -1831,7 +1831,67 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </span>
                 </div>
 
-                {/* Cutoff Settings */}
+                {/* Uniform Fission Site (UFS) */}
+                {state.settings.run.mode === 'eigenvalue' && (
+                    <div className='settings-section ufs-section'>
+                        <h3>
+                            <i className='codicon codicon-radio-tower'></i>
+                            Uniform Fission Site (UFS)
+                        </h3>
+                        <div className='form-group checkbox'>
+                            <label>
+                                <input
+                                    type='checkbox'
+                                    checked={vr.ufs?.enabled || false}
+                                    onChange={(e) => {
+                                        if (e.target.checked) {
+                                            this.stateManager.updateVarianceReduction({
+                                                ...vr,
+                                                ufs: { enabled: true }
+                                            });
+                                        } else {
+                                            this.stateManager.updateVarianceReduction({
+                                                ...vr,
+                                                ufs: undefined
+                                            });
+                                        }
+                                    }}
+                                />
+                                Enable Uniform Fission Site
+                            </label>
+                        </div>
+                        <span className='form-hint'>
+                            For eigenvalue calculations: sample fission sites uniformly across the fissionable mesh.
+                            Improves source convergence for problems with localized fission sources.
+                        </span>
+
+                        {vr.ufs?.enabled && meshes.length > 0 && (
+                            <div className='form-group' style={{ marginTop: '12px' }}>
+                                <label>UFS Mesh (optional)</label>
+                                <select
+                                    value={vr.ufs.meshId || ''}
+                                    onChange={(e) => {
+                                        const meshId = e.target.value ? parseInt(e.target.value) : undefined;
+                                        this.stateManager.updateVarianceReduction({
+                                            ...vr,
+                                            ufs: { ...vr.ufs, meshId }
+                                        });
+                                    }}
+                                >
+                                    <option value=''>Use weight window mesh</option>
+                                    {meshes.map(mesh => (
+                                        <option key={mesh.id} value={mesh.id}>
+                                            {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
+                                        </option>
+                                    ))}
+                                </select>
+                                <span className='form-hint'>Select a specific mesh or use the weight window mesh</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Cutoff Settings -->
                 <div className='settings-section cutoff-section'>
                     <h3>
                         <i className='codicon codicon-settings'></i>
@@ -1955,6 +2015,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                                         <option value='neutron'>Neutron</option>
                                         <option value='photon'>Photon</option>
                                     </select>
+                                    <span className='form-hint'>Particle type to generate weight windows for</span>
                                 </div>
                             </div>
                         </div>
@@ -1973,7 +2034,11 @@ export class SimulationDashboardWidget extends ReactWidget {
                         if (enabled) {
                             this.stateManager.updateVarianceReduction({
                                 ...vr,
-                                weightWindows: { meshId: meshes[0]?.id || 0, lowerBound: 0.5 }
+                                weightWindows: { 
+                                    meshId: meshes[0]?.id || 0, 
+                                    lowerBound: 0.5,
+                                    energyBounds: [0.0, 2e7]  // Default: 0 to 20 MeV
+                                }
                             });
                         } else {
                             this.stateManager.updateVarianceReduction({
@@ -1982,6 +2047,8 @@ export class SimulationDashboardWidget extends ReactWidget {
                             });
                         }
                     }}
+                    onWWINPImport={() => this.importWWINP()}
+                    onWWINPExport={() => this.exportWWINP()}
                 />
 
                 {/* Source Biasing Editor */}
@@ -2540,6 +2607,91 @@ export class SimulationDashboardWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    // ============================================================================
+    // WWINP Import/Export Methods
+    // ============================================================================
+
+    private async importWWINP(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Import MCNP WWINP File',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: {
+                'MCNP Weight Windows': ['wwinp'],
+                'All Files': ['*']
+            }
+        };
+
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (!uri) {
+            return;
+        }
+
+        this.messageService.info(`Importing WWINP from ${uri.path.toString()}...`);
+        
+        try {
+            // Call backend service to parse WWINP
+            const result = await this.studioService.getBackendService().importWWINP({
+                filePath: uri.path.toString()
+            });
+
+            if (result.success && result.weightWindows) {
+                const state = this.stateManager.getState();
+                const vr = state.varianceReduction || {};
+                this.stateManager.updateVarianceReduction({
+                    ...vr,
+                    weightWindows: result.weightWindows
+                });
+                this.messageService.info('WWINP imported successfully');
+            } else {
+                this.messageService.error(`Failed to import WWINP: ${result.error}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`WWINP import error: ${msg}`);
+        }
+    }
+
+    private async exportWWINP(): Promise<void> {
+        const state = this.stateManager.getState();
+        const vr = state.varianceReduction;
+        
+        if (!vr?.weightWindows) {
+            this.messageService.warn('No weight windows configured to export');
+            return;
+        }
+
+        const props: SaveFileDialogProps = {
+            title: 'Export MCNP WWINP File',
+            inputValue: 'wwinp'
+        };
+
+        const uri = await this.fileDialogService.showSaveDialog(props);
+        if (!uri) {
+            return;
+        }
+
+        this.messageService.info(`Exporting WWINP to ${uri.path.toString()}...`);
+        
+        try {
+            // Call backend service to generate WWINP
+            const result = await this.studioService.getBackendService().exportWWINP({
+                filePath: uri.path.toString(),
+                weightWindows: vr.weightWindows,
+                meshes: state.meshes
+            });
+
+            if (result.success) {
+                this.messageService.info('WWINP exported successfully');
+            } else {
+                this.messageService.error(`Failed to export WWINP: ${result.error}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`WWINP export error: ${msg}`);
+        }
     }
 
     // ============================================================================

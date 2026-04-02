@@ -118,8 +118,7 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                 onChange={(e) => {
                                     const type = e.target.value as OpenMCSourceEnergy['type'] | 'none';
                                     if (type === 'none') {
-                                        const { energyBias, ...rest } = sb;
-                                        onChange(rest);
+                                        onChange({ ...sb, energyBias: undefined });
                                     } else {
                                         let energyBias: OpenMCSourceEnergy;
                                         switch (type) {
@@ -265,8 +264,7 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                 onChange={(e) => {
                                     const type = e.target.value as OpenMCSourceSpatial['type'] | 'none';
                                     if (type === 'none') {
-                                        const { spatialBias, ...rest } = sb;
-                                        onChange(rest);
+                                        onChange({ ...sb, spatialBias: undefined });
                                     } else {
                                         let spatialBias: OpenMCSourceSpatial;
                                         switch (type) {

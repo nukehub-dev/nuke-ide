@@ -23,26 +23,22 @@ export interface WeightWindowEditorProps {
     meshes: OpenMCMesh[];
     onChange: (updates: Partial<OpenMCWeightWindows>) => void;
     onToggle: (enabled: boolean) => void;
+    onWWINPImport?: () => void;
+    onWWINPExport?: () => void;
 }
 
 export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
     weightWindows,
     meshes,
     onChange,
-    onToggle
+    onToggle,
+    onWWINPImport,
+    onWWINPExport
 }) => {
     const isEnabled = !!weightWindows;
     const ww = weightWindows || { meshId: 0, lowerBound: 0.5 };
 
     const selectedMesh = meshes.find(m => m.id === ww.meshId);
-    
-    // Local state for energy bounds text input to allow incomplete typing
-    const [energyBoundsText, setEnergyBoundsText] = React.useState(ww.energyBounds?.join(', ') || '');
-    
-    // Sync energyBoundsText with prop changes (e.g., when loading a project)
-    React.useEffect(() => {
-        setEnergyBoundsText(ww.energyBounds?.join(', ') || '');
-    }, [ww.energyBounds]);
 
     return (
         <div className='weight-window-editor'>
@@ -87,6 +83,44 @@ export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
 
             {isEnabled && (
                 <>
+                    {/* WWINP Import/Export */}
+                    {(onWWINPImport || onWWINPExport) && (
+                        <div className='settings-section wwinp-section'>
+                            <h3>
+                                <i className='codicon codicon-file-code'></i>
+                                MCNP WWINP Import/Export
+                            </h3>
+                            <div className='wwinp-actions'>
+                                {onWWINPImport && (
+                                    <Tooltip content='Import weight windows from MCNP WWINP file' position='top'>
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={onWWINPImport}
+                                        >
+                                            <i className='codicon codicon-file-add'></i>
+                                            Import WWINP
+                                        </button>
+                                    </Tooltip>
+                                )}
+                                {onWWINPExport && (
+                                    <Tooltip content='Export weight windows to MCNP WWINP format' position='top'>
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={onWWINPExport}
+                                            disabled={!selectedMesh}
+                                        >
+                                            <i className='codicon codicon-file-export'></i>
+                                            Export WWINP
+                                        </button>
+                                    </Tooltip>
+                                )}
+                            </div>
+                            <span className='form-hint'>
+                                Import existing MCNP weight windows or export for use in other codes.
+                            </span>
+                        </div>
+                    )}
+
                     {/* Mesh Selection */}
                     <div className='settings-section'>
                         <h3>
@@ -246,42 +280,78 @@ export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
                     <div className='settings-section'>
                         <h3>
                             <i className='codicon codicon-flame'></i>
-                            Energy-Dependent Weight Windows (Optional)
+                            Energy Bounds
                         </h3>
 
                         <div className='form-group'>
                             <label>Energy Bounds (eV)</label>
-                            <div className='energy-bounds-input'>
+                            
+                            {/* Energy Bounds Chips */}
+                            <div className='energy-bounds-chips'>
+                                {(ww.energyBounds || []).map((bound, idx) => (
+                                    <span key={idx} className='energy-bound-chip'>
+                                        {bound.toExponential(2)} eV
+                                        <Tooltip content='Remove this bound' position='top'>
+                                            <button
+                                                className='chip-remove'
+                                                onClick={() => {
+                                                    const newBounds = (ww.energyBounds || []).filter((_, i) => i !== idx);
+                                                    onChange({ ...ww, energyBounds: newBounds.length >= 2 ? newBounds : undefined });
+                                                }}
+                                            >
+                                                <i className='codicon codicon-close'></i>
+                                            </button>
+                                        </Tooltip>
+                                    </span>
+                                ))}
+                            </div>
+                            
+                            {/* Add New Bound Input */}
+                            <div className='energy-bounds-add'>
                                 <input
                                     type='text'
-                                    value={energyBoundsText}
-                                    placeholder='e.g., 1e-5, 0.1, 1e6, 2e7'
-                                    onChange={(e) => {
-                                        // Just update local text state while typing
-                                        setEnergyBoundsText(e.target.value);
+                                    placeholder='Add energy bound (e.g., 0, 1e6, 2e7) and press Enter'
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            const value = parseFloat(e.currentTarget.value.trim());
+                                            if (!isNaN(value)) {
+                                                const currentBounds = ww.energyBounds || [];
+                                                if (!currentBounds.includes(value)) {
+                                                    const newBounds = [...currentBounds, value].sort((a, b) => a - b);
+                                                    onChange({ ...ww, energyBounds: newBounds });
+                                                }
+                                                e.currentTarget.value = '';
+                                            }
+                                        }
                                     }}
-                                    onBlur={(e) => {
-                                        // Parse and validate on blur
-                                        const bounds = e.target.value
-                                            .split(',')
-                                            .map(s => parseFloat(s.trim()))
-                                            .filter(n => !isNaN(n));
-                                        onChange({ ...ww, energyBounds: bounds.length > 0 ? bounds : undefined });
-                                    }}
+                                    className={!ww.energyBounds || ww.energyBounds.length < 2 ? 'invalid' : ''}
                                 />
                             </div>
-                            <span className='form-hint'>Comma-separated list of energy boundaries for multi-group weight windows</span>
+                            
+                            <span className='form-hint'>
+                                Type a value and press Enter to add. At least 2 bounds required for energy groups.
+                            </span>
+                            {(!ww.energyBounds || ww.energyBounds.length < 2) && (
+                                <span className='form-error'>At least 2 energy bounds are required</span>
+                            )}
                         </div>
 
-                        {ww.energyBounds && ww.energyBounds.length > 0 && (
+                        {ww.energyBounds && ww.energyBounds.length >= 2 && (
                             <div className='energy-bounds-preview'>
-                                <span className='preview-label'>Energy Groups:</span>
-                                <div className='energy-groups'>
-                                    {ww.energyBounds.map((bound, idx) => (
-                                        <span key={idx} className='energy-bound-tag'>
-                                            {bound.toExponential(2)} eV
-                                        </span>
-                                    ))}
+                                <span className='preview-label'>{ww.energyBounds.length - 1} Energy Group(s):</span>
+                                <div className='energy-group-bars'>
+                                    {ww.energyBounds.slice(0, -1).map((bound, idx) => {
+                                        const nextBound = ww.energyBounds![idx + 1];
+                                        const width = Math.min(100, Math.max(20, (nextBound - bound) / bound * 100));
+                                        return (
+                                            <div key={idx} className='energy-group-bar'>
+                                                <div className='bar' style={{ width: `${width}%` }}></div>
+                                                <span className='bar-label'>
+                                                    {bound.toExponential(1)} - {nextBound.toExponential(1)} eV
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}

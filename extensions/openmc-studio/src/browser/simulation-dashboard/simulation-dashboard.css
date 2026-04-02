@@ -3003,6 +3003,111 @@
     font-family: var(--theia-monospace-font-family);
 }
 
+/* Energy Bounds Chips */
+.simulation-dashboard .energy-bounds-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    min-height: 32px;
+}
+
+.simulation-dashboard .energy-bound-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    border-radius: 16px;
+    font-size: 12px;
+    font-family: var(--theia-monospace-font-family);
+    transition: all 0.2s ease;
+}
+
+.simulation-dashboard .energy-bound-chip:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.simulation-dashboard .energy-bound-chip .chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    color: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.simulation-dashboard .energy-bound-chip .chip-remove:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.simulation-dashboard .energy-bound-chip .chip-remove i {
+    font-size: 10px;
+}
+
+.simulation-dashboard .energy-bounds-add input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: border-color 0.2s ease;
+}
+
+.simulation-dashboard .energy-bounds-add input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .energy-bounds-add input.invalid {
+    border-color: var(--theia-errorForeground);
+}
+
+.simulation-dashboard .form-error {
+    color: var(--theia-errorForeground);
+    font-size: 12px;
+    margin-top: 4px;
+    display: block;
+}
+
+/* Energy Group Bars */
+.simulation-dashboard .energy-group-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.simulation-dashboard .energy-group-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.simulation-dashboard .energy-group-bar .bar {
+    height: 20px;
+    min-width: 40px;
+    background: linear-gradient(90deg, var(--theia-focusBorder), var(--theia-button-hoverBackground));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.simulation-dashboard .energy-group-bar .bar-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+}
+
 /* WW Generator Config */
 .simulation-dashboard .ww-generator-config {
     margin-top: 16px;
@@ -3067,6 +3172,54 @@
     }
     
     .simulation-dashboard .energy-groups {
+        flex-direction: column;
+    }
+}
+/* WWINP Section */
+.simulation-dashboard .wwinp-section {
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .wwinp-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .wwinp-actions button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* UFS Section */
+.simulation-dashboard .ufs-section {
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .ufs-section .form-group {
+    margin-top: 12px;
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .simulation-dashboard .vr-enable-card .enable-card-content {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .simulation-dashboard .mesh-info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .simulation-dashboard .energy-groups {
+        flex-direction: column;
+    }
+    
+    .simulation-dashboard .wwinp-actions {
         flex-direction: column;
     }
 }

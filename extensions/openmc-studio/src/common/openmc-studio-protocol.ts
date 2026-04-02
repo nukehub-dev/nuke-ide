@@ -368,6 +368,57 @@ export interface ApplyTemplateRequest {
 }
 
 // ============================================================================
+// WWINP Import/Export
+// ============================================================================
+
+/** Request to import MCNP WWINP file */
+export interface WWINPImportRequest {
+    /** Path to WWINP file */
+    filePath: string;
+}
+
+/** Result of WWINP import */
+export interface WWINPImportResult {
+    /** Whether import was successful */
+    success: boolean;
+    /** Imported weight windows data */
+    weightWindows?: {
+        meshId: number;
+        lowerBound: number | number[];
+        upperBound?: number | number[];
+        energyBounds?: number[];
+        particleType?: 'neutron' | 'photon';
+    };
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Request to export to MCNP WWINP file */
+export interface WWINPExportRequest {
+    /** Path to output WWINP file */
+    filePath: string;
+    /** Weight windows to export */
+    weightWindows: {
+        meshId: number;
+        lowerBound: number | number[];
+        upperBound?: number | number[];
+        survivalWeight?: number;
+        particleType?: 'neutron' | 'photon';
+        energyBounds?: number[];
+    };
+    /** Available meshes for dimension info */
+    meshes: any[];
+}
+
+/** Result of WWINP export */
+export interface WWINPExportResult {
+    /** Whether export was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+}
+
+// ============================================================================
 // Backend Service Interface
 // ============================================================================
 
@@ -433,6 +484,14 @@ export interface OpenMCStudioBackendService {
     
     /** Apply template to create initial state */
     applyTemplate(request: ApplyTemplateRequest): Promise<{ success: boolean; state?: OpenMCState; error?: string }>;
+    
+    // === WWINP Import/Export ===
+    
+    /** Import MCNP WWINP file */
+    importWWINP(request: WWINPImportRequest): Promise<WWINPImportResult>;
+    
+    /** Export to MCNP WWINP file */
+    exportWWINP(request: WWINPExportRequest): Promise<WWINPExportResult>;
     
     // === Utility ===
     
