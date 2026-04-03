@@ -37,6 +37,11 @@ export const NukeCoreConfigSchema: PreferenceSchema = {
             type: 'string',
             description: 'Path to OpenMC cross_sections.xml file',
             default: ''
+        },
+        'nuke.openmcChainFile': {
+            type: 'string',
+            description: 'Default path to OpenMC depletion chain XML file',
+            default: ''
         }
     }
 };
@@ -45,6 +50,7 @@ export interface NukeCoreConfiguration {
     'nuke.pythonPath': string;
     'nuke.condaEnv': string;
     'nuke.openmcCrossSections': string;
+    'nuke.openmcChainFile': string;
 }
 
 export const NukeCorePreferences = Symbol('NukeCorePreferences');

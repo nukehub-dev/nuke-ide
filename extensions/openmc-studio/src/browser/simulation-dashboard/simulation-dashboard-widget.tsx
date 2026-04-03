@@ -1591,6 +1591,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         const hasDepletableMaterials = state.materials.some(m => m.isDepletable);
         const isEnabled = depletion.enabled;
 
+        // Get default chain file from preferences
+        const defaultChainFile = this.nukeCoreService.getChainFilePath();
+        const chainFile = depletion.chainFile || defaultChainFile || '';
+
         return (
             <div className='depletion-tab'>
                 {/* Enable/Disable Card */}
@@ -1650,7 +1654,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                                     <div className='file-input-group'>
                                         <input 
                                             type='text' 
-                                            value={depletion.chainFile || ''} 
+                                            value={chainFile} 
                                             onChange={(e) => this.stateManager.updateDepletion({ chainFile: e.target.value })}
                                             placeholder='Select chain.xml file...'
                                         />

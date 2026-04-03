@@ -63,7 +63,8 @@ export class NukeCoreService {
         this.preferences.onPreferenceChanged(event => {
             if (event.preferenceName === 'nuke.pythonPath' ||
                 event.preferenceName === 'nuke.condaEnv' ||
-                event.preferenceName === 'nuke.openmcCrossSections') {
+                event.preferenceName === 'nuke.openmcCrossSections' ||
+                event.preferenceName === 'nuke.openmcChainFile') {
                 console.log(`[NukeCore] Preference changed: ${event.preferenceName}`);
                 this.syncFromPreferences();
             }
@@ -169,6 +170,30 @@ export class NukeCoreService {
         // Note: This would need to be saved to preferences
         // For now, just log it - actual implementation would use PreferenceService
         console.log(`[NukeCore] Cross-sections path set to: ${path}`);
+    }
+    
+    /**
+     * Get the OpenMC chain file path.
+     * Returns the configured path or environment variable.
+     */
+    getChainFilePath(): string | undefined {
+        // First check preference
+        const prefPath = this.preferences.get('nuke.openmcChainFile') as string;
+        if (prefPath) {
+            return prefPath;
+        }
+        
+        // Otherwise return undefined (backend will check env var)
+        return undefined;
+    }
+    
+    /**
+     * Set the OpenMC chain file path.
+     */
+    async setChainFilePath(path: string): Promise<void> {
+        // Note: This would need to be saved to preferences
+        // For now, just log it - actual implementation would use PreferenceService
+        console.log(`[NukeCore] Chain file path set to: ${path}`);
     }
     
     /**

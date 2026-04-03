@@ -83,8 +83,10 @@ export class OpenMCSimulationRunner {
         this._onSimulationStart.fire();
 
         try {
-            // Get cross-sections environment if available
-            const env = await this.getCrossSectionsEnv();
+            // Get cross-sections and chain file environment if available
+            const crossSectionsEnv = await this.getCrossSectionsEnv();
+            const chainFileEnv = await this.getChainFileEnv();
+            const env = { ...crossSectionsEnv, ...chainFileEnv };
             const fullRequest = {
                 ...request,
                 env: {
@@ -223,6 +225,25 @@ export class OpenMCSimulationRunner {
         if (xsPath) {
             console.log(`[OpenMC Studio] Using cross-sections path: ${xsPath}`);
             return { OPENMC_CROSS_SECTIONS: xsPath };
+        }
+        
+        return undefined;
+    }
+
+    /**
+     * Get chain file environment variable if configured.
+     * Uses nuke-core chain file path.
+     */
+    private async getChainFileEnv(): Promise<{ [key: string]: string } | undefined> {
+        let chainPath = this.nukeCoreService.getChainFilePath();
+        
+        if (!chainPath && typeof process !== 'undefined' && process.env) {
+            chainPath = process.env.OPENMC_CHAIN_FILE;
+        }
+        
+        if (chainPath) {
+            console.log(`[OpenMC Studio] Using chain file path: ${chainPath}`);
+            return { OPENMC_CHAIN_FILE: chainPath };
         }
         
         return undefined;
