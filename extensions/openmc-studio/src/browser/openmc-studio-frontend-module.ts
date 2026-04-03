@@ -46,6 +46,7 @@ import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-dashboard/simulation-runner';
+import { OpenMCPythonExporter } from './script-generator/python-exporter';
 
 // Contribution imports
 import { OpenMCStudioContribution } from './openmc-studio-contribution';
@@ -120,6 +121,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     
     // XML generation service
     bind(OpenMCXMLGenerationService).toSelf().inSingletonScope();
+    
+    // Python script generator
+    bind(OpenMCPythonExporter).toSelf().inSingletonScope();
     
     // Simulation runner
     bind(OpenMCSimulationRunner).toSelf().inSingletonScope();

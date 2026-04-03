@@ -47,6 +47,8 @@ import {
 } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 
+import { OpenMCPythonExporter } from './script-generator/python-exporter';
+
 import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
@@ -139,6 +141,12 @@ export namespace OpenMCStudioCommands {
         label: 'Open Tally Configurator'
     };
 
+    export const OPEN_DEPLETION_DASHBOARD: Command = {
+        id: 'openmc.openDepletionDashboard',
+        category: CATEGORY,
+        label: 'Depletion Dashboard'
+    };
+
     export const OPEN_VARIANCE_REDUCTION: Command = {
         id: 'openmc.openVarianceReduction',
         category: CATEGORY,
@@ -212,6 +220,9 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     @inject(FileService)
     protected readonly fileService: FileService;
     
+    @inject(OpenMCPythonExporter)
+    protected readonly pythonExporter: OpenMCPythonExporter;
+
     private currentWidget?: SimulationDashboardWidget;
     private _onDidChangeCurrentWidget = new Emitter<void>();
     readonly onDidChangeCurrentWidget = this._onDidChangeCurrentWidget.event;
@@ -283,13 +294,27 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             execute: () => this.openCSGBuilder()
         });
 
+        commands.registerCommand(OpenMCStudioCommands.OPEN_DEPLETION_DASHBOARD, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
+                widget.setActiveTab('depletion');
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
+            }
+        });
+
         // Phase 4 command placeholders
         commands.registerCommand(OpenMCStudioCommands.OPEN_VARIANCE_REDUCTION, {
-            execute: () => this.messageService.info('Variance Reduction configuration coming soon!')
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
+                widget.setActiveTab('variance-reduction');
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
+            }
         });
 
         commands.registerCommand(OpenMCStudioCommands.OPEN_SCRIPT_GENERATOR, {
-            execute: () => this.messageService.info('Python script generator coming soon!')
+            execute: () => this.pythonExporter.exportToPython()
         });
 
         commands.registerCommand(OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON, {
@@ -372,6 +397,12 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
             label: 'Simulation Dashboard',
             order: 'a'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+            commandId: OpenMCStudioCommands.OPEN_DEPLETION_DASHBOARD.id,
+            label: 'Depletion Dashboard',
+            order: 'd'
         });
 
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {

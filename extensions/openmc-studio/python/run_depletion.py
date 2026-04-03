@@ -87,7 +87,7 @@ def run_depletion(args):
         raise
 
     # Load depletion chain
-    chain_file = args.chain_file or os.environ.get('OPENMC_DEPLETION_CHAIN')
+    chain_file = args.chain_file or os.environ.get('OPENMC_CHAIN_FILE')
     if not chain_file:
         # Try to find a default chain file
         chain_file = os.environ.get('OPENMC_CROSS_SECTIONS', '').replace('.h5', '_chain.xml')
@@ -97,7 +97,7 @@ def run_depletion(args):
     if not chain_file or not os.path.exists(chain_file):
         raise FileNotFoundError(
             f"Depletion chain file not found: {chain_file}. "
-            "Set --chain-file or OPENMC_DEPLETION_CHAIN environment variable."
+            "Set --chain-file or OPENMC_CHAIN_FILE environment variable."
         )
 
     log_progress(f"Loading depletion chain from {chain_file}")
@@ -139,6 +139,11 @@ def run_depletion(args):
     log_progress(f"Operator: {args.operator}")
 
     # Create the model
+    if not geometry.root_universe:
+        log_progress("Warning: Geometry has no root universe. Creating a dummy one for DAGMC mode.")
+        root_univ = openmc.Universe(universe_id=0, name="root universe")
+        geometry.root_universe = root_univ
+
     model = openmc.model.Model(geometry=geometry, materials=materials, settings=settings)
 
     # Create the operator
@@ -170,11 +175,11 @@ def run_depletion(args):
     # Map solver names to OpenMC integrator class names
     solver_name_map = {
         'cecm': 'CECMIntegrator',
-        'epc': 'EPCIntegrator',
+        'epc': 'EPCRK4Integrator',
         'predictor': 'PredictorIntegrator',
-        'cecmr': 'CECMRIntegrator',
-        'epcr': 'EPCRIntegrator',
-        'si-cesc': 'SICESCIntegrator',
+        'cecmr': 'CECMIntegrator',
+        'epcr': 'EPCRK4Integrator',
+        'si-cesc': 'SICELIIntegrator',
         'leqi': 'LEQIIntegrator',
     }
     

@@ -368,6 +368,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.title.label = `${dirtyIndicator}${state.metadata.name}`;
     }
 
+    public setActiveTab(tab: DashboardTab): void {
+        this.activeTab = tab;
+        this.update();
+    }
+
     protected render(): React.ReactNode {
         const state = this.stateManager.getState();
 
