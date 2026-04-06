@@ -53,6 +53,7 @@ import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
+import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 
 // ============================================================================
@@ -318,7 +319,7 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         });
 
         commands.registerCommand(OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON, {
-            execute: () => this.messageService.info('Simulation comparison coming soon!')
+            execute: () => this.openSimulationComparison()
         });
 
         commands.registerCommand(OpenMCStudioCommands.OPEN_OPTIMIZATION, {
@@ -637,6 +638,12 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     
     protected async openCSGBuilder(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget<CSGBuilderWidget>(CSGBuilderWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+    }
+
+    protected async openSimulationComparison(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<SimulationComparisonWidget>(SimulationComparisonWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }

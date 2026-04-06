@@ -112,9 +112,11 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
     const timerRef = React.useRef<NodeJS.Timeout | null>(null);
 
     const onMouseEnter = (e: React.MouseEvent) => {
+        const currentTarget = e.currentTarget as HTMLElement;
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => {
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            if (!currentTarget) return;
+            const rect = currentTarget.getBoundingClientRect();
             let x = rect.left + rect.width / 2;
             let y = rect.top;
             

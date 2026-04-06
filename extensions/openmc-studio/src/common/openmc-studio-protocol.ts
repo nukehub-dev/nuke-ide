@@ -493,6 +493,20 @@ export interface OpenMCStudioBackendService {
     /** Export to MCNP WWINP file */
     exportWWINP(request: WWINPExportRequest): Promise<WWINPExportResult>;
     
+    // === Statepoint Comparison ===
+    
+    /** Read a single statepoint file and extract data */
+    readStatepoint(request: ReadStatepointRequest): Promise<ReadStatepointResult>;
+    
+    /** Compare multiple statepoint files */
+    compareStatepoints(request: CompareStatepointsRequest): Promise<CompareStatepointsResult>;
+    
+    /** Read depletion results file */
+    readDepletionResults(request: ReadDepletionRequest): Promise<DepletionResults>;
+    
+    /** Analyze k-effective convergence */
+    analyzeConvergence(request: AnalyzeConvergenceRequest): Promise<KeffConvergenceAnalysis>;
+    
     // === Utility ===
     
     /** Get cross-sections path from environment */
@@ -681,6 +695,220 @@ export interface CADImportResult {
     };
     /** DAGMC model information (when importing .h5m files) */
     dagmcInfo?: DAGMCInfo;
+}
+
+// ============================================================================
+// Statepoint Comparison
+// ============================================================================
+
+/** k-effective data from statepoint */
+export interface StatepointKeff {
+    value: number;
+    stdDev: number;
+}
+
+/** k-effective by batch for convergence analysis */
+export interface KeffByBatch {
+    batch: number;
+    value: number;
+    stdDev: number;
+}
+
+/** Tally filter information */
+export interface StatepointTallyFilter {
+    type: string;
+    bins: number;
+}
+
+/** Tally data from statepoint */
+export interface StatepointTally {
+    id: number;
+    name?: string;
+    scores: string[];
+    nuclides: string[];
+    mean: number[];
+    stdDev: number[];
+    totalBins: number;
+    filters?: StatepointTallyFilter[];
+    error?: string;
+}
+
+/** Statepoint file information and data */
+export interface StatepointInfo {
+    success: boolean;
+    filePath: string;
+    fileName: string;
+    fileSizeMB: number;
+    error?: string;
+    traceback?: string;
+    kEff?: StatepointKeff;
+    batches?: number;
+    inactiveBatches?: number;
+    particles?: number;
+    kEffectiveByBatch?: KeffByBatch[];
+    tallies?: StatepointTally[];
+    runMode?: string;
+    version?: string;
+    date?: string;
+    entropy?: number[];
+    sourceParticles?: number;
+}
+
+/** Request to read a statepoint file */
+export interface ReadStatepointRequest {
+    filePath: string;
+}
+
+/** Result of reading a statepoint file */
+export interface ReadStatepointResult extends StatepointInfo {}
+
+/** Request to compare multiple statepoints */
+export interface CompareStatepointsRequest {
+    filePaths: string[];
+}
+
+/** k-effective comparison statistics */
+export interface KeffComparison {
+    values: number[];
+    mean: number;
+    min: number;
+    max: number;
+    range: number;
+}
+
+/** Tally comparison entry */
+export interface TallyComparisonEntry {
+    file: string;
+    tally: StatepointTally;
+}
+
+/** Comparison result for tallies */
+export interface TallyComparison {
+    [tallyKey: string]: TallyComparisonEntry[];
+}
+
+/** Comparison statistics */
+export interface ComparisonStatistics {
+    kEff?: KeffComparison;
+    tallies?: TallyComparison;
+}
+
+/** Result of comparing multiple statepoints */
+export interface CompareStatepointsResult {
+    success: boolean;
+    statepoints: StatepointInfo[];
+    errors: Array<{ file: string; error?: string }>;
+    comparison?: ComparisonStatistics;
+    statisticalTests?: StatisticalTests;
+}
+
+// ============================================================================
+// Statistical Tests
+// ============================================================================
+
+/** k-effective statistical test results */
+export interface KeffStatisticalTests {
+    weightedMean: number;
+    weightedUncertainty: number;
+    chi2: number;
+    ndof: number;
+    reducedChi2?: number;
+    consistency: 'consistent' | 'inconsistent' | 'unknown';
+    confidenceIntervals: {
+        intervals: Array<{
+            lower: number;
+            upper: number;
+            value: number;
+        }>;
+        overlapExists: boolean;
+        overlapLower?: number;
+        overlapUpper?: number;
+    };
+}
+
+/** Tally statistical test results */
+export interface TallyStatisticalTests {
+    [tallyKey: string]: {
+        values: Array<{
+            file: string;
+            mean: number;
+            stdDev: number;
+        }>;
+        mean: number;
+        maxDeviation: number;
+        relativeStdDev: number;
+        consistent: boolean;
+    };
+}
+
+/** Complete statistical test results */
+export interface StatisticalTests {
+    kEffective: KeffStatisticalTests;
+    tallies: TallyStatisticalTests;
+}
+
+/** k-effective convergence analysis */
+export interface KeffConvergenceAnalysis {
+    success: boolean;
+    error?: string;
+    statepoint?: string;
+    runningAverage: number[];
+    finalValue: number;
+    finalUncertainty?: number;
+    drift?: number;
+    driftPercent?: number;
+    converged?: boolean;
+    recommendation?: string;
+    note?: string;
+}
+
+// ============================================================================
+// Depletion / Burnup Comparison
+// ============================================================================
+
+/** Nuclide concentration data over time */
+export interface NuclideData {
+    initial: number;
+    final: number;
+    min: number;
+    max: number;
+    concentrations: number[];
+}
+
+/** Material with nuclide evolution data */
+export interface DepletionMaterial {
+    name: string;
+    nuclides: {
+        [nuclideName: string]: NuclideData;
+    };
+}
+
+/** Depletion results from a simulation */
+export interface DepletionResults {
+    success: boolean;
+    filePath: string;
+    fileName: string;
+    fileSizeMB: number;
+    error?: string;
+    traceback?: string;
+    timeSteps?: number[];
+    burnupSteps?: number[];
+    finalBurnup?: number;
+    materials: {
+        [materialId: string]: DepletionMaterial;
+    };
+    numberOfMaterials: number;
+    nuclideError?: string;
+}
+
+/** Request to read depletion results */
+export interface ReadDepletionRequest {
+    filePath: string;
+}
+
+/** Request to analyze k-effective convergence */
+export interface AnalyzeConvergenceRequest {
+    filePath: string;
 }
 
 // ============================================================================

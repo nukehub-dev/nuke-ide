@@ -60,12 +60,15 @@ import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
 import { DAGMCEditorContribution } from './dagmc-editor/dagmc-editor-contribution';
 import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
 import { TallyConfiguratorContribution } from './tally-configurator/tally-configurator-contribution';
+import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
+import { SimulationComparisonContribution } from './simulation-comparison/comparison-contribution';
 
 // Import CSS
 import './simulation-dashboard/simulation-dashboard.css';
 import './csg-builder/csg-builder.css';
 import './dagmc-editor/dagmc-editor.css';
 import './tally-configurator/tally-configurator.css';
+import './simulation-comparison/comparison.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -183,6 +186,19 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(CommandContribution).toService(TallyConfiguratorContribution);
     bind(MenuContribution).toService(TallyConfiguratorContribution);
     bind(FrontendApplicationContribution).toService(TallyConfiguratorContribution);
+
+    // Simulation Comparison Widget - Phase 4D
+    bind(SimulationComparisonWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: SimulationComparisonWidget.ID,
+        createWidget: () => container.get(SimulationComparisonWidget)
+    })).inSingletonScope();
+
+    // Simulation Comparison Contribution
+    bind(SimulationComparisonContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(SimulationComparisonContribution);
+    bind(MenuContribution).toService(SimulationComparisonContribution);
+    bind(FrontendApplicationContribution).toService(SimulationComparisonContribution);
 
     console.log('[OpenMC Studio] Frontend module initialized');
 });

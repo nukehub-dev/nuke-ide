@@ -1380,4 +1380,366 @@ export class OpenMCStudioBackendServiceImpl
             return { success: false, error: msg };
         }
     }
+
+    // ============================================================================
+    // Statepoint Comparison
+    // ============================================================================
+
+    async readStatepoint(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').ReadStatepointResult> {
+        this.log(`Reading statepoint file: ${request.filePath}`);
+        
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            
+            // Check if file exists
+            if (!fs.existsSync(request.filePath)) {
+                return {
+                    success: false,
+                    filePath: request.filePath,
+                    fileName: path.basename(request.filePath),
+                    fileSizeMB: 0,
+                    error: `File not found: ${request.filePath}`
+                };
+            }
+            
+            // Get file stats
+            const stats = fs.statSync(request.filePath);
+            
+            // Find the statepoint reader script
+            const extensionPath = await this.getExtensionPath();
+            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
+            
+            if (!fs.existsSync(scriptPath)) {
+                // Fallback paths
+                const fallbackPaths = [
+                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
+                ];
+                
+                for (const fp of fallbackPaths) {
+                    if (fs.existsSync(fp)) {
+                        scriptPath = fp;
+                        break;
+                    }
+                }
+            }
+            
+            if (!fs.existsSync(scriptPath)) {
+                return {
+                    success: false,
+                    filePath: request.filePath,
+                    fileName: path.basename(request.filePath),
+                    fileSizeMB: Math.round(stats.size / (1024 * 1024) * 100) / 100,
+                    error: 'Statepoint reader script not found'
+                };
+            }
+            
+            this.log(`Using script: ${scriptPath}`);
+            
+            // Get Python command from runner service
+            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
+                || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+            
+            this.log(`Using Python: ${pythonCommand}`);
+            
+            // Execute the Python script - capture both stdout and stderr
+            let output: string;
+            try {
+                output = execSync(
+                    `"${pythonCommand}" "${scriptPath}" "${request.filePath}" --json`,
+                    { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch (execError: any) {
+                // Capture stderr from the error
+                const stderr = execError.stderr ? execError.stderr.toString() : '';
+                const stdout = execError.stdout ? execError.stdout.toString() : '';
+                this.error(`Python script failed with code ${execError.status}`);
+                this.error(`Stderr: ${stderr}`);
+                this.error(`Stdout: ${stdout}`);
+                
+                // Try to parse stdout if it contains JSON
+                if (stdout) {
+                    try {
+                        const result = JSON.parse(stdout);
+                        if (!result.filePath) result.filePath = request.filePath;
+                        if (!result.fileName) result.fileName = path.basename(request.filePath);
+                        if (!result.fileSizeMB) result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+                        return result;
+                    } catch {}
+                }
+                
+                throw new Error(`Python error: ${stderr || execError.message}`);
+            }
+            
+            // Parse the result
+            const result = JSON.parse(output);
+            
+            // Add file info if not present
+            if (!result.filePath) {
+                result.filePath = request.filePath;
+            }
+            if (!result.fileName) {
+                result.fileName = path.basename(request.filePath);
+            }
+            if (!result.fileSizeMB) {
+                result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+            }
+            
+            this.log(`Successfully read statepoint: ${result.fileName}`);
+            return result;
+            
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to read statepoint: ${msg}`);
+            
+            const path = await import('path');
+            const fs = await import('fs');
+            
+            let fileSizeMB = 0;
+            try {
+                const stats = fs.statSync(request.filePath);
+                fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+            } catch {}
+            
+            return {
+                success: false,
+                filePath: request.filePath,
+                fileName: path.basename(request.filePath),
+                fileSizeMB,
+                error: `Failed to read statepoint: ${msg}`
+            };
+        }
+    }
+
+    async compareStatepoints(request: { filePaths: string[] }): Promise<import('../common/openmc-studio-protocol').CompareStatepointsResult> {
+        this.log(`Comparing ${request.filePaths.length} statepoint files`);
+        
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            
+            // Check if files exist
+            for (const filePath of request.filePaths) {
+                if (!fs.existsSync(filePath)) {
+                    return {
+                        success: false,
+                        statepoints: [],
+                        errors: [{ file: filePath, error: `File not found: ${filePath}` }]
+                    };
+                }
+            }
+            
+            // Find the statepoint reader script
+            const extensionPath = await this.getExtensionPath();
+            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
+            
+            if (!fs.existsSync(scriptPath)) {
+                // Fallback paths
+                const fallbackPaths = [
+                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
+                ];
+                
+                for (const fp of fallbackPaths) {
+                    if (fs.existsSync(fp)) {
+                        scriptPath = fp;
+                        break;
+                    }
+                }
+            }
+            
+            if (!fs.existsSync(scriptPath)) {
+                return {
+                    success: false,
+                    statepoints: [],
+                    errors: request.filePaths.map(fp => ({ file: fp, error: 'Statepoint reader script not found' }))
+                };
+            }
+            
+            // Get Python command
+            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
+                || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+            
+            // Build file arguments
+            const fileArgs = request.filePaths.map(fp => `"${fp}"`).join(' ');
+            
+            // Execute the Python script with compare flag and stats
+            const output = execSync(
+                `"${pythonCommand}" "${scriptPath}" ${fileArgs} --compare --stats --json`,
+                { encoding: 'utf-8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            
+            // Parse the result
+            const result = JSON.parse(output);
+            
+            this.log(`Successfully compared ${result.statepoints?.length || 0} statepoints`);
+            return result;
+            
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to compare statepoints: ${msg}`);
+            
+            return {
+                success: false,
+                statepoints: [],
+                errors: request.filePaths.map(fp => ({ file: fp, error: msg }))
+            };
+        }
+    }
+
+    async readDepletionResults(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').DepletionResults> {
+        this.log(`Reading depletion results: ${request.filePath}`);
+        
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            
+            if (!fs.existsSync(request.filePath)) {
+                return {
+                    success: false,
+                    filePath: request.filePath,
+                    fileName: path.basename(request.filePath),
+                    fileSizeMB: 0,
+                    materials: {},
+                    numberOfMaterials: 0,
+                    error: `File not found: ${request.filePath}`
+                };
+            }
+            
+            const stats = fs.statSync(request.filePath);
+            
+            // Find script
+            const extensionPath = await this.getExtensionPath();
+            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
+            
+            if (!fs.existsSync(scriptPath)) {
+                const fallbackPaths = [
+                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
+                ];
+                
+                for (const fp of fallbackPaths) {
+                    if (fs.existsSync(fp)) {
+                        scriptPath = fp;
+                        break;
+                    }
+                }
+            }
+            
+            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
+                || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+            
+            const output = execSync(
+                `"${pythonCommand}" "${scriptPath}" --depletion "${request.filePath}" --json`,
+                { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            
+            const result = JSON.parse(output);
+            
+            if (!result.filePath) result.filePath = request.filePath;
+            if (!result.fileName) result.fileName = path.basename(request.filePath);
+            if (!result.fileSizeMB) result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+            
+            return result;
+            
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to read depletion results: ${msg}`);
+            
+            const path = await import('path');
+            
+            return {
+                success: false,
+                filePath: request.filePath,
+                fileName: path.basename(request.filePath),
+                fileSizeMB: 0,
+                materials: {},
+                numberOfMaterials: 0,
+                error: `Failed to read depletion results: ${msg}`
+            };
+        }
+    }
+
+    async analyzeConvergence(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').KeffConvergenceAnalysis> {
+        this.log(`Analyzing k-effective convergence: ${request.filePath}`);
+        
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            
+            if (!fs.existsSync(request.filePath)) {
+                return {
+                    success: false,
+                    error: `File not found: ${request.filePath}`,
+                    runningAverage: [],
+                    finalValue: 0
+                };
+            }
+            
+            // Find script
+            const extensionPath = await this.getExtensionPath();
+            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
+            
+            if (!fs.existsSync(scriptPath)) {
+                const fallbackPaths = [
+                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
+                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
+                ];
+                
+                for (const fp of fallbackPaths) {
+                    if (fs.existsSync(fp)) {
+                        scriptPath = fp;
+                        break;
+                    }
+                }
+            }
+            
+            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
+                || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+            
+            const output = execSync(
+                `"${pythonCommand}" "${scriptPath}" --convergence "${request.filePath}" --json`,
+                { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            
+            return JSON.parse(output);
+            
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to analyze convergence: ${msg}`);
+            
+            return {
+                success: false,
+                error: `Failed to analyze convergence: ${msg}`,
+                runningAverage: [],
+                finalValue: 0
+            };
+        }
+    }
+
+    /**
+     * Get the extension root path.
+     */
+    private async getExtensionPath(): Promise<string> {
+        const path = await import('path');
+        try {
+            return path.dirname(require.resolve('openmc-studio/package.json'));
+        } catch (e) {
+            return path.resolve(__dirname, '../..');
+        }
+    }
+
 }
