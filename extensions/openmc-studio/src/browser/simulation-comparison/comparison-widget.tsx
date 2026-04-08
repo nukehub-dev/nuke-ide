@@ -31,9 +31,11 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { 
     OpenMCStudioBackendService, 
     StatepointInfo, 
@@ -42,6 +44,9 @@ import {
     KeffConvergenceAnalysis,
     DepletionResults
 } from '../../common/openmc-studio-protocol';
+
+// Import Plotly component from nuke-visualizer
+import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
 
 // Statepoint data structure
 // Extended statepoint info with local state
@@ -106,6 +111,9 @@ export class SimulationComparisonWidget extends ReactWidget {
     @inject(OpenMCStudioBackendService)
     protected readonly backendService!: OpenMCStudioBackendService;
 
+    @inject(FileService)
+    protected readonly fileService!: FileService;
+
     private statepoints: StatepointInfoExtended[] = [];
     private activeTab: ComparisonTab = 'overview';
     private selectedTallyId?: number;
@@ -115,6 +123,13 @@ export class SimulationComparisonWidget extends ReactWidget {
     private analyzingIds: Set<string> = new Set();
     private depletionResults: Map<string, DepletionResults> = new Map();
     private selectedDepletionFile?: string;
+    
+    // Depletion visualization state
+    private selectedNuclides: Set<string> = new Set(['U235', 'U238', 'Pu239', 'Pu240', 'Xe135']);
+    private selectedMaterialId?: string;
+    private burnupPlotType: 'concentration' | 'keff' = 'concentration';
+    private burnupXAxis: 'time' | 'burnup' = 'burnup';
+    private burnupScale: 'linear' | 'log' = 'log';
 
     @postConstruct()
     protected init(): void {
@@ -183,7 +198,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                         </button>
                     </Tooltip>
                     
-                    {this.statepoints.length > 0 && (
+                    {(this.statepoints.length > 0 || this.depletionResults.size > 0) && (
                         <Tooltip content='Clear all comparisons' position='bottom'>
                             <button
                                 className='theia-button secondary'
@@ -195,7 +210,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                         </Tooltip>
                     )}
                     
-                    {this.statepoints.length > 0 && (
+                    {(this.statepoints.length > 0 || this.depletionResults.size > 0) && (
                         <Tooltip content='Export comparison results' position='bottom'>
                             <button
                                 className='theia-button secondary'
@@ -255,7 +270,7 @@ export class SimulationComparisonWidget extends ReactWidget {
             return (
                 <div className='comparison-content loading'>
                     <i className='codicon codicon-loading codicon-modifier-spin'></i>
-                    <h3>Loading statepoint files...</h3>
+                    <h3>Loading simulation files...</h3>
                 </div>
             );
         }
@@ -773,7 +788,7 @@ export class SimulationComparisonWidget extends ReactWidget {
 
 
     // ============================================================================
-    // New Tabs: Statistics, Convergence, Burnup
+    // Tabs: Statistics, Convergence, Burnup
     // ============================================================================
 
     private renderStatisticsTab(): React.ReactNode {
@@ -1217,6 +1232,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
 
         const materialList = Object.entries(data.materials);
+        
+        // Auto-select material if none selected
+        if (!this.selectedMaterialId || !data.materials[this.selectedMaterialId]) {
+            this.selectedMaterialId = materialList[0][0];
+        }
 
         return (
             <div className='depletion-content'>
@@ -1233,58 +1253,325 @@ export class SimulationComparisonWidget extends ReactWidget {
                     </div>
                 </div>
 
-                {/* Materials Grid */}
+                {/* Depletion Controls */}
+                <div className='depletion-controls'>
+                    <div className='control-group'>
+                        <label>Plot Type:</label>
+                        <div className='toggle-group'>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupPlotType === 'concentration' ? 'active' : ''}`}
+                                onClick={() => { this.burnupPlotType = 'concentration'; this.update(); }}
+                            >
+                                <i className='codicon codicon-graph-line'></i> Nuclides
+                            </button>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupPlotType === 'keff' ? 'active' : ''}`}
+                                onClick={() => { this.burnupPlotType = 'keff'; this.update(); }}
+                                disabled={!data.keff}
+                                title={!data.keff ? 'No k-effective data available' : ''}
+                            >
+                                <i className='codicon codicon-pulse'></i> k-effective
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className='control-group'>
+                        <label>X-Axis:</label>
+                        <div className='toggle-group'>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupXAxis === 'burnup' ? 'active' : ''}`}
+                                onClick={() => { this.burnupXAxis = 'burnup'; this.update(); }}
+                                disabled={!data.burnupSteps}
+                            >
+                                Burnup
+                            </button>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupXAxis === 'time' ? 'active' : ''}`}
+                                onClick={() => { this.burnupXAxis = 'time'; this.update(); }}
+                            >
+                                Time
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className='control-group'>
+                        <label>Scale:</label>
+                        <div className='toggle-group'>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupScale === 'linear' ? 'active' : ''}`}
+                                onClick={() => { this.burnupScale = 'linear'; this.update(); }}
+                            >
+                                Linear
+                            </button>
+                            <button 
+                                className={`theia-button secondary small ${this.burnupScale === 'log' ? 'active' : ''}`}
+                                onClick={() => { this.burnupScale = 'log'; this.update(); }}
+                            >
+                                Log
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Depletion Chart Area */}
+                <div className='depletion-chart-container'>
+                    {this.renderDepletionChart(data)}
+                </div>
+
+                {/* Materials Selection (if plotting concentrations) */}
+                {this.burnupPlotType === 'concentration' && (
+                    <div className='material-selector-bar'>
+                        <label>Material:</label>
+                        <select 
+                            value={this.selectedMaterialId} 
+                            onChange={(e) => { this.selectedMaterialId = e.target.value; this.update(); }}
+                        >
+                            {materialList.map(([id, mat]) => (
+                                <option key={id} value={id}>{mat.name} (ID: {id})</option>
+                            ))}
+                        </select>
+                        <div className='nuclide-quick-select'>
+                            <span>Quick Select:</span>
+                            <button className='theia-button secondary small' onClick={() => { this.selectedNuclides = new Set(['U235', 'U238', 'Pu239', 'Pu240']); this.update(); }}>Actinides</button>
+                            <button className='theia-button secondary small' onClick={() => { this.selectedNuclides = new Set(['Xe135', 'Sm149', 'I135', 'Cs137']); this.update(); }}>Fission Products</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Materials Grid / Nuclide Table */}
                 <div className='materials-accordion'>
                     {materialList.map(([matId, mat]) => (
-                        <div key={matId} className='material-accordion-item'>
-                            <div className='material-header'>
+                        <div key={matId} className={`material-accordion-item ${this.selectedMaterialId === matId ? 'selected' : ''}`}>
+                            <div className='material-header' onClick={() => { this.selectedMaterialId = matId; this.update(); }}>
+                                <i className={`codicon ${this.selectedMaterialId === matId ? 'codicon-chevron-down' : 'codicon-chevron-right'}`}></i>
                                 <span className='material-name'>{mat.name}</span>
                                 <span className='material-nuclide-count'>{Object.keys(mat.nuclides).length} nuclides</span>
                             </div>
-                            <div className='nuclide-table-container'>
-                                <table className='nuclide-table'>
-                                    <thead>
-                                        <tr>
-                                            <th>Nuclide</th>
-                                            <th className='numeric'>Initial (g/cm³)</th>
-                                            <th className='numeric'>Final (g/cm³)</th>
-                                            <th className='numeric'>Change</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {Object.entries(mat.nuclides)
-                                            .sort((a, b) => b[1].final - a[1].final) // Sort by final concentration
-                                            .slice(0, 20) // Show top 20
-                                            .map(([nuclide, nucData]) => {
-                                                const change = nucData.final - nucData.initial;
-                                                const changePercent = nucData.initial !== 0 
-                                                    ? (change / nucData.initial) * 100 
-                                                    : 0;
-                                                
-                                                return (
-                                                    <tr key={nuclide}>
-                                                        <td className='nuclide-name'>{nuclide}</td>
-                                                        <td className='numeric'>{nucData.initial.toExponential(3)}</td>
-                                                        <td className='numeric'>{nucData.final.toExponential(3)}</td>
-                                                        <td className={`numeric ${change > 0 ? 'positive' : change < 0 ? 'negative' : ''}`}>
-                                                            {change > 0 ? '+' : ''}{changePercent.toFixed(1)}%
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                    </tbody>
-                                </table>
-                                {Object.keys(mat.nuclides).length > 20 && (
-                                    <div className='more-nuclides'>
-                                        +{Object.keys(mat.nuclides).length - 20} more nuclides
-                                    </div>
-                                )}
-                            </div>
+                            {this.selectedMaterialId === matId && (
+                                <div className='nuclide-table-container'>
+                                    <table className='nuclide-table'>
+                                        <thead>
+                                            <tr>
+                                                <th className='select-col'></th>
+                                                <th>Nuclide</th>
+                                                <th className='numeric'>Initial (g/cm³)</th>
+                                                <th className='numeric'>Final (g/cm³)</th>
+                                                <th className='numeric'>Change</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {Object.entries(mat.nuclides)
+                                                .sort((a, b) => b[1].final - a[1].final) // Sort by final concentration
+                                                .slice(0, 50) // Show top 50
+                                                .map(([nuclide, nucData]) => {
+                                                    const change = nucData.final - nucData.initial;
+                                                    const changePercent = nucData.initial !== 0 
+                                                        ? (change / nucData.initial) * 100 
+                                                        : 0;
+                                                    const isSelected = this.selectedNuclides.has(nuclide);
+                                                    
+                                                    return (
+                                                        <tr 
+                                                            key={nuclide} 
+                                                            className={isSelected ? 'selected' : ''}
+                                                            onClick={() => {
+                                                                if (isSelected) this.selectedNuclides.delete(nuclide);
+                                                                else this.selectedNuclides.add(nuclide);
+                                                                this.update();
+                                                            }}
+                                                        >
+                                                            <td className='select-col'>
+                                                                <input type='checkbox' checked={isSelected} readOnly />
+                                                            </td>
+                                                            <td className='nuclide-name'>{nuclide}</td>
+                                                            <td className='numeric'>{nucData.initial.toExponential(3)}</td>
+                                                            <td className='numeric'>{nucData.final.toExponential(3)}</td>
+                                                            <td className={`numeric ${change > 0 ? 'positive' : change < 0 ? 'negative' : ''}`}>
+                                                                {change > 0 ? '+' : ''}{changePercent.toFixed(1)}%
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                        </tbody>
+                                    </table>
+                                    {Object.keys(mat.nuclides).length > 50 && (
+                                        <div className='more-nuclides'>
+                                            +{Object.keys(mat.nuclides).length - 50} more nuclides
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
             </div>
         );
+    }
+
+    private renderDepletionChart(data: DepletionResults): React.ReactNode {
+        if (this.burnupPlotType === 'keff' && data.keff) {
+            return this.renderKeffDepletionChart(data);
+        }
+
+        if (this.selectedNuclides.size === 0) {
+            return (
+                <div className='chart-placeholder'>
+                    <div className='chart-info'>
+                        <i className='codicon codicon-graph-line'></i>
+                        <p>Select nuclides from the table below to visualize their evolution over time.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        const selectedMaterial = this.selectedMaterialId ? data.materials[this.selectedMaterialId] : undefined;
+        if (!selectedMaterial) {
+            return (
+                <div className='chart-placeholder'>
+                    <div className='chart-info'>
+                        <i className='codicon codicon-warning'></i>
+                        <p>Select a material to visualize nuclide concentrations.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Get x-axis data
+        let xValues: number[] = [];
+        let xLabel = '';
+        
+        if (this.burnupXAxis === 'burnup' && data.burnupSteps) {
+            xValues = data.burnupSteps;
+            xLabel = 'Burnup (MWd/kg)';
+        } else if (data.timeSteps) {
+            xValues = data.timeSteps.map(t => t / (24 * 3600)); // Convert to days
+            xLabel = 'Time (days)';
+        } else {
+            return <div className='chart-placeholder'>No x-axis data (time/burnup) available.</div>;
+        }
+
+        // Prepare traces
+        const traces: any[] = [];
+        const colors = [
+            '#2196f3', '#f44336', '#4caf50', '#ff9800', '#9c27b0',
+            '#00bcd4', '#795548', '#607d8b', '#e91e63', '#8bc34a'
+        ];
+
+        let colorIdx = 0;
+        for (const nuclide of this.selectedNuclides) {
+            const nucData = selectedMaterial.nuclides[nuclide];
+            if (nucData && nucData.concentrations) {
+                traces.push({
+                    x: xValues,
+                    y: nucData.concentrations,
+                    name: nuclide,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    marker: { size: 6 },
+                    line: { width: 2, color: colors[colorIdx % colors.length] }
+                });
+                colorIdx++;
+            }
+        }
+
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#333333');
+
+        const layout: any = {
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
+            margin: { t: 40, r: 30, b: 50, l: 80 },
+            hovermode: 'closest',
+            font: { color: fgColor, size: 11 },
+            xaxis: {
+                title: { text: xLabel, font: { size: 12, color: fgColor } },
+                gridcolor: gridColor,
+                tickfont: { color: fgColor },
+                linecolor: gridColor
+            },
+            yaxis: {
+                title: { text: 'Concentration (g/cm³)', font: { size: 12, color: fgColor } },
+                type: this.burnupScale,
+                gridcolor: gridColor,
+                tickfont: { color: fgColor },
+                linecolor: gridColor,
+                exponentformat: 'e'
+            },
+            legend: {
+                font: { color: fgColor },
+                bgcolor: 'rgba(0,0,0,0)'
+            }
+        };
+
+        const config = {
+            responsive: true,
+            displayModeBar: false
+        };
+
+        return <PlotlyComponent data={traces} layout={layout} config={config} />;
+    }
+
+    private renderKeffDepletionChart(data: DepletionResults): React.ReactNode {
+        if (!data.keff) return null;
+
+        let xValues: number[] = [];
+        let xLabel = '';
+        
+        if (this.burnupXAxis === 'burnup' && data.burnupSteps) {
+            xValues = data.burnupSteps;
+            xLabel = 'Burnup (MWd/kg)';
+        } else if (data.timeSteps) {
+            xValues = data.timeSteps.map(t => t / (24 * 3600));
+            xLabel = 'Time (days)';
+        }
+
+        const traces: any[] = [
+            {
+                x: xValues,
+                y: data.keff.map(k => k.value),
+                error_y: {
+                    type: 'data',
+                    array: data.keff.map(k => k.stdDev * 2), // 2-sigma
+                    visible: true,
+                    color: 'rgba(76, 175, 80, 0.5)'
+                },
+                name: 'k-effective',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#4caf50', width: 3 },
+                marker: { size: 8, color: '#4caf50' }
+            }
+        ];
+
+        const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
+        const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
+        const gridColor = this.getCssColor('--theia-panel-border', '#333333');
+
+        const layout: any = {
+            paper_bgcolor: bgColor,
+            plot_bgcolor: bgColor,
+            margin: { t: 40, r: 30, b: 50, l: 80 },
+            font: { color: fgColor, size: 11 },
+            xaxis: {
+                title: { text: xLabel, font: { size: 12, color: fgColor } },
+                gridcolor: gridColor,
+                tickfont: { color: fgColor }
+            },
+            yaxis: {
+                title: { text: 'k-effective', font: { size: 12, color: fgColor } },
+                gridcolor: gridColor,
+                tickfont: { color: fgColor }
+            }
+        };
+
+        return <PlotlyComponent data={traces} layout={layout} config={{ displayModeBar: false, responsive: true }} />;
+    }
+
+    private getCssColor(variable: string, fallback: string): string {
+        if (typeof window === 'undefined') return fallback;
+        const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
+        return computed || fallback;
     }
 
     private async openAddDepletionDialog(): Promise<void> {
@@ -1302,6 +1589,17 @@ export class SimulationComparisonWidget extends ReactWidget {
 
         const uris = await this.fileDialogService.showOpenDialog(props);
         const uriArray = Array.isArray(uris) ? uris : (uris ? [uris] : []);
+        
+        if (uriArray.length === 0) {
+            return;
+        }
+
+        // Set loading state and switch to burnup tab immediately (if no statepoints)
+        this.isLoading = true;
+        if (this.statepoints.length === 0 && this.depletionResults.size === 0) {
+            this.activeTab = 'burnup';
+        }
+        this.update();
         
         for (const uri of uriArray) {
             const filePath = uri.path.toString();
@@ -1324,11 +1622,7 @@ export class SimulationComparisonWidget extends ReactWidget {
             }
         }
         
-        // Auto-switch to burnup tab if this was the first data loaded
-        if (this.depletionResults.size > 0 && this.statepoints.length === 0) {
-            this.activeTab = 'burnup';
-        }
-        
+        this.isLoading = false;
         this.update();
     }
 
@@ -1440,7 +1734,11 @@ export class SimulationComparisonWidget extends ReactWidget {
 
     private clearAll(): void {
         this.statepoints = [];
+        this.depletionResults.clear();
         this.selectedTallyId = undefined;
+        this.selectedDepletionFile = undefined;
+        this.statisticalTests = undefined;
+        this.convergenceAnalysis?.clear();
         this.update();
     }
 
@@ -1474,14 +1772,52 @@ export class SimulationComparisonWidget extends ReactWidget {
             }
         });
         
+        // Depletion results
+        if (this.depletionResults.size > 0) {
+            lines.push('Depletion Results Summary');
+            lines.push('File,Final Burnup (MWd/kg),Materials,Time Steps');
+            this.depletionResults.forEach((data, path) => {
+                lines.push(`${data.fileName},${data.finalBurnup || 'N/A'},${data.numberOfMaterials},${data.timeSteps?.length || 'N/A'}`);
+            });
+            lines.push('');
+            
+            // Detailed nuclide data for each depletion file
+            this.depletionResults.forEach((data, path) => {
+                if (data.materials && Object.keys(data.materials).length > 0) {
+                    lines.push(`Depletion Nuclides - ${data.fileName}`);
+                    lines.push('Material,Nuclide,Initial,Final,Min,Max');
+                    Object.entries(data.materials).forEach(([matId, matData]) => {
+                        Object.entries(matData.nuclides).forEach(([nuc, nucData]) => {
+                            lines.push(`${matData.name || matId},${nuc},${nucData.initial},${nucData.final},${nucData.min},${nucData.max}`);
+                        });
+                    });
+                    lines.push('');
+                }
+            });
+        }
+        
         const csv = lines.join('\n');
         
-        // Copy to clipboard
+        // Show save dialog
+        const props: SaveFileDialogProps = {
+            title: 'Save Comparison Report',
+            saveLabel: 'Save',
+            filters: {
+                'CSV Files': ['csv'],
+                'All Files': ['*']
+            },
+            inputValue: `openmc-comparison-report-${new Date().toISOString().split('T')[0]}.csv`
+        };
+        
         try {
-            await navigator.clipboard.writeText(csv);
-            this.messageService.info('Comparison results copied to clipboard (CSV format)');
-        } catch {
-            this.messageService.error('Failed to copy results to clipboard');
+            const uri = await this.fileDialogService.showSaveDialog(props);
+            if (uri) {
+                const contentBuffer = BinaryBuffer.fromString(csv);
+                await this.fileService.writeFile(uri, contentBuffer);
+                this.messageService.info(`Comparison report saved to: ${uri.path.base}`);
+            }
+        } catch (error) {
+            this.messageService.error(`Failed to save report: ${error}`);
         }
     }
 }

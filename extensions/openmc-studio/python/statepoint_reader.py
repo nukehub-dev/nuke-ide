@@ -306,7 +306,7 @@ def read_depletion_results(filepath: str) -> Dict[str, Any]:
     try:
         import openmc
         import h5py
-        from openmc.deplete import ResultsList
+        from openmc.deplete import Results
     except ImportError as e:
         return {
             'success': False,
@@ -322,8 +322,9 @@ def read_depletion_results(filepath: str) -> Dict[str, Any]:
         }
     
     try:
-        # Try to read with OpenMC's ResultsList (from openmc.deplete)
-        results = ResultsList(str(filepath))
+        # Try to read with OpenMC's Results (from openmc.deplete)
+        # Note: ResultsList was renamed to Results in OpenMC 0.13.1
+        results = Results.from_hdf5(str(filepath))
         
         result = {
             'success': True,
@@ -333,29 +334,70 @@ def read_depletion_results(filepath: str) -> Dict[str, Any]:
         }
         
         # Get time steps (burnup or time)
-        time_steps = []
-        burnup_steps = []
+        # Use the Results.get_times() method (OpenMC 0.13.1+)
+        time_steps = results.get_times(time_units='s')
+        if hasattr(time_steps, 'tolist'):
+            time_steps = time_steps.tolist()
+        if time_steps is not None and len(time_steps) > 0:
+            result['timeSteps'] = [float(t) for t in time_steps]
         
-        for r in results:
-            try:
-                time = r.time
-                time_steps.append(float(time[0]) if hasattr(time, '__len__') else float(time))
-            except:
-                time_steps.append(0.0)
+        # Try to get burnup steps from HDF5 directly
+        # Note: Results.get_times() returns time, burnup is separate if present
+        try:
+            with h5py.File(str(filepath), 'r') as f:
+                if 'burnup' in f:
+                    b_steps = f['burnup'][:].tolist()
+                    # Often the burnup dataset doesn't include the initial 0.0 step
+                    if len(b_steps) == len(results) - 1:
+                        b_steps = [0.0] + b_steps
+                    
+                    if b_steps:
+                        result['burnupSteps'] = [float(b) for b in b_steps]
+                        result['finalBurnup'] = float(b_steps[-1])
+        except:
+            pass
+        
+        # Get k-effective values using Results.get_keff() (OpenMC 0.13.1+)
+        try:
+            times_keff, keff_data = results.get_keff(time_units='s')
+            keff_values = []
+            for i, k_row in enumerate(keff_data):
+                # k_row is [nominal_value, uncertainty]
+                if hasattr(k_row, '__len__'):
+                    keff_values.append({
+                        'value': float(k_row[0]),
+                        'stdDev': float(k_row[1]) if len(k_row) > 1 else 0.0
+                    })
+                else:
+                    keff_values.append({
+                        'value': float(k_row),
+                        'stdDev': 0.0
+                    })
             
-            try:
-                burnup = r.burnup
-                if burnup is not None:
-                    burnup_steps.append(float(burnup))
-            except:
-                pass
-        
-        if time_steps:
-            result['timeSteps'] = time_steps
-        if burnup_steps:
-            result['burnupSteps'] = burnup_steps
-            result['finalBurnup'] = burnup_steps[-1]
-        
+            if keff_values:
+                result['keff'] = keff_values
+        except (AttributeError, Exception):
+            # Fallback: try to get k from individual results
+            keff_values = []
+            for r in results:
+                try:
+                    k = r.k
+                    if hasattr(k, '__len__'):
+                        keff_values.append({
+                            'value': float(k[0]),
+                            'stdDev': float(k[1]) if len(k) > 1 else 0.0
+                        })
+                    else:
+                        keff_values.append({
+                            'value': float(k),
+                            'stdDev': 0.0
+                        })
+                except:
+                    keff_values.append({'value': 0.0, 'stdDev': 0.0})
+            
+            if any(k['value'] > 0 for k in keff_values):
+                result['keff'] = keff_values
+
         # Get nuclide evolution for each material
         nuclide_data = {}
         
@@ -385,26 +427,39 @@ def read_depletion_results(filepath: str) -> Dict[str, Any]:
                     
                     nuclides = {}
                     for nuc in nuclide_list:
-                        concentrations = []
-                        for r in results:
-                            try:
-                                mat_at_time = r.get_material(mat_id_str)
-                                if mat_at_time and nuc in mat_at_time.get_nuclides():
-                                    # Get nuclide densities - returns NuclideTuple with percent
-                                    densities = mat_at_time.get_nuclide_densities()
-                                    if nuc in densities:
-                                        # Handle both tuple and direct value
-                                        density_val = densities[nuc]
-                                        if hasattr(density_val, 'percent'):
-                                            concentrations.append(float(density_val.percent))
+                        try:
+                            # Try to use Results.get_atoms() method (OpenMC 0.12+)
+                            # This is the recommended API according to the documentation
+                            times_nuc, concentrations = results.get_atoms(
+                                mat=mat_id_str,
+                                nuc=nuc,
+                                nuc_units='atoms',
+                                time_units='s'
+                            )
+                            if hasattr(concentrations, 'tolist'):
+                                concentrations = concentrations.tolist()
+                        except (AttributeError, Exception):
+                            # Fallback: extract from individual results
+                            concentrations = []
+                            for r in results:
+                                try:
+                                    mat_at_time = r.get_material(mat_id_str)
+                                    if mat_at_time and nuc in mat_at_time.get_nuclides():
+                                        # Get nuclide densities - returns NuclideTuple with percent
+                                        densities = mat_at_time.get_nuclide_densities()
+                                        if nuc in densities:
+                                            # Handle both tuple and direct value
+                                            density_val = densities[nuc]
+                                            if hasattr(density_val, 'percent'):
+                                                concentrations.append(float(density_val.percent))
+                                            else:
+                                                concentrations.append(float(density_val))
                                         else:
-                                            concentrations.append(float(density_val))
+                                            concentrations.append(0.0)
                                     else:
                                         concentrations.append(0.0)
-                                else:
+                                except Exception:
                                     concentrations.append(0.0)
-                            except Exception as e:
-                                concentrations.append(0.0)
                         
                         if any(c > 0 for c in concentrations):
                             nuclides[nuc] = {
@@ -420,7 +475,7 @@ def read_depletion_results(filepath: str) -> Dict[str, Any]:
                             'name': mat_display_name,
                             'nuclides': nuclides
                         }
-                except Exception as mat_error:
+                except Exception:
                     # Continue with next material
                     continue
                     

@@ -16,13 +16,13 @@
 
 /**
  * Simulation Comparison Widget Styles
- * 
+ *
  * Theme-aware styling following OpenMC Studio design patterns.
  * Uses Theia CSS variables for consistent theming.
  */
 
 /* ============================================================================
-   Root & Layout
+   CSS Custom Properties
    ============================================================================ */
 
 .simulation-comparison {
@@ -44,25 +44,28 @@
     height: 100%;
     background: var(--panel-bg);
     color: var(--text-color);
-    animation: dashboard-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@keyframes dashboard-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+/* ============================================================================
+   Animations
+   ============================================================================ */
 
 @keyframes fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
 }
 
+@keyframes dashboard-fade-in {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes section-slide-up {
-    from { 
+    from {
         opacity: 0;
         transform: translateY(20px);
     }
-    to { 
+    to {
         opacity: 1;
         transform: translateY(0);
     }
@@ -80,14 +83,50 @@
 }
 
 @keyframes card-fade-in {
-    from { 
+    from {
         opacity: 0;
         transform: scale(0.98);
     }
-    to { 
+    to {
         opacity: 1;
         transform: scale(1);
     }
+}
+
+/* ============================================================================
+   Base Layout
+   ============================================================================ */
+
+.simulation-comparison .comparison-content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+}
+
+.simulation-comparison .comparison-content.loading,
+.simulation-comparison .tab-content.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--secondary-text);
+    text-align: center;
+    padding: 40px;
+}
+
+.simulation-comparison .comparison-content.loading i,
+.simulation-comparison .tab-content.empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    color: var(--accent-color);
+}
+
+.simulation-comparison .comparison-content.loading h3,
+.simulation-comparison .tab-content.empty h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: var(--text-color);
 }
 
 /* ============================================================================
@@ -214,22 +253,10 @@
     width: 100%;
 }
 
-@keyframes expand-underline {
-    from { transform: scaleX(0); }
-    to { transform: scaleX(1); }
-}
-
 /* ============================================================================
-   Content Area
+   Empty Dashboard / Welcome Section
    ============================================================================ */
 
-.simulation-comparison .comparison-content {
-    flex: 1;
-    overflow: auto;
-    padding: 16px;
-}
-
-/* Empty Dashboard */
 .simulation-comparison .empty-dashboard {
     display: flex;
     flex-direction: column;
@@ -353,105 +380,21 @@
     color: var(--info-color);
 }
 
-/* Overview Tab Grid */
+/* ============================================================================
+   Overview Tab
+   ============================================================================ */
+
+.simulation-comparison .overview-tab {
+    animation: section-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .simulation-comparison .overview-grid-sections {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 24px;
 }
 
-.simulation-comparison .depletion-summary-section h3 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 16px 0;
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--secondary-text);
-}
-
-.simulation-comparison .depletion-list-mini {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.simulation-comparison .depletion-summary-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.simulation-comparison .depletion-summary-card:hover {
-    border-color: var(--accent-color);
-    background: var(--theia-list-hoverBackground);
-    transform: translateX(4px);
-}
-
-.simulation-comparison .depletion-summary-card .dep-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.simulation-comparison .depletion-summary-card .dep-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-color);
-}
-
-.simulation-comparison .depletion-summary-card .dep-meta {
-    font-size: 11px;
-    color: var(--secondary-text);
-}
-
-.simulation-comparison .depletion-summary-card i {
-    color: var(--secondary-text);
-    opacity: 0.5;
-}
-
-@keyframes dashboard-fade-in {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.simulation-comparison .comparison-content.loading,
-.simulation-comparison .tab-content.empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--secondary-text);
-    text-align: center;
-    padding: 40px;
-}
-
-.simulation-comparison .comparison-content.loading i,
-.simulation-comparison .tab-content.empty i {
-    font-size: 48px;
-    margin-bottom: 16px;
-    color: var(--accent-color);
-}
-
-.simulation-comparison .comparison-content.loading h3,
-.simulation-comparison .tab-content.empty h3 {
-    margin: 0 0 8px 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.simulation-comparison .overview-tab {
-    animation: section-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
+/* Summary Cards */
 .simulation-comparison .summary-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -517,8 +460,7 @@
     color: var(--secondary-text);
 }
 
-/* Statepoint List */
-
+/* Statepoint List Section */
 .simulation-comparison .statepoint-list-section {
     margin-top: 24px;
 }
@@ -540,6 +482,7 @@
     gap: 8px;
 }
 
+/* Statepoint Card */
 .simulation-comparison .statepoint-card {
     background: var(--card-bg);
     border: 1px solid var(--theia-panel-border);
@@ -623,14 +566,73 @@
     flex-shrink: 0;
 }
 
+/* Depletion Summary */
+.simulation-comparison .depletion-summary-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--secondary-text);
+}
+
+.simulation-comparison .depletion-list-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.simulation-comparison .depletion-summary-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.simulation-comparison .depletion-summary-card:hover {
+    border-color: var(--accent-color);
+    background: var(--theia-list-hoverBackground);
+    transform: translateX(4px);
+}
+
+.simulation-comparison .depletion-summary-card .dep-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.simulation-comparison .depletion-summary-card .dep-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.simulation-comparison .depletion-summary-card .dep-meta {
+    font-size: 11px;
+    color: var(--secondary-text);
+}
+
+.simulation-comparison .depletion-summary-card i {
+    color: var(--secondary-text);
+    opacity: 0.5;
+}
+
 /* ============================================================================
-   k-effective Tab
+   K-Effective Tab
    ============================================================================ */
 
 .simulation-comparison .keff-tab {
     animation: section-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Stats Panel */
 .simulation-comparison .stats-panel {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -674,6 +676,7 @@
     color: var(--text-color);
 }
 
+/* Table Container & Chart */
 .simulation-comparison .comparison-table-container,
 .simulation-comparison .keff-chart {
     background: var(--card-bg);
@@ -697,7 +700,7 @@
     padding-bottom: 12px;
 }
 
-/* Base Table Styles - Unified */
+/* Base Table Styles */
 .simulation-comparison .comparison-table,
 .simulation-comparison .nuclide-table,
 .simulation-comparison .burnup-results-table {
@@ -754,7 +757,11 @@
     background: var(--theia-list-hoverBackground);
 }
 
-/* Cell Specific Styles */
+.simulation-comparison .comparison-table.tallies {
+    min-width: 600px;
+}
+
+/* Table Cell Styles */
 .simulation-comparison .numeric {
     text-align: right !important;
     font-family: var(--theia-monospace-font-family);
@@ -784,18 +791,13 @@
     font-weight: 600;
 }
 
-/* Specific Adjustments */
-.simulation-comparison .comparison-table.tallies {
-    min-width: 600px;
-}
-
 .simulation-comparison .nuclide-name {
     font-weight: 600;
     color: var(--accent-color);
     font-family: var(--theia-monospace-font-family);
 }
 
-/* k-eff Visual Comparison Chart */
+/* Chart Container */
 .simulation-comparison .chart-container {
     display: flex;
     flex-direction: column;
@@ -908,6 +910,7 @@
     height: 100%;
 }
 
+/* Tally Selector */
 .simulation-comparison .tally-selector {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -940,7 +943,7 @@
     padding-right: 4px;
 }
 
-/* Tally Item Styling */
+/* Tally Item */
 .simulation-comparison .tally-item {
     display: flex;
     flex-direction: column;
@@ -1059,7 +1062,7 @@
     border: 1px solid var(--border-color);
 }
 
-/* Mini Chart Styling */
+/* Tally Chart */
 .simulation-comparison .tally-chart {
     margin-top: 32px;
     padding: 24px;
@@ -1168,14 +1171,7 @@
     gap: 20px;
 }
 
-.simulation-comparison .stats-panel {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
+/* Stats Panel (Statistics Tab) */
 .simulation-comparison .stats-panel h4 {
     display: flex;
     align-items: center;
@@ -1460,6 +1456,7 @@
     color: var(--text-color);
 }
 
+/* Value Badge */
 .simulation-comparison .value-badge {
     padding: 2px 8px;
     border-radius: 10px;
@@ -1478,6 +1475,7 @@
     color: var(--error-color);
 }
 
+/* Stats Overview */
 .simulation-comparison .stats-overview h4 {
     display: flex;
     align-items: center;
@@ -1733,7 +1731,7 @@
     opacity: 0.9;
 }
 
-/* Premium Sparkline */
+/* Chart Section */
 .simulation-comparison .conv-chart-section {
     display: flex;
     flex-direction: column;
@@ -1774,6 +1772,7 @@
 .simulation-comparison .legend-item .dot.min { background: var(--error-color); }
 .simulation-comparison .legend-item .dot.max { background: var(--success-color); }
 
+/* Sparkline */
 .simulation-comparison .sparkline-container {
     height: 120px;
     background: var(--theia-titleBar-activeBackground);
@@ -1818,7 +1817,7 @@
     font-weight: 400;
 }
 
-/* Analyze Button & Spinner */
+/* Loading State */
 .simulation-comparison .conv-loading {
     display: flex;
     justify-content: center;
@@ -1857,7 +1856,7 @@
 }
 
 /* Depletion Selector Panel */
-.simulation-comparison .burnup-layout .depletion-selector {
+.simulation-comparison .depletion-selector {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -1867,7 +1866,7 @@
     overflow: hidden;
 }
 
-.simulation-comparison .burnup-layout .depletion-selector h4 {
+.simulation-comparison .depletion-selector h4 {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1879,7 +1878,7 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.simulation-comparison .burnup-layout .depletion-list {
+.simulation-comparison .depletion-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1888,7 +1887,7 @@
 }
 
 /* Depletion Item */
-.simulation-comparison .burnup-layout .depletion-item {
+.simulation-comparison .depletion-item {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1901,19 +1900,19 @@
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.simulation-comparison .burnup-layout .depletion-item:hover {
+.simulation-comparison .depletion-item:hover {
     border-color: var(--theia-focusBorder);
     background: var(--theia-list-hoverBackground);
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.simulation-comparison .burnup-layout .depletion-item.active {
+.simulation-comparison .depletion-item.active {
     border-color: var(--accent-color);
     background: rgba(33, 150, 243, 0.1);
 }
 
-.simulation-comparison .burnup-layout .depletion-item .dep-name {
+.simulation-comparison .depletion-item .dep-name {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-color);
@@ -1922,7 +1921,7 @@
     text-overflow: ellipsis;
 }
 
-.simulation-comparison .burnup-layout .depletion-item .dep-meta {
+.simulation-comparison .depletion-item .dep-meta {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
@@ -1930,7 +1929,7 @@
 }
 
 /* Depletion Details Panel */
-.simulation-comparison .burnup-layout .depletion-details {
+.simulation-comparison .depletion-details {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -1938,13 +1937,13 @@
     overflow-y: auto;
 }
 
-.simulation-comparison .burnup-layout .depletion-content {
+.simulation-comparison .depletion-content {
     display: flex;
     flex-direction: column;
     gap: 20px;
 }
 
-.simulation-comparison .burnup-layout .dep-header {
+.simulation-comparison .dep-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -1952,20 +1951,20 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.simulation-comparison .burnup-layout .dep-header h4 {
+.simulation-comparison .dep-header h4 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
     color: var(--text-color);
 }
 
-.simulation-comparison .burnup-layout .dep-badges {
+.simulation-comparison .dep-badges {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
 }
 
-.simulation-comparison .burnup-layout .dep-badges .badge {
+.simulation-comparison .dep-badges .badge {
     font-size: 11px;
     padding: 4px 10px;
     background: var(--theia-button-secondaryBackground);
@@ -1974,26 +1973,26 @@
     font-weight: 500;
 }
 
-.simulation-comparison .burnup-layout .dep-badges .badge.burnup {
+.simulation-comparison .dep-badges .badge.burnup {
     background: rgba(244, 67, 54, 0.15);
     color: var(--error-color);
 }
 
 /* Materials Accordion */
-.simulation-comparison .burnup-layout .materials-accordion {
+.simulation-comparison .materials-accordion {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
-.simulation-comparison .burnup-layout .material-accordion-item {
+.simulation-comparison .material-accordion-item {
     background: var(--theia-editor-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
     overflow: hidden;
 }
 
-.simulation-comparison .burnup-layout .material-header {
+.simulation-comparison .material-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2002,28 +2001,177 @@
     transition: background 150ms;
 }
 
-.simulation-comparison .burnup-layout .material-header:hover {
+.simulation-comparison .material-header:hover {
     background: var(--theia-list-hoverBackground);
 }
 
-.simulation-comparison .burnup-layout .material-header .material-name {
+.simulation-comparison .material-header .material-name {
     font-size: 13px;
     font-weight: 600;
     color: var(--accent-color);
 }
 
-.simulation-comparison .burnup-layout .material-header .material-nuclide-count {
+.simulation-comparison .material-header .material-nuclide-count {
     font-size: 11px;
     color: var(--secondary-text);
 }
 
+.simulation-comparison .material-accordion-item.selected {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 1px var(--accent-color);
+}
+
 /* Nuclide Table */
-.simulation-comparison .burnup-layout .nuclide-table-container {
+.simulation-comparison .nuclide-table-container {
     padding: 0 16px 16px 16px;
 }
 
-/* Empty State Mini */
-.simulation-comparison .burnup-layout .empty-state-mini {
+.simulation-comparison .nuclide-table tr {
+    cursor: pointer;
+}
+
+.simulation-comparison .nuclide-table tr.selected td {
+    background: rgba(33, 150, 243, 0.1);
+}
+
+.simulation-comparison .select-col {
+    width: 36px;
+    text-align: center !important;
+}
+
+/* Depletion Controls */
+.simulation-comparison .depletion-controls {
+    display: flex;
+    gap: 20px;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.simulation-comparison .control-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.simulation-comparison .control-group label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--secondary-text);
+    letter-spacing: 0.5px;
+}
+
+.simulation-comparison .toggle-group {
+    display: flex;
+    background: var(--theia-input-background);
+    border-radius: 6px;
+    padding: 2px;
+    border: 1px solid var(--border-color);
+}
+
+.simulation-comparison .toggle-group button {
+    border: none !important;
+    transform: none !important;
+    background: transparent !important;
+    padding: 4px 12px !important;
+    font-size: 11px !important;
+    border-radius: 4px !important;
+    color: var(--secondary-text) !important;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.simulation-comparison .toggle-group button.active {
+    background: var(--accent-color) !important;
+    color: white !important;
+}
+
+/* Chart Container */
+.simulation-comparison .depletion-chart-container {
+    height: 420px;
+    background: var(--theia-editor-background);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    margin-bottom: 20px;
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.simulation-comparison .chart-placeholder {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, rgba(0,0,0,0.15), transparent);
+}
+
+.simulation-comparison .chart-info {
+    text-align: center;
+    color: var(--secondary-text);
+    max-width: 300px;
+}
+
+.simulation-comparison .chart-info i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+    color: var(--accent-color);
+}
+
+.simulation-comparison .chart-info p {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* Material Selector Bar */
+.simulation-comparison .material-selector-bar {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+    padding: 10px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.simulation-comparison .material-selector-bar label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--secondary-text);
+}
+
+.simulation-comparison .material-selector-bar select {
+    padding: 4px 12px;
+    background: var(--theia-input-background);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.simulation-comparison .nuclide-quick-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.simulation-comparison .nuclide-quick-select span {
+    font-size: 11px;
+    color: var(--secondary-text);
+    margin-right: 4px;
+}
+
+/* Empty States */
+.simulation-comparison .empty-state-mini {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2033,68 +2181,42 @@
     text-align: center;
 }
 
-.simulation-comparison .burnup-layout .empty-state-mini i {
+.simulation-comparison .empty-state-mini i {
     font-size: 32px;
     margin-bottom: 12px;
 }
 
-/* ============================================================================
-   Buttons & Actions
-   ============================================================================ */
-
-.simulation-comparison .burnup-selector h4 {
+.simulation-comparison .burnup-empty {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    margin: 0 0 12px 0;
-    font-size: 13px;
+    justify-content: center;
+    height: 100%;
+    color: var(--secondary-text);
+    text-align: center;
+    padding: 40px;
+}
+
+.simulation-comparison .burnup-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    color: var(--warning-color);
+}
+
+.simulation-comparison .burnup-empty h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
     color: var(--text-color);
 }
 
-.simulation-comparison .burnup-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+.simulation-comparison .burnup-empty p {
+    max-width: 400px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
 }
 
-.simulation-comparison .burnup-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 12px;
-    background: transparent;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 6px;
-    cursor: pointer;
-    text-align: left;
-    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.simulation-comparison .burnup-item:hover {
-    border-color: var(--theia-focusBorder);
-    background: var(--theia-list-hoverBackground);
-    transform: translateY(-1px);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-}
-
-.simulation-comparison .burnup-item.active {
-    border-color: var(--accent-color);
-    background: var(--active-bg);
-}
-
-.simulation-comparison .burnup-item .burnup-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent-color);
-}
-
-.simulation-comparison .burnup-item .burnup-meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--secondary-text);
-}
-
+/* Burnup Comparison */
 .simulation-comparison .burnup-comparison {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -2141,36 +2263,6 @@
     min-height: 200px;
 }
 
-.simulation-comparison .burnup-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--secondary-text);
-    text-align: center;
-    padding: 40px;
-}
-
-.simulation-comparison .burnup-empty i {
-    font-size: 48px;
-    margin-bottom: 16px;
-    color: var(--warning-color);
-}
-
-.simulation-comparison .burnup-empty h3 {
-    margin: 0 0 8px 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.simulation-comparison .burnup-empty p {
-    max-width: 400px;
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
 /* ============================================================================
    Buttons & Actions
    ============================================================================ */
@@ -2207,11 +2299,11 @@
     .simulation-comparison .tallies-layout {
         grid-template-columns: 1fr;
     }
-    
+
     .simulation-comparison .tally-selector {
         max-height: 200px;
     }
-    
+
     .simulation-comparison .comparison-header {
         flex-direction: column;
         align-items: flex-start;

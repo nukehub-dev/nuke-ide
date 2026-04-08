@@ -894,6 +894,7 @@ export interface DepletionResults {
     timeSteps?: number[];
     burnupSteps?: number[];
     finalBurnup?: number;
+    keff?: Array<{ value: number; stdDev: number }>;
     materials: {
         [materialId: string]: DepletionMaterial;
     };
