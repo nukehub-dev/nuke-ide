@@ -54,6 +54,7 @@ import { OpenMCStateManager } from './openmc-state-manager';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
+import { OptimizationWidget } from './optimization/optimization-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 
 // ============================================================================
@@ -169,7 +170,7 @@ export namespace OpenMCStudioCommands {
     export const OPEN_OPTIMIZATION: Command = {
         id: 'openmc.openOptimization',
         category: CATEGORY,
-        label: 'Optimization'
+        label: 'Optimization Study'
     };
 
     export const OPEN_DAGMC_EDITOR: Command = {
@@ -323,7 +324,7 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         });
 
         commands.registerCommand(OpenMCStudioCommands.OPEN_OPTIMIZATION, {
-            execute: () => this.messageService.info('Optimization framework coming soon!')
+            execute: () => this.openOptimizationWidget()
         });
     }
 
@@ -426,7 +427,7 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
 
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
             commandId: OpenMCStudioCommands.OPEN_OPTIMIZATION.id,
-            label: 'Optimization',
+            label: 'Optimization Study',
             order: 'h'
         });
     }
@@ -644,6 +645,12 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
 
     protected async openSimulationComparison(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget<SimulationComparisonWidget>(SimulationComparisonWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+    }
+
+    protected async openOptimizationWidget(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<OptimizationWidget>(OptimizationWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }

@@ -36,6 +36,7 @@ import {
     XMLValidationResult,
     SimulationRunRequest,
     SimulationRunResult,
+    SimulationLogResult,
     StartSimulationResponse,
     ValidationRequest,
     ValidationResult,
@@ -55,6 +56,7 @@ import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
+import { OptimizationBackendService } from './optimization-backend-service';
 
 @injectable()
 export class OpenMCStudioBackendServiceImpl 
@@ -71,6 +73,9 @@ export class OpenMCStudioBackendServiceImpl
     
     @inject(DAGMCEditorService)
     protected readonly dagmcEditorService: DAGMCEditorService;
+    
+    @inject(OptimizationBackendService)
+    protected readonly optimizationService: OptimizationBackendService;
 
     /**
      * Set the client for receiving log messages.
@@ -78,6 +83,8 @@ export class OpenMCStudioBackendServiceImpl
     setClient(client: OpenMCStudioClient): void {
         // Forward client to runner service for simulation output streaming
         this.runnerService.setClient(client);
+        // Forward client to optimization service for progress updates
+        this.optimizationService.registerClient(client);
     }
 
     /**
@@ -663,6 +670,10 @@ export class OpenMCStudioBackendServiceImpl
     async cancelSimulation(processId: string): Promise<boolean> {
         this.log(`Cancelling simulation ${processId}`);
         return this.runnerService.cancelSimulation(processId);
+    }
+
+    async getSimulationLog(processId: string): Promise<SimulationLogResult> {
+        return this.runnerService.getSimulationLog(processId);
     }
 
     async checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }> {
@@ -1740,6 +1751,46 @@ export class OpenMCStudioBackendServiceImpl
         } catch (e) {
             return path.resolve(__dirname, '../..');
         }
+    }
+
+    // ============================================================================
+    // Optimization Framework Methods
+    // ============================================================================
+
+    async startOptimization(request: import('../common/openmc-studio-protocol').StartOptimizationRequest): 
+        Promise<import('../common/openmc-studio-protocol').StartOptimizationResult> {
+        this.log(`Starting optimization run: ${request.runId}`);
+        return this.optimizationService.startOptimization(request);
+    }
+
+    async stopOptimization(request: import('../common/openmc-studio-protocol').StopOptimizationRequest): 
+        Promise<import('../common/openmc-studio-protocol').StopOptimizationResult> {
+        this.log(`Stopping optimization run: ${request.runId}`);
+        return this.optimizationService.stopOptimization(request);
+    }
+
+    async getOptimizationStatus(runId: string): Promise<{
+        running: boolean;
+        currentIteration: number;
+        totalIterations: number;
+        status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+    }> {
+        return this.optimizationService.getOptimizationStatus(runId);
+    }
+
+    async getIterationLogsIndex(runId: string): Promise<{
+        iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
+        outputDirectory: string;
+    }> {
+        return this.optimizationService.getIterationLogsIndex(runId);
+    }
+
+    async getIterationLog(runId: string, iteration: number): Promise<{
+        success: boolean;
+        logContent?: string;
+        error?: string;
+    }> {
+        return this.optimizationService.getIterationLog(runId, iteration);
     }
 
 }

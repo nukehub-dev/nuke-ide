@@ -823,6 +823,108 @@ export interface OpenMCDepletion {
 }
 
 // ============================================================================
+// Optimization - Parameter Sweeps
+// ============================================================================
+
+/** Parameter sweep definition for optimization studies */
+export interface OpenMCParameterSweep {
+    /** Unique sweep ID */
+    id: number;
+    /** Sweep name/description */
+    name: string;
+    /** Whether this sweep is enabled */
+    enabled: boolean;
+    /** Parameter variable name (e.g., 'enrichment', 'pitch') */
+    variable: string;
+    /** Parameter type category */
+    parameterType: 'material' | 'geometry' | 'settings';
+    /** JSON path to parameter (e.g., 'materials.0.density') */
+    parameterPath: string;
+    /** Range type: linear or logarithmic */
+    rangeType: 'linear' | 'logarithmic';
+    /** Start value */
+    startValue: number;
+    /** End value */
+    endValue: number;
+    /** Number of sweep points */
+    numPoints: number;
+    /** Computed values (auto-generated) */
+    values?: number[];
+    /** Unit label (e.g., 'g/cm³', 'cm') */
+    unit?: string;
+}
+
+/** Single optimization result */
+export interface OptimizationResult {
+    /** Iteration number */
+    iteration: number;
+    /** Parameter values for this iteration */
+    parameterValues: Record<string, number>;
+    /** k-effective value */
+    keff?: number;
+    /** k-effective standard deviation */
+    keffStd?: number;
+    /** Tally results: tally ID → value mapping */
+    tallies?: Record<string, number>;
+    /** Execution time in seconds */
+    executionTime: number;
+    /** Path to statepoint file */
+    statepointPath?: string;
+    /** Whether this iteration completed successfully */
+    success: boolean;
+    /** Error message if failed */
+    errorMessage?: string;
+}
+
+/** Optimization run state */
+export interface OpenMCOptimizationRun {
+    /** Unique run ID */
+    id: string;
+    /** Run name */
+    name: string;
+    /** Run status */
+    status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+    /** Sweep configuration */
+    sweepConfig: OpenMCParameterSweep[];
+    /** Current iteration */
+    currentIteration: number;
+    /** Total iterations */
+    totalIterations: number;
+    /** Results array */
+    results: OptimizationResult[];
+    /** Start timestamp */
+    startTime?: string;
+    /** End timestamp */
+    endTime?: string;
+    /** Paths to generated statepoint files */
+    statepointFiles: string[];
+    /** Live log messages */
+    logMessages: OptimizationLogMessage[];
+}
+
+/** Optimization log message */
+export interface OptimizationLogMessage {
+    /** Timestamp */
+    timestamp: string;
+    /** Message level */
+    level: 'info' | 'warning' | 'error';
+    /** Message content */
+    message: string;
+    /** Iteration number (if applicable) */
+    iteration?: number;
+}
+
+/** Complete optimization state */
+export interface OpenMCOptimizationState {
+    /** Parameter sweep definitions */
+    parameterSweeps: OpenMCParameterSweep[];
+    /** Optimization runs (completed and in-progress) */
+    optimizationRuns: OpenMCOptimizationRun[];
+    /** Currently active run ID */
+    activeRunId?: string;
+}
+
+// ============================================================================
 // Complete State
 // ============================================================================
 
@@ -844,6 +946,8 @@ export interface OpenMCState {
     varianceReduction?: OpenMCVarianceReduction;
     /** Depletion settings */
     depletion?: OpenMCDepletion;
+    /** Optimization settings */
+    optimization?: OpenMCOptimizationState;
     /** Plots configuration (for OpenMC's built-in plotting) */
     plots?: OpenMCPlotConfig[];
 }

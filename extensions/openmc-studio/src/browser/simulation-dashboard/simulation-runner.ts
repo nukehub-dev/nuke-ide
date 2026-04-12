@@ -33,6 +33,7 @@ import {
     SimulationRunResult,
     SimulationProgress,
     SimulationStatusEvent,
+    SimulationLogResult,
     OpenMCStudioBackendService
 } from '../../common/openmc-studio-protocol';
 import { NukeCoreService } from 'nuke-core/lib/common';
@@ -254,5 +255,33 @@ export class OpenMCSimulationRunner {
      */
     onProgressUpdate(progress: SimulationProgress): void {
         this._onProgress.fire(progress);
+    }
+
+    /**
+     * Get the current process ID.
+     */
+    get currentProcessId(): string | undefined {
+        return this._currentProcessId;
+    }
+
+    /**
+     * Check if a simulation is running.
+     */
+    get isRunning(): boolean {
+        return this._isRunning;
+    }
+
+    /**
+     * Get simulation log file content.
+     */
+    async getSimulationLog(processId?: string): Promise<SimulationLogResult> {
+        const pid = processId || this._currentProcessId;
+        if (!pid) {
+            return {
+                success: false,
+                error: 'No simulation running or processId provided'
+            };
+        }
+        return this.backendService.getSimulationLog(pid);
     }
 }

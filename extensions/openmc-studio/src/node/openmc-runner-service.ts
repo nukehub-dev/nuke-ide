@@ -25,11 +25,14 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ProcessManager } from '@theia/process/lib/node';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import {
     SimulationRunRequest,
     SimulationRunResult,
     SimulationProgress,
+    SimulationLogResult,
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
@@ -39,6 +42,8 @@ interface RunningSimulation {
     process: any; // ChildProcess type
     startTime: Date;
     request: SimulationRunRequest;
+    logFilePath: string;
+    logStream?: fs.WriteStream;
 }
 
 @injectable()
@@ -51,6 +56,7 @@ export class OpenMCRunnerService {
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
     private runningSimulations = new Map<string, RunningSimulation>();
+    private completedSimulations = new Map<string, { workingDirectory: string; logFilePath: string }>();
     private client?: OpenMCStudioClient;
 
     /**
@@ -59,7 +65,6 @@ export class OpenMCRunnerService {
      */
     private async checkDepletionEnabled(workingDirectory: string): Promise<{ enabled: boolean; settings?: { chainFile?: string; timeSteps: number[]; power?: number; powerDensity?: number } }> {
         const fs = await import('fs');
-        const path = await import('path');
         
         const settingsPath = path.join(workingDirectory, 'settings.xml');
         if (!fs.existsSync(settingsPath)) {
@@ -165,6 +170,45 @@ export class OpenMCRunnerService {
      */
     setClient(client: OpenMCStudioClient): void {
         this.client = client;
+    }
+
+    /**
+     * Safely send log message to client. Removes client reference on disconnect error.
+     */
+    private safeLog(message: string): void {
+        if (!this.client) return;
+        try {
+            this.client.log(message);
+        } catch (error) {
+            console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
+            this.client = undefined;
+        }
+    }
+
+    /**
+     * Safely send warning message to client. Removes client reference on disconnect error.
+     */
+    private safeWarn(message: string): void {
+        if (!this.client) return;
+        try {
+            this.client.warn(message);
+        } catch (error) {
+            console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
+            this.client = undefined;
+        }
+    }
+
+    /**
+     * Safely send status update to client. Removes client reference on disconnect error.
+     */
+    private safeSendStatus(status: any): void {
+        if (!this.client) return;
+        try {
+            this.client.onSimulationStatus(status);
+        } catch (error) {
+            console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
+            this.client = undefined;
+        }
     }
 
     /**
@@ -376,7 +420,6 @@ export class OpenMCRunnerService {
         }
         
         // Build environment - ensure PATH includes Python bin directory
-        const path = await import('path');
         const pythonBinDir = path.dirname(pythonCommand);
         const currentPath = process.env.PATH || '';
         const newPath = currentPath.includes(pythonBinDir) 
@@ -391,6 +434,14 @@ export class OpenMCRunnerService {
                 PATH: newPath,
                 ...request.env
             };
+            
+            // Create log file path
+            const logDir = path.join(request.workingDirectory, 'logs');
+            if (!fs.existsSync(logDir)) {
+                fs.mkdirSync(logDir, { recursive: true });
+            }
+            const logFilePath = path.join(logDir, `${processId}.log`);
+            const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
             
             const childProcess = spawn(command, args, {
                 cwd: request.workingDirectory,
@@ -407,7 +458,9 @@ export class OpenMCRunnerService {
                 processId,
                 process: childProcess,
                 startTime,
-                request
+                request,
+                logFilePath,
+                logStream
             });
             
             // Handle stdout
@@ -415,8 +468,10 @@ export class OpenMCRunnerService {
                 const chunk = data.toString();
                 stdout += chunk;
                 // Stream output to client for real-time feedback in frontend
-                this.client?.log(chunk);
+                this.safeLog(chunk);
                 this.parseProgress(chunk);
+                // Write to log file
+                logStream.write(chunk);
             });
             
             // Handle stderr
@@ -424,11 +479,22 @@ export class OpenMCRunnerService {
                 const chunk = data.toString();
                 stderr += chunk;
                 // Stream errors to client for real-time feedback in frontend
-                this.client?.warn(chunk);
+                this.safeWarn(chunk);
+                // Write to log file
+                logStream.write(chunk);
             });
             
             // Handle process exit
             childProcess.on('close', (code: number | null) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info for later log retrieval
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
                 
                 const endTime = new Date();
@@ -470,6 +536,15 @@ export class OpenMCRunnerService {
             
             // Handle errors
             childProcess.on('error', (error: Error) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info even on error
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
                 reject(error);
             });
@@ -533,7 +608,6 @@ export class OpenMCRunnerService {
         }
         
         // Build environment - ensure PATH includes Python bin directory
-        const path = await import('path');
         const pythonBinDir = path.dirname(pythonCommand);
         const currentPath = process.env.PATH || '';
         const newPath = currentPath.includes(pythonBinDir) 
@@ -549,6 +623,14 @@ export class OpenMCRunnerService {
                 ...request.env
             };
             
+            // Create log file path
+            const logDir = path.join(request.workingDirectory, 'logs');
+            if (!fs.existsSync(logDir)) {
+                fs.mkdirSync(logDir, { recursive: true });
+            }
+            const logFilePath = path.join(logDir, `${processId}.log`);
+            const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+            
             const childProcess = spawn(command, args, {
                 cwd: request.workingDirectory,
                 env,
@@ -559,16 +641,18 @@ export class OpenMCRunnerService {
             let stdout = '';
             let stderr = '';
             
-            // Store running simulation
+            // Store running simulation with log info
             this.runningSimulations.set(processId, {
                 processId,
                 process: childProcess,
                 startTime,
-                request
+                request,
+                logFilePath,
+                logStream
             });
             
             // Notify client that simulation is starting
-            this.client?.onSimulationStatus({
+            this.safeSendStatus({
                 processId,
                 status: 'starting'
             });
@@ -577,19 +661,32 @@ export class OpenMCRunnerService {
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
                 stdout += chunk;
-                this.client?.log(chunk);
+                this.safeLog(chunk);
                 this.parseProgress(chunk);
+                // Write to log file
+                logStream.write(chunk);
             });
             
             // Handle stderr
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
                 stderr += chunk;
-                this.client?.warn(chunk);
+                this.safeWarn(chunk);
+                // Write to log file
+                logStream.write(chunk);
             });
             
             // Handle process exit
             childProcess.on('close', (code: number | null) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info for later log retrieval
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
                 
                 const endTime = new Date();
@@ -614,7 +711,7 @@ export class OpenMCRunnerService {
                 }
                 
                 // Notify client of completion
-                this.client?.onSimulationStatus({
+                this.safeSendStatus({
                     processId,
                     status: success ? 'completed' : 'failed',
                     result: {
@@ -635,8 +732,17 @@ export class OpenMCRunnerService {
             
             // Handle errors
             childProcess.on('error', (error: Error) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info even on error
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
-                this.client?.onSimulationStatus({
+                this.safeSendStatus({
                     processId,
                     status: 'failed',
                     result: {
@@ -732,6 +838,14 @@ export class OpenMCRunnerService {
                 ...request.env
             };
             
+            // Create log file path
+            const logDir = path.join(request.workingDirectory, 'logs');
+            if (!fs.existsSync(logDir)) {
+                fs.mkdirSync(logDir, { recursive: true });
+            }
+            const logFilePath = path.join(logDir, `${processId}.log`);
+            const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+            
             const childProcess = spawn(pythonCommand, args, {
                 cwd: request.workingDirectory,
                 env,
@@ -747,11 +861,13 @@ export class OpenMCRunnerService {
                 processId,
                 process: childProcess,
                 startTime,
-                request
+                request,
+                logFilePath,
+                logStream
             });
             
             // Notify client that simulation is starting
-            this.client?.onSimulationStatus({
+            this.safeSendStatus({
                 processId,
                 status: 'starting'
             });
@@ -760,18 +876,29 @@ export class OpenMCRunnerService {
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
                 stdout += chunk;
-                this.client?.log(chunk);
+                this.safeLog(chunk);
+                logStream.write(chunk);
             });
             
             // Handle stderr (includes progress messages from depletion script)
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
                 stderr += chunk;
-                this.client?.log(chunk);
+                this.safeLog(chunk);
+                logStream.write(chunk);
             });
             
             // Handle process exit
             childProcess.on('close', (code: number | null) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info for later log retrieval
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
                 
                 const endTime = new Date();
@@ -796,7 +923,7 @@ export class OpenMCRunnerService {
                 }
                 
                 // Notify client of completion
-                this.client?.onSimulationStatus({
+                this.safeSendStatus({
                     processId,
                     status: success ? 'completed' : 'failed',
                     result: {
@@ -817,8 +944,17 @@ export class OpenMCRunnerService {
             
             // Handle errors
             childProcess.on('error', (error: Error) => {
+                // Close log stream
+                logStream.end();
+                
+                // Store completed simulation info even on error
+                this.completedSimulations.set(processId, {
+                    workingDirectory: request.workingDirectory,
+                    logFilePath
+                });
+                
                 this.runningSimulations.delete(processId);
-                this.client?.onSimulationStatus({
+                this.safeSendStatus({
                     processId,
                     status: 'failed',
                     result: {
@@ -866,7 +1002,7 @@ export class OpenMCRunnerService {
             }, 3000);
             
             // Notify client
-            this.client?.onSimulationStatus({
+            this.safeSendStatus({
                 processId,
                 status: 'cancelled'
             });
@@ -876,6 +1012,75 @@ export class OpenMCRunnerService {
             this.log(`Error cancelling simulation: ${error}`);
             return false;
         }
+    }
+
+    /**
+     * Get simulation log file content.
+     */
+    async getSimulationLog(processId: string): Promise<SimulationLogResult> {
+        const simulation = this.runningSimulations.get(processId);
+        
+        // If simulation is running, return current log file path
+        if (simulation) {
+            try {
+                if (fs.existsSync(simulation.logFilePath)) {
+                    const content = fs.readFileSync(simulation.logFilePath, 'utf-8');
+                    return {
+                        success: true,
+                        logContent: content,
+                        logPath: simulation.logFilePath,
+                        isRunning: true
+                    };
+                } else {
+                    return {
+                        success: false,
+                        error: 'Log file not found',
+                        isRunning: true
+                    };
+                }
+            } catch (error) {
+                return {
+                    success: false,
+                    error: `Error reading log: ${error}`,
+                    isRunning: true
+                };
+            }
+        }
+        
+        // Try to find log file for completed simulation using stored info
+        const completedSim = this.completedSimulations.get(processId);
+        if (completedSim) {
+            try {
+                if (fs.existsSync(completedSim.logFilePath)) {
+                    const content = fs.readFileSync(completedSim.logFilePath, 'utf-8');
+                    return {
+                        success: true,
+                        logContent: content,
+                        logPath: completedSim.logFilePath,
+                        isRunning: false
+                    };
+                } else {
+                    return {
+                        success: false,
+                        error: 'Log file not found for completed simulation',
+                        isRunning: false
+                    };
+                }
+            } catch (error) {
+                return {
+                    success: false,
+                    error: `Error reading log: ${error}`,
+                    isRunning: false
+                };
+            }
+        }
+        
+        // Simulation not found
+        return {
+            success: false,
+            error: 'Simulation not found',
+            isRunning: false
+        };
     }
 
     /**
@@ -914,7 +1119,6 @@ export class OpenMCRunnerService {
      */
     private detectOutputFiles(workingDirectory: string): string[] {
         const fs = require('fs');
-        const path = require('path');
         
         const outputFiles: string[] = [];
         

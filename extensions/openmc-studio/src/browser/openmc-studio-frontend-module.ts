@@ -62,6 +62,7 @@ import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator
 import { TallyConfiguratorContribution } from './tally-configurator/tally-configurator-contribution';
 import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
 import { SimulationComparisonContribution } from './simulation-comparison/comparison-contribution';
+import { OptimizationWidget } from './optimization/optimization-widget';
 
 // Import CSS
 import './simulation-dashboard/simulation-dashboard.css';
@@ -69,6 +70,7 @@ import './csg-builder/csg-builder.css';
 import './dagmc-editor/dagmc-editor.css';
 import './tally-configurator/tally-configurator.css';
 import './simulation-comparison/comparison.css';
+import './optimization/optimization.css';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -106,7 +108,13 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
                 window.dispatchEvent(new CustomEvent('openmc-simulation-status', { detail: event }));
             },
             onProgress: () => {},
-            onStateChange: () => {}
+            onStateChange: () => {},
+            onOptimizationProgress: (event) => {
+                window.dispatchEvent(new CustomEvent('openmc-optimization-progress', { detail: event }));
+            },
+            onOptimizationIterationComplete: (runId, result) => {
+                window.dispatchEvent(new CustomEvent('openmc-optimization-iteration', { detail: { runId, result } }));
+            }
         };
         
         return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
@@ -144,24 +152,24 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(FrontendApplicationContribution).toService(OpenMCStudioContribution);
 
     // ============================================================================
-    // Widget Factories (Phase 1+)
+    // Widget Factories
     // ============================================================================
     
-    // Simulation Dashboard Widget - Phase 1
+    // Simulation Dashboard Widget
     bind(SimulationDashboardWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: SimulationDashboardWidget.ID,
         createWidget: () => container.get(SimulationDashboardWidget)
     })).inSingletonScope();
     
-    // CSG Builder Widget - Phase 2
+    // CSG Builder Widget
     bind(CSGBuilderWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: CSGBuilderWidget.ID,
         createWidget: () => container.get(CSGBuilderWidget)
     })).inSingletonScope();
     
-    // DAGMC Editor Widget - Phase 4
+    // DAGMC Editor Widget
     bind(DAGMCEditorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: DAGMCEditorWidget.ID,
@@ -174,7 +182,7 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(MenuContribution).toService(DAGMCEditorContribution);
     bind(FrontendApplicationContribution).toService(DAGMCEditorContribution);
     
-    // Tally Configurator Widget - Phase 3
+    // Tally Configurator Widget
     bind(TallyConfiguratorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: TallyConfiguratorWidget.ID,
@@ -187,7 +195,7 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(MenuContribution).toService(TallyConfiguratorContribution);
     bind(FrontendApplicationContribution).toService(TallyConfiguratorContribution);
 
-    // Simulation Comparison Widget - Phase 4D
+    // Simulation Comparison Widget
     bind(SimulationComparisonWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: SimulationComparisonWidget.ID,
@@ -199,6 +207,13 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(CommandContribution).toService(SimulationComparisonContribution);
     bind(MenuContribution).toService(SimulationComparisonContribution);
     bind(FrontendApplicationContribution).toService(SimulationComparisonContribution);
+
+    // Optimization Widget
+    bind(OptimizationWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        id: OptimizationWidget.ID,
+        createWidget: () => container.get(OptimizationWidget)
+    })).inSingletonScope();
 
     console.log('[OpenMC Studio] Frontend module initialized');
 });

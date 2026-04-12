@@ -38,6 +38,10 @@ import {
     OpenMCSettings,
     OpenMCUniverse,
     OpenMCLattice,
+    OpenMCParameterSweep,
+    OpenMCOptimizationRun,
+    OptimizationResult,
+    OptimizationLogMessage,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
@@ -785,5 +789,263 @@ export class OpenMCStateManager {
     getNextMeshId(): number {
         const ids = this._state.meshes.map(m => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    // ============================================================================
+    // Optimization - Parameter Sweeps
+    // ============================================================================
+
+    /**
+     * Ensure optimization state exists.
+     */
+    private ensureOptimizationState(): void {
+        if (!this._state.optimization) {
+            this._state.optimization = {
+                parameterSweeps: [],
+                optimizationRuns: []
+            };
+        }
+    }
+
+    /**
+     * Get all parameter sweeps.
+     */
+    getParameterSweeps(): OpenMCParameterSweep[] {
+        this.ensureOptimizationState();
+        return [...(this._state.optimization!.parameterSweeps || [])];
+    }
+
+    /**
+     * Add a parameter sweep.
+     */
+    addParameterSweep(sweep: OpenMCParameterSweep): void {
+        this.ensureOptimizationState();
+        this._state.optimization!.parameterSweeps.push(sweep);
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: `optimization.parameterSweeps.${sweep.id}`,
+            type: 'add',
+            value: sweep
+        });
+    }
+
+    /**
+     * Update a parameter sweep.
+     */
+    updateParameterSweep(id: number, updates: Partial<OpenMCParameterSweep>): void {
+        this.ensureOptimizationState();
+        const sweeps = this._state.optimization!.parameterSweeps;
+        const index = sweeps.findIndex(s => s.id === id);
+        if (index >= 0) {
+            const oldValue = sweeps[index];
+            sweeps[index] = { ...oldValue, ...updates };
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.parameterSweeps.${id}`,
+                type: 'update',
+                value: sweeps[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove a parameter sweep.
+     */
+    removeParameterSweep(id: number): void {
+        this.ensureOptimizationState();
+        const sweeps = this._state.optimization!.parameterSweeps;
+        const index = sweeps.findIndex(s => s.id === id);
+        if (index >= 0) {
+            const oldValue = sweeps[index];
+            sweeps.splice(index, 1);
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.parameterSweeps.${id}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Compute sweep values based on range type.
+     */
+    computeSweepValues(sweep: OpenMCParameterSweep): number[] {
+        const { rangeType, startValue, endValue, numPoints } = sweep;
+        const values: number[] = [];
+
+        if (numPoints < 2) {
+            return [startValue];
+        }
+
+        if (rangeType === 'linear') {
+            const step = (endValue - startValue) / (numPoints - 1);
+            for (let i = 0; i < numPoints; i++) {
+                values.push(startValue + step * i);
+            }
+        } else { // logarithmic
+            if (startValue <= 0 || endValue <= 0) {
+                console.warn('Logarithmic range requires positive values');
+                return [];
+            }
+            const logStart = Math.log10(startValue);
+            const logEnd = Math.log10(endValue);
+            const step = (logEnd - logStart) / (numPoints - 1);
+            for (let i = 0; i < numPoints; i++) {
+                values.push(Math.pow(10, logStart + step * i));
+            }
+        }
+
+        return values;
+    }
+
+    /**
+     * Get the next available parameter sweep ID.
+     */
+    getNextParameterSweepId(): number {
+        this.ensureOptimizationState();
+        const ids = this._state.optimization!.parameterSweeps.map(s => s.id);
+        return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    // ============================================================================
+    // Optimization - Runs
+    // ============================================================================
+
+    /**
+     * Get all optimization runs.
+     */
+    getOptimizationRuns(): OpenMCOptimizationRun[] {
+        this.ensureOptimizationState();
+        return [...(this._state.optimization!.optimizationRuns || [])];
+    }
+
+    /**
+     * Get a specific optimization run.
+     */
+    getOptimizationRun(runId: string): OpenMCOptimizationRun | undefined {
+        this.ensureOptimizationState();
+        return this._state.optimization!.optimizationRuns.find(r => r.id === runId);
+    }
+
+    /**
+     * Add an optimization run.
+     */
+    addOptimizationRun(run: OpenMCOptimizationRun): void {
+        this.ensureOptimizationState();
+        this._state.optimization!.optimizationRuns.push(run);
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: `optimization.optimizationRuns.${run.id}`,
+            type: 'add',
+            value: run
+        });
+    }
+
+    /**
+     * Update an optimization run.
+     */
+    updateOptimizationRun(runId: string, updates: Partial<OpenMCOptimizationRun>): void {
+        this.ensureOptimizationState();
+        const runs = this._state.optimization!.optimizationRuns;
+        const index = runs.findIndex(r => r.id === runId);
+        if (index >= 0) {
+            const oldValue = runs[index];
+            runs[index] = { ...oldValue, ...updates };
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.optimizationRuns.${runId}`,
+                type: 'update',
+                value: runs[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove an optimization run.
+     */
+    removeOptimizationRun(runId: string): void {
+        this.ensureOptimizationState();
+        const runs = this._state.optimization!.optimizationRuns;
+        const index = runs.findIndex(r => r.id === runId);
+        if (index >= 0) {
+            const oldValue = runs[index];
+            runs.splice(index, 1);
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.optimizationRuns.${runId}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Add a result to an optimization run.
+     */
+    addOptimizationResult(runId: string, result: OptimizationResult): void {
+        this.ensureOptimizationState();
+        const run = this._state.optimization!.optimizationRuns.find(r => r.id === runId);
+        if (run) {
+            run.results.push(result);
+            run.currentIteration = result.iteration;
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.optimizationRuns.${runId}.results`,
+                type: 'update',
+                value: run.results
+            });
+        }
+    }
+
+    /**
+     * Add a log message to an optimization run.
+     */
+    addOptimizationLogMessage(runId: string, message: OptimizationLogMessage): void {
+        this.ensureOptimizationState();
+        const run = this._state.optimization!.optimizationRuns.find(r => r.id === runId);
+        if (run) {
+            run.logMessages.push(message);
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `optimization.optimizationRuns.${runId}.logMessages`,
+                type: 'update',
+                value: run.logMessages
+            });
+        }
+    }
+
+    /**
+     * Set the active optimization run.
+     */
+    setActiveOptimizationRun(runId?: string): void {
+        this.ensureOptimizationState();
+        this._state.optimization!.activeRunId = runId;
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'optimization.activeRunId',
+            type: 'update',
+            value: runId
+        });
+    }
+
+    /**
+     * Get the active optimization run.
+     */
+    getActiveOptimizationRun(): OpenMCOptimizationRun | undefined {
+        this.ensureOptimizationState();
+        const activeId = this._state.optimization!.activeRunId;
+        return activeId ? this.getOptimizationRun(activeId) : undefined;
     }
 }

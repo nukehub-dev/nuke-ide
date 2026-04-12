@@ -1224,6 +1224,12 @@
     cursor: not-allowed;
 }
 
+.simulation-dashboard .simulation-actions .toolbar-separator {
+    width: 1px;
+    background: var(--theia-panel-border);
+    margin: 0 4px;
+}
+
 /* Validation Results */
 .simulation-dashboard .validation-results {
     background: var(--theia-editorWidget-background);
@@ -1649,6 +1655,33 @@
     border-bottom: 1px solid var(--theia-panel-border);
     background: var(--theia-titleBar-activeBackground);
     border-radius: 8px 8px 0 0;
+}
+
+.simulation-dashboard .console-filter {
+    width: 200px;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    margin-right: 8px;
+}
+
+.simulation-dashboard .console-filter:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .console-log {
+    margin: 0;
+    padding: 8px 16px;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--theia-foreground);
 }
 
 .simulation-dashboard .console-header h4 {

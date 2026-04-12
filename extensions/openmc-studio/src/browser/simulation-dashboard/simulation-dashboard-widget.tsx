@@ -21,6 +21,8 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService, SaveFileDialogProps, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { FileStat } from '@theia/filesystem/lib/common/files';
+import URI from '@theia/core/lib/common/uri';
 
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCStudioService } from '../openmc-studio-service';
@@ -42,6 +44,7 @@ import {
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../common/openmc-studio-protocol';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurator-widget';
+import { OptimizationWidget } from '../optimization/optimization-widget';
 import { DepletionTimeline } from './depletion-timeline';
 import { WeightWindowEditor, SourceBiasingEditor } from './vr';
 import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
@@ -97,6 +100,16 @@ export class SimulationDashboardWidget extends ReactWidget {
     private consoleMaximized = false;
     private consoleContentRef = React.createRef<HTMLDivElement>();
     private consolePanelRef = React.createRef<HTMLDivElement>();
+    
+    // File-based log support
+    private currentProcessId?: string;
+    private logPollInterval?: number;
+    private loadedLogContent = '';
+    private filteredLogContent = '';
+    private logFilter = '';
+    
+    // Track last working directory for simulations
+    private lastSimulationDirectory?: string;
 
     // Form state for new material
     private newMaterialName = '';
@@ -252,27 +265,28 @@ export class SimulationDashboardWidget extends ReactWidget {
             const wasRunning = this.isRunning;
             this.isRunning = event.status === 'running' || event.status === 'starting';
             
+            // Track processId for file-based logs
+            if (event.processId) {
+                this.currentProcessId = event.processId;
+            }
+            
             // Log state change for debugging
-            console.log(`[Simulation] Status: ${event.status}, isRunning: ${this.isRunning} (was: ${wasRunning})`);
+            console.log(`[Simulation] Status: ${event.status}, isRunning: ${this.isRunning} (was: ${wasRunning}), processId: ${this.currentProcessId}`);
             
             // Log status changes to console
             if (event.status === 'completed') {
                 this.logToConsole('Simulation completed successfully');
+                this.stopLogPolling();
             } else if (event.status === 'failed') {
                 const errorMsg = event.result?.error || `Exit code: ${event.result?.exitCode}`;
                 this.logToConsole(`Simulation failed: ${errorMsg}`, 'error');
-                // Also log stderr if available
-                if (event.result?.stderr) {
-                    const stderrLines = event.result.stderr.split('\n').filter(l => l.trim());
-                    if (stderrLines.length > 0) {
-                        this.logToConsole('Stderr output:', 'error');
-                        stderrLines.slice(0, 10).forEach(line => {
-                            this.logToConsole(`  ${line}`, 'error');
-                        });
-                    }
-                }
+                this.stopLogPolling();
             } else if (event.status === 'cancelled') {
                 this.logToConsole('Simulation cancelled');
+                this.stopLogPolling();
+            } else if (event.status === 'running') {
+                // Start polling for logs when simulation is running
+                this.startLogPolling();
             }
             
             if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
@@ -360,6 +374,14 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.isRunning = runnerState;
             this.update();
         }
+    }
+
+    /**
+     * Dispose the widget and clean up resources.
+     */
+    dispose(): void {
+        this.stopLogPolling();
+        super.dispose();
     }
 
     private updateTitle(): void {
@@ -2279,19 +2301,22 @@ export class SimulationDashboardWidget extends ReactWidget {
                             );
                             
                             return (
-                                <div className={`checklist-item ${hasVR ? 'done' : ''}`}>
-                                    <div className='checklist-icon'>
-                                        <i className={`codicon codicon-${hasVR ? 'check' : 'circle-outline'}`}></i>
+                                <>
+                                    <div className={`checklist-item ${hasVR ? 'done' : ''}`}>
+                                        <div className='checklist-icon'>
+                                            <i className={`codicon codicon-${hasVR ? 'check' : 'circle-outline'}`}></i>
+                                        </div>
+                                        <div className='checklist-content'>
+                                            <span className='checklist-title'>Variance Reduction</span>
+                                            <span className='checklist-status'>
+                                                {hasVR 
+                                                    ? 'Enabled' 
+                                                    : 'Optional - none configured'}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className='checklist-content'>
-                                        <span className='checklist-title'>Variance Reduction</span>
-                                        <span className='checklist-status'>
-                                            {hasVR 
-                                                ? 'Enabled' 
-                                                : 'Optional - none configured'}
-                                        </span>
-                                    </div>
-                                </div>
+                        
+                                </>
                             );
                         })()}
                     </div>
@@ -2360,6 +2385,16 @@ export class SimulationDashboardWidget extends ReactWidget {
                         >
                             <i className='codicon codicon-check-all'></i>
                             Validate
+                        </button>
+                    </Tooltip>
+                    <div className='toolbar-separator'></div>
+                    <Tooltip content='Run parameter sweeps and batch optimization studies'>
+                        <button
+                            className='theia-button secondary large'
+                            onClick={() => this.openOptimizationStudy()}
+                        >
+                            <i className='codicon codicon-symbol-variable'></i>
+                            Optimization
                         </button>
                     </Tooltip>
                 </div>
@@ -2576,11 +2611,18 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
                 )}
 
-                {/* Console Output */}
+                {/* Console Output - File-based logs with filter */}
                 <div ref={this.consolePanelRef} className={`console-panel ${this.consoleMaximized ? 'maximized' : ''}`}>
                     <div className='console-header'>
                         <h4><i className='codicon codicon-terminal'></i> Simulation Output</h4>
                         <div className='console-actions'>
+                            <input
+                                type='text'
+                                className='console-filter'
+                                placeholder='Filter logs...'
+                                value={this.logFilter}
+                                onChange={(e) => this.filterLogContent(e.target.value)}
+                            />
                             <Tooltip content={this.consoleMaximized ? 'Restore' : 'Maximize'}>
                                 <button
                                     className='theia-button secondary small'
@@ -2600,17 +2642,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                         </div>
                     </div>
                     <div className='console-content' ref={this.consoleContentRef}>
-                        {this.consoleOutput.length === 0 ? (
-                            <div className='console-empty'>No output yet. Run a simulation to see logs here.</div>
+                        {this.loadedLogContent || this.consoleOutput.length > 0 ? (
+                            <pre className='console-log'>
+                                {this.filteredLogContent || this.loadedLogContent || this.consoleOutput.map(l => l.message).join('\n')}
+                            </pre>
                         ) : (
-                            this.consoleOutput.map((line, index) => (
-                                <div key={index} className={`console-line ${line.type}`}>
-                                    <span className='console-timestamp'>
-                                        {line.timestamp.toLocaleTimeString()}
-                                    </span>
-                                    <span className='console-message'>{line.message}</span>
-                                </div>
-                            ))
+                            <div className='console-empty'>No output yet. Run a simulation to see logs here.</div>
                         )}
                     </div>
                 </div>
@@ -2735,11 +2772,97 @@ export class SimulationDashboardWidget extends ReactWidget {
 
     private clearConsole(): void {
         this.consoleOutput = [];
+        this.loadedLogContent = '';
+        this.filteredLogContent = '';
+        this.logFilter = '';
         this.update();
     }
 
     private toggleConsoleMaximize(): void {
         this.consoleMaximized = !this.consoleMaximized;
+        this.update();
+    }
+
+    // ============================================================================
+    // File-based Log Polling (similar to optimization widget)
+    // ============================================================================
+
+    private startLogPolling(): void {
+        if (this.logPollInterval) {
+            window.clearInterval(this.logPollInterval);
+        }
+        
+        // Poll for log updates every 2 seconds
+        this.logPollInterval = window.setInterval(async () => {
+            if (!this.currentProcessId) return;
+            
+            try {
+                const result = await this.simulationRunner.getSimulationLog(this.currentProcessId);
+                if (result.success && result.logContent) {
+                    // Only update if content changed
+                    if (result.logContent !== this.loadedLogContent) {
+                        this.loadedLogContent = result.logContent;
+                        this.applyLogFilter();
+                        this.update();
+                        
+                        // Auto-scroll to bottom
+                        setTimeout(() => {
+                            const content = this.consoleContentRef.current;
+                            if (content) {
+                                content.scrollTop = content.scrollHeight;
+                            }
+                        }, 0);
+                    }
+                }
+            } catch (error) {
+                // Silently fail on polling errors
+            }
+        }, 2000);
+    }
+
+    private stopLogPolling(): void {
+        if (this.logPollInterval) {
+            window.clearInterval(this.logPollInterval);
+            this.logPollInterval = undefined;
+        }
+        // Final log load
+        if (this.currentProcessId) {
+            this.loadFinalLog();
+        }
+    }
+
+    private async loadFinalLog(): Promise<void> {
+        if (!this.currentProcessId) return;
+        
+        try {
+            const result = await this.simulationRunner.getSimulationLog(this.currentProcessId);
+            if (result.success && result.logContent) {
+                this.loadedLogContent = result.logContent;
+                this.applyLogFilter();
+                this.update();
+            }
+        } catch (error) {
+            console.error('[SimulationDashboard] Error loading final log:', error);
+        }
+    }
+
+    private applyLogFilter(): void {
+        if (!this.logFilter) {
+            this.filteredLogContent = '';
+            return;
+        }
+        
+        const filterLower = this.logFilter.toLowerCase();
+        const lines = this.loadedLogContent.split('\n');
+        const filtered = lines.filter(line => 
+            line.toLowerCase().includes(filterLower)
+        ).join('\n');
+        this.filteredLogContent = filtered;
+    }
+
+    private filterLogContent(filter: string): void {
+        this.logFilter = filter;
+        this.applyLogFilter();
         this.update();
     }
 
@@ -2770,6 +2893,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (state.settings.dagmcFile) {
             await this.dagmcEditorContribution.openDAGMCEditor(state.settings.dagmcFile);
         }
+    }
+
+    private async openOptimizationStudy(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget(OptimizationWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
     }
 
     private async newProject(): Promise<void> {
@@ -2871,16 +3000,26 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     private async generateXML(): Promise<void> {
+        // Use last simulation directory as default (strip 'logs' if present)
+        let defaultFolder: FileStat | undefined;
+        if (this.lastSimulationDirectory) {
+            const dir = this.lastSimulationDirectory.replace(/[\\/]logs$/, '');
+            defaultFolder = FileStat.dir(new URI(dir));
+        }
+        
         const props: OpenFileDialogProps = {
             title: 'Select Output Directory for XML Files',
             canSelectFiles: false,
             canSelectFolders: true
         };
 
-        const uri = await this.fileDialogService.showOpenDialog(props);
+        const uri = await this.fileDialogService.showOpenDialog(props, defaultFolder);
         if (!uri) {
             return;
         }
+        
+        // Save the selected directory for next time
+        this.lastSimulationDirectory = uri.path.toString();
 
         this.logToConsole(`Generating XML files in ${uri.path.toString()}...`);
 
@@ -2916,16 +3055,26 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     async importXML(): Promise<void> {
+        // Use last simulation directory as default (strip 'logs' if present)
+        let defaultFolder: FileStat | undefined;
+        if (this.lastSimulationDirectory) {
+            const dir = this.lastSimulationDirectory.replace(/[\\/]logs$/, '');
+            defaultFolder = FileStat.dir(new URI(dir));
+        }
+        
         const props: OpenFileDialogProps = {
             title: 'Select Directory with XML Files',
             canSelectFiles: false,
             canSelectFolders: true
         };
 
-        const uri = await this.fileDialogService.showOpenDialog(props);
+        const uri = await this.fileDialogService.showOpenDialog(props, defaultFolder);
         if (!uri) {
             return;
         }
+        
+        // Save the selected directory for next time
+        this.lastSimulationDirectory = uri.path.toString();
 
         this.logToConsole(`Importing XML from ${uri.path.toString()}...`);
 
@@ -2986,17 +3135,32 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
 
         // Select working directory
+        // Use last simulation directory as default, but ensure we don't default to the 'logs' subfolder
+        let defaultFolder: FileStat | undefined;
+        if (this.lastSimulationDirectory) {
+            // Make sure we're not pointing to a 'logs' folder
+            if (!this.lastSimulationDirectory.endsWith('/logs') && !this.lastSimulationDirectory.endsWith('\\logs')) {
+                defaultFolder = FileStat.dir(new URI(this.lastSimulationDirectory));
+            } else {
+                // Strip the 'logs' part and go to parent
+                defaultFolder = FileStat.dir(new URI(this.lastSimulationDirectory.replace(/[\\/]logs$/, '')));
+            }
+        }
+        
         const props: OpenFileDialogProps = {
             title: 'Select Working Directory for Simulation',
             canSelectFiles: false,
             canSelectFolders: true
         };
 
-        const uri = await this.fileDialogService.showOpenDialog(props);
+        const uri = await this.fileDialogService.showOpenDialog(props, defaultFolder);
         if (!uri) {
             return;
         }
 
+        // Save the selected directory for next time
+        this.lastSimulationDirectory = uri.path.toString();
+        
         this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
         this.logToConsole(`Using OpenMC: ${openmcCheck.version || 'unknown version'}`);
 

@@ -206,6 +206,20 @@ export interface StartSimulationResponse {
     error?: string;
 }
 
+/** Simulation log result */
+export interface SimulationLogResult {
+    /** Whether log was found */
+    success: boolean;
+    /** Log file content */
+    logContent?: string;
+    /** Path to log file */
+    logPath?: string;
+    /** Error message if failed */
+    error?: string;
+    /** Whether simulation is still running */
+    isRunning?: boolean;
+}
+
 // ============================================================================
 // Validation
 // ============================================================================
@@ -451,6 +465,9 @@ export interface OpenMCStudioBackendService {
     /** Cancel running simulation */
     cancelSimulation(processId: string): Promise<boolean>;
     
+    /** Get simulation log file content */
+    getSimulationLog(processId: string): Promise<SimulationLogResult>;
+    
     /** Check if OpenMC is available */
     checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }>;
     
@@ -599,6 +616,35 @@ export interface OpenMCStudioBackendService {
     dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
         success: boolean;
         message?: string;
+        error?: string;
+    }>;
+    
+    // === Optimization Framework ===
+    
+    /** Start an optimization run with parameter sweeps */
+    startOptimization(request: StartOptimizationRequest): Promise<StartOptimizationResult>;
+    
+    /** Stop/cancel a running optimization */
+    stopOptimization(request: StopOptimizationRequest): Promise<StopOptimizationResult>;
+    
+    /** Get status of an optimization run */
+    getOptimizationStatus(runId: string): Promise<{
+        running: boolean;
+        currentIteration: number;
+        totalIterations: number;
+        status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+    }>;
+
+    /** Get iteration logs index for an optimization run */
+    getIterationLogsIndex(runId: string): Promise<{
+        iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
+        outputDirectory: string;
+    }>;
+
+    /** Get log content for a specific iteration */
+    getIterationLog(runId: string, iteration: number): Promise<{
+        success: boolean;
+        logContent?: string;
         error?: string;
     }>;
 }
@@ -940,6 +986,88 @@ export interface StateChangeEvent {
     oldValue?: any;
 }
 
+// ============================================================================
+// Optimization Framework
+// ============================================================================
+
+/** Request to start an optimization run */
+export interface StartOptimizationRequest {
+    /** Unique run ID */
+    runId: string;
+    /** Run name */
+    runName: string;
+    /** Base simulation state */
+    baseState: OpenMCState;
+    /** Parameter sweep configurations */
+    sweeps: import('./openmc-state-schema').OpenMCParameterSweep[];
+    /** Output directory */
+    outputDirectory: string;
+    /** OpenMC cross-sections path */
+    crossSectionsPath?: string;
+    /** OpenMC chain file path */
+    chainFilePath?: string;
+}
+
+/** Result of starting optimization */
+export interface StartOptimizationResult {
+    /** Whether start was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Total number of iterations */
+    totalIterations?: number;
+}
+
+/** Optimization progress event */
+export interface OptimizationProgressEvent {
+    /** Run ID */
+    runId: string;
+    /** Current iteration */
+    currentIteration: number;
+    /** Total iterations */
+    totalIterations: number;
+    /** Parameter values for current iteration */
+    parameterValues: Record<string, number>;
+    /** Current status */
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+    /** Progress percentage */
+    progressPercent: number;
+}
+
+/** Optimization iteration result */
+export interface OptimizationIterationResult {
+    /** Iteration number */
+    iteration: number;
+    /** Parameter values */
+    parameterValues: Record<string, number>;
+    /** k-effective value */
+    keff?: number;
+    /** k-effective standard deviation */
+    keffStd?: number;
+    /** Execution time in seconds */
+    executionTime: number;
+    /** Whether iteration succeeded */
+    success: boolean;
+    /** Error message if failed */
+    errorMessage?: string;
+    /** Path to statepoint file */
+    statepointPath?: string;
+}
+
+/** Request to stop/cancel optimization */
+export interface StopOptimizationRequest {
+    /** Run ID to stop */
+    runId: string;
+}
+
+/** Result of stopping optimization */
+export interface StopOptimizationResult {
+    /** Whether stop was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+}
+
 /** Client interface for receiving backend events */
 export interface OpenMCStudioClient {
     /** Log message from backend */
@@ -954,4 +1082,8 @@ export interface OpenMCStudioClient {
     onProgress(progress: SimulationProgress): void;
     /** State change notification */
     onStateChange(event: StateChangeEvent): void;
+    /** Optimization progress update */
+    onOptimizationProgress?(event: OptimizationProgressEvent): void;
+    /** Optimization iteration complete */
+    onOptimizationIterationComplete?(runId: string, result: OptimizationIterationResult): void;
 }

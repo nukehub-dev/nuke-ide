@@ -1,0 +1,1819 @@
+/*******************************************************************************
+ * Copyright (C) 2024 NukeHub and others.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
+ *******************************************************************************/
+
+/* ============================================================================
+   OpenMC Studio - Optimization Widget
+   All classes are scoped under .optimization-widget to avoid conflicts
+   ============================================================================ */
+
+/* ============================================================================
+   Container & Keyframes
+   ============================================================================ */
+.optimization-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    font-family: var(--theia-ui-font-family);
+    animation: fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes header-slide-down {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes section-slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes card-fade-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes progress-shimmer {
+    0% { background-position: -200px 0; }
+    100% { background-position: 200px 0; }
+}
+
+@keyframes empty-fade-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* ============================================================================
+   Quick Start Guide
+   ============================================================================ */
+.optimization-widget .quick-start-guide {
+    background: linear-gradient(135deg, var(--theia-inputValidation-infoBackground) 0%, var(--theia-editorWidget-background) 100%);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .quick-start-guide h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-inputValidation-infoBorder);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .quick-start-guide h4 i {
+    font-size: 16px;
+}
+
+.optimization-widget .quick-start-guide .guide-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.optimization-widget .quick-start-guide .guide-card {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .quick-start-guide .guide-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--theia-focusBorder);
+}
+
+.optimization-widget .quick-start-guide .guide-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: var(--theia-inputValidation-infoBorder);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 12px;
+}
+
+.optimization-widget .quick-start-guide .guide-card h5 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .quick-start-guide .guide-card p {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.5;
+}
+
+.optimization-widget .quick-start-guide .guide-card code {
+    display: block;
+    background: var(--theia-textCodeBlock-background);
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-textCodeBlock-foreground);
+}
+
+/* Empty State Tips */
+.optimization-widget .empty-tips {
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 8px;
+    text-align: left;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.optimization-widget .empty-tips p {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .empty-tips p:last-child {
+    margin-bottom: 0;
+}
+
+/* ============================================================================
+   Runner Guide
+   ============================================================================ */
+.optimization-widget .runner-guide {
+    background: linear-gradient(135deg, var(--theia-inputValidation-successBackground) 0%, var(--theia-editorWidget-background) 100%);
+    border: 1px solid var(--theia-inputValidation-successBorder);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .runner-guide h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-inputValidation-successBorder);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .runner-guide h4 i {
+    font-size: 14px;
+}
+
+.optimization-widget .runner-guide .guide-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.optimization-widget .runner-guide .guide-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .runner-guide .step-num {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--theia-inputValidation-successBorder);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* ============================================================================
+   Header
+   ============================================================================ */
+.optimization-widget .optimization-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    animation: header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .optimization-info h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .optimization-info h2 i {
+    color: var(--theia-focusBorder);
+    font-size: 20px;
+}
+
+.optimization-widget .optimization-description {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .project-path {
+    opacity: 0.8;
+    font-style: italic;
+}
+
+.optimization-widget .optimization-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* ============================================================================
+   Tabs Navigation
+   ============================================================================ */
+.optimization-widget .optimization-tabs {
+    display: flex;
+    background: var(--theia-tabBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    padding: 0 12px;
+    gap: 4px;
+}
+
+.optimization-widget .tab-button {
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--theia-tabBar-inactiveForeground);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.optimization-widget .tab-button::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--theia-focusBorder);
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+}
+
+.optimization-widget .tab-button:hover {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.optimization-widget .tab-button:hover::after {
+    width: 30%;
+}
+
+.optimization-widget .tab-button.active {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-activeBackground);
+}
+
+.optimization-widget .tab-button.active::after {
+    width: 100%;
+}
+
+.optimization-widget .tab-button i {
+    font-size: 14px;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .tab-button:hover i {
+    transform: scale(1.1);
+}
+
+/* ============================================================================
+   Content Area
+   ============================================================================ */
+.optimization-widget .optimization-widget-content {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    scroll-behavior: smooth;
+}
+
+/* ============================================================================
+   Empty State
+   ============================================================================ */
+.optimization-widget .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .empty-state i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.3;
+}
+
+.optimization-widget .empty-state p {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.optimization-widget .empty-state .empty-hint {
+    font-size: 12px;
+    opacity: 0.8;
+    font-style: italic;
+}
+
+/* ============================================================================
+   Sweeps Tab
+   ============================================================================ */
+.optimization-widget .sweeps-tab {
+    max-width: 100%;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .sweeps-toolbar {
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+}
+
+.optimization-widget .sweeps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Sweep Card */
+.optimization-widget .sweep-card {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: card-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .sweep-card:hover {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+}
+
+.optimization-widget .sweep-card.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+.optimization-widget .sweep-card.disabled {
+    opacity: 0.6;
+    background: var(--theia-panel-background);
+}
+
+.optimization-widget .sweep-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.optimization-widget .sweep-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.optimization-widget .sweep-info input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--theia-focusBorder);
+    cursor: pointer;
+}
+
+.optimization-widget .sweep-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.optimization-widget .sweep-variable {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: var(--theia-badge-background);
+    border-radius: 4px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .sweep-path {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: var(--theia-button-secondaryBackground);
+    border-radius: 3px;
+    color: var(--theia-foreground);
+    opacity: 0.8;
+}
+
+.optimization-widget .sweep-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.optimization-widget .sweep-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.optimization-widget .sweep-range,
+.optimization-widget .sweep-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.optimization-widget .sweep-range label,
+.optimization-widget .sweep-preview label {
+    color: var(--theia-descriptionForeground);
+    min-width: 60px;
+}
+
+.optimization-widget .range-type {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.optimization-widget .range-type.linear {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .range-type.logarithmic {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.optimization-widget .range-values {
+    font-family: var(--theia-monospace-font-family);
+    color: var(--theia-editor-foreground);
+}
+
+.optimization-widget .range-points {
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .values-preview {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.optimization-widget .value-tag {
+    padding: 2px 8px;
+    background: var(--theia-badge-background);
+    border-radius: 4px;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 11px;
+}
+
+.optimization-widget .more-tag {
+    padding: 2px 8px;
+    background: var(--theia-panel-background);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* ============================================================================
+   Runner Tab
+   ============================================================================ */
+.optimization-widget .runner-tab {
+    max-width: 100%;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .runner-config {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.optimization-widget .runner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .runner-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .runner-header h3 i {
+    color: var(--theia-focusBorder);
+}
+
+.optimization-widget .runner-info {
+    display: flex;
+    gap: 16px;
+}
+
+.optimization-widget .runner-info .info-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .runner-info .info-item i {
+    color: var(--theia-focusBorder);
+}
+
+.optimization-widget .runner-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 6px;
+    color: var(--theia-inputValidation-warningBorder);
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.optimization-widget .runner-warning i {
+    font-size: 16px;
+}
+
+.optimization-widget .runner-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.optimization-widget .sweep-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.optimization-widget .sweep-item-name {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.optimization-widget .sweep-item-var {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+}
+
+.optimization-widget .sweep-item-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.optimization-widget .sweep-item-range {
+    font-size: 11px;
+    font-family: var(--theia-monospace-font-family);
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .sweep-item-points {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Run Progress */
+.optimization-widget .run-progress {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.optimization-widget .run-progress h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.optimization-widget .progress-bar-container {
+    height: 10px;
+    background: var(--theia-progressBar-background);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.optimization-widget .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--theia-progressBar-background) 0%, var(--theia-focusBorder) 100%);
+    border-radius: 5px;
+    transition: width 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.optimization-widget .progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
+    animation: progress-shimmer 2s infinite;
+}
+
+.optimization-widget .progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 12px;
+}
+
+.optimization-widget .progress-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.optimization-widget .status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.optimization-widget .status-badge.pending {
+    background: var(--theia-badge-background);
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .status-badge.running {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .status-badge.completed {
+    background: var(--theia-inputValidation-successBackground);
+    color: var(--theia-inputValidation-successBorder);
+}
+
+.optimization-widget .status-badge.failed,
+.optimization-widget .status-badge.cancelled {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .time-info {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .log-stats {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+.optimization-widget .log-stats .stat-warn {
+    color: var(--theia-warningForeground);
+}
+
+.optimization-widget .log-stats .stat-error {
+    color: var(--theia-errorForeground);
+}
+
+.optimization-widget .log-layout {
+    display: flex;
+    gap: 12px;
+    min-height: 200px;
+    max-height: 60vh;
+}
+
+.optimization-widget .log-layout.maximized {
+    height: 60vh;
+    max-height: 80vh;
+}
+
+.optimization-widget .log-sidebar {
+    width: 90px;
+    min-width: 60px;
+    max-width: 200px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+}
+
+.optimization-widget .log-sidebar .sidebar-header {
+    padding: 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .log-sidebar .sidebar-header h5 {
+    margin: 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .log-sidebar .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.optimization-widget .log-sidebar .sidebar-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.optimization-widget .log-sidebar .sidebar-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 8px;
+    margin-bottom: 2px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--theia-foreground);
+    text-align: left;
+}
+
+.optimization-widget .log-sidebar .sidebar-item:hover {
+    background: var(--theia-button-secondaryBackground);
+}
+
+.optimization-widget .log-sidebar .sidebar-item.selected {
+    background: var(--theia-button-secondaryBackground);
+}
+
+.optimization-widget .log-sidebar .item-status {
+    font-size: 10px;
+}
+
+.optimization-widget .log-sidebar .item-status.done {
+    color: var(--theia-successForeground);
+}
+
+.optimization-widget .log-sidebar .item-status.running {
+    color: var(--theia-disabledForeground);
+}
+
+.optimization-widget .log-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.optimization-widget .log-main .log-viewer {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.optimization-widget .log-main .viewer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.optimization-widget .log-main .viewer-controls {
+    display: flex;
+    gap: 6px;
+}
+
+.optimization-widget .log-main .viewer-controls input {
+    width: 150px;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+}
+
+.optimization-widget .log-main .viewer-content {
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    overflow-y: auto;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 10px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .log-main .log-placeholder {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.optimization-widget .iteration-tree .log-viewer-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.optimization-widget .iteration-tree .log-search {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: 150px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+}
+
+.optimization-widget .iteration-tree .log-viewer-loading {
+    padding: 16px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.optimization-widget .iteration-tree .log-viewer-content {
+    max-height: 250px;
+    overflow-y: auto;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 10px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--theia-editor-background);
+    border-radius: 4px;
+    padding: 8px;
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line {
+    padding: 1px 0;
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line.error {
+    color: var(--theia-errorForeground);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line.warn {
+    color: var(--theia-warningForeground);
+}
+
+.optimization-widget .iteration-tree .tree-log-viewer {
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--theia-editor-background);
+    border-radius: 4px;
+}
+
+.optimization-widget .iteration-tree .log-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .iteration-tree .log-viewer-content {
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line {
+    padding: 1px 0;
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line.error {
+    color: var(--theia-errorForeground);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.optimization-widget .iteration-tree .log-viewer-content .log-line.warn {
+    color: var(--theia-warningForeground);
+}
+
+.optimization-widget .run-log {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .run-log .log-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.optimization-widget .run-log .log-header h5 {
+    margin: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .run-log .log-count {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .run-log .log-controls {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.optimization-widget .run-log .log-filter {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+}
+
+.optimization-widget .run-log .log-search {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: 120px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+}
+
+.optimization-widget .run-log .log-content {
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.optimization-widget .run-log .log-content.maximized {
+    max-height: 60vh;
+}
+
+.optimization-widget .run-log .log-empty {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.optimization-widget .log-line {
+    display: flex;
+    gap: 12px;
+    padding: 3px 0;
+    font-size: 12px;
+    font-family: var(--theia-monospace-font-family);
+    line-height: 1.4;
+}
+
+.optimization-widget .log-line.iteration {
+    background: var(--theia-titleActive);
+    color: var(--theia-title-activeForeground);
+    padding: 6px 8px;
+    margin: 4px -8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.optimization-widget .log-time {
+    color: var(--theia-descriptionForeground);
+    flex-shrink: 0;
+    width: 70px;
+}
+
+.optimization-widget .log-line.info .log-message {
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .log-line.error .log-message {
+    color: var(--theia-errorForeground);
+}
+
+.optimization-widget .log-line.warning .log-message {
+    color: var(--theia-warningForeground);
+}
+
+/* ============================================================================
+   Results Tab
+   ============================================================================ */
+.optimization-widget .results-tab {
+    display: flex;
+    height: 100%;
+    gap: 16px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .results-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    padding: 40px;
+}
+
+.optimization-widget .results-empty i {
+    font-size: 64px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+}
+
+.optimization-widget .results-empty h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .results-empty p {
+    margin: 0;
+    font-size: 13px;
+}
+
+.optimization-widget .results-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.optimization-widget .results-sidebar h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.optimization-widget .results-sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.optimization-widget .results-sidebar-header h4 {
+    margin: 0;
+}
+
+.optimization-widget .results-sidebar-header .theia-button {
+    padding: 4px 8px;
+    min-width: auto;
+}
+
+.optimization-widget .runs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.optimization-widget .run-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 150ms;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .run-item:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.optimization-widget .run-item.selected {
+    background: var(--theia-focusBorder);
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.optimization-widget .run-item.selected .run-status {
+    color: inherit;
+}
+
+.optimization-widget .run-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .run-item-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+}
+
+.optimization-widget .run-item-meta i {
+    font-size: 12px;
+    margin-right: 4px;
+}
+
+.optimization-widget .run-item.selected .run-item-meta {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.optimization-widget .run-item-delete {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--theia-ui-font-color3);
+    opacity: 0;
+    transition: opacity 150ms;
+}
+
+.optimization-widget .run-item:hover .run-item-delete {
+    opacity: 1;
+}
+
+.optimization-widget .run-item-delete:hover {
+    background: var(--theia-errorBackground);
+    color: var(--theia-errorForeground);
+}
+
+.optimization-widget .run-item.selected {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.optimization-widget .run-item.selected .run-status {
+    color: inherit;
+}
+
+.optimization-widget .run-name {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.optimization-widget .run-status {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--theia-badge-background);
+    text-transform: uppercase;
+}
+
+.optimization-widget .results-content {
+    flex: 1;
+    overflow: auto;
+}
+
+.optimization-widget .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.optimization-widget .results-table th,
+.optimization-widget .results-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .results-table th {
+    background: var(--theia-titleBar-activeBackground);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .results-table th:first-child {
+    width: 40px;
+    text-align: center;
+}
+
+.optimization-widget .results-table td {
+    font-family: var(--theia-monospace-font-family);
+}
+
+.optimization-widget .results-table td:first-child {
+    text-align: center;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .results-table td.numeric {
+    text-align: right;
+}
+
+.optimization-widget .results-table td.status-cell {
+    text-align: center;
+}
+
+.optimization-widget .results-table tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.optimization-widget .results-table tr.failed {
+    background: var(--theia-inputValidation-errorBackground);
+}
+
+.optimization-widget .status-success {
+    color: var(--theia-inputValidation-successBorder);
+    font-size: 14px;
+}
+
+.optimization-widget .status-failed {
+    color: var(--theia-inputValidation-errorBorder);
+    font-size: 14px;
+}
+
+.optimization-widget .results-table-container {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.optimization-widget .results-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .results-toolbar h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.optimization-widget .results-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.optimization-widget .results-table th,
+.optimization-widget .results-table td {
+    padding: 10px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .results-table th {
+    background: var(--theia-titleBar-activeBackground);
+    font-weight: 600;
+    color: var(--theia-foreground);
+    text-align: left;
+}
+
+.optimization-widget .results-table th:first-child,
+.optimization-widget .results-table td:first-child {
+    text-align: center;
+    width: 50px;
+}
+
+.optimization-widget .results-table th:not(:first-child),
+.optimization-widget .results-table td:not(:first-child) {
+    text-align: left;
+}
+
+.optimization-widget .results-table th.numeric-header,
+.optimization-widget .results-table td.numeric {
+    text-align: right;
+    font-family: var(--theia-monospace-font-family);
+}
+
+.optimization-widget .results-table td {
+    font-family: var(--theia-monospace-font-family);
+}
+
+.optimization-widget .results-table tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.optimization-widget .results-table tr.failed {
+    background: var(--theia-inputValidation-errorBackground);
+}
+
+.optimization-widget .status-success {
+    color: var(--theia-inputValidation-successBorder);
+}
+
+.optimization-widget .status-failed {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+/* ============================================================================
+   Analysis Tab
+   ============================================================================ */
+.optimization-widget .analysis-tab {
+    max-width: 100%;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .analysis-guide {
+    background: linear-gradient(135deg, var(--theia-inputValidation-warningBackground) 0%, var(--theia-editorWidget-background) 100%);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    animation: section-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .analysis-guide h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-inputValidation-warningBorder);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .analysis-guide h4 i {
+    font-size: 14px;
+}
+
+.optimization-widget .analysis-guide .guide-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.optimization-widget .analysis-guide .guide-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.optimization-widget .analysis-guide .step-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--theia-inputValidation-warningBorder);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.optimization-widget .analysis-guide .step-num i {
+    font-size: 12px;
+}
+
+.optimization-widget .analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.optimization-widget .analysis-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.optimization-widget .run-selector {
+    padding: 6px 12px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+}
+
+.optimization-widget .analysis-content {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    min-height: 400px;
+}
+
+.optimization-widget .analysis-chart-section {
+    margin-bottom: 24px;
+}
+
+.optimization-widget .analysis-chart-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+}
+
+.optimization-widget .chart-wrapper {
+    display: flex;
+    justify-content: center;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 10px;
+    background: var(--theia-editor-background);
+}
+
+.optimization-widget .analysis-stats {
+    margin-bottom: 24px;
+}
+
+.optimization-widget .analysis-stats h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+}
+
+.optimization-widget .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.optimization-widget .stat-box {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+}
+
+.optimization-widget .stat-box .stat-label {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.optimization-widget .stat-box .stat-value {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+    font-family: var(--theia-code-font-family);
+}
+
+.optimization-widget .analysis-table-section {
+    margin-top: 24px;
+}
+
+.optimization-widget .analysis-table-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+}
+
+.optimization-widget .analysis-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.optimization-widget .analysis-results-table th,
+.optimization-widget .analysis-results-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .analysis-results-table th {
+    background: var(--theia-editor-background);
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+}
+
+.optimization-widget .analysis-results-table td {
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-ui-font-color1);
+}
+
+.optimization-widget .analysis-placeholder {
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .analysis-placeholder i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.3;
+}
+
+.optimization-widget .placeholder-hint {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+/* ============================================================================
+   Button Styles
+   ============================================================================ */
+.optimization-widget .theia-button {
+    min-width: auto !important;
+    padding: 8px 16px;
+    border: 1px solid var(--theia-button-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+}
+
+.optimization-widget .theia-button.primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-button-border);
+}
+
+.optimization-widget .theia-button.primary:hover:not(:disabled) {
+    background: var(--theia-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.optimization-widget .theia-button.secondary {
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border-color: var(--theia-button-secondaryBorder);
+}
+
+.optimization-widget .theia-button.secondary:hover:not(:disabled) {
+    background: var(--theia-button-secondaryHoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.optimization-widget .theia-button.small {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+.optimization-widget .theia-button.large {
+    padding: 12px 24px;
+    font-size: 14px;
+}
+
+.optimization-widget .theia-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.optimization-widget .theia-button.danger:hover {
+    background: var(--theia-errorBackground);
+    border-color: var(--theia-errorForeground);
+    color: var(--theia-errorForeground);
+}
+
+/* ============================================================================
+   Scrollbar Styling
+   ============================================================================ */
+.optimization-widget .optimization-widget-content::-webkit-scrollbar,
+.optimization-widget .results-content::-webkit-scrollbar,
+.optimization-widget .log-content::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.optimization-widget .optimization-widget-content::-webkit-scrollbar-track,
+.optimization-widget .results-content::-webkit-scrollbar-track,
+.optimization-widget .log-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.optimization-widget .optimization-widget-content::-webkit-scrollbar-thumb,
+.optimization-widget .results-content::-webkit-scrollbar-thumb,
+.optimization-widget .log-content::-webkit-scrollbar-thumb {
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 40px;
+}
+
+.optimization-widget .optimization-widget-content::-webkit-scrollbar-thumb:hover,
+.optimization-widget .results-content::-webkit-scrollbar-thumb:hover,
+.optimization-widget .log-content::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hover-background);
+}
+
+/* ============================================================================
+   Focus Indicators
+   ============================================================================ */
+.optimization-widget :focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+}
+
+.optimization-widget button:focus-visible,
+.optimization-widget input:focus-visible,
+.optimization-widget select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
+}
+
+/* ============================================================================
+   Error States
+   ============================================================================ */
+.optimization-widget.error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.optimization-widget .sweeps-tab.error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+
+.optimization-widget .error-message {
+    background: var(--theia-inputValidation-errorBackground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    border-radius: 8px;
+    padding: 20px;
+    color: var(--theia-inputValidation-errorBorder);
+    font-size: 14px;
+    max-width: 400px;
+}
+
+.optimization-widget.error .empty-state i {
+    color: var(--theia-errorForeground);
+    opacity: 1;
+}
+
+/* ============================================================================
+   Sweep Editor
+   ============================================================================ */
+.optimization-widget .sweep-card.editing {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+    background: var(--theia-editor-background);
+}
+
+.optimization-widget .sweep-editor {
+    padding: 16px;
+}
+
+.optimization-widget .editor-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.optimization-widget .editor-row label {
+    min-width: 120px;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 500;
+}
+
+.optimization-widget .editor-row input,
+.optimization-widget .editor-row select {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+}
+
+.optimization-widget .editor-row input:focus,
+.optimization-widget .editor-row select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+.optimization-widget .editor-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}

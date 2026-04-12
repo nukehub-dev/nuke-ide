@@ -40,6 +40,8 @@ import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
+import { OptimizationBackendService } from './optimization-backend-service';
+import { RpcBufferConfiguration } from './rpc-buffer-config';
 
 // ============================================================================
 // Dependency Injection Bindings
@@ -64,6 +66,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     // DAGMC Editor service (uses pydagmc for DAGMC editing)
     bind(DAGMCEditorService).toSelf().inSingletonScope();
     
+    // Optimization Backend service (for parameter sweeps)
+    bind(OptimizationBackendService).toSelf().inSingletonScope();
+    
     // Main backend service implementation
     bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();
     
@@ -86,6 +91,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     // ============================================================================
     // Application Contribution
     // ============================================================================
+    
+    // Configure RPC buffer limits to prevent "Max disconnected buffer size exceeded" errors
+    bind(BackendApplicationContribution).to(RpcBufferConfiguration).inSingletonScope();
     
     // Contribute to backend application lifecycle
     bind(BackendApplicationContribution).toDynamicValue(({ container }) => 
