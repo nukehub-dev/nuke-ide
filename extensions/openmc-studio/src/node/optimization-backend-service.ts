@@ -582,25 +582,40 @@ export class OptimizationBackendService {
         switch (settingKey) {
             case 'particles':
                 if ('particles' in runSettings) {
-                    runSettings.particles = Math.round(value);
-                    this.logger.info(`[OptimizationBackend] Set settings.particles = ${Math.round(value)}`);
+                    const roundedValue = Math.max(1, Math.round(value));
+                    runSettings.particles = roundedValue;
+                    this.logger.info(`[OptimizationBackend] Set settings.particles = ${roundedValue}`);
                 }
                 break;
             case 'inactive':
                 if ('inactive' in runSettings) {
-                    runSettings.inactive = Math.round(value);
-                    this.logger.info(`[OptimizationBackend] Set settings.inactive = ${Math.round(value)}`);
+                    let roundedValue = Math.max(0, Math.round(value));
+                    // Ensure inactive < batches to have at least 1 active batch
+                    const batches = runSettings.batches ?? 10;
+                    if (roundedValue >= batches) {
+                        roundedValue = batches - 1;
+                        this.logger.info(`[OptimizationBackend] Clamped inactive from ${Math.round(value)} to ${roundedValue} (must be < batches=${batches})`);
+                    }
+                    runSettings.inactive = roundedValue;
+                    this.logger.info(`[OptimizationBackend] Set settings.inactive = ${roundedValue}`);
                 }
                 break;
             case 'batches':
                 if ('batches' in runSettings) {
-                    runSettings.batches = Math.round(value);
-                    this.logger.info(`[OptimizationBackend] Set settings.batches = ${Math.round(value)}`);
+                    let roundedValue = Math.max(1, Math.round(value));
+                    // Ensure batches > inactive to have at least 1 active batch
+                    const inactive = runSettings.inactive ?? 0;
+                    if (roundedValue <= inactive) {
+                        roundedValue = inactive + 1;
+                        this.logger.info(`[OptimizationBackend] Adjusted batches from ${Math.round(value)} to ${roundedValue} (must be > inactive=${inactive})`);
+                    }
+                    runSettings.batches = roundedValue;
+                    this.logger.info(`[OptimizationBackend] Set settings.batches = ${roundedValue}`);
                 }
                 break;
             case 'seed':
-                state.settings.seed = Math.round(value);
-                this.logger.info(`[OptimizationBackend] Set settings.seed = ${Math.round(value)}`);
+                state.settings.seed = Math.max(1, Math.round(value));
+                this.logger.info(`[OptimizationBackend] Set settings.seed = ${Math.max(1, Math.round(value))}`);
                 break;
             default:
                 this.logger.warn(`[OptimizationBackend] Unknown settings parameter: ${settingKey}`);

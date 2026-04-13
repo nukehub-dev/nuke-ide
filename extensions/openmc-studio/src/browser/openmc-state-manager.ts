@@ -912,6 +912,54 @@ export class OpenMCStateManager {
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Validate parameter sweeps for conflicts before running optimization.
+     * Returns validation result with errors if sweeps are incompatible.
+     */
+    validateSweepsForRun(sweeps: OpenMCParameterSweep[]): { valid: boolean; errors: string[]; warnings: string[] } {
+        const errors: string[] = [];
+        const warnings: string[] = [];
+
+        // Check for batches vs inactive conflicts
+        const batchesSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.batches');
+        const inactiveSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.inactive');
+
+        if (batchesSweep && inactiveSweep) {
+            const batchesValues = this.computeSweepValues(batchesSweep);
+            const inactiveValues = this.computeSweepValues(inactiveSweep);
+
+            // Check if any combination would result in 0 active batches
+            const minBatches = Math.min(...batchesValues);
+            const maxInactive = Math.max(...inactiveValues);
+
+            if (minBatches <= maxInactive) {
+                errors.push(
+                    `Invalid sweep combination: 'batches' minimum (${minBatches}) must be greater than 'inactive' maximum (${maxInactive}). ` +
+                    `Adjust sweeps so that batches > inactive for all combinations.`
+                );
+            } else if (minBatches <= maxInactive + 5) {
+                warnings.push(
+                    `Warning: Low active batch count. Minimum batches (${minBatches}) is close to maximum inactive (${maxInactive}). ` +
+                    `Consider increasing batches or decreasing inactive for better statistics.`
+                );
+            }
+        }
+
+        // Check for single-point sweeps (pointless but not an error)
+        sweeps.filter(s => s.enabled).forEach(sweep => {
+            const values = this.computeSweepValues(sweep);
+            if (values.length < 2) {
+                warnings.push(`Sweep "${sweep.name}" has only 1 point. Consider increasing numPoints for a meaningful sweep.`);
+            }
+        });
+
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    }
+
     // ============================================================================
     // Optimization - Runs
     // ============================================================================

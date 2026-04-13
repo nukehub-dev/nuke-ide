@@ -614,6 +614,37 @@
     justify-content: center;
 }
 
+.optimization-widget .runner-actions button {
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 140px;
+}
+
+.optimization-widget .runner-actions button.large {
+    font-size: 15px;
+}
+
+.optimization-widget .runner-actions button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.optimization-widget .runner-actions button:not(:disabled):active {
+    transform: translateY(0);
+}
+
+.optimization-widget .runner-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .optimization-widget .sweep-item-info {
     display: flex;
     flex-direction: column;
@@ -1621,6 +1652,23 @@
 .optimization-widget .placeholder-hint {
     font-size: 12px;
     opacity: 0.8;
+}
+
+/* Validation Warning in Sweep Editor */
+.optimization-widget .editor-row.validation-warning {
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: var(--theia-inputValidation-infoBorder);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-widget .editor-row.validation-warning i {
+    font-size: 14px;
 }
 
 /* ============================================================================

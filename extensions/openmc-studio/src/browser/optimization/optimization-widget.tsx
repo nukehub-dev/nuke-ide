@@ -170,7 +170,28 @@ export class OptimizationWidget extends ReactWidget {
         super.dispose();
     }
 
-    protected render(): React.ReactNode {        
+    /**
+     * Called when the widget is activated (becomes visible/focused).
+     * Reload active run data to restore state when switching tabs.
+     */
+    protected onActivateRequest(msg: any): void {
+        super.onActivateRequest(msg);
+        
+        const activeRun = this.stateManager.getActiveOptimizationRun();
+        if (activeRun) {
+            // Restore the iteration logs index for the active run
+            this.loadIterationLogsIndex(activeRun.id);
+            
+            // Restart progress polling if still running
+            if (activeRun.status === 'running' && !this.progressInterval) {
+                this.startProgressPolling(activeRun.id);
+            }
+            
+            this.update();
+        }
+    }
+
+    protected render(): React.ReactNode {
         try {
             return (
                 <div className='optimization-widget'>
@@ -211,9 +232,11 @@ export class OptimizationWidget extends ReactWidget {
                     <p className='optimization-description'>
                         Define parameter sweeps and run automated optimization studies
                         {projectPath && (
-                            <span className='project-path' title={projectPath}>
-                                {' '}• {projectPath.split('/').pop()}
-                            </span>
+                            <Tooltip content={projectPath} position='bottom'>
+                                <span className='project-path'>
+                                    {' '}• {projectPath.split('/').pop()}
+                                </span>
+                            </Tooltip>
                         )}
                     </p>
                 </div>
@@ -340,15 +363,24 @@ export class OptimizationWidget extends ReactWidget {
             >
                 <div className='sweep-card-header'>
                     <div className='sweep-info'>
-                        <input
-                            type='checkbox'
-                            checked={sweep.enabled}
-                            onChange={() => this.toggleSweepEnabled(sweep.id)}
-                            title={sweep.enabled ? 'Disable this sweep' : 'Enable this sweep'}
-                        />
-                        <span className='sweep-name'>{sweep.name}</span>
-                        <span className='sweep-variable'>{sweep.variable}</span>
-                        {sweep.parameterPath && <span className='sweep-path'>{sweep.parameterPath}</span>}
+                        <Tooltip content={sweep.enabled ? 'Disable this sweep' : 'Enable this sweep'} position='top'>
+                            <input
+                                type='checkbox'
+                                checked={sweep.enabled}
+                                onChange={() => this.toggleSweepEnabled(sweep.id)}
+                            />
+                        </Tooltip>
+                        <Tooltip content={sweep.name} position='top'>
+                            <span className='sweep-name'>{sweep.name}</span>
+                        </Tooltip>
+                        <Tooltip content={`Variable: ${sweep.variable}`} position='top'>
+                            <span className='sweep-variable'>{sweep.variable}</span>
+                        </Tooltip>
+                        {sweep.parameterPath && (
+                            <Tooltip content={`Path: ${sweep.parameterPath}`} position='top'>
+                                <span className='sweep-path'>{sweep.parameterPath}</span>
+                            </Tooltip>
+                        )}
                     </div>
                     <div className='sweep-actions'>
                         <Tooltip content='Edit sweep parameters' position='top'>
@@ -589,13 +621,68 @@ export class OptimizationWidget extends ReactWidget {
                             <option value='logarithmic'>Logarithmic</option>
                         </select>
                     </div>
+                    {data.parameterPath?.startsWith('settings.') && (
+                        <div className='editor-row validation-warning'>
+                            <i className='codicon codicon-info'></i>
+                            <span>
+                                {data.parameterPath === 'settings.particles' && 'Particles must be ≥ 1'}
+                                {data.parameterPath === 'settings.batches' && 'Batches must be ≥ 1 and > inactive'}
+                                {data.parameterPath === 'settings.inactive' && 'Inactive batches must be ≥ 0 and < batches'}
+                                {data.parameterPath === 'settings.seed' && 'Seed must be a positive integer'}
+                            </span>
+                        </div>
+                    )}
+                    {/* Cross-sweep validation for batches vs inactive */}
+                    {(() => {
+                        const allSweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
+                        const batchesSweep = allSweeps.find(s => s.parameterPath === 'settings.batches');
+                        const inactiveSweep = allSweeps.find(s => s.parameterPath === 'settings.inactive');
+                        
+                        if (batchesSweep && inactiveSweep) {
+                            const batchesValues = this.stateManager.computeSweepValues(batchesSweep);
+                            const inactiveValues = this.stateManager.computeSweepValues(inactiveSweep);
+                            const minBatches = Math.min(...batchesValues);
+                            const maxInactive = Math.max(...inactiveValues);
+                            
+                            if (minBatches <= maxInactive) {
+                                return (
+                                    <div className='editor-row validation-error'>
+                                        <i className='codicon codicon-error'></i>
+                                        <span>
+                                            Conflict: batches minimum ({minBatches}) ≤ inactive maximum ({maxInactive}).
+                                            Adjust sweeps so batches &gt; inactive.
+                                        </span>
+                                    </div>
+                                );
+                            } else if (minBatches <= maxInactive + 5) {
+                                return (
+                                    <div className='editor-row validation-warning'>
+                                        <i className='codicon codicon-warning'></i>
+                                        <span>
+                                            Warning: Only {minBatches - maxInactive} active batches at minimum.
+                                            Consider increasing batches or decreasing inactive.
+                                        </span>
+                                    </div>
+                                );
+                            }
+                        }
+                        return null;
+                    })()}
                     <div className='editor-row'>
                         <label>Start Value:</label>
                         <input
                             type='number'
                             step='any'
                             value={data.startValue}
-                            onChange={(e) => updateField('startValue', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                // Enforce minimum of 1 for settings parameters
+                                if (data.parameterPath?.startsWith('settings.') && val < 1) {
+                                    updateField('startValue', 1);
+                                } else {
+                                    updateField('startValue', val);
+                                }
+                            }}
                             className='theia-input'
                         />
                     </div>
@@ -605,7 +692,15 @@ export class OptimizationWidget extends ReactWidget {
                             type='number'
                             step='any'
                             value={data.endValue}
-                            onChange={(e) => updateField('endValue', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                // Enforce minimum of 1 for settings parameters
+                                if (data.parameterPath?.startsWith('settings.') && val < 1) {
+                                    updateField('endValue', 1);
+                                } else {
+                                    updateField('endValue', val);
+                                }
+                            }}
                             className='theia-input'
                         />
                     </div>
@@ -655,25 +750,10 @@ export class OptimizationWidget extends ReactWidget {
             totalIterations *= values.length;
         });
 
+        const isRunning = activeRun?.status === 'running';
+
         return (
             <div className='runner-tab'>
-                <div className='runner-guide'>
-                    <h4><i className='codicon codicon-info'></i> How Batch Running Works</h4>
-                    <div className='guide-steps'>
-                        <div className='guide-step'>
-                            <span className='step-num'>1</span>
-                            <span>Each sweep variable creates multiple simulation cases</span>
-                        </div>
-                        <div className='guide-step'>
-                            <span className='step-num'>2</span>
-                            <span>Total iterations = product of all sweep point counts</span>
-                        </div>
-                        <div className='guide-step'>
-                            <span className='step-num'>3</span>
-                            <span>Results are automatically collected after each run</span>
-                        </div>
-                    </div>
-                </div>
                 <div className='runner-config'>
                     <div className='runner-header'>
                         <h3><i className='codicon codicon-play'></i> Batch Run</h3>
@@ -697,28 +777,26 @@ export class OptimizationWidget extends ReactWidget {
                     )}
 
                     <div className='runner-actions'>
-                        {activeRun?.status === 'running' ? (
-                            <Tooltip content='Stop the current batch run' position='top'>
-                                <button
-                                    className='theia-button danger large'
-                                    onClick={() => this.stopBatchRun()}
-                                >
-                                    <i className='codicon codicon-stop'></i>
-                                    Running... Click to Stop
-                                </button>
-                            </Tooltip>
-                        ) : (
-                            <Tooltip content={sweeps.length === 0 ? 'Enable at least one sweep first' : 'Start the batch optimization run'} position='top'>
-                                <button
-                                    className='theia-button primary large'
-                                    disabled={sweeps.length === 0}
-                                    onClick={() => this.startBatchRun()}
-                                >
-                                    <i className='codicon codicon-play'></i>
-                                    Start Batch Run
-                                </button>
-                            </Tooltip>
-                        )}
+                        <Tooltip content={isRunning ? 'Batch run in progress' : sweeps.length === 0 ? 'Enable at least one sweep first' : 'Start the batch optimization run'} position='top'>
+                            <button
+                                className='theia-button primary large'
+                                onClick={() => this.startBatchRun()}
+                                disabled={isRunning || sweeps.length === 0}
+                            >
+                                <i className='codicon codicon-play'></i>
+                                {isRunning ? 'Running...' : 'Start Batch Run'}
+                            </button>
+                        </Tooltip>
+                        <Tooltip content='Stop the batch run'>
+                            <button
+                                className='theia-button secondary large'
+                                onClick={() => this.stopBatchRun()}
+                                disabled={!isRunning}
+                            >
+                                <i className='codicon codicon-stop'></i>
+                                Stop
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
 
@@ -1412,6 +1490,14 @@ export class OptimizationWidget extends ReactWidget {
             this.messageService.warn('No sweeps enabled. Enable at least one sweep to run.');
             return;
         }
+
+        // Validate sweeps for conflicts
+        const validation = this.stateManager.validateSweepsForRun(sweeps);
+        if (!validation.valid) {
+            validation.errors.forEach(error => this.messageService.error(error));
+            return;
+        }
+        validation.warnings.forEach(warning => this.messageService.warn(warning));
 
         // Check if project is saved - if not, offer to save first
         let projectPath = this.stateManager.projectPath;
