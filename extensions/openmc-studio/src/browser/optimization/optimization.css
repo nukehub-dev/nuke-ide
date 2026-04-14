@@ -356,11 +356,19 @@
     animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.optimization-widget .empty-state i {
+/* Main empty state icon (not inside buttons) */
+.optimization-widget .empty-state > i:first-child {
     font-size: 48px;
     margin-bottom: 12px;
     display: block;
     opacity: 0.3;
+}
+
+/* Button icons should be normal size */
+.optimization-widget .empty-state .empty-actions button i {
+    font-size: 14px;
+    margin-bottom: 0;
+    opacity: 1;
 }
 
 .optimization-widget .empty-state p {
@@ -2249,7 +2257,7 @@
     max-width: 400px;
 }
 
-.optimization-widget.error .empty-state i {
+.optimization-widget.error .empty-state > i:first-child {
     color: var(--theia-errorForeground);
     opacity: 1;
 }

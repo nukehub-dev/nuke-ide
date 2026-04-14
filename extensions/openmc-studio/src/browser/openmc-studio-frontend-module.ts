@@ -208,12 +208,12 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(MenuContribution).toService(SimulationComparisonContribution);
     bind(FrontendApplicationContribution).toService(SimulationComparisonContribution);
 
-    // Optimization Widget
-    bind(OptimizationWidget).toSelf();
+    // Optimization Widget - create new instance each time (not singleton)
+    bind(OptimizationWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: OptimizationWidget.ID,
         createWidget: () => container.get(OptimizationWidget)
-    })).inSingletonScope();
+    }));
 
     console.log('[OpenMC Studio] Frontend module initialized');
 });

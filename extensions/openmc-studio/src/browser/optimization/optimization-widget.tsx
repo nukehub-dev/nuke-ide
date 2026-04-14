@@ -100,6 +100,9 @@ export class OptimizationWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-symbol-variable';
         
+        // Reset widget state for fresh instance
+        this.resetWidgetState();
+        
         window.addEventListener('openmc-optimization-progress', ((evt: CustomEvent) => {
             const event = evt.detail;
             // Progress update received
@@ -165,6 +168,32 @@ export class OptimizationWidget extends ReactWidget {
         }
         this.stopElapsedTimeTimer();
         super.dispose();
+    }
+
+    /**
+     * Reset widget state to default values for a fresh instance
+     */
+    private resetWidgetState(): void {
+        this.activeTab = 'sweeps';
+        this.selectedSweepId = undefined;
+        this.selectedRunId = undefined;
+        this.editingSweepId = undefined;
+        this.editingSweepData = undefined;
+        this.analysisRunId = undefined;
+        this.iterationLogsIndex = [];
+        this.selectedIteration = undefined;
+        this.loadedLogContent = '';
+        this.filteredLogContent = '';
+        this.expandedIterations.clear();
+        this.showLogMaximized = false;
+        this.logPanelHeight = 350;
+        this.runnerValidation = {
+            valid: true,
+            errors: [],
+            warnings: [],
+            showDetails: false
+        };
+        this.timedRunId = undefined;
     }
 
     /**
