@@ -234,48 +234,49 @@ export class OptimizationBackendService {
     /**
      * Get iteration logs index for an optimization run
      */
-    async getIterationLogsIndex(runId: string): Promise<{
+    async getIterationLogsIndex(runId: string, outputDirectory?: string): Promise<{
         iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
         outputDirectory: string;
     }>;
 
-    async getIterationLogsIndex(runId: string): Promise<{
+    async getIterationLogsIndex(runId: string, outputDirectory?: string): Promise<{
         iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
         outputDirectory: string;
     }> {
-        this.logger.info(`[OptimizationBackend] getIterationLogsIndex called with runId: ${runId}, active runs: ${this.activeRuns.size}`);
+        let outputDir: string;
         
-        let runState = this.activeRuns.get(runId);
-        
-        if (!runState) {
-            this.logger.warn(`[OptimizationBackend] Direct match not found, checking ${this.activeRuns.size} active runs`);
-            // Try to reconstruct from active runs by partial match
-            for (const [id, state] of this.activeRuns) {
-                this.logger.info(`[OptimizationBackend] Checking run: ${id} with outputDir: ${state.outputDirectory}`);
-                if (id === runId || runId.includes(id) || id.includes(runId)) {
-                    runState = state;
-                    break;
-                }
-            }
+        // Use provided output directory if available
+        if (outputDirectory) {
+            outputDir = outputDirectory;
+        } else {
+            // Try to find from active runs
+            let runState = this.activeRuns.get(runId);
             
             if (!runState) {
-                this.logger.warn(`[OptimizationBackend] getIterationLogsIndex: run ${runId} not found in ${this.activeRuns.size} active runs`);
-                return {
-                    iterations: [],
-                    outputDirectory: ''
-                };
+                // Try to reconstruct from active runs by partial match
+                for (const [id, state] of this.activeRuns) {
+                    if (id === runId || runId.includes(id) || id.includes(runId)) {
+                        runState = state;
+                        break;
+                    }
+                }
+                
+                if (!runState) {
+                    this.logger.warn(`[OptimizationBackend] getIterationLogsIndex: run ${runId} not found`);
+                    return {
+                        iterations: [],
+                        outputDirectory: ''
+                    };
+                }
             }
+            outputDir = runState.outputDirectory;
         }
 
         const iterations: { iteration: number; hasLog: boolean; timestamp: string }[] = [];
-        const outputDir = runState.outputDirectory;
-        
-        this.logger.info(`[OptimizationBackend] getIterationLogsIndex: checking ${outputDir}`);
 
         // Check existing iteration directories
         if (fs.existsSync(outputDir)) {
             const entries = fs.readdirSync(outputDir);
-            this.logger.info(`[OptimizationBackend] Found entries: ${entries.join(', ')}`);
             for (const entry of entries) {
                 const match = entry.match(/^iteration_(\d+)$/);
                 if (match) {
@@ -309,21 +310,28 @@ export class OptimizationBackendService {
     /**
      * Get log content for a specific iteration
      */
-    async getIterationLog(runId: string, iteration: number): Promise<{
+    async getIterationLog(runId: string, iteration: number, outputDirectory?: string): Promise<{
         success: boolean;
         logContent?: string;
         error?: string;
     }> {
-        const runState = this.activeRuns.get(runId);
+        let outputDir: string;
         
-        if (!runState) {
-            return {
-                success: false,
-                error: `Run ${runId} not found`
-            };
+        if (outputDirectory) {
+            outputDir = outputDirectory;
+        } else {
+            const runState = this.activeRuns.get(runId);
+            
+            if (!runState) {
+                return {
+                    success: false,
+                    error: `Run ${runId} not found`
+                };
+            }
+            outputDir = runState.outputDirectory;
         }
 
-        const logPath = path.join(runState.outputDirectory, `iteration_${iteration}`, 'output.log');
+        const logPath = path.join(outputDir, `iteration_${iteration}`, 'output.log');
         
         if (!fs.existsSync(logPath)) {
             return {
@@ -444,6 +452,19 @@ export class OptimizationBackendService {
         // Apply parameter modifications to the state
         const modifiedState = this.applyParameterSweep(request.baseState, parameterValues);
 
+        // Validate settings after applying sweeps
+        const runSettings = modifiedState.settings?.run as any;
+        if (runSettings) {
+            const batches = runSettings.batches ?? 0;
+            const inactive = runSettings.inactive ?? 0;
+            if (batches <= inactive) {
+                const error = `Invalid configuration: batches (${batches}) must be greater than inactive (${inactive}). ` +
+                    `Please adjust your sweeps or base settings so that batches > inactive.`;
+                this.logger.error(`[OptimizationBackend] ${error}`);
+                throw new Error(error);
+            }
+        }
+
         // Generate XML files
         const xmlResult = await this.xmlService.generateXML({
             state: modifiedState,
@@ -480,14 +501,22 @@ export class OptimizationBackendService {
         // Try to read statepoint results
         let keff: number | undefined;
         let keffStd: number | undefined;
+        let statepointPath: string | undefined;
         
         try {
             const statepointResult = await this.readStatepointResults(iterationDir);
             keff = statepointResult.keff;
             keffStd = statepointResult.keffStd;
+            statepointPath = statepointResult.statepointPath;
         } catch (err) {
             this.logger.warn(`[OptimizationBackend] Could not read statepoint for iteration ${iteration}: ${err}`);
         }
+
+        // Store relative path for portability
+        // Path relative to outputDirectory: iteration_X/statepoint.XXX.h5
+        const relativeStatepointPath = statepointPath 
+            ? path.relative(runState.outputDirectory, statepointPath)
+            : path.join(`iteration_${iteration}`, 'statepoint.h5');
 
         return {
             iteration,
@@ -497,7 +526,7 @@ export class OptimizationBackendService {
             executionTime,
             success: simResult.success,
             errorMessage: simResult.error,
-            statepointPath: path.join(iterationDir, 'statepoint.h5')
+            statepointPath: relativeStatepointPath
         };
     }
 
@@ -567,13 +596,13 @@ export class OptimizationBackendService {
             material.temperature = value;
             this.logger.info(`[OptimizationBackend] Set ${material.name}.temperature = ${value}`);
         } else {
-            this.logger.warn(`[OptimizationBackend] Unknown target: ${targetField}`);
+            // Unknown target
         }
     }
 
     private applySettingsParameter(state: OpenMCState, settingKey: string, value: number): void {
         if (!state.settings || !state.settings.run) {
-            this.logger.warn(`[OptimizationBackend] Settings not initialized`);
+            // Settings not initialized
             return;
         }
 
@@ -584,55 +613,43 @@ export class OptimizationBackendService {
                 if ('particles' in runSettings) {
                     const roundedValue = Math.max(1, Math.round(value));
                     runSettings.particles = roundedValue;
-                    this.logger.info(`[OptimizationBackend] Set settings.particles = ${roundedValue}`);
+                    // Particles set
                 }
                 break;
             case 'inactive':
                 if ('inactive' in runSettings) {
-                    let roundedValue = Math.max(0, Math.round(value));
-                    // Ensure inactive < batches to have at least 1 active batch
-                    const batches = runSettings.batches ?? 10;
-                    if (roundedValue >= batches) {
-                        roundedValue = batches - 1;
-                        this.logger.info(`[OptimizationBackend] Clamped inactive from ${Math.round(value)} to ${roundedValue} (must be < batches=${batches})`);
-                    }
+                    const roundedValue = Math.max(0, Math.round(value));
                     runSettings.inactive = roundedValue;
-                    this.logger.info(`[OptimizationBackend] Set settings.inactive = ${roundedValue}`);
+                    // Inactive set
                 }
                 break;
             case 'batches':
                 if ('batches' in runSettings) {
-                    let roundedValue = Math.max(1, Math.round(value));
-                    // Ensure batches > inactive to have at least 1 active batch
-                    const inactive = runSettings.inactive ?? 0;
-                    if (roundedValue <= inactive) {
-                        roundedValue = inactive + 1;
-                        this.logger.info(`[OptimizationBackend] Adjusted batches from ${Math.round(value)} to ${roundedValue} (must be > inactive=${inactive})`);
-                    }
+                    const roundedValue = Math.max(1, Math.round(value));
                     runSettings.batches = roundedValue;
-                    this.logger.info(`[OptimizationBackend] Set settings.batches = ${roundedValue}`);
+                    // Batches set
                 }
                 break;
             case 'seed':
                 state.settings.seed = Math.max(1, Math.round(value));
-                this.logger.info(`[OptimizationBackend] Set settings.seed = ${Math.max(1, Math.round(value))}`);
+                // Seed set
                 break;
             default:
-                this.logger.warn(`[OptimizationBackend] Unknown settings parameter: ${settingKey}`);
+                // Unknown settings parameter
         }
     }
 
     private applyGeometryParameter(state: OpenMCState, paramKey: string, value: number): void {
         const parts = paramKey.split('.');
         if (parts.length < 2) {
-            this.logger.warn(`[OptimizationBackend] Invalid geometry parameter path: ${paramKey}`);
+            // Invalid geometry parameter path
             return;
         }
 
         const [cellName, prop] = parts;
         
         if (!state.geometry || !state.geometry.cells) {
-            this.logger.warn(`[OptimizationBackend] Geometry not initialized`);
+            // Geometry not initialized
             return;
         }
 
@@ -641,15 +658,15 @@ export class OptimizationBackendService {
         );
 
         if (!cell) {
-            this.logger.warn(`[OptimizationBackend] Cell ${cellName} not found`);
+            // Cell not found
             return;
         }
 
         if (prop === 'temperature') {
             cell.temperature = value;
-            this.logger.info(`[OptimizationBackend] Set ${cell.name}.temperature = ${value}`);
+            // Temperature set
         } else {
-            this.logger.warn(`[OptimizationBackend] Unknown geometry parameter: ${prop}`);
+            // Unknown geometry parameter
         }
     }
 
@@ -662,7 +679,7 @@ export class OptimizationBackendService {
         );
 
         if (!targetNuclide) {
-            this.logger.warn(`[OptimizationBackend] Nuclide ${nuclideName} not found in ${material.name}`);
+            // Nuclide not found
             return;
         }
 
@@ -688,7 +705,7 @@ export class OptimizationBackendService {
             }
         }
 
-        this.logger.info(`[OptimizationBackend] Set ${nuclideName} to ${fraction} in ${material.name}`);
+        // Nuclide fraction set
     }
 
     /**
@@ -781,11 +798,11 @@ export class OptimizationBackendService {
         };
         if (crossSectionsPath) {
             env.OPENMC_CROSS_SECTIONS = crossSectionsPath;
-            this.logger.info(`[OptimizationBackend] Using cross-sections: ${crossSectionsPath}`);
+            // Cross-sections configured
         }
         if (chainFilePath) {
             env.OPENMC_CHAIN_FILE = chainFilePath;
-            this.logger.info(`[OptimizationBackend] Using chain file: ${chainFilePath}`);
+            // Chain file configured
         }
 
         // Create log file stream if path provided
@@ -795,7 +812,7 @@ export class OptimizationBackendService {
 
         return new Promise((resolve) => {
 
-            this.logger.info(`[OptimizationBackend] Running OpenMC in ${workingDir}`);
+            // Running OpenMC
 
             const childProcess = spawn(command, args, {
                 cwd: workingDir,
@@ -880,7 +897,7 @@ export class OptimizationBackendService {
         runState?: OptimizationRunState,
         logFilePath?: string
     ): Promise<{ success: boolean; error?: string }> {
-        this.logger.info(`[OptimizationBackend] Running depletion simulation in ${workingDir}`);
+        // Running depletion
 
         // Create log file stream if path provided
         if (logFilePath) {
@@ -936,19 +953,19 @@ export class OptimizationBackendService {
         // Add cross-sections path from request
         if (crossSectionsPath) {
             env.OPENMC_CROSS_SECTIONS = crossSectionsPath;
-            this.logger.info(`[OptimizationBackend] Using cross-sections path: ${crossSectionsPath}`);
+            // Cross-sections path configured
         }
 
         // Add chain file path from request
         if (providedChainFilePath) {
             env.OPENMC_CHAIN_FILE = providedChainFilePath;
-            this.logger.info(`[OptimizationBackend] Using chain file path: ${providedChainFilePath}`);
+            // Chain file path configured
         }
 
         return new Promise((resolve) => {
-            this.logger.info(`[OptimizationBackend] Running: ${pythonCommand} ${args.join(' ')}`);
+            // Running Python script
             if (crossSectionsPath) {
-                this.logger.info(`[OptimizationBackend] Using cross-sections: ${crossSectionsPath}`);
+                // Cross-sections configured
             }
 
             const childProcess = spawn(pythonCommand, args, {
@@ -1023,7 +1040,7 @@ export class OptimizationBackendService {
     /**
      * Read results from statepoint file using Python
      */
-    private async readStatepointResults(iterationDir: string): Promise<{ keff?: number; keffStd?: number }> {
+    private async readStatepointResults(iterationDir: string): Promise<{ keff?: number; keffStd?: number; statepointPath?: string }> {
         // Find the statepoint file (could be statepoint.h5 or statepoint.XXX.h5)
         const statepointFiles = fs.readdirSync(iterationDir)
             .filter(f => f.startsWith('statepoint') && f.endsWith('.h5'));
@@ -1035,7 +1052,7 @@ export class OptimizationBackendService {
         
         const statepointFile = statepointFiles[0];
         const statepointPath = path.join(iterationDir, statepointFile);
-        this.logger.info(`[OptimizationBackend] Reading statepoint: ${statepointPath}`);
+        // Reading statepoint
         
         // Detect Python with OpenMC
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
@@ -1107,22 +1124,22 @@ except Exception as e:
             });
 
             childProcess.on('close', (code) => {
-                this.logger.info(`[OptimizationBackend] Statepoint read exit code: ${code}, stdout: ${stdout}, stderr: ${stderr}`);
+                // Statepoint read complete
                 if (keff !== undefined) {
-                    this.logger.info(`[OptimizationBackend] Read keff=${keff} +/- ${keffStd} from ${iterationDir}`);
+                    // keff read successfully
                 }
-                resolve({ keff, keffStd });
+                resolve({ keff, keffStd, statepointPath });
             });
 
             childProcess.on('error', (err) => {
                 this.logger.warn(`[OptimizationBackend] Failed to read statepoint: ${err.message}`);
-                resolve({});
+                resolve({ statepointPath });
             });
 
             // Timeout after 30 seconds
             setTimeout(() => {
                 childProcess.kill();
-                resolve({});
+                resolve({ statepointPath });
             }, 30000);
         });
     }

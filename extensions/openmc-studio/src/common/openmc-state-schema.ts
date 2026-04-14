@@ -898,20 +898,11 @@ export interface OpenMCOptimizationRun {
     endTime?: string;
     /** Paths to generated statepoint files */
     statepointFiles: string[];
-    /** Live log messages */
-    logMessages: OptimizationLogMessage[];
-}
-
-/** Optimization log message */
-export interface OptimizationLogMessage {
-    /** Timestamp */
-    timestamp: string;
-    /** Message level */
-    level: 'info' | 'warning' | 'error';
-    /** Message content */
-    message: string;
-    /** Iteration number (if applicable) */
-    iteration?: number;
+    /** 
+     * Output directory path (relative to project root for portability)
+     * e.g., "optimization/run-1234567890"
+     */
+    outputDirectory?: string;
 }
 
 /** Complete optimization state */

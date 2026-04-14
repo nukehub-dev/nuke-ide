@@ -374,6 +374,29 @@
     font-style: italic;
 }
 
+.optimization-widget .empty-state .empty-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.optimization-widget .empty-state .empty-actions button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .empty-state .empty-actions button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
 /* ============================================================================
    Sweeps Tab
    ============================================================================ */
@@ -645,6 +668,219 @@
     cursor: not-allowed;
 }
 
+.optimization-widget .runner-title-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.optimization-widget .runner-status-badges {
+    display: flex;
+    gap: 8px;
+}
+
+.optimization-widget .runner-status-badges .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.optimization-widget .runner-status-badges .status-badge.ready {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .runner-status-badges .status-badge.error {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorBorder);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .runner-status-badges .status-badge.warning {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+}
+
+.optimization-widget .runner-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 32px 20px;
+    background: var(--theia-editor-background);
+    border: 2px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    animation: empty-fade-in 0.3s ease-out;
+}
+
+.optimization-widget .runner-empty-state i {
+    font-size: 32px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 12px;
+}
+
+.optimization-widget .runner-empty-state p {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--theia-editor-foreground);
+}
+
+.optimization-widget .runner-empty-state span {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Validation Panel */
+.optimization-widget .validation-panel {
+    margin-bottom: 16px;
+    border-radius: 8px;
+    overflow: hidden;
+    animation: section-slide-up 0.3s ease-out;
+}
+
+.optimization-widget .validation-panel.has-errors {
+    background: var(--theia-inputValidation-errorBackground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .validation-panel.has-warnings {
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+}
+
+.optimization-widget .validation-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.optimization-widget .validation-panel.has-errors .validation-header {
+    color: var(--theia-inputValidation-errorBorder);
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.optimization-widget .validation-panel.has-warnings .validation-header {
+    color: var(--theia-inputValidation-warningBorder);
+    background: rgba(241, 196, 15, 0.1);
+}
+
+.optimization-widget .validation-close {
+    margin-left: auto;
+    padding: 2px 6px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.optimization-widget .validation-close:hover {
+    opacity: 1;
+}
+
+.optimization-widget .validation-content {
+    padding: 12px 14px;
+}
+
+.optimization-widget .validation-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 0;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.optimization-widget .validation-item:last-child {
+    border-bottom: none;
+}
+
+.optimization-widget .validation-item i {
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.optimization-widget .validation-item.error {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .validation-item.warning {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.optimization-widget .validation-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.optimization-widget .validation-actions .action-button {
+    padding: 6px 12px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Validation Summary (Collapsed) */
+.optimization-widget .validation-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    animation: section-slide-up 0.3s ease-out;
+}
+
+.optimization-widget .validation-summary.has-errors {
+    background: var(--theia-inputValidation-errorBackground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .validation-summary.has-warnings {
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.optimization-widget .validation-toggle {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    color: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.optimization-widget .validation-toggle:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
 .optimization-widget .sweep-item-info {
     display: flex;
     flex-direction: column;
@@ -684,90 +920,296 @@
 .optimization-widget .run-progress {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 20px;
+    animation: card-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.optimization-widget .run-progress h4 {
-    margin: 0 0 16px 0;
-    font-size: 14px;
+/* Run Header */
+.optimization-widget .run-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.optimization-widget .run-info h4 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
     font-weight: 600;
+    color: var(--theia-editor-foreground);
 }
 
-.optimization-widget .progress-bar-container {
-    height: 10px;
-    background: var(--theia-progressBar-background);
-    border-radius: 5px;
-    overflow: hidden;
+.optimization-widget .run-meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.optimization-widget .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.optimization-widget .status-pill.running {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .status-pill.completed {
+    background: var(--theia-inputValidation-successBackground);
+    color: var(--theia-inputValidation-successBorder);
+}
+
+.optimization-widget .status-pill.failed,
+.optimization-widget .status-pill.cancelled {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .status-pill.pending {
+    background: var(--theia-badge-background);
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .time-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.optimization-widget .run-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.optimization-widget .run-actions button.small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* Progress Section */
+.optimization-widget .progress-section {
+    margin-bottom: 20px;
+}
+
+.optimization-widget .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 12px;
 }
 
-.optimization-widget .progress-bar {
+.optimization-widget .progress-percentage {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    line-height: 1;
+}
+
+.optimization-widget .progress-fraction {
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 500;
+}
+
+/* Progress Track with Segments */
+.optimization-widget .progress-track {
+    position: relative;
+    height: 12px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.optimization-widget .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--theia-progressBar-background) 0%, var(--theia-focusBorder) 100%);
-    border-radius: 5px;
-    transition: width 0.3s ease;
+    background: linear-gradient(90deg, var(--theia-focusBorder) 0%, #4CAF50 100%);
+    border-radius: 6px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
 }
 
-.optimization-widget .progress-bar::after {
-    content: '';
+.optimization-widget .progress-shimmer {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.4) 50%, transparent 100%);
     animation: progress-shimmer 2s infinite;
 }
 
-.optimization-widget .progress-info {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--theia-descriptionForeground);
-    margin-bottom: 12px;
+.optimization-widget .progress-segments {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
 }
 
-.optimization-widget .progress-status {
+.optimization-widget .segment-marker {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--theia-panel-border);
+    border-radius: 1px;
+    transform: translateX(-50%);
+}
+
+.optimization-widget .segment-marker.completed {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Timeline Visualization */
+.optimization-widget .timeline-visual {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding: 12px;
+    background: var(--theia-editor-background);
+    border-radius: 8px;
+}
+
+.optimization-widget .timeline-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.optimization-widget .timeline-dot.pending {
+    background: var(--theia-panel-border);
+}
+
+.optimization-widget .timeline-dot.running {
+    background: var(--theia-inputValidation-infoBorder);
+    animation: pulse 1.5s infinite;
+}
+
+.optimization-widget .timeline-dot.success {
+    background: #4CAF50;
+}
+
+.optimization-widget .timeline-dot.error {
+    background: var(--theia-inputValidation-errorBorder);
+}
+
+.optimization-widget .timeline-dot.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.3);
+}
+
+.optimization-widget .timeline-dot:hover {
+    transform: scale(1.3);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Stats Grid */
+.optimization-widget .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.optimization-widget .stat-card {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    padding: 14px;
+    background: var(--theia-editor-background);
+    border-radius: 10px;
+    border: 1px solid var(--theia-panel-border);
+    transition: all 0.2s ease;
 }
 
-.optimization-widget .status-badge {
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
+.optimization-widget .stat-card:hover {
+    border-color: var(--theia-focusBorder);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.optimization-widget .status-badge.pending {
-    background: var(--theia-badge-background);
-    color: var(--theia-descriptionForeground);
+.optimization-widget .stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
 }
 
-.optimization-widget .status-badge.running {
-    background: var(--theia-inputValidation-infoBackground);
-    color: var(--theia-inputValidation-infoBorder);
+.optimization-widget .stat-icon.success {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4CAF50;
 }
 
-.optimization-widget .status-badge.completed {
-    background: var(--theia-inputValidation-successBackground);
-    color: var(--theia-inputValidation-successBorder);
-}
-
-.optimization-widget .status-badge.failed,
-.optimization-widget .status-badge.cancelled {
+.optimization-widget .stat-icon.error {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
 }
 
-.optimization-widget .time-info {
-    font-size: 12px;
+.optimization-widget .stat-icon.time {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.optimization-widget .stat-icon.estimate {
+    background: rgba(241, 196, 15, 0.15);
+    color: #f1c40f;
+}
+
+.optimization-widget .stat-icon.avg {
+    background: rgba(155, 89, 182, 0.15);
+    color: #9b59b6;
+}
+
+.optimization-widget .stat-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.optimization-widget .stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--theia-editor-foreground);
+    line-height: 1.2;
+}
+
+.optimization-widget .stat-label {
+    font-size: 11px;
     color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .optimization-widget .log-stats {
@@ -1850,11 +2292,23 @@
     font-size: 13px;
 }
 
+.optimization-widget .editor-row input.invalid,
+.optimization-widget .editor-row select.invalid {
+    border-color: var(--theia-inputValidation-errorBorder);
+    background: var(--theia-inputValidation-errorBackground);
+}
+
 .optimization-widget .editor-row input:focus,
 .optimization-widget .editor-row select:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+.optimization-widget .editor-row input.invalid:focus,
+.optimization-widget .editor-row select.invalid:focus {
+    border-color: var(--theia-inputValidation-errorBorder);
+    box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
 }
 
 .optimization-widget .editor-actions {

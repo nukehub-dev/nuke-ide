@@ -635,14 +635,23 @@ export interface OpenMCStudioBackendService {
         status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
     }>;
 
-    /** Get iteration logs index for an optimization run */
-    getIterationLogsIndex(runId: string): Promise<{
+    /** 
+     * Get iteration logs index for an optimization run
+     * @param runId The run ID
+     * @param outputDirectory Optional output directory (absolute path). If not provided, will look up active runs.
+     */
+    getIterationLogsIndex(runId: string, outputDirectory?: string): Promise<{
         iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
         outputDirectory: string;
     }>;
 
-    /** Get log content for a specific iteration */
-    getIterationLog(runId: string, iteration: number): Promise<{
+    /** 
+     * Get log content for a specific iteration
+     * @param runId The run ID
+     * @param iteration The iteration number
+     * @param outputDirectory Optional output directory (absolute path). If not provided, will look up active runs.
+     */
+    getIterationLog(runId: string, iteration: number, outputDirectory?: string): Promise<{
         success: boolean;
         logContent?: string;
         error?: string;

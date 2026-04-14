@@ -41,7 +41,6 @@ import {
     OpenMCParameterSweep,
     OpenMCOptimizationRun,
     OptimizationResult,
-    OptimizationLogMessage,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
@@ -923,8 +922,14 @@ export class OpenMCStateManager {
         // Check for batches vs inactive conflicts
         const batchesSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.batches');
         const inactiveSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.inactive');
+        
+        // Get base settings values (only relevant for eigenvalue mode)
+        const runSettings = this._state.settings?.run;
+        const baseBatches = (runSettings as any)?.batches ?? 100;
+        const baseInactive = (runSettings as any)?.inactive ?? 10;
 
         if (batchesSweep && inactiveSweep) {
+            // Both are swept - check all combinations
             const batchesValues = this.computeSweepValues(batchesSweep);
             const inactiveValues = this.computeSweepValues(inactiveSweep);
 
@@ -941,6 +946,38 @@ export class OpenMCStateManager {
                 warnings.push(
                     `Warning: Low active batch count. Minimum batches (${minBatches}) is close to maximum inactive (${maxInactive}). ` +
                     `Consider increasing batches or decreasing inactive for better statistics.`
+                );
+            }
+        } else if (batchesSweep && !inactiveSweep) {
+            // Only batches is swept - check against base inactive
+            const batchesValues = this.computeSweepValues(batchesSweep);
+            const minBatches = Math.min(...batchesValues);
+            
+            if (minBatches <= baseInactive) {
+                errors.push(
+                    `Invalid sweep: 'batches' minimum (${minBatches}) must be greater than base 'inactive' (${baseInactive}). ` +
+                    `Either increase batches start value, or decrease base inactive in Settings.`
+                );
+            } else if (minBatches <= baseInactive + 5) {
+                warnings.push(
+                    `Warning: Low active batch count. Minimum batches (${minBatches}) is close to base inactive (${baseInactive}). ` +
+                    `Consider increasing batches or decreasing base inactive for better statistics.`
+                );
+            }
+        } else if (!batchesSweep && inactiveSweep) {
+            // Only inactive is swept - check against base batches
+            const inactiveValues = this.computeSweepValues(inactiveSweep);
+            const maxInactive = Math.max(...inactiveValues);
+            
+            if (maxInactive >= baseBatches) {
+                errors.push(
+                    `Invalid sweep: 'inactive' maximum (${maxInactive}) must be less than base 'batches' (${baseBatches}). ` +
+                    `Either decrease inactive end value, or increase base batches in Settings.`
+                );
+            } else if (maxInactive >= baseBatches - 5) {
+                warnings.push(
+                    `Warning: Low active batch count. Maximum inactive (${maxInactive}) is close to base batches (${baseBatches}). ` +
+                    `Consider decreasing inactive or increasing base batches for better statistics.`
                 );
             }
         }
@@ -1051,24 +1088,6 @@ export class OpenMCStateManager {
                 path: `optimization.optimizationRuns.${runId}.results`,
                 type: 'update',
                 value: run.results
-            });
-        }
-    }
-
-    /**
-     * Add a log message to an optimization run.
-     */
-    addOptimizationLogMessage(runId: string, message: OptimizationLogMessage): void {
-        this.ensureOptimizationState();
-        const run = this._state.optimization!.optimizationRuns.find(r => r.id === runId);
-        if (run) {
-            run.logMessages.push(message);
-            this.markDirty();
-
-            this._onStateChange.fire({
-                path: `optimization.optimizationRuns.${runId}.logMessages`,
-                type: 'update',
-                value: run.logMessages
             });
         }
     }

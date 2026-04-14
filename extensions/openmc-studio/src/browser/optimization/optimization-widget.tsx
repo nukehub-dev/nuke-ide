@@ -18,10 +18,13 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { FileDialogService, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
+import { FileDialogService, SaveFileDialogProps, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
+import { CommandService } from '@theia/core/lib/common/command';
+import URI from '@theia/core/lib/common/uri';
+import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCStudioService } from '../openmc-studio-service';
 import { OpenMCParameterSweep, OpenMCOptimizationRun } from '../../common/openmc-state-schema';
@@ -56,6 +59,12 @@ export class OptimizationWidget extends ReactWidget {
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
+    @inject(OpenerService)
+    protected readonly openerService: OpenerService;
+
     private activeTab: 'sweeps' | 'runner' | 'results' | 'analysis' = 'sweeps';
     private selectedSweepId?: number;
     private selectedRunId?: string;
@@ -71,6 +80,18 @@ export class OptimizationWidget extends ReactWidget {
     private logPanelHeight = 350;
     private logViewerRef = React.createRef<HTMLPreElement>();
 
+    // Runner validation state
+    private runnerValidation: { valid: boolean; errors: string[]; warnings: string[]; showDetails: boolean } = {
+        valid: true,
+        errors: [],
+        warnings: [],
+        showDetails: false
+    };
+
+    // Elapsed time timer for running simulations - stores the run ID being timed
+    private elapsedTimeTimer?: number;
+    private timedRunId?: string;
+
     @postConstruct()
     protected init(): void {
         this.id = OptimizationWidget.ID;
@@ -81,7 +102,7 @@ export class OptimizationWidget extends ReactWidget {
         
         window.addEventListener('openmc-optimization-progress', ((evt: CustomEvent) => {
             const event = evt.detail;
-            console.log('[OptimizationWidget] Progress update:', event);
+            // Progress update received
             this.stateManager.updateOptimizationRun(event.runId, {
                 currentIteration: event.currentIteration,
                 status: event.status
@@ -111,7 +132,7 @@ export class OptimizationWidget extends ReactWidget {
 
         window.addEventListener('openmc-optimization-iteration', ((evt: CustomEvent) => {
             const { runId, result } = evt.detail;
-            console.log('[OptimizationWidget] Iteration complete:', runId, result);
+            // Iteration complete
             const run = this.stateManager.getOptimizationRun(runId);
             if (run) {
                 // Check if this iteration already exists to avoid duplicates
@@ -122,39 +143,14 @@ export class OptimizationWidget extends ReactWidget {
                         results: updatedResults,
                         currentIteration: result.iteration
                     });
+                    // Auto-save after each iteration to persist results
+                    this.autoSave();
                 }
                 this.update();
             }
         }) as EventListener);
 
-        // Listen to live log output from backend
-        window.addEventListener('openmc-output', ((evt: CustomEvent) => {
-            const { type, data } = evt.detail;
-            const activeRun = this.stateManager.getActiveOptimizationRun();
-            if (activeRun) {
-                const lines = data.split('\n');
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-                    // Skip logo/art lines
-                    if (/^[\s%#|]+$/.test(trimmed)) continue;
-                    if (trimmed.match(/^%+$|^#+$/)) continue;
-                    if (trimmed.includes('############')) continue;
-                    // Add to log messages
-                    const logLevel = (type === 'stderr' ? 'warning' : 'info') as 'info' | 'warning' | 'error';
-                    const logMessages = [...activeRun.logMessages, {
-                        timestamp: new Date().toISOString(),
-                        level: logLevel,
-                        message: line
-                    }];
-                    this.stateManager.updateOptimizationRun(activeRun.id, {
-                        logMessages
-                    });
-                }
-                this.update();
-            }
-        }) as EventListener);
-
+        // Note: Logs are written directly to logFilePath by the backend
         this.update();
     }
 
@@ -167,6 +163,7 @@ export class OptimizationWidget extends ReactWidget {
             window.clearInterval(this.progressInterval);
             this.progressInterval = undefined;
         }
+        this.stopElapsedTimeTimer();
         super.dispose();
     }
 
@@ -323,6 +320,22 @@ export class OptimizationWidget extends ReactWidget {
                             <i className='codicon codicon-symbol-variable'></i>
                             <p>No parameter sweeps defined yet.</p>
                             <p className='empty-hint'>Add a sweep to vary parameters across multiple simulations.</p>
+                            <div className='empty-actions'>
+                                <button 
+                                    className='theia-button primary'
+                                    onClick={() => this.addNewSweep()}
+                                >
+                                    <i className='codicon codicon-add'></i>
+                                    Add Sweep
+                                </button>
+                                <button 
+                                    className='theia-button secondary'
+                                    onClick={() => this.openProject()}
+                                >
+                                    <i className='codicon codicon-folder-opened'></i>
+                                    Open Project
+                                </button>
+                            </div>
                             <div className='empty-tips'>
                                 <p><strong>💡 Tip:</strong> Start with material properties like enrichment or density.</p>
                                 <p><strong>💡 Tip:</strong> You can sweep geometry dimensions for sensitivity studies.</p>
@@ -441,10 +454,37 @@ export class OptimizationWidget extends ReactWidget {
         }
 
         const handleSave = () => {
-            if (this.editingSweepData) {
-                this.stateManager.updateParameterSweep(sweep.id, this.editingSweepData);
-                this.autoSave();
+            if (!this.editingSweepData) return;
+            
+            // Validate required fields
+            if (!this.editingSweepData.name.trim()) {
+                this.messageService.error('Sweep name is required');
+                return;
             }
+            
+            if (!this.editingSweepData.variable.trim()) {
+                this.messageService.error('Variable name is required');
+                return;
+            }
+            
+            if (!this.editingSweepData.parameterPath) {
+                this.messageService.error('Parameter Path is required. Please select what to sweep.');
+                return;
+            }
+            
+            // Validate numeric ranges
+            if (this.editingSweepData.numPoints < 2) {
+                this.messageService.error('Number of points must be at least 2');
+                return;
+            }
+            
+            if (this.editingSweepData.startValue === this.editingSweepData.endValue) {
+                this.messageService.error('Start and end values must be different');
+                return;
+            }
+            
+            this.stateManager.updateParameterSweep(sweep.id, this.editingSweepData);
+            this.autoSave();
             this.editingSweepId = undefined;
             this.editingSweepData = undefined;
             this.update();
@@ -474,7 +514,8 @@ export class OptimizationWidget extends ReactWidget {
                             type='text'
                             value={data.name}
                             onChange={(e) => updateField('name', e.target.value)}
-                            className='theia-input'
+                            className={`theia-input ${!data.name.trim() ? 'invalid' : ''}`}
+                            placeholder='Enter sweep name'
                         />
                     </div>
                     <div className='editor-row'>
@@ -483,7 +524,7 @@ export class OptimizationWidget extends ReactWidget {
                             type='text'
                             value={data.variable}
                             onChange={(e) => updateField('variable', e.target.value)}
-                            className='theia-input'
+                            className={`theia-input ${!data.variable.trim() ? 'invalid' : ''}`}
                             placeholder='e.g., enrichment, temperature'
                         />
                     </div>
@@ -520,7 +561,7 @@ export class OptimizationWidget extends ReactWidget {
                                         }
                                     }
                                 }}
-                                className='theia-select'
+                                className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
                                 <option value=''>-- Select parameter --</option>
                                 {(() => {
@@ -562,7 +603,7 @@ export class OptimizationWidget extends ReactWidget {
                                         }
                                     }
                                 }}
-                                className='theia-select'
+                                className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
                                 <option value=''>-- Select parameter --</option>
                                 {(() => {
@@ -598,7 +639,7 @@ export class OptimizationWidget extends ReactWidget {
                                         }
                                     }
                                 }}
-                                className='theia-select'
+                                className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
                                 <option value=''>-- Select parameter --</option>
                                 <optgroup label="Settings">
@@ -740,6 +781,45 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    protected renderValidationActions(): React.ReactNode {
+        const errors = this.runnerValidation.errors;
+        
+        // Check if any errors are related to batches/inactive settings
+        const hasSettingsError = errors.some(e => 
+            e.toLowerCase().includes('batches') || 
+            e.toLowerCase().includes('inactive') ||
+            e.toLowerCase().includes('settings')
+        );
+        
+        // Check if any errors are related to sweeps
+        const hasSweepError = errors.some(e =>
+            e.toLowerCase().includes('sweep')
+        );
+
+        return (
+            <div className='validation-actions'>
+                {hasSettingsError && (
+                    <button 
+                        className='theia-button secondary action-button'
+                        onClick={() => this.openSimulationDashboard()}
+                    >
+                        <i className='codicon codicon-settings-gear'></i>
+                        Open Settings
+                    </button>
+                )}
+                {hasSweepError && (
+                    <button 
+                        className='theia-button secondary action-button'
+                        onClick={() => { this.activeTab = 'sweeps'; this.update(); }}
+                    >
+                        <i className='codicon codicon-list-selection'></i>
+                        Go to Sweeps
+                    </button>
+                )}
+            </div>
+        );
+    }
+
     protected renderRunnerTab(): React.ReactNode {
         const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
         const activeRun = this.stateManager.getActiveOptimizationRun();
@@ -751,12 +831,36 @@ export class OptimizationWidget extends ReactWidget {
         });
 
         const isRunning = activeRun?.status === 'running';
+        const hasErrors = this.runnerValidation.errors.length > 0;
+        const hasWarnings = this.runnerValidation.warnings.length > 0;
 
         return (
             <div className='runner-tab'>
                 <div className='runner-config'>
                     <div className='runner-header'>
-                        <h3><i className='codicon codicon-play'></i> Batch Run</h3>
+                        <div className='runner-title-section'>
+                            <h3><i className='codicon codicon-play'></i> Batch Run</h3>
+                            <div className='runner-status-badges'>
+                                {sweeps.length > 0 && (
+                                    <span className='status-badge ready'>
+                                        <i className='codicon codicon-check'></i>
+                                        {sweeps.length} {sweeps.length === 1 ? 'sweep' : 'sweeps'} ready
+                                    </span>
+                                )}
+                                {hasErrors && (
+                                    <span className='status-badge error'>
+                                        <i className='codicon codicon-error'></i>
+                                        {this.runnerValidation.errors.length} error{this.runnerValidation.errors.length > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                                {hasWarnings && !hasErrors && (
+                                    <span className='status-badge warning'>
+                                        <i className='codicon codicon-warning'></i>
+                                        {this.runnerValidation.warnings.length} warning{this.runnerValidation.warnings.length > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
                         <div className='runner-info'>
                             <span className='info-item'>
                                 <i className='codicon codicon-list-selection'></i>
@@ -769,15 +873,65 @@ export class OptimizationWidget extends ReactWidget {
                         </div>
                     </div>
                     
+                    {/* Validation Panel */}
+                    {(hasErrors || hasWarnings) && this.runnerValidation.showDetails && (
+                        <div className={`validation-panel ${hasErrors ? 'has-errors' : 'has-warnings'}`}>
+                            <div className='validation-header'>
+                                <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
+                                <span>{hasErrors ? 'Configuration Issues Found' : 'Configuration Warnings'}</span>
+                                <button 
+                                    className='validation-close' 
+                                    onClick={() => this.toggleValidationDetails()}
+                                    title='Hide details'
+                                >
+                                    <i className='codicon codicon-chevron-up'></i>
+                                </button>
+                            </div>
+                            <div className='validation-content'>
+                                {this.runnerValidation.errors.map((error, idx) => (
+                                    <div key={`error-${idx}`} className='validation-item error'>
+                                        <i className='codicon codicon-close'></i>
+                                        <span>{error}</span>
+                                    </div>
+                                ))}
+                                {this.runnerValidation.warnings.map((warning, idx) => (
+                                    <div key={`warning-${idx}`} className='validation-item warning'>
+                                        <i className='codicon codicon-warning'></i>
+                                        <span>{warning}</span>
+                                    </div>
+                                ))}
+                                {this.renderValidationActions()}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Validation Summary (collapsed state) */}
+                    {(hasErrors || hasWarnings) && !this.runnerValidation.showDetails && (
+                        <div className={`validation-summary ${hasErrors ? 'has-errors' : 'has-warnings'}`}>
+                            <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
+                            <span>
+                                {hasErrors 
+                                    ? `${this.runnerValidation.errors.length} error${this.runnerValidation.errors.length > 1 ? 's' : ''} need to be fixed`
+                                    : `${this.runnerValidation.warnings.length} warning${this.runnerValidation.warnings.length > 1 ? 's' : ''}`
+                                }
+                            </span>
+                            <button className='validation-toggle' onClick={() => this.toggleValidationDetails()}>
+                                <i className='codicon codicon-chevron-down'></i>
+                                Show details
+                            </button>
+                        </div>
+                    )}
+                    
                     {sweeps.length === 0 && (
-                        <div className='runner-warning'>
-                            <i className='codicon codicon-warning'></i>
-                            Enable at least one sweep in the Parameter Sweeps tab to start a batch run.
+                        <div className='runner-empty-state'>
+                            <i className='codicon codicon-list-selection'></i>
+                            <p>No sweeps enabled</p>
+                            <span>Enable at least one sweep in the <strong>Parameter Sweeps</strong> tab to start a batch run.</span>
                         </div>
                     )}
 
                     <div className='runner-actions'>
-                        <Tooltip content={isRunning ? 'Batch run in progress' : sweeps.length === 0 ? 'Enable at least one sweep first' : 'Start the batch optimization run'} position='top'>
+                        <Tooltip content={isRunning ? 'Batch run in progress' : sweeps.length === 0 ? 'Enable at least one sweep first' : hasErrors ? 'Fix errors before starting' : 'Start the batch optimization run'} position='top'>
                             <button
                                 className='theia-button primary large'
                                 onClick={() => this.startBatchRun()}
@@ -806,29 +960,169 @@ export class OptimizationWidget extends ReactWidget {
     }
 
     protected renderRunProgress(run: OpenMCOptimizationRun): React.ReactNode {
+        // Manage elapsed time timer
+        this.manageElapsedTimeTimer(run);
+        
+        // Calculate statistics - use results.length for completed iterations
+        const completedIterations = run.results.length;
+        const successfulIterations = run.results.filter(r => r.success).length;
+        const failedIterations = run.results.filter(r => !r.success && r.executionTime > 0).length;
+        
+        // Progress based on completed iterations, not currentIteration
         const progress = run.totalIterations > 0
-            ? (run.currentIteration / run.totalIterations) * 100
+            ? (completedIterations / run.totalIterations) * 100
             : 0;
+        
+        const avgTime = completedIterations > 0
+            ? run.results.reduce((sum, r) => sum + r.executionTime, 0) / completedIterations
+            : 0;
+        const estimatedRemaining = (run.totalIterations - completedIterations) * avgTime;
+        
+        // Format time
+        const formatTime = (seconds: number): string => {
+            if (!seconds || seconds < 0) return '0s';
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+            return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+        };
+        
+        // Calculate elapsed time - always compute fresh from current time
+        let elapsedTime = 0;
+        if (run.startTime) {
+            try {
+                const start = new Date(run.startTime).getTime();
+                const end = run.endTime ? new Date(run.endTime).getTime() : Date.now();
+                if (!isNaN(start) && start > 0) {
+                    elapsedTime = Math.max(0, (end - start) / 1000);
+                }
+            } catch (e) {
+                console.warn('[OptimizationWidget] Error calculating elapsed time:', e);
+            }
+        }
 
         return (
             <div className='run-progress'>
-                <h4>Current Run: {run.name}</h4>
-                
-                <div className='progress-bar-container'>
-                    <div className='progress-bar' style={{ width: `${progress}%` }}></div>
+                {/* Run Header */}
+                <div className='run-progress-header'>
+                    <div className='run-info'>
+                        <h4>{run.name}</h4>
+                        <div className='run-meta'>
+                            <span className={`status-pill ${run.status}`}>
+                                <i className={`codicon codicon-${run.status === 'running' ? 'sync codicon-spin' : run.status === 'completed' ? 'check' : run.status === 'failed' ? 'error' : 'clock'}`}></i>
+                                {run.status}
+                            </span>
+                        </div>
+                    </div>
+                    <div className='run-actions'>
+                    </div>
                 </div>
                 
-                <div className='progress-info'>
-                    <span>Progress: {run.currentIteration} / {run.totalIterations}</span>
-                    <span>{progress.toFixed(1)}%</span>
+                {/* Progress Section */}
+                <div className='progress-section'>
+                    <div className='progress-header'>
+                        <span className='progress-percentage'>{Math.min(100, progress).toFixed(0)}%</span>
+                        <span className='progress-fraction'>{completedIterations} of {run.totalIterations} completed</span>
+                    </div>
+                    
+                    {/* Visual Progress Bar with Segments */}
+                    <div className='progress-track'>
+                        <div className='progress-fill' style={{ width: `${progress}%` }}>
+                            {run.status === 'running' && <div className='progress-shimmer'></div>}
+                        </div>
+                        {/* Segment markers */}
+                        <div className='progress-segments'>
+                            {Array.from({ length: Math.min(run.totalIterations, 20) }, (_, i) => {
+                                const segmentProgress = ((i + 1) / run.totalIterations) * 100;
+                                const isCompleted = run.currentIteration >= i + 1;
+                                return (
+                                    <div 
+                                        key={i} 
+                                        className={`segment-marker ${isCompleted ? 'completed' : ''}`}
+                                        style={{ left: `${segmentProgress}%` }}
+                                    />
+                                );
+                            })}
+                        </div>
+                    </div>
+                    
+                    {/* Timeline Visualization */}
+                    <div className='timeline-visual'>
+                        {Array.from({ length: Math.min(run.totalIterations, 50) }, (_, i) => {
+                            const result = run.results.find(r => r.iteration === i + 1);
+                            let status = 'pending';
+                            if (result) {
+                                status = result.success ? 'success' : 'error';
+                            } else if (i < run.currentIteration) {
+                                status = 'running';
+                            }
+                            return (
+                                <Tooltip key={i} content={`Iteration ${i + 1}${result ? result.success ? ' (Success)' : ' (Failed)' : ''}`} position='top'>
+                                    <div 
+                                        className={`timeline-dot ${status} ${this.selectedIteration === i + 1 ? 'selected' : ''}`}
+                                        onClick={() => this.selectIteration(run.id, i + 1)}
+                                    />
+                                </Tooltip>
+                            );
+                        })}
+                    </div>
                 </div>
-
-                <div className='progress-status'>
-                    <span className={`status-badge ${run.status}`}>{run.status}</span>
-                    {run.startTime && (
-                        <span className='time-info'>
-                            Started: {new Date(run.startTime).toLocaleTimeString()}
-                        </span>
+                
+                {/* Stats Cards */}
+                <div className='stats-grid'>
+                    <div className='stat-card'>
+                        <div className='stat-icon success'>
+                            <i className='codicon codicon-check'></i>
+                        </div>
+                        <div className='stat-content'>
+                            <span className='stat-value'>{successfulIterations}</span>
+                            <span className='stat-label'>Successful</span>
+                        </div>
+                    </div>
+                    
+                    {failedIterations > 0 && (
+                        <div className='stat-card'>
+                            <div className='stat-icon error'>
+                                <i className='codicon codicon-error'></i>
+                            </div>
+                            <div className='stat-content'>
+                                <span className='stat-value'>{failedIterations}</span>
+                                <span className='stat-label'>Failed</span>
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className='stat-card'>
+                        <div className='stat-icon time'>
+                            <i className='codicon codicon-clock'></i>
+                        </div>
+                        <div className='stat-content'>
+                            <span className='stat-value'>{formatTime(elapsedTime)}</span>
+                            <span className='stat-label'>Elapsed</span>
+                        </div>
+                    </div>
+                    
+                    {run.status === 'running' && estimatedRemaining > 0 && (
+                        <div className='stat-card'>
+                            <div className='stat-icon estimate'>
+                                <i className='codicon codicon-history'></i>
+                            </div>
+                            <div className='stat-content'>
+                                <span className='stat-value'>~{formatTime(estimatedRemaining)}</span>
+                                <span className='stat-label'>Remaining</span>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {avgTime > 0 && (
+                        <div className='stat-card'>
+                            <div className='stat-icon avg'>
+                                <i className='codicon codicon-dashboard'></i>
+                            </div>
+                            <div className='stat-content'>
+                                <span className='stat-value'>{formatTime(avgTime)}</span>
+                                <span className='stat-label'>Avg/iter</span>
+                            </div>
+                        </div>
                     )}
                 </div>
 
@@ -863,6 +1157,15 @@ export class OptimizationWidget extends ReactWidget {
                                     <div className='viewer-header'>
                                         <span>Iteration {this.selectedIteration}</span>
                                         <div className='viewer-controls'>
+                                            <Tooltip content='Open log file in editor' position='top'>
+                                                <button 
+                                                    className='theia-button secondary'
+                                                    onClick={() => this.openLogInEditor(run.id, this.selectedIteration!)}
+                                                >
+                                                    <i className='codicon codicon-file-text'></i>
+                                                    Open Log File
+                                                </button>
+                                            </Tooltip>
                                             <input 
                                                 type='text' 
                                                 placeholder='Filter output...'
@@ -923,11 +1226,107 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    private selectIteration(runId: string, iteration: number): void {
+        // Find if this iteration has a log
+        const iterInfo = this.iterationLogsIndex.find(i => i.iteration === iteration);
+        if (iterInfo?.hasLog) {
+            this.toggleIteration(runId, iteration, true);
+        } else {
+            this.selectedIteration = iteration;
+            this.loadedLogContent = 'Log not yet available for this iteration.';
+            this.filteredLogContent = '';
+            this.update();
+        }
+    }
+
+    private manageElapsedTimeTimer(run: OpenMCOptimizationRun): void {
+        const shouldRun = run.status === 'running' && !!run.startTime;
+        const isDifferentRun = this.timedRunId !== run.id;
+        
+        // Stop timer if run is not running or if we switched to a different run
+        if (!shouldRun || isDifferentRun) {
+            if (this.elapsedTimeTimer) {
+                window.clearInterval(this.elapsedTimeTimer);
+                this.elapsedTimeTimer = undefined;
+                this.timedRunId = undefined;
+            }
+        }
+        
+        // Start timer if run is running and we don't have a timer for this run
+        if (shouldRun && !this.elapsedTimeTimer) {
+            this.timedRunId = run.id;
+            this.elapsedTimeTimer = window.setInterval(() => {
+                // Just trigger a re-render - elapsed time is calculated in render
+                this.update();
+            }, 1000);
+        }
+    }
+
+    private stopElapsedTimeTimer(): void {
+        if (this.elapsedTimeTimer) {
+            window.clearInterval(this.elapsedTimeTimer);
+            this.elapsedTimeTimer = undefined;
+            this.timedRunId = undefined;
+        }
+    }
+
+    private async openLogInEditor(runId: string, iteration: number): Promise<void> {
+        try {
+            // Get the run to construct the iteration log path
+            const run = this.stateManager.getOptimizationRun(runId);
+            if (!run) {
+                this.messageService.warn('Run not found');
+                return;
+            }
+            
+            // Get project path to resolve relative paths
+            const projectPath = this.stateManager.projectPath;
+            if (!projectPath) {
+                this.messageService.warn('Project path not available');
+                return;
+            }
+            
+            // Resolve output directory (relative to project directory)
+            const projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
+            const outputDir = run.outputDirectory || `optimization/${runId}`;
+            const absoluteOutputDir = `${projectDir}/${outputDir}`;
+            
+            // Construct the iteration-specific log file path
+            // Logs are stored at {outputDirectory}/iteration_{iteration}/output.log
+            const iterResult = run.results.find(r => r.iteration === iteration);
+            if (iterResult?.statepointPath) {
+                // statepointPath is relative to output directory, e.g., "iteration_1/statepoint.11.h5"
+                const statepointDir = iterResult.statepointPath.substring(0, iterResult.statepointPath.lastIndexOf('/'));
+                const logPath = `${absoluteOutputDir}/${statepointDir}/output.log`;
+                const uri = URI.fromFilePath(logPath);
+                await this.openerService.getOpener(uri).then(opener => opener.open(uri));
+            } else {
+                // Fallback: try default path
+                const logPath = `${absoluteOutputDir}/iteration_${iteration}/output.log`;
+                const uri = URI.fromFilePath(logPath);
+                await this.openerService.getOpener(uri).then(opener => opener.open(uri));
+            }
+        } catch (error) {
+            this.messageService.error(`Failed to open log file: ${error}`);
+        }
+    }
+
     private async loadIterationLogsIndex(runId: string): Promise<void> {
         try {
-            console.log('[OptimizationWidget] Loading iteration logs index for:', runId);
-            const result = await this.backendService.getIterationLogsIndex(runId);
-            console.log('[OptimizationWidget] Iteration logs result:', result.outputDirectory, result.iterations);
+            // Get the run to resolve output directory
+            const run = this.stateManager.getOptimizationRun(runId);
+            let outputDirectory: string | undefined;
+            
+            if (run?.outputDirectory) {
+                // Resolve relative path to absolute path
+                const projectPath = this.stateManager.projectPath;
+                if (projectPath) {
+                    const projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
+                    outputDirectory = `${projectDir}/${run.outputDirectory}`;
+                }
+            }
+            
+            const result = await this.backendService.getIterationLogsIndex(runId, outputDirectory);
             if (result.iterations.length !== this.iterationLogsIndex.length) {
                 this.iterationLogsIndex = result.iterations;
                 this.update();
@@ -935,6 +1334,18 @@ export class OptimizationWidget extends ReactWidget {
         } catch (error) {
             console.error('[OptimizationWidget] Error loading iteration logs index:', error);
         }
+    }
+
+    private getRunOutputDirectory(runId: string): string | undefined {
+        const run = this.stateManager.getOptimizationRun(runId);
+        if (!run?.outputDirectory) return undefined;
+        
+        // Resolve relative path to absolute path
+        const projectPath = this.stateManager.projectPath;
+        if (!projectPath) return undefined;
+        
+        const projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
+        return `${projectDir}/${run.outputDirectory}`;
     }
 
     private async toggleIteration(runId: string, iteration: number, hasLog: boolean): Promise<void> {
@@ -958,7 +1369,8 @@ export class OptimizationWidget extends ReactWidget {
             this.update();
 
             try {
-                const result = await this.backendService.getIterationLog(runId, iteration);
+                const outputDirectory = this.getRunOutputDirectory(runId);
+                const result = await this.backendService.getIterationLog(runId, iteration, outputDirectory);
                 if (result.success && result.logContent) {
                     this.loadedLogContent = result.logContent;
                 } else {
@@ -978,7 +1390,8 @@ export class OptimizationWidget extends ReactWidget {
         if (!this.expandedIterations.has(iteration)) return;
         
         try {
-            const result = await this.backendService.getIterationLog(runId, iteration);
+            const outputDirectory = this.getRunOutputDirectory(runId);
+            const result = await this.backendService.getIterationLog(runId, iteration, outputDirectory);
             if (result.success && result.logContent) {
                 this.loadedLogContent = result.logContent;
                 this.update();
@@ -1066,6 +1479,8 @@ export class OptimizationWidget extends ReactWidget {
                                         className={`run-item ${run.id === this.selectedRunId ? 'selected' : ''}`}
                                         onClick={() => {
                                             this.selectedRunId = run.id;
+                                            // Load iteration logs for this run
+                                            this.loadIterationLogsIndex(run.id);
                                             this.update();
                                         }}
                                     >
@@ -1423,19 +1838,52 @@ export class OptimizationWidget extends ReactWidget {
         const newSweep: OpenMCParameterSweep = {
             id,
             name: `Sweep ${id}`,
-            enabled: true,
-            variable: 'enrichment',
-            parameterType: 'material',
+            enabled: false, // Start disabled until properly configured
+            variable: '',
+            parameterType: 'settings',
             parameterPath: '',
             rangeType: 'linear',
-            startValue: 0.02,
-            endValue: 0.05,
-            numPoints: 10,
+            startValue: 0,
+            endValue: 1,
+            numPoints: 5,
             unit: ''
         };
         this.stateManager.addParameterSweep(newSweep);
+        // Automatically enter edit mode for the new sweep
+        this.editingSweepId = id;
+        this.editingSweepData = { ...newSweep };
         this.autoSave();
         this.update();
+    }
+
+    private async openProject(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Open OpenMC Project',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: {
+                'OpenMC Project': ['nuke-openmc', 'json'],
+                'All Files': ['*']
+            }
+        };
+
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (uri) {
+            try {
+                const result = await this.studioService.getBackendService().loadProject(uri.path.toString());
+                if (result.success && result.project) {
+                    this.stateManager.setState(result.project.state);
+                    this.stateManager.setProjectPath(uri.path.toString());
+                    this.stateManager.markClean();
+                    this.messageService.info(`Opened project: ${result.project.state.metadata.name}`);
+                    this.update();
+                } else {
+                    this.messageService.error(`Failed to open project: ${result.error}`);
+                }
+            } catch (error) {
+                this.messageService.error(`Error opening project: ${error}`);
+            }
+        }
     }
 
     private toggleSweepEnabled(id: number): void {
@@ -1484,20 +1932,44 @@ export class OptimizationWidget extends ReactWidget {
         this.update();
     }
 
+    private async openSimulationDashboard(): Promise<void> {
+        await this.commandService.executeCommand('openmc.openSimulationDashboard');
+    }
+
+    private toggleValidationDetails(): void {
+        this.runnerValidation.showDetails = !this.runnerValidation.showDetails;
+        this.update();
+    }
+
     private async startBatchRun(): Promise<void> {
         const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
         if (sweeps.length === 0) {
-            this.messageService.warn('No sweeps enabled. Enable at least one sweep to run.');
+            this.runnerValidation = {
+                valid: false,
+                errors: ['No sweeps enabled. Enable at least one sweep to start a batch run.'],
+                warnings: [],
+                showDetails: true
+            };
+            this.update();
             return;
         }
 
         // Validate sweeps for conflicts
         const validation = this.stateManager.validateSweepsForRun(sweeps);
+        this.runnerValidation = {
+            valid: validation.valid,
+            errors: validation.errors,
+            warnings: validation.warnings,
+            showDetails: !validation.valid || validation.warnings.length > 0
+        };
+        
         if (!validation.valid) {
-            validation.errors.forEach(error => this.messageService.error(error));
+            this.update();
             return;
         }
-        validation.warnings.forEach(warning => this.messageService.warn(warning));
+        
+        // Clear validation on successful start
+        this.runnerValidation = { valid: true, errors: [], warnings: [], showDetails: false };
 
         // Check if project is saved - if not, offer to save first
         let projectPath = this.stateManager.projectPath;
@@ -1523,27 +1995,8 @@ export class OptimizationWidget extends ReactWidget {
             });
 
             const runId = `run-${Date.now()}`;
-            const newRun: OpenMCOptimizationRun = {
-                id: runId,
-                name: `Run ${new Date().toLocaleString()}`,
-                status: 'running',
-                sweepConfig: sweeps,
-                currentIteration: 0,
-                totalIterations,
-                results: [],
-                statepointFiles: [],
-                logMessages: [{
-                    timestamp: new Date().toISOString(),
-                    level: 'info',
-                    message: `Starting batch run with ${totalIterations} iterations (single process)`
-                }]
-            };
-
-            this.stateManager.addOptimizationRun(newRun);
-            this.stateManager.setActiveOptimizationRun(newRun.id);
-            this.autoSave();
-
-            // Calculate output directory - use absolute path 
+            
+            // Calculate output directory
             let projectDir: string;
             if (projectPath && projectPath.includes('/')) {
                 projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
@@ -1553,8 +2006,29 @@ export class OptimizationWidget extends ReactWidget {
                 // Use workspace as fallback
                 projectDir = '.';
             }
+            // Use absolute path for backend execution
             const outputDir = projectDir.length > 0 ? `${projectDir}/optimization/${runId}` : `optimization/${runId}`;
+            // Store relative path for portability (relative to project directory)
+            const relativeOutputDir = `optimization/${runId}`;
             
+            const startTime = new Date().toISOString();
+            const newRun: OpenMCOptimizationRun = {
+                id: runId,
+                name: `Run ${new Date().toLocaleString()}`,
+                status: 'running',
+                sweepConfig: sweeps,
+                currentIteration: 0,
+                totalIterations,
+                results: [],
+                statepointFiles: [],
+                outputDirectory: relativeOutputDir,
+                startTime
+            };
+
+            this.stateManager.addOptimizationRun(newRun);
+            this.stateManager.setActiveOptimizationRun(newRun.id);
+            this.autoSave();
+
             // Get cross-sections and chain file paths from nuke-core
             const xsPath = this.nukeCoreService.getCrossSectionsPath();
             const chainPath = this.nukeCoreService.getChainFilePath();
@@ -1596,7 +2070,7 @@ export class OptimizationWidget extends ReactWidget {
             window.clearInterval(this.progressInterval);
         }
 
-        console.log('[OptimizationWidget] Starting progress polling for:', runId);
+        // Start progress polling
         
         // Load iteration logs index when starting
         this.loadIterationLogsIndex(runId);
@@ -1604,7 +2078,7 @@ export class OptimizationWidget extends ReactWidget {
         // Poll for progress every 1 second (more frequent)
         this.progressInterval = window.setInterval(async () => {
             try {
-                console.log('[OptimizationWidget] Polling iteration logs...');
+                // Polling iteration logs
                 const status = await this.backendService.getOptimizationStatus(runId);
                 
                 this.stateManager.updateOptimizationRun(runId, {
@@ -1612,11 +2086,11 @@ export class OptimizationWidget extends ReactWidget {
                     status: status.status
                 });
 
-                console.log('[OptimizationWidget] Polling status:', status.status, 'iter:', status.currentIteration);
+                // Status polled
                 
                 // Refresh iteration logs index to detect new iterations
                 if (status.running && status.currentIteration > 0) {
-                    console.log('[OptimizationWidget] Loading iteration logs...');
+                    // Loading iteration logs
                     await this.loadIterationLogsIndex(runId);
                 }
 
