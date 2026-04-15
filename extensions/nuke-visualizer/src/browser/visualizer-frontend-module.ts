@@ -44,6 +44,7 @@ import { OpenMCGeometryTreeWidget } from './openmc/openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from './openmc/openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './openmc/openmc-material-explorer';
 import { OpenMCOverlapWidget } from './openmc/openmc-overlap-widget';
+import { OpenMCStatepointViewerWidget } from './openmc/statepoint-viewer';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -270,6 +271,19 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             if (options?.geometryUri) {
                 widget.setGeometryUri(new URI(options.geometryUri));
             }
+            if (options?.id) {
+                widget.id = options.id;
+            }
+            return widget;
+        },
+    })).inSingletonScope();
+
+    // Bind statepoint viewer widget
+    bind(OpenMCStatepointViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory).toDynamicValue(context => ({
+        id: OpenMCStatepointViewerWidget.ID,
+        createWidget: (options?: { id?: string }) => {
+            const widget = context.container.get<OpenMCStatepointViewerWidget>(OpenMCStatepointViewerWidget);
             if (options?.id) {
                 widget.id = options.id;
             }

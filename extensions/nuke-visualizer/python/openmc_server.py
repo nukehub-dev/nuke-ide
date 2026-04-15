@@ -38,13 +38,15 @@ from openmc_integration import OpenMCReader
 # Import refactored command modules
 from openmc_commands import (
     cmd_info, cmd_list, cmd_check,
-    cmd_visualize_mesh, cmd_visualize_source, cmd_visualize_overlay,
+    cmd_visualize_mesh, cmd_visualize_source, cmd_visualize_overlay, cmd_visualize_statepoint_source,
     cmd_spectrum, cmd_spatial, cmd_heatmap, cmd_heatmap_all,
     cmd_geometry, cmd_visualize_geometry, cmd_check_overlaps, cmd_overlap_viz,
     cmd_materials, cmd_list_nuclides, cmd_list_group_structures, cmd_list_thermal_materials, cmd_material_cell_linkage,
     cmd_mix_materials, cmd_add_material,
     cmd_depletion_summary, cmd_depletion_materials, cmd_depletion_data,
     cmd_xs_plot,
+    cmd_statepoint_info, cmd_k_generation, cmd_source_data,
+    cmd_energy_distribution,
 )
 
 def main():
@@ -208,6 +210,26 @@ def main():
     overlap_viz_parser.add_argument('--overlaps', required=True, help='Overlaps JSON array')
     overlap_viz_parser.add_argument('--marker-size', type=float, default=1.0, help='Marker size in cm')
     
+    # Statepoint Viewer commands
+    statepoint_info_parser = subparsers.add_parser('statepoint-info', help='Get full statepoint information')
+    statepoint_info_parser.add_argument('statepoint', help='Path to statepoint file')
+    
+    k_generation_parser = subparsers.add_parser('k-generation', help='Get k-generation data for convergence plot')
+    k_generation_parser.add_argument('statepoint', help='Path to statepoint file')
+    
+    source_data_parser = subparsers.add_parser('source-data', help='Get source particle data')
+    source_data_parser.add_argument('statepoint', help='Path to statepoint file')
+    source_data_parser.add_argument('--max-particles', type=int, default=10000, help='Maximum particles to return')
+    
+    energy_dist_parser = subparsers.add_parser('energy-distribution', help='Get energy distribution histogram')
+    energy_dist_parser.add_argument('statepoint', help='Path to statepoint file')
+    energy_dist_parser.add_argument('--bins', type=int, default=50, help='Number of energy bins')
+    
+    viz_sp_source_parser = subparsers.add_parser('visualize-statepoint-source', help='Visualize source from statepoint')
+    viz_sp_source_parser.add_argument('statepoint', help='Path to statepoint file')
+    viz_sp_source_parser.add_argument('--port', type=int, help='Server port')
+    viz_sp_source_parser.add_argument('--max-particles', type=int, default=5000, help='Max particles to visualize')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -241,6 +263,12 @@ def main():
         'add-material': cmd_add_material,
         'check-overlaps': cmd_check_overlaps,
         'overlap-viz': cmd_overlap_viz,
+        # Statepoint Viewer commands
+        'statepoint-info': cmd_statepoint_info,
+        'k-generation': cmd_k_generation,
+        'source-data': cmd_source_data,
+        'energy-distribution': cmd_energy_distribution,
+        'visualize-statepoint-source': cmd_visualize_statepoint_source,
     }
     
     handler = commands.get(args.command)

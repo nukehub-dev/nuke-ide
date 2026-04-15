@@ -1,0 +1,1212 @@
+/* OpenMC Statepoint Viewer */
+
+.statepoint-viewer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-size: 13px;
+    overflow: hidden;
+    animation: statepoint-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes statepoint-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes statepoint-header-slide-down {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes statepoint-content-fade-in {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes statepoint-section-slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes statepoint-card-fade-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.statepoint-viewer.statepoint-viewer--empty {
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-sideBar-background);
+}
+
+/* Header */
+.statepoint-viewer .header {
+    background: var(--theia-sideBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+    animation: statepoint-header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .header-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.statepoint-viewer .file-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.statepoint-viewer .file-info > i {
+    font-size: 24px;
+    color: var(--theia-textLink-foreground);
+}
+
+.statepoint-viewer .file-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    line-height: 1.3;
+}
+
+.statepoint-viewer .file-path {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+}
+
+.statepoint-viewer .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.statepoint-viewer .run-mode {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
+}
+
+.statepoint-viewer .run-mode-eigenvalue {
+    background: #10b981;
+    color: white;
+}
+
+.statepoint-viewer .run-mode-fixed {
+    background: var(--theia-textLink-foreground);
+    color: white;
+}
+
+.statepoint-viewer .close-btn {
+    background: transparent;
+    border: none;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .close-btn:hover {
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-foreground);
+}
+
+/* Tabs */
+.statepoint-viewer .tabs {
+    display: flex;
+    background: var(--theia-tabBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    padding: 0 12px;
+    gap: 4px;
+}
+
+.statepoint-viewer .tab {
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--theia-tabBar-inactiveForeground);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.statepoint-viewer .tab::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--theia-focusBorder);
+    transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+}
+
+.statepoint-viewer .tab:hover {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.statepoint-viewer .tab:hover::after {
+    width: 30%;
+}
+
+.statepoint-viewer .tab.active {
+    color: var(--theia-tabBar-activeForeground);
+    background: var(--theia-tabBar-activeBackground);
+}
+
+.statepoint-viewer .tab.active::after {
+    width: 100%;
+}
+
+.statepoint-viewer .tab i {
+    font-size: 14px;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .tab:hover i {
+    transform: scale(1.1);
+}
+
+/* Content */
+.statepoint-viewer .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    animation: statepoint-content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .tab-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    animation: statepoint-content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Plot Container */
+.statepoint-viewer .plot-container {
+    background: var(--theia-editor-background);
+    border-radius: 8px;
+}
+
+/* Scrollbar */
+.statepoint-viewer .content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.statepoint-viewer .content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.statepoint-viewer .content::-webkit-scrollbar-thumb {
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 4px;
+}
+
+.statepoint-viewer .content::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hoverBackground);
+}
+
+/* Loading State */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Overview Tab - Modern Design */
+.statepoint-viewer .overview-hero {
+    background: linear-gradient(135deg, #f37524 0%, #e65a18 100%);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: statepoint-hero-fade-in 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes statepoint-hero-fade-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.statepoint-viewer .hero-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .hero-k {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.statepoint-viewer .hero-k-value {
+    font-size: 56px;
+    font-weight: 700;
+    color: white;
+    font-family: 'SF Mono', Monaco, monospace;
+    line-height: 1;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.statepoint-viewer .hero-k-uncertainty {
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.8);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .hero-label {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.statepoint-viewer .hero-stats {
+    display: flex;
+    gap: 24px;
+    margin-top: 16px;
+}
+
+.statepoint-viewer .hero-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .hero-stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: white;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .hero-stat-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .hero-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.statepoint-viewer .hero-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.statepoint-viewer .hero-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.statepoint-viewer .overview-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.statepoint-viewer .overview-metric-card {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.2s ease;
+    animation: statepoint-card-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .overview-metric-card:hover {
+    border-color: var(--theia-focusBorder);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.statepoint-viewer .overview-metric-card--accent {
+    background: linear-gradient(135deg, rgba(74, 158, 255, 0.08), rgba(74, 158, 255, 0.02));
+    border-color: rgba(74, 158, 255, 0.25);
+}
+
+.statepoint-viewer .overview-metric-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.statepoint-viewer .overview-metric-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f37524, #e65a18);
+}
+
+.statepoint-viewer .overview-metric-icon i {
+    font-size: 18px;
+    color: white;
+}
+
+.statepoint-viewer .overview-metric-icon--batches {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+}
+
+.statepoint-viewer .overview-metric-icon--particles {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.statepoint-viewer .overview-metric-icon--tallies {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.statepoint-viewer .overview-metric-icon--source {
+    background: linear-gradient(135deg, #4a9eff, #2188ee);
+}
+
+.statepoint-viewer .overview-metric-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--theia-descriptionForeground);
+    padding: 4px 8px;
+    background: var(--theia-editor-background);
+    border-radius: 4px;
+}
+
+.statepoint-viewer .overview-metric-body {
+    margin-bottom: 16px;
+}
+
+.statepoint-viewer .overview-metric-main-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+    line-height: 1.2;
+}
+
+.statepoint-viewer .overview-metric-sub {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+}
+
+.statepoint-viewer .overview-metric-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.statepoint-viewer .overview-metric-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .overview-metric-stat-label {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .overview-metric-stat-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .overview-metric-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .overview-metric-link:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+    border-color: var(--theia-focusBorder);
+}
+
+.statepoint-viewer .overview-metric-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .overview-metric-btn:hover {
+    background: var(--theia-button-hoverBackground);
+    transform: translateY(-1px);
+}
+
+/* Two Column Layout */
+.statepoint-viewer .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.statepoint-viewer .overview-section {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    animation: statepoint-section-slide-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .overview-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.statepoint-viewer .overview-section-header i {
+    font-size: 18px;
+    color: var(--theia-textLink-foreground);
+}
+
+.statepoint-viewer .overview-section-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .overview-config-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.statepoint-viewer .config-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--theia-editor-background);
+    border-radius: 8px;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .config-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.statepoint-viewer .config-label {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.statepoint-viewer .config-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+}
+
+.statepoint-viewer .config-value--mono {
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .config-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.statepoint-viewer .config-badge--eigenvalue {
+    background: #10b981;
+    color: white;
+}
+
+.statepoint-viewer .config-badge--fixed {
+    background: var(--theia-textLink-foreground);
+    color: white;
+}
+
+.statepoint-viewer .config-badge--plot {
+    background: #f59e0b;
+    color: white;
+}
+
+/* Estimators - moved to kinetics-estimator section */
+
+.statepoint-viewer .overview-estimators {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.statepoint-viewer .overview-estimator-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+}
+
+.statepoint-viewer .overview-estimator-name {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .overview-estimator-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .kinetics-estimators-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.statepoint-viewer .kinetics-estimator-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+}
+
+.statepoint-viewer .kinetics-estimator-row:first-child {
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.15), rgba(99, 102, 241, 0.05));
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.statepoint-viewer .kinetics-estimator-row:nth-child(2) {
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.02));
+    border-left: 3px solid #10b981;
+}
+
+.statepoint-viewer .kinetics-estimator-row:nth-child(3) {
+    background: linear-gradient(90deg, rgba(74, 158, 255, 0.1), rgba(74, 158, 255, 0.02));
+    border-left: 3px solid #4a9eff;
+}
+
+.statepoint-viewer .kinetics-estimator-row:nth-child(4) {
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.02));
+    border-left: 3px solid #f59e0b;
+}
+
+.statepoint-viewer .kinetics-estimator-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+}
+
+.statepoint-viewer .kinetics-estimator-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+/* Kinetics Tab */
+.statepoint-viewer .kinetics-hero {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+    animation: statepoint-hero-fade-in 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .kinetics-hero-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .kinetics-k {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.statepoint-viewer .kinetics-k-value {
+    font-size: 48px;
+    font-weight: 700;
+    color: white;
+    font-family: 'SF Mono', Monaco, monospace;
+    line-height: 1;
+}
+
+.statepoint-viewer .kinetics-k-uncertainty {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.8);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .kinetics-k-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.statepoint-viewer .kinetics-stats {
+    display: flex;
+    gap: 20px;
+    margin-top: 14px;
+}
+
+.statepoint-viewer .kinetics-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .kinetics-stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: white;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .kinetics-stat-label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+}
+
+.statepoint-viewer .kinetics-section {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: statepoint-section-slide-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .kinetics-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.statepoint-viewer .kinetics-section-header i {
+    font-size: 18px;
+    color: #10b981;
+}
+
+.statepoint-viewer .kinetics-section-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .kinetics-plot {
+    background: var(--theia-editor-background);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.statepoint-viewer .kinetics-estimators {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.statepoint-viewer .kinetics-estimator {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.statepoint-viewer .kinetics-estimator-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.statepoint-viewer .kinetics-estimator-name {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .kinetics-estimator-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .kinetics-estimator-bar {
+    height: 6px;
+    background: var(--theia-editor-background);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.statepoint-viewer .kinetics-estimator-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #059669);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+.statepoint-viewer .kinetics-estimator-fill--blue {
+    background: linear-gradient(90deg, #4a9eff, #2188ee);
+}
+
+.statepoint-viewer .kinetics-estimator-fill--green {
+    background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+}
+
+.statepoint-viewer .kinetics-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    text-align: center;
+}
+
+.statepoint-viewer .kinetics-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+/* Tallies Tab */
+.statepoint-viewer .tallies-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.statepoint-viewer .tallies-header-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.statepoint-viewer .tallies-header-content i {
+    font-size: 20px;
+    color: var(--theia-textLink-foreground);
+}
+
+.statepoint-viewer .tallies-header-content h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .tallies-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    background: var(--theia-textLink-foreground);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.statepoint-viewer .tallies-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .tallies-action-btn:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+    border-color: var(--theia-focusBorder);
+}
+
+.statepoint-viewer .tallies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.statepoint-viewer .tally-card {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s ease;
+    animation: statepoint-card-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .tally-card:hover {
+    border-color: var(--theia-focusBorder);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.statepoint-viewer .tally-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.statepoint-viewer .tally-card-id {
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    background: var(--theia-textLink-foreground);
+    padding: 3px 10px;
+    border-radius: 4px;
+}
+
+.statepoint-viewer .tally-card-badges {
+    display: flex;
+    gap: 6px;
+}
+
+.statepoint-viewer .tally-card-badge {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.statepoint-viewer .tally-card-badge--mesh {
+    background: var(--theia-textLink-foreground);
+    color: white;
+}
+
+.statepoint-viewer .tally-card-badge--cell {
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
+}
+
+.statepoint-viewer .tally-card-badge--energy {
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+}
+
+.statepoint-viewer .tally-card-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+    margin-bottom: 12px;
+}
+
+.statepoint-viewer .tally-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px;
+    background: var(--theia-editor-background);
+    border-radius: 6px;
+}
+
+.statepoint-viewer .tally-card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.statepoint-viewer .tally-card-label {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .tally-card-value {
+    font-size: 11px;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+    text-align: right;
+    max-width: 60%;
+    word-break: break-word;
+}
+
+.statepoint-viewer .tally-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.statepoint-viewer .tally-card-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.statepoint-viewer .tally-card-btn:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+    border-color: var(--theia-focusBorder);
+}
+
+.statepoint-viewer .tally-card-btn--primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+}
+
+.statepoint-viewer .tally-card-btn--primary:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+/* Performance Tab */
+.statepoint-viewer .performance-hero {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    animation: statepoint-hero-fade-in 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .performance-hero-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.statepoint-viewer .performance-hero-content > i {
+    font-size: 32px;
+    color: white;
+    opacity: 0.8;
+}
+
+.statepoint-viewer .performance-hero-main {
+    display: flex;
+    flex-direction: column;
+}
+
+.statepoint-viewer .performance-hero-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: white;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .performance-hero-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .performance-section {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: statepoint-section-slide-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.statepoint-viewer .performance-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.statepoint-viewer .performance-section-header i {
+    font-size: 18px;
+    color: #6366f1;
+}
+
+.statepoint-viewer .performance-section-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statepoint-viewer .performance-plot {
+    background: var(--theia-editor-background);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.statepoint-viewer .performance-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+}
+
+.statepoint-viewer .performance-stat-card {
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.statepoint-viewer .performance-stat-card:hover {
+    border-color: var(--theia-focusBorder);
+    transform: translateY(-2px);
+}
+
+.statepoint-viewer .performance-stat-card i {
+    font-size: 20px;
+    color: #6366f1;
+    margin-bottom: 8px;
+}
+
+.statepoint-viewer .performance-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--theia-foreground);
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.statepoint-viewer .performance-stat-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+}
+
+.statepoint-viewer .performance-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    text-align: center;
+}
+
+.statepoint-viewer .performance-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .statepoint-viewer .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .statepoint-viewer .details-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .statepoint-viewer .tabs {
+        overflow-x: auto;
+        padding: 0 10px;
+    }
+    
+    .statepoint-viewer .tab {
+        padding: 10px 12px;
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    
+    .statepoint-viewer .overview-hero {
+        flex-direction: column;
+        text-align: center;
+        gap: 20px;
+    }
+    
+    .statepoint-viewer .overview-metrics {
+        grid-template-columns: 1fr;
+    }
+    
+    .statepoint-viewer .overview-grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -381,8 +381,10 @@ def cmd_visualize_mesh(args):
         return 1
 
 
-def cmd_visualize_source(args):
-    """Visualize source distribution."""
+def _visualize_source_common(source_poly, port, title="OpenMC Source"):
+    """
+    Common visualization logic for source distribution.
+    """
     try:
         from trame.app import get_server
         from trame.widgets import paraview as pv_widgets
@@ -392,13 +394,7 @@ def cmd_visualize_source(args):
         print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
         return 1
     
-    port = args.port or find_free_port(8090)
-    reader = OpenMCReader()
-    
     try:
-        # Load source data
-        source_poly = reader.load_source(args.source)
-        
         # Write to temporary file
         with tempfile.NamedTemporaryFile(suffix='.vtp', delete=False) as tmp:
             tmp_path = tmp.name
@@ -522,39 +518,19 @@ def cmd_visualize_source(args):
             update_view(True)
         
         # Controllers
-        def reset_camera():
-            try:
-                simple.ResetCamera(view)
-                update_view(True)
-                return True
-            except Exception as e:
-                print(f"Error resetting camera: {e}", file=sys.stderr)
-                return False
-        
-        def set_camera_view(view_type):
-            try:
-                bounds = get_data_bounds(source_reader)
-                position, focal_point, view_up = calculate_camera_position(view_type, bounds)
-                view.CameraPosition = position
-                view.CameraFocalPoint = focal_point
-                view.CameraViewUp = view_up
-                update_view(True)
-                return True
-            except Exception as e:
-                print(f"Error setting camera view: {e}", file=sys.stderr)
-                return False
-        
-        def toggle_controls():
-            state.show_controls = not state.show_controls
-            return state.show_controls
-        
-        # Controllers
         reset_camera = create_reset_camera_controller(pipeline, update_view)
         set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
         pan_camera = create_pan_camera_controller(pipeline, update_view)
         zoom_camera = create_zoom_camera_controller(pipeline, update_view)
         capture_screenshot = create_capture_screenshot_controller(pipeline)
 
+        def toggle_controls():
+            state.show_controls = not state.show_controls
+            return state.show_controls
+        
+        def save_screenshot():
+            save_screenshot_with_timestamp(capture_screenshot, state)
+        
         # UI setup
         with VAppLayout(server) as layout:
             from trame.widgets import html
@@ -566,7 +542,7 @@ def cmd_visualize_source(args):
                 with vuetify.VContainer(classes="pa-4"):
                     # Header
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
-                        vuetify.VSubheader("OpenMC Source", classes="text-h6 pa-0")
+                        vuetify.VSubheader(title, classes="text-h6 pa-0")
                         with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
@@ -611,9 +587,6 @@ def cmd_visualize_source(args):
                     vuetify.VDivider(classes="my-4")
                     
                     # Screenshot Section
-                    def save_screenshot():
-                        save_screenshot_with_timestamp(capture_screenshot, state)
-                    
                     vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
                     vuetify.VBtn("Save Screenshot", click=save_screenshot,
                                 block=True, small=True, color="primary", classes="mb-2")
@@ -665,6 +638,91 @@ def cmd_visualize_source(args):
         print(f"Starting OpenMC source server on port {port}", file=sys.stderr)
         server.start(port=port, debug=False, open_browser=False)
         return 0
+        
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def cmd_visualize_source(args):
+    """Visualize source distribution from source.h5 file."""
+    port = args.port or find_free_port(8090)
+    reader = OpenMCReader()
+    
+    try:
+        # Load source data from source.h5
+        source_poly = reader.load_source(args.source)
+        return _visualize_source_common(source_poly, port, title="OpenMC Source")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def cmd_visualize_statepoint_source(args):
+    """Visualize source distribution from statepoint file."""
+    try:
+        import h5py
+        import numpy as np
+        from vtk.util import numpy_support
+    except ImportError as e:
+        print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
+        return 1
+    
+    port = args.port or find_free_port(8090)
+    max_particles = getattr(args, 'max_particles', 5000)
+    
+    try:
+        # Load source from statepoint
+        with h5py.File(args.statepoint, 'r') as f:
+            if 'source_bank' not in f:
+                print(json.dumps({'error': 'No source_bank in statepoint'}), file=sys.stderr)
+                return 1
+            
+            source_bank = f['source_bank']
+            n_particles = len(source_bank)
+            
+            # Sample particles for visualization
+            max_viz = min(max_particles, n_particles)
+            stride = n_particles // max_viz if n_particles > max_viz else 1
+            
+            # Create VTK points
+            points = vtk.vtkPoints()
+            energies = vtk.vtkFloatArray()
+            energies.SetName('energy')
+            weights = vtk.vtkFloatArray()
+            weights.SetName('weight')
+            
+            for i in range(0, n_particles, stride):
+                if points.GetNumberOfPoints() >= max_viz:
+                    break
+                
+                particle = source_bank[i]
+                r = particle['r']
+                points.InsertNextPoint(float(r[0]), float(r[1]), float(r[2]))
+                energies.InsertNextValue(float(particle['E']))
+                weights.InsertNextValue(float(particle['wgt']))
+            
+            # Create polydata
+            polydata = vtk.vtkPolyData()
+            polydata.SetPoints(points)
+            
+            # Add point data
+            polydata.GetPointData().AddArray(energies)
+            polydata.GetPointData().AddArray(weights)
+            polydata.GetPointData().SetActiveScalars('energy')
+            
+            # Create vertices
+            verts = vtk.vtkCellArray()
+            for i in range(points.GetNumberOfPoints()):
+                verts.InsertNextCell(1)
+                verts.InsertCellPoint(i)
+            polydata.SetVerts(verts)
+        
+        return _visualize_source_common(polydata, port, title="Source (from Statepoint)")
         
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

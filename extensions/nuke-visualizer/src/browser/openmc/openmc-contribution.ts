@@ -51,6 +51,7 @@ import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } 
 import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './openmc-material-explorer';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
+import { OpenMCStatepointViewerWidget, StatepointTallySelection } from './statepoint-viewer';
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
@@ -294,17 +295,17 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         const name = uri.path.base.toLowerCase();
         
         if (name.startsWith('statepoint') && name.endsWith('.h5')) {
-            // Load statepoint and show tally tree in sidebar
+            // Load statepoint and open Statepoint Viewer
             const progress = await this.messageService.showProgress({
-                text: 'Loading statepoint file...',
+                text: 'Opening statepoint viewer...',
                 options: { cancelable: false }
             });
 
             try {
-                const info = await this.openmcService.loadStatepoint(uri);
-                if (info && info.nTallies > 0) {
-                    progress.report({ message: 'Opening tally tree...' });
-                    await this.showTallyTree(uri);
+                // Load full statepoint info for the viewer
+                const fullInfo = await this.openmcService.loadStatepointFull(uri);
+                if (fullInfo) {
+                    await this.openStatepointViewer(uri);
                 }
             } finally {
                 progress.cancel();
@@ -598,7 +599,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         if (uri) {
             // Show loading progress
             const progress = await this.messageService.showProgress({
-                text: 'Loading statepoint file...',
+                text: 'Opening tally tree...',
                 options: { cancelable: false }
             });
 
@@ -858,6 +859,117 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             widget.onTallySelected(async (selection: TallySelection) => {
                 await this.handleTallySelection(selection);
             });
+        }
+    }
+
+    private statepointViewerWidget: OpenMCStatepointViewerWidget | undefined;
+
+    private async openStatepointViewer(statepointUri: URI): Promise<void> {
+        const info = this.openmcService.getCurrentStatepointFull();
+        const tallies = this.openmcService.getCurrentTallies();
+        const kData = await this.openmcService.getKGenerationData(statepointUri);
+        
+        if (!info) {
+            this.messageService.error('Failed to load statepoint information');
+            return;
+        }
+
+        // Create unique widget ID based on file path
+        const widgetId = `${OpenMCStatepointViewerWidget.ID}:${statepointUri.toString()}`;
+        
+        // Get or create the statepoint viewer widget
+        let widget = this.statepointViewerWidget;
+        
+        if (!widget || widget.isDisposed || widget.id !== widgetId) {
+            widget = await this.widgetManager.getOrCreateWidget<OpenMCStatepointViewerWidget>(
+                OpenMCStatepointViewerWidget.ID,
+                { id: widgetId } as any
+            );
+            this.statepointViewerWidget = widget;
+            
+            // Set up event handlers
+            widget.onTallySelected(async (selection: StatepointTallySelection) => {
+                await this.handleStatepointTallySelection(selection);
+            });
+            
+            widget.onViewTallyTree(async () => {
+                await this.showTallyTree(statepointUri);
+            });
+            
+            widget.onViewSource(async () => {
+                await this.openmcService.visualizeStatepointSource(statepointUri);
+            });
+        }
+        
+        // Update the widget state
+        widget.setStatepoint(statepointUri, info, tallies, kData || undefined);
+        
+        // Add to main area if not already there
+        if (!widget.isAttached) {
+            await this.shell.addWidget(widget, { area: 'main' });
+        }
+        
+        // Activate the widget
+        await this.shell.activateWidget(widget.id);
+    }
+
+    private async handleStatepointTallySelection(selection: StatepointTallySelection): Promise<void> {
+        const currentStatepoint = this.openmcService.getCurrentStatepoint();
+        if (!currentStatepoint) {
+            this.messageService.error('No statepoint loaded');
+            return;
+        }
+        const currentStatepointUri = new URI(currentStatepoint.file);
+        
+        const options: TallyVisualizationOptions = {
+            tallyId: selection.tallyId,
+            score: selection.score,
+            nuclide: selection.nuclide || 'total'
+        };
+        
+        try {
+            if (selection.action === 'view-3d') {
+                await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
+            } else if (selection.action === 'overlay-geometry') {
+                // Show tally selector for overlay
+                const geometryFiles = await this.getGeometryFiles();
+                if (geometryFiles.length > 0) {
+                    const geometryUri = new URI(geometryFiles[0].value);
+                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, currentStatepointUri, options);
+                } else {
+                    this.messageService.warn('No geometry file found for overlay');
+                }
+            } else if (selection.action === 'heatmap') {
+                // Handle heatmap - delegate to existing heatmap logic
+                const tallySelection: TallySelection = {
+                    tallyId: selection.tallyId,
+                    score: selection.score,
+                    nuclide: selection.nuclide,
+                    action: 'heatmap'
+                };
+                await this.handleTallySelection(tallySelection);
+            } else if (selection.action === 'spectrum') {
+                // Handle spectrum - delegate to existing spectrum logic
+                const tallySelection: TallySelection = {
+                    tallyId: selection.tallyId,
+                    score: selection.score,
+                    nuclide: selection.nuclide,
+                    action: 'spectrum'
+                };
+                await this.handleTallySelection(tallySelection);
+            } else if (selection.action === 'spatial') {
+                // Handle spatial - delegate to existing spatial logic
+                const tallySelection: TallySelection = {
+                    tallyId: selection.tallyId,
+                    score: selection.score,
+                    nuclide: selection.nuclide,
+                    action: 'spatial'
+                };
+                await this.handleTallySelection(tallySelection);
+            }
+        } catch (error) {
+            console.error('[OpenMC] Error handling tally selection:', error);
+            this.messageService.error(`Failed to visualize tally: ${error}`);
         }
     }
 

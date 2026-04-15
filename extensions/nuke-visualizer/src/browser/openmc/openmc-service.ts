@@ -364,19 +364,18 @@ export class OpenMCService {
             // Create unique suffix for overlay visualization
             const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
             
-            // Build initial label
-            let label = `OpenMC Tally ${options.tallyId}`;
+            let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ' on Geometry';
             
-            // Create widget immediately with loading state
+            // Create widget immediately with loading state - use geometry as the main file
             const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
-                statepointUri,
+                geometryUri,  // Use geometry as main file for the widget
                 label,
                 uniqueSuffix,
-                'Loading tally overlay on geometry...'
+                `Loading tally ${options.tallyId} on geometry...`
             );
 
             const geometryPath = geometryUri.path.toString();
@@ -398,7 +397,7 @@ export class OpenMCService {
             const tallyName = result.tallyInfo?.name;
             const defaultName = `Tally ${options.tallyId}`;
             if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `OpenMC Tally ${options.tallyId}: ${tallyName}`;
+                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
                 if (options.score) {
                     widget.title.label += ` (${options.score})`;
                 }
@@ -994,6 +993,135 @@ export class OpenMCService {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize geometry: ${msg}`);
+            return null;
+        }
+    }
+
+    // === Statepoint Viewer ===
+
+    private currentStatepointFull: any = null;
+
+    /**
+     * Load full statepoint information for the Statepoint Viewer.
+     */
+    async loadStatepointFull(statepointUri: URI): Promise<any> {
+        const available = await this.checkAvailability();
+        if (!available) {
+            return null;
+        }
+
+        try {
+            const statepointPath = statepointUri.path.toString();
+            const info = await this.openmcBackend.getStatepointFullInfo(statepointPath);
+            
+            this.currentStatepointFull = info;
+            this.currentStatepoint = {
+                file: statepointPath,
+                batches: info.nBatches,
+                generationsPerBatch: info.generationsPerBatch,
+                kEff: info.kCombined?.[0],
+                kEffStd: info.kCombined?.[1],
+                nTallies: info.tallies.length,
+                tallyIds: info.tallies.map((t: any) => t.id)
+            };
+            this.currentTallies = info.tallies;
+            
+            this._onStatepointLoaded.fire(this.currentStatepoint);
+            
+            return info;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to load statepoint info: ${msg}`);
+            return null;
+        }
+    }
+
+    /**
+     * Get the currently loaded full statepoint info.
+     */
+    getCurrentStatepointFull(): any {
+        return this.currentStatepointFull;
+    }
+
+    /**
+     * Get k-generation data for convergence plot.
+     */
+    async getKGenerationData(statepointUri: URI): Promise<any> {
+        try {
+            return await this.openmcBackend.getKGenerationData(statepointUri.path.toString());
+        } catch (error) {
+            console.error('[OpenMC] Error getting k-generation data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get source particle data for visualization.
+     */
+    async getSourceData(statepointUri: URI, maxParticles?: number): Promise<any> {
+        try {
+            return await this.openmcBackend.getSourceData(
+                statepointUri.path.toString(),
+                maxParticles
+            );
+        } catch (error) {
+            console.error('[OpenMC] Error getting source data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get energy distribution histogram.
+     */
+    async getEnergyDistribution(statepointUri: URI, nBins?: number): Promise<any> {
+        try {
+            return await this.openmcBackend.getEnergyDistribution(
+                statepointUri.path.toString(),
+                nBins
+            );
+        } catch (error) {
+            console.error('[OpenMC] Error getting energy distribution:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Visualize source distribution from statepoint file.
+     */
+    async visualizeStatepointSource(statepointUri: URI): Promise<VisualizerWidget | null> {
+        const available = await this.checkAvailability();
+        if (!available) {
+            return null;
+        }
+
+        try {
+            // Create unique suffix for source visualization
+            const uniqueSuffix = `statepoint-source:${Date.now()}`;
+            
+            // Create widget immediately with loading state
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                statepointUri,
+                'OpenMC Source (from Statepoint)',
+                uniqueSuffix,
+                'Loading source distribution from statepoint...'
+            );
+
+            const result = await this.openmcBackend.visualizeStatepointSource(
+                statepointUri.path.toString()
+            );
+
+            if (!result.success || !result.port || !result.url) {
+                throw new Error(result.error || 'Unknown error loading source');
+            }
+
+            // Complete loading by setting server URL
+            completeLoading(result.port, result.url);
+
+            this.messageService.info('Loaded source distribution from statepoint');
+            return widget;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to visualize source: ${msg}`);
             return null;
         }
     }

@@ -120,7 +120,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     }
 
     protected async loadStatepoint(uri: URI): Promise<void> {
-        this.setLoading(true, 'Loading statepoint file...');
+        this.setLoading(true);
         try {
             await this.openmcService.loadStatepoint(uri);
             const info = this.openmcService.getCurrentStatepoint();

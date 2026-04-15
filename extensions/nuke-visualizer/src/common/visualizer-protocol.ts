@@ -444,6 +444,23 @@ export interface OpenMCBackendService {
         error?: string;
     }>;
     
+    // === Statepoint Viewer ===
+    
+    /** Get complete statepoint information */
+    getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
+    
+    /** Get k-generation data for convergence plot */
+    getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
+    
+    /** Get source particle data for visualization */
+    getSourceData(statepointPath: string, maxParticles?: number): Promise<OpenMCSourceData>;
+    
+    /** Get energy distribution histogram */
+    getEnergyDistribution(statepointPath: string, nBins?: number): Promise<OpenMCEnergyDistribution>;
+    
+    /** Visualize source from statepoint file */
+    visualizeStatepointSource(statepointPath: string): Promise<OpenMCVisualizationResult>;
+    
     // === Material Explorer ===
     
     /** Parse materials.xml and return material definitions */
@@ -1438,4 +1455,180 @@ export interface OpenMCOverlapVizData {
     }[];
     /** Cell IDs that have overlaps (for highlighting) */
     overlappingCellIds: number[];
+}
+
+// ============================================================================
+// Statepoint Viewer Types
+// ============================================================================
+
+/** Complete statepoint file information */
+export interface OpenMCStatepointFullInfo {
+    /** Path to statepoint file */
+    file: string;
+    
+    // Simulation Metadata
+    /** Run mode (eigenvalue, fixed source) */
+    runMode: string;
+    /** Number of batches */
+    nBatches: number;
+    /** Number of particles per batch */
+    nParticles: number;
+    /** Number of inactive batches */
+    nInactive: number;
+    /** Number of realizations (active batches) */
+    nRealizations: number;
+    /** Random seed */
+    seed: number;
+    /** Energy mode (continuous-energy, multigroup) */
+    energyMode: string;
+    /** Generations per batch */
+    generationsPerBatch: number;
+    /** Current batch (final batch number) */
+    currentBatch: number;
+    /** OpenMC version */
+    version?: string;
+    
+    // K-Effective Results
+    /** Combined k-effective [mean, std_dev] */
+    kCombined?: [number, number];
+    /** k-effective per generation */
+    kGeneration?: number[];
+    /** Collision/absorption k-estimator */
+    kColAbs?: number;
+    /** Collision/transport k-estimator */
+    kColTra?: number;
+    /** Absorption/transport k-estimator */
+    kAbsTra?: number;
+    
+    // Source Distribution
+    /** Number of source particles */
+    nSourceParticles: number;
+    /** Whether source bank is available */
+    hasSourceBank: boolean;
+    
+    // Runtime Breakdown
+    /** Runtime statistics in seconds */
+    runtime: OpenMCRuntimeBreakdown;
+    
+    // Global Tallies
+    /** Global tallies data */
+    globalTallies: OpenMCGlobalTally[];
+    
+    // User Tallies
+    /** Tally information */
+    tallies: OpenMCTallyInfo[];
+    
+    // Filters and Meshes
+    /** Filter definitions */
+    filters: OpenMCFilterDefinition[];
+    /** Mesh definitions */
+    meshes: OpenMCMeshDefinition[];
+}
+
+/** Runtime breakdown for each category */
+export interface OpenMCRuntimeBreakdown {
+    /** Total runtime */
+    total: number;
+    /** Initialization time */
+    initialization: number;
+    /** Reading cross sections */
+    readingCrossSections: number;
+    /** Inactive batch time */
+    inactiveBatches: number;
+    /** Active batch time */
+    activeBatches: number;
+    /** Main simulation time */
+    simulation: number;
+    /** Particle transport time */
+    transport: number;
+    /** Fission bank sync time */
+    synchronizingFissionBank: number;
+    /** Source sampling time */
+    samplingSourceSites: number;
+    /** Tally accumulation time */
+    accumulatingTallies: number;
+    /** Statepoint write time */
+    writingStatepoints: number;
+    /** Communication time */
+    sendRecvSourceSites: number;
+}
+
+/** Global tally entry */
+export interface OpenMCGlobalTally {
+    /** Tally name */
+    name: string;
+    /** Mean value */
+    mean: number;
+    /** Standard deviation */
+    stdDev: number;
+    /** Score type */
+    score: string;
+}
+
+/** Filter definition from statepoint */
+export interface OpenMCFilterDefinition {
+    /** Filter ID */
+    id: number;
+    /** Filter type */
+    type: string;
+    /** Number of bins */
+    nBins: number;
+    /** Bin values (if available) */
+    bins?: number[];
+}
+
+/** Mesh definition from statepoint */
+export interface OpenMCMeshDefinition {
+    /** Mesh ID */
+    id: number;
+    /** Mesh type (regular, cylindrical, spherical) */
+    type: string;
+    /** Mesh dimensions [nx, ny, nz] */
+    dimensions: number[];
+    /** Lower left corner [x, y, z] */
+    lowerLeft: number[];
+    /** Upper right corner [x, y, z] */
+    upperRight: number[];
+    /** Width of each cell [dx, dy, dz] */
+    width: number[];
+}
+
+/** K-generation plot data for convergence visualization */
+export interface OpenMCKGenerationData {
+    /** Batch numbers */
+    batches: number[];
+    /** k-effective values */
+    kValues: number[];
+    /** Cumulative mean */
+    cumulativeMean: number[];
+    /** Cumulative standard deviation */
+    cumulativeStdDev: number[];
+    /** Upper bound (mean + 2*std) */
+    upperBound: number[];
+    /** Lower bound (mean - 2*std) */
+    lowerBound: number[];
+}
+
+/** Source particle data for 3D visualization */
+export interface OpenMCSourceData {
+    /** Particle positions [x, y, z] */
+    positions: [number, number, number][];
+    /** Particle energies */
+    energies: number[];
+    /** Particle weights */
+    weights: number[];
+    /** Particle directions [u, v, w] */
+    directions?: [number, number, number][];
+}
+
+/** Energy distribution histogram data */
+export interface OpenMCEnergyDistribution {
+    /** Energy bin edges */
+    binEdges: number[];
+    /** Bin centers */
+    binCenters: number[];
+    /** Counts in each bin */
+    counts: number[];
+    /** Weighted counts */
+    weightedCounts: number[];
 }

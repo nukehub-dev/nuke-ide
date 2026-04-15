@@ -1135,6 +1135,159 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    // === Statepoint Viewer ===
+
+    async getStatepointFullInfo(statepointPath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'statepoint-info', statepointPath];
+
+        console.log(`[OpenMC] Running statepoint-info command for ${statepointPath}`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 120000,
+            maxBuffer: 500 * 1024 * 1024  // 500MB for large statepoints
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Statepoint info command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get statepoint info');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse statepoint info: ${e}`);
+            throw e;
+        }
+    }
+
+    async getKGenerationData(statepointPath: string): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'k-generation', statepointPath];
+
+        console.log(`[OpenMC] Running k-generation command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] K-generation command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get k-generation data');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse k-generation data: ${e}`);
+            throw e;
+        }
+    }
+
+    async getSourceData(statepointPath: string, maxParticles?: number): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'source-data', statepointPath];
+        if (maxParticles) {
+            args.push('--max-particles', maxParticles.toString());
+        }
+
+        console.log(`[OpenMC] Running source-data command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 120000,
+            maxBuffer: 200 * 1024 * 1024  // 200MB for source data
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Source data command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get source data');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse source data: ${e}`);
+            throw e;
+        }
+    }
+
+    async getEnergyDistribution(statepointPath: string, nBins?: number): Promise<any> {
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        const scriptPath = this.findOpenMCScript();
+
+        const args = [scriptPath, 'energy-distribution', statepointPath];
+        if (nBins) {
+            args.push('--bins', nBins.toString());
+        }
+
+        console.log(`[OpenMC] Running energy-distribution command`);
+
+        const result = spawnSync(pythonCommand, args, {
+            encoding: 'utf8',
+            timeout: 30000
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Energy distribution command failed: ${result.stderr}`);
+            throw new Error(result.stderr || 'Failed to get energy distribution');
+        }
+
+        try {
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse energy distribution: ${e}`);
+            throw e;
+        }
+    }
+
+    async visualizeStatepointSource(statepointPath: string): Promise<any> {
+        const port = await this.findFreePort(8090);
+        this.reservedPorts.add(port);
+
+        try {
+            const pythonInfo = await this.detectPythonCommand();
+            const pythonCommand = pythonInfo.command;
+            const scriptPath = this.findOpenMCScript();
+
+            const args: string[] = [
+                scriptPath,
+                'visualize-statepoint-source',
+                statepointPath,
+                '--port', port.toString()
+            ];
+
+            const process = this.startPythonProcess(pythonCommand, args, port);
+
+            await this.waitForServer(port, process);
+
+            return {
+                success: true,
+                port,
+                url: `http://127.0.0.1:${port}`
+            };
+
+        } catch (error) {
+            this.reservedPorts.delete(port);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
     // === Geometry Overlap Checker ===
 
     async checkOverlaps(request: any): Promise<any> {
