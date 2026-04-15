@@ -142,7 +142,20 @@ class OpenMCReader:
                 }
                 
                 # Get scores (Handle Dataset vs Attribute representation)
-                if 'score' in tally:
+                # OpenMC stores scores in 'score_bins' dataset
+                if 'score_bins' in tally:
+                    val = tally['score_bins'][()]
+                    if isinstance(val, np.ndarray):
+                        # Convert each score to string
+                        tally_info['scores'] = []
+                        for v in val:
+                            if isinstance(v, bytes):
+                                tally_info['scores'].append(v.decode('utf-8'))
+                            elif isinstance(v, str):
+                                tally_info['scores'].append(v)
+                            else:
+                                tally_info['scores'].append(str(v))
+                elif 'score' in tally:
                     val = tally['score'][()]
                     if isinstance(val, np.ndarray):
                         val = [val[()]] if val.ndim == 0 else val.tolist()
@@ -158,10 +171,14 @@ class OpenMCReader:
                 if 'nuclides' in tally:
                     val = tally['nuclides'][()]
                     if isinstance(val, np.ndarray):
-                        val = [val[()]] if val.ndim == 0 else val.tolist()
-                    elif isinstance(val, (bytes, str)):
-                        val = [val]
-                    tally_info['nuclides'] = [v.decode('utf-8') if hasattr(v, 'decode') else str(v) for v in val]
+                        tally_info['nuclides'] = []
+                        for v in val:
+                            if isinstance(v, bytes):
+                                tally_info['nuclides'].append(v.decode('utf-8'))
+                            elif isinstance(v, str):
+                                tally_info['nuclides'].append(v)
+                            else:
+                                tally_info['nuclides'].append(str(v))
                 elif 'nuclides' in tally.attrs:
                     val = tally.attrs['nuclides']
                     val = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
@@ -383,9 +400,20 @@ class OpenMCReader:
             if isinstance(name, bytes):
                 name = name.decode('utf-8')
             
-            # Get scores
+            # Get scores - OpenMC stores in 'score_bins' dataset
             scores = []
-            if 'score' in tally:
+            if 'score_bins' in tally:
+                val = tally['score_bins'][()]
+                if isinstance(val, np.ndarray):
+                    scores = []
+                    for v in val:
+                        if isinstance(v, bytes):
+                            scores.append(v.decode('utf-8'))
+                        elif isinstance(v, str):
+                            scores.append(v)
+                        else:
+                            scores.append(str(v))
+            elif 'score' in tally:
                 val = tally['score'][()]
                 if isinstance(val, np.ndarray):
                     val = [val[()]] if val.ndim == 0 else val.tolist()
@@ -402,10 +430,14 @@ class OpenMCReader:
             if 'nuclides' in tally:
                 val = tally['nuclides'][()]
                 if isinstance(val, np.ndarray):
-                    val = [val[()]] if val.ndim == 0 else val.tolist()
-                elif isinstance(val, (bytes, str)):
-                    val = [val]
-                nuclides = [v.decode('utf-8') if hasattr(v, 'decode') else str(v) for v in val]
+                    nuclides = []
+                    for v in val:
+                        if isinstance(v, bytes):
+                            nuclides.append(v.decode('utf-8'))
+                        elif isinstance(v, str):
+                            nuclides.append(v)
+                        else:
+                            nuclides.append(str(v))
             elif 'nuclides' in tally.attrs:
                 val = tally.attrs['nuclides']
                 val = val.decode('utf-8') if hasattr(val, 'decode') else str(val)
@@ -778,7 +810,58 @@ class OpenMCReader:
             result = convert_h5m_to_vtk_cached(geometry_file, use_cache=False, 
                                                do_filter_graveyard=filter_graveyard)
             geometry = simple.OpenDataFile(result['vtk_path'])
+        elif geometry_file.endswith('.xml'):
+            # Check if it's a DAGMC reference (dagmc_universe element)
+            import xml.etree.ElementTree as ET
+            try:
+                tree = ET.parse(geometry_file)
+                root = tree.getroot()
+                
+                # Check for dagmc_universe element
+                dagmc_elem = root.find('.//dagmc_universe')
+                if dagmc_elem is not None:
+                    dagmc_filename = dagmc_elem.get('filename')
+                    if dagmc_filename:
+                        # Resolve relative path if needed
+                        if not os.path.isabs(dagmc_filename):
+                            dagmc_filename = os.path.join(os.path.dirname(geometry_file), dagmc_filename)
+                        print(f"[Overlay] Found DAGMC reference in geometry.xml: {dagmc_filename}")
+                        
+                        # Load the DAGMC file instead
+                        from dagmc_converter import convert_h5m_to_vtk_cached
+                        result = convert_h5m_to_vtk_cached(dagmc_filename, use_cache=False, 
+                                                           do_filter_graveyard=filter_graveyard)
+                        geometry = simple.OpenDataFile(result['vtk_path'])
+                    else:
+                        raise ValueError("dagmc_universe element has no filename attribute")
+                else:
+                    # Convert OpenMC CSG geometry.xml to VTK for visualization
+                    from openmc_geometry_viz import OpenMCGeometryVisualizer
+                    import vtk
+                    viz = OpenMCGeometryVisualizer()
+                    if not viz.parse_geometry(geometry_file):
+                        raise ValueError(f"Failed to parse geometry file: {geometry_file}")
+                    
+                    # Create VTK geometry from cells
+                    cell_data = viz.create_vtk_geometry()
+                    
+                    # Write to temporary VTK file
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix='.vtm', delete=False) as tmp:
+                        vtk_file = tmp.name
+                    
+                    writer = vtk.vtkXMLMultiBlockDataWriter()
+                    writer.SetFileName(vtk_file)
+                    writer.SetInputData(cell_data)
+                    writer.Write()
+                    
+                    geometry = simple.OpenDataFile(vtk_file)
+            except ET.ParseError as e:
+                raise ValueError(f"Failed to parse geometry XML: {e}")
         else:
+            # Try to open directly (for pre-converted VTK files)
+            if not os.path.exists(geometry_file):
+                raise ValueError(f"Geometry file not found: {geometry_file}")
             geometry = simple.OpenDataFile(geometry_file)
         
         # Check if this is a cell-based tally (has cell filter)

@@ -671,12 +671,12 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     private async overlayTallyCommand(): Promise<void> {
-        // Get geometry files from workspace
+        // Get geometry files from workspace (both DAGMC and geometry.xml)
         const geometryFiles = await this.getGeometryFiles();
         
         // Build geometry options with browse
         const geometryOptions: QuickPickValue<string>[] = [
-            { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select DAGMC .h5m file from any location' }
+            { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
         ];
         
         if (geometryFiles.length > 0) {
@@ -686,7 +686,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         // Select geometry file
         const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
             title: 'Select Geometry File',
-            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
+            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for .h5m or .xml file...'
         });
 
         if (!geometrySelection) return;
@@ -700,7 +700,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 canSelectFolders: false,
                 canSelectMany: false,
                 filters: {
+                    'Geometry Files': ['h5m', 'xml'],
                     'DAGMC Files': ['h5m'],
+                    'OpenMC Geometry': ['xml'],
                     'All Files': ['*']
                 }
             });
@@ -1222,12 +1224,12 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             console.log(`[OpenMC] Using known geometry: ${knownGeometryUri.toString()}`);
             geometryUri = knownGeometryUri;
         } else {
-            // Get DAGMC geometry files from workspace
-            const geometryFiles = await this.getDagmcFiles();
+            // Get both DAGMC and geometry.xml files from workspace
+            const geometryFiles = await this.getGeometryFiles();
             
             // Build geometry options with browse
             const geometryOptions: QuickPickValue<string>[] = [
-                { value: '__browse__', label: '$(folder-opened) Browse for DAGMC file...', description: 'Select .h5m file from any location' }
+                { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
             ];
             
             if (geometryFiles.length > 0) {
@@ -1236,56 +1238,65 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
             // Select geometry file
             const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
-                title: 'Select DAGMC Geometry File',
-                placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for DAGMC .h5m file...'
+                title: 'Select Geometry File',
+                placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for .h5m or .xml file...'
             });
 
             if (!geometrySelection) return;
-        if (geometrySelection.value === '__browse__') {
-            console.log('[OpenMC] Opening file picker for geometry...');
-            // Close any open quick pick first
-            this.quickInput.hide();
-            // Longer delay to ensure dialog can open
-            await new Promise(resolve => setTimeout(resolve, 300));
-            try {
-                const fileUri = await this.fileDialogService.showOpenDialog({
-                    title: 'Select DAGMC Geometry File',
-                    openLabel: 'Select',
-                    canSelectFiles: true,
-                    canSelectFolders: false,
-                    canSelectMany: false,
-                    filters: {
-                        'DAGMC Files': ['h5m'],
-                        'All Files': ['*']
+            if (geometrySelection.value === '__browse__') {
+                console.log('[OpenMC] Opening file picker for geometry...');
+                // Close any open quick pick first
+                this.quickInput.hide();
+                // Longer delay to ensure dialog can open
+                await new Promise(resolve => setTimeout(resolve, 300));
+                try {
+                    const fileUri = await this.fileDialogService.showOpenDialog({
+                        title: 'Select Geometry File',
+                        openLabel: 'Select',
+                        canSelectFiles: true,
+                        canSelectFolders: false,
+                        canSelectMany: false,
+                        filters: {
+                            'Geometry Files': ['h5m', 'xml'],
+                            'DAGMC Files': ['h5m'],
+                            'OpenMC Geometry': ['xml'],
+                            'All Files': ['*']
+                        }
+                    });
+                    console.log('[OpenMC] Geometry file picker result:', fileUri);
+                    if (!fileUri) {
+                        console.log('[OpenMC] No geometry file selected, cancelling');
+                        return;
                     }
-                });
-                console.log('[OpenMC] Geometry file picker result:', fileUri);
-                if (!fileUri) {
-                    console.log('[OpenMC] No geometry file selected, cancelling');
+                    geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                } catch (error) {
+                    console.error('[OpenMC] Geometry file picker error:', error);
+                    this.messageService.error(`File picker failed: ${error}`);
                     return;
                 }
-                geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-            } catch (error) {
-                console.error('[OpenMC] Geometry file picker error:', error);
-                this.messageService.error(`File picker failed: ${error}`);
-                return;
-            }
             } else {
                 geometryUri = new URI(geometrySelection.value);
             }
         }
 
-        // Ask about graveyard filtering
-        const filterChoice = await this.quickInput.showQuickPick([
-            { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-            { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
-        ], {
-            title: 'Graveyard Surface Filtering',
-            placeholder: 'Select visualization mode'
-        });
+        // Check if using geometry.xml (CSG geometry) or DAGMC
+        const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
+        
+        // Skip graveyard filtering for geometry.xml (not applicable)
+        let filterGraveyard = false;
+        if (!isGeometryXml) {
+            // Ask about graveyard filtering only for DAGMC files
+            const filterChoice = await this.quickInput.showQuickPick([
+                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
+            ], {
+                title: 'Graveyard Surface Filtering',
+                placeholder: 'Select visualization mode'
+            });
 
-        if (!filterChoice) return;
-        const filterGraveyard = filterChoice.value === 'filter';
+            if (!filterChoice) return;
+            filterGraveyard = filterChoice.value === 'filter';
+        }
 
         // Perform the overlay
         const options: TallyVisualizationOptions = {
@@ -1300,46 +1311,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         } catch (error) {
             this.messageService.error(`Failed to overlay tally: ${error}`);
         }
-    }
-
-    private async getDagmcFiles(): Promise<QuickPickValue<string>[]> {
-        const workspace = this.workspaceService.workspace;
-        if (!workspace) {
-            return [];
-        }
-
-        const files: QuickPickValue<string>[] = [];
-        
-        try {
-            const rootUri = workspace.resource;
-            
-            const collectDagmcFiles = async (uri: URI): Promise<void> => {
-                try {
-                    const dirStat = await this.fileService.resolve(uri);
-                    if (dirStat.children) {
-                        for (const child of dirStat.children) {
-                            if (child.isFile && child.name.endsWith('.h5m')) {
-                                files.push({
-                                    value: child.resource.toString(),
-                                    label: child.name,
-                                    description: this.labelProvider.getLongName(child.resource)
-                                });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
-                                await collectDagmcFiles(child.resource);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore errors for individual directories
-                }
-            };
-
-            await collectDagmcFiles(rootUri);
-        } catch (e) {
-            console.error('[OpenMC] Failed to search for DAGMC files:', e);
-        }
-
-        return files;
     }
 
     private async getH5Files(): Promise<QuickPickValue<string>[]> {
@@ -1468,7 +1439,8 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             return [];
         }
 
-        const files: QuickPickValue<string>[] = [];
+        const dagmcFiles: QuickPickValue<string>[] = [];
+        const geometryXmlFiles: QuickPickValue<string>[] = [];
         
         try {
             const rootUri = workspace.resource;
@@ -1478,13 +1450,21 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     const dirStat = await this.fileService.resolve(uri);
                     if (dirStat.children) {
                         for (const child of dirStat.children) {
-                            if (child.isFile && child.name.endsWith('.h5m')) {
-                                files.push({
-                                    value: child.resource.toString(),
-                                    label: child.name,
-                                    description: this.labelProvider.getLongName(child.resource)
-                                });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
+                            if (child.isFile) {
+                                if (child.name.endsWith('.h5m')) {
+                                    dagmcFiles.push({
+                                        value: child.resource.toString(),
+                                        label: child.name,
+                                        description: this.labelProvider.getLongName(child.resource)
+                                    });
+                                } else if (child.name === 'geometry.xml') {
+                                    geometryXmlFiles.push({
+                                        value: child.resource.toString(),
+                                        label: child.name,
+                                        description: this.labelProvider.getLongName(child.resource)
+                                    });
+                                }
+                            } else if (child.isDirectory && !child.name.startsWith('.') && (dagmcFiles.length < 20 || geometryXmlFiles.length < 20)) {
                                 await collectGeometryFiles(child.resource);
                             }
                         }
@@ -1499,6 +1479,20 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             console.error('[OpenMC] Failed to search for geometry files:', e);
         }
 
+        // Combine DAGMC and geometry.xml files
+        const files: QuickPickValue<string>[] = [];
+        
+        if (dagmcFiles.length > 0) {
+            files.push({ type: 'separator', label: 'DAGMC Files (.h5m)' } as any, ...dagmcFiles);
+        }
+        
+        if (geometryXmlFiles.length > 0) {
+            if (files.length > 0) {
+                files.push({ type: 'separator', label: 'OpenMC Geometry (.xml)' } as any);
+            }
+            files.push(...geometryXmlFiles);
+        }
+        
         return files;
     }
 

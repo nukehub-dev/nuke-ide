@@ -254,6 +254,14 @@ class OpenMCGeometryParser:
         
         # Validate that we found some geometry
         if len(self.cells) == 0:
+            # Check if it's a DAGMC-based geometry (dagmc_universe element)
+            dagmc_elem = root.find('.//dagmc_universe')
+            if dagmc_elem is not None:
+                dagmc_filename = dagmc_elem.get('filename')
+                if dagmc_filename:
+                    if not os.path.isabs(dagmc_filename):
+                        dagmc_filename = os.path.join(os.path.dirname(str(file_path)), dagmc_filename)
+                    return {'error': f'This geometry file uses DAGMC geometry (dagmc_universe). Please use the DAGMC file directly: {dagmc_filename}'}
             return {'error': 'No cells found in geometry file. The file may be empty or not a valid OpenMC geometry file.'}
         
         # Build response

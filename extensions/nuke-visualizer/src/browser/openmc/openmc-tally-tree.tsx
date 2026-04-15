@@ -237,14 +237,14 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                         {cellFilter && (
                             <Tooltip content="Cell Filter" position="top">
                                 <span className="tally-badge cell">
-                                    <i className={codicon('square')}></i>
+                                    <i className={codicon('primitive-square')}></i>
                                 </span>
                             </Tooltip>
                         )}
                         {energyFilter && (
                             <Tooltip content="Energy Filter" position="top">
                                 <span className="tally-badge energy">
-                                    <i className={codicon('zap')}></i>
+                                    <i className={codicon('symbol-event')}></i>
                                 </span>
                             </Tooltip>
                         )}

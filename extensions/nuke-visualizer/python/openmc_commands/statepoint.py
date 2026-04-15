@@ -213,9 +213,20 @@ def cmd_statepoint_info(args):
                     if isinstance(name, bytes):
                         name = name.decode('utf-8')
                     
-                    # Get scores
+                    # Get scores - OpenMC stores in 'score_bins' dataset
                     scores = []
-                    if 'score' in tally:
+                    if 'score_bins' in tally:
+                        val = tally['score_bins'][()]
+                        if isinstance(val, np.ndarray):
+                            scores = []
+                            for v in val:
+                                if isinstance(v, bytes):
+                                    scores.append(v.decode('utf-8'))
+                                elif isinstance(v, str):
+                                    scores.append(v)
+                                else:
+                                    scores.append(str(v))
+                    elif 'score' in tally:
                         val = tally['score'][()]
                         if isinstance(val, np.ndarray):
                             val = [val[()]] if val.ndim == 0 else val.tolist()
@@ -232,10 +243,14 @@ def cmd_statepoint_info(args):
                     if 'nuclides' in tally:
                         val = tally['nuclides'][()]
                         if isinstance(val, np.ndarray):
-                            val = [val[()]] if val.ndim == 0 else val.tolist()
-                        elif isinstance(val, (bytes, str)):
-                            val = [val]
-                        nuclides = [v.decode('utf-8') if hasattr(v, 'decode') else str(v) for v in val]
+                            nuclides = []
+                            for v in val:
+                                if isinstance(v, bytes):
+                                    nuclides.append(v.decode('utf-8'))
+                                elif isinstance(v, str):
+                                    nuclides.append(v)
+                                else:
+                                    nuclides.append(str(v))
                     elif 'nuclides' in tally.attrs:
                         val = tally.attrs['nuclides']
                         val = val.decode('utf-8') if hasattr(val, 'decode') else str(val)

@@ -223,33 +223,46 @@ const handlers = {
                         if (selection.action === 'view-3d') {
                             await this.openmcService.visualizeMeshTally(statepointUri, options);
                         } else if (selection.action === 'overlay-geometry') {
-                            // Show file dialog for user to select DAGMC geometry file
+                            // Show file dialog for user to select geometry file (DAGMC or XML)
                             const fileUri = await this.fileDialogService.showOpenDialog({
-                                title: 'Select DAGMC Geometry File',
+                                title: 'Select Geometry File',
                                 openLabel: 'Select',
                                 canSelectFiles: true,
                                 canSelectFolders: false,
                                 canSelectMany: false,
                                 filters: {
+                                    'Geometry Files': ['h5m', 'xml'],
                                     'DAGMC Files': ['h5m'],
+                                    'OpenMC Geometry': ['xml'],
                                     'All Files': ['*']
                                 }
                             });
                             
                             if (fileUri) {
                                 const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                                // Validate the URI has a valid path
+                                if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
+                                    console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
+                                    return;
+                                }
                                 
-                                // Ask about graveyard filtering
-                                const filterChoice = await this.quickInput.showQuickPick([
-                                    { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                                    { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
-                                ], {
-                                    title: 'Graveyard Surface Filtering',
-                                    placeholder: 'Select visualization mode'
-                                });
+                                const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
                                 
-                                if (!filterChoice) return;
-                                const filterGraveyard = filterChoice.value === 'filter';
+                                // Skip graveyard filtering for XML files
+                                let filterGraveyard = false;
+                                if (!isGeometryXml) {
+                                    // Ask about graveyard filtering only for DAGMC files
+                                    const filterChoice = await this.quickInput.showQuickPick([
+                                        { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                                        { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
+                                    ], {
+                                        title: 'Graveyard Surface Filtering',
+                                        placeholder: 'Select visualization mode'
+                                    });
+                                    
+                                    if (!filterChoice) return;
+                                    filterGraveyard = filterChoice.value === 'filter';
+                                }
                                 
                                 const options: any = { 
                                     tallyId: selection.tallyId, 
@@ -870,7 +883,7 @@ const handlers = {
                                     <i className={codicon('layers')}></i>
                                 </button>
                             </Tooltip>
-                            <Tooltip content="View tally as heatmap" position="top">
+                            <Tooltip content="View tally as 2D heatmap" position="top">
                                 <button 
                                     className="tally-card-btn"
                                     onClick={() => this.fireTallySelected({ 
@@ -879,7 +892,7 @@ const handlers = {
                                         score: tally.scores[0]
                                     })}
                                 >
-                                    <i className={codicon('symbol-property')}></i>
+                                    <i className="fa fa-th"></i>
                                 </button>
                             </Tooltip>
                             <Tooltip content="View spatial distribution" position="top">
