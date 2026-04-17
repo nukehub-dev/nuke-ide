@@ -22,6 +22,7 @@ import {
 } from '@theia/core/lib/common/preferences';
 
 export const NukeCoreConfigSchema: PreferenceSchema = {
+    title: 'Nuke Utils',
     properties: {
         'nuke.pythonPath': {
             type: 'string',

@@ -1492,7 +1492,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python with h5py and openmc. Configure Python in Settings → Nuke.');
+            throw new Error(detectionResult.error || 'Failed to detect Python with h5py and openmc. Configure Python in Settings → Nuke Utils.');
         }
         
         return {

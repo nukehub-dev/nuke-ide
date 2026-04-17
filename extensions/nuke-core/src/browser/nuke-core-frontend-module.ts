@@ -23,6 +23,7 @@
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { MenuContribution } from '@theia/core/lib/common';
+import { PreferenceLayoutProvider } from '@theia/preferences/lib/browser/util/preference-layout';
 import {
     NukeCoreBackendService,
     NukeCoreBackendServiceInterface,
@@ -31,15 +32,20 @@ import {
 import { NukeCoreService } from './nuke-core-service';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
+import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
 
-export default new ContainerModule((bind: interfaces.Bind) => {
+export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
     console.log('[NukeCore] Initializing frontend module...');
 
     // Menus
     bind(NukeCoreMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(NukeCoreMenuContribution);
 
-    // Preferences (in main Settings panel, not Extensions)
+    // Override preference layout to add "Nuke Utils" category
+    bind(NukePreferenceLayoutProvider).toSelf().inSingletonScope();
+    rebind(PreferenceLayoutProvider).toService(NukePreferenceLayoutProvider);
+
+    // Preferences
     bindNukeCorePreferences(bind);
 
     // Backend service proxy
@@ -56,3 +62,4 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
 export { NukeCoreService };
 export * from './nuke-core-menus';
+export { bindNukeCorePreferences } from './nuke-core-preferences';

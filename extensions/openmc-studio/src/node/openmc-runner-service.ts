@@ -245,7 +245,7 @@ export class OpenMCRunnerService {
         });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python with OpenMC. Configure Python in Settings → Nuke.');
+            throw new Error(detectionResult.error || 'Failed to detect Python with OpenMC. Configure Python in Settings → Nuke Utils.');
         }
         
         // Try to get OpenMC version (best effort - we know it's there from the detection)
