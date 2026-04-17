@@ -46,10 +46,6 @@ export interface PythonEnvironment {
     type: 'system' | 'conda' | 'venv' | 'pyenv';
     /** Python version (e.g., "3.10.4") */
     version?: string;
-    /** Whether OpenMC is available in this environment */
-    hasOpenMC?: boolean;
-    /** OpenMC version if available */
-    openmcVersion?: string;
 }
 
 /** Result of Python detection */

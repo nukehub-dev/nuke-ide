@@ -241,24 +241,4 @@ export class NukeCoreService {
             warnings
         };
     }
-
-    /**
-     * Get the best Python environment for OpenMC.
-     * Returns the first environment with OpenMC, or the current one.
-     */
-    async getBestEnvironmentForOpenMC(): Promise<PythonEnvironment | undefined> {
-        const environments = await this.listEnvironments();
-        
-        // First, try to find one with OpenMC
-        const withOpenMC = environments.filter(e => e.hasOpenMC);
-        if (withOpenMC.length > 0) {
-            // Prefer conda environments
-            const condaWithOpenMC = withOpenMC.find(e => e.type === 'conda');
-            return condaWithOpenMC || withOpenMC[0];
-        }
-        
-        // Otherwise return the currently selected or first available
-        const result = await this.backend.listEnvironments();
-        return result.selected || environments[0];
-    }
 }

@@ -418,27 +418,11 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
             const versionMatch = versionOutput.match(/Python (\d+\.\d+\.\d+)/);
             const version = versionMatch ? versionMatch[1] : undefined;
             
-            // Check for OpenMC
-            let hasOpenMC = false;
-            let openmcVersion: string | undefined;
-            try {
-                const openmcOutput = execSync(
-                    `"${pythonPath}" -c "import openmc; print(openmc.__version__)"`,
-                    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-                ).trim();
-                hasOpenMC = true;
-                openmcVersion = openmcOutput;
-            } catch {
-                // OpenMC not available
-            }
-            
             return {
                 name: type === 'system' ? `System Python ${version || ''}`.trim() : pythonPath,
                 pythonPath,
                 type,
-                version,
-                hasOpenMC,
-                openmcVersion
+                version
             };
         } catch {
             return undefined;
