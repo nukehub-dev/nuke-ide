@@ -18,6 +18,7 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandRegistry } from '@theia/core/lib/common/command';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
@@ -42,7 +43,6 @@ import {
 // Import from nuke-visualizer for 3D preview
 import { OpenMCService } from 'nuke-visualizer/lib/browser/openmc/openmc-service';
 import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/openmc/openmc-geometry-3d-widget';
-import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 export type CSGBuilderTab = 'surfaces' | 'cells' | 'universes';
 
@@ -168,8 +168,8 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
 
-    @inject(DAGMCEditorContribution)
-    protected readonly dagmcEditorContribution!: DAGMCEditorContribution;
+    @inject(CommandRegistry)
+    protected readonly commands!: CommandRegistry;
 
     @inject(OpenMCStudioBackendService)
     protected readonly backendService!: OpenMCStudioBackendService;
@@ -2621,8 +2621,8 @@ export class CSGBuilderWidget extends ReactWidget {
 
     private async openDagmcEditor(): Promise<void> {
         const state = this.stateManager.getState();
-        if (state.settings.dagmcFile) {
-            await this.dagmcEditorContribution.openDAGMCEditor(state.settings.dagmcFile);
+        if (state.settings?.dagmcFile) {
+            await this.commands.executeCommand('openmc.openDAGMCEditor', state.settings.dagmcFile);
         } else {
             this.messageService.warn('No DAGMC file loaded');
         }

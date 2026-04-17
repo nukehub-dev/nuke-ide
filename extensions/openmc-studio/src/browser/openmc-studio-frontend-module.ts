@@ -57,11 +57,8 @@ import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
 import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
-import { DAGMCEditorContribution } from './dagmc-editor/dagmc-editor-contribution';
 import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
-import { TallyConfiguratorContribution } from './tally-configurator/tally-configurator-contribution';
 import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
-import { SimulationComparisonContribution } from './simulation-comparison/comparison-contribution';
 import { OptimizationWidget } from './optimization/optimization-widget';
 
 // Import CSS
@@ -176,12 +173,6 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
         createWidget: () => container.get(DAGMCEditorWidget)
     })).inSingletonScope();
     
-    // DAGMC Editor Contribution
-    bind(DAGMCEditorContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(DAGMCEditorContribution);
-    bind(MenuContribution).toService(DAGMCEditorContribution);
-    bind(FrontendApplicationContribution).toService(DAGMCEditorContribution);
-    
     // Tally Configurator Widget
     bind(TallyConfiguratorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
@@ -189,24 +180,12 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
         createWidget: () => container.get(TallyConfiguratorWidget)
     })).inSingletonScope();
 
-    // Tally Configurator Contribution
-    bind(TallyConfiguratorContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(TallyConfiguratorContribution);
-    bind(MenuContribution).toService(TallyConfiguratorContribution);
-    bind(FrontendApplicationContribution).toService(TallyConfiguratorContribution);
-
     // Simulation Comparison Widget
     bind(SimulationComparisonWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: SimulationComparisonWidget.ID,
         createWidget: () => container.get(SimulationComparisonWidget)
     })).inSingletonScope();
-
-    // Simulation Comparison Contribution
-    bind(SimulationComparisonContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(SimulationComparisonContribution);
-    bind(MenuContribution).toService(SimulationComparisonContribution);
-    bind(FrontendApplicationContribution).toService(SimulationComparisonContribution);
 
     // Optimization Widget - create new instance each time (not singleton)
     bind(OptimizationWidget).toSelf().inTransientScope();

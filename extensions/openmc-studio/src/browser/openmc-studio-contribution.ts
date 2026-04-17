@@ -28,8 +28,7 @@ import {
     CommandContribution,
     CommandRegistry,
     MenuContribution,
-    MenuModelRegistry,
-    MAIN_MENU_BAR
+    MenuModelRegistry
 } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { Emitter } from '@theia/core/lib/common';
@@ -51,8 +50,11 @@ import { OpenMCPythonExporter } from './script-generator/python-exporter';
 
 import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
+import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
 import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
+import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
+import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
 import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
 import { OptimizationWidget } from './optimization/optimization-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
@@ -143,10 +145,10 @@ export namespace OpenMCStudioCommands {
         label: 'Open Tally Configurator'
     };
 
-    export const OPEN_DEPLETION_DASHBOARD: Command = {
-        id: 'openmc.openDepletionDashboard',
+    export const OPEN_DEPLETION: Command = {
+        id: 'openmc.openDepletion',
         category: CATEGORY,
-        label: 'Depletion Dashboard'
+        label: 'Depletion'
     };
 
     export const OPEN_VARIANCE_REDUCTION: Command = {
@@ -185,13 +187,15 @@ export namespace OpenMCStudioCommands {
 // ============================================================================
 
 export namespace OpenMCStudioMenus {
-    // Main OpenMC menu in menu bar (before Help which is typically '8_help')
-    export const OPENMC = [...MAIN_MENU_BAR, '7_openmc'];
+    // Main OpenMC menu inside Nuke Tools
+    export const OPENMC = [...NukeMenus.TOOLS, '1_openmc'];
+    
+    // OpenMC Subgroups
     export const OPENMC_PROJECT = [...OPENMC, '1_project'];
     export const OPENMC_SIMULATION = [...OPENMC, '2_simulation'];
     export const OPENMC_GEOMETRY = [...OPENMC, '3_geometry'];
     export const OPENMC_XML = [...OPENMC, '4_xml'];
-    export const OPENMC_VIEW = [...OPENMC, '5_view'];
+    export const OPENMC_ADVANCED = [...OPENMC, '5_advanced'];
 }
 
 // ============================================================================
@@ -295,8 +299,12 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         commands.registerCommand(OpenMCStudioCommands.OPEN_CSG_BUILDER, {
             execute: () => this.openCSGBuilder()
         });
+        
+        commands.registerCommand(OpenMCStudioCommands.OPEN_TALLY_CONFIGURATOR, {
+            execute: () => this.openTallyConfigurator()
+        });
 
-        commands.registerCommand(OpenMCStudioCommands.OPEN_DEPLETION_DASHBOARD, {
+        commands.registerCommand(OpenMCStudioCommands.OPEN_DEPLETION, {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
                 widget.setActiveTab('depletion');
@@ -326,6 +334,10 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         commands.registerCommand(OpenMCStudioCommands.OPEN_OPTIMIZATION, {
             execute: () => this.openOptimizationWidget()
         });
+
+        commands.registerCommand(OpenMCStudioCommands.OPEN_DAGMC_EDITOR, {
+            execute: (filePath?: string) => this.openDAGMCEditor(filePath)
+        });
     }
 
     // ============================================================================
@@ -333,9 +345,16 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
     // ============================================================================
     
     registerMenus(menus: MenuModelRegistry): void {
-        // Register main OpenMC menu in menu bar (separate from nuke-visualizer's OpenMC Visualizer menu)
-        menus.registerSubmenu(OpenMCStudioMenus.OPENMC, 'OpenMC');
+        // Register main OpenMC Studio menu inside the central Nuke Tools menu
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC, 'OpenMC Studio');
         
+        // Submenus for better organization under OpenMC Studio
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC_PROJECT, 'Project');
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC_SIMULATION, 'Simulation');
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC_GEOMETRY, 'Geometry');
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC_XML, 'XML Configuration');
+        menus.registerSubmenu(OpenMCStudioMenus.OPENMC_ADVANCED, 'Advanced');
+
         // Project menu items
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_PROJECT, {
             commandId: OpenMCStudioCommands.NEW_PROJECT.id,
@@ -360,6 +379,11 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
         
         // Simulation menu items
         menus.registerMenuAction(OpenMCStudioMenus.OPENMC_SIMULATION, {
+            commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
+            label: 'Simulation Dashboard',
+            order: '0'
+        });
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_SIMULATION, {
             commandId: OpenMCStudioCommands.RUN_SIMULATION.id,
             label: 'Run Simulation',
             order: 'a'
@@ -373,6 +397,12 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             commandId: OpenMCStudioCommands.VALIDATE_MODEL.id,
             label: 'Validate Model',
             order: 'c'
+        });
+
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_SIMULATION, {
+            commandId: OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON.id,
+            label: 'Compare Simulations',
+            order: 'd'
         });
         
         // XML menu items
@@ -393,39 +423,39 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
             label: 'CSG Builder',
             order: 'a'
         });
-        
-        // View menu items (Phase 1+)
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_SIMULATION_DASHBOARD.id,
-            label: 'Simulation Dashboard',
-            order: 'a'
-        });
 
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_DEPLETION_DASHBOARD.id,
-            label: 'Depletion Dashboard',
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_GEOMETRY, {
+            commandId: OpenMCStudioCommands.OPEN_DAGMC_EDITOR.id,
+            label: 'DAGMC Editor',
+            order: 'b'
+        });
+        
+        // Advanced items
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCStudioCommands.OPEN_TALLY_CONFIGURATOR.id,
+            label: 'Tally Configurator',
             order: 'd'
         });
 
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_VARIANCE_REDUCTION.id,
-            label: 'Variance Reduction',
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCStudioCommands.OPEN_DEPLETION.id,
+            label: 'Depletion Dashboard',
             order: 'e'
         });
 
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_SCRIPT_GENERATOR.id,
-            label: 'Generate Python Script',
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCStudioCommands.OPEN_VARIANCE_REDUCTION.id,
+            label: 'Variance Reduction',
             order: 'f'
         });
 
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
-            commandId: OpenMCStudioCommands.OPEN_SIMULATION_COMPARISON.id,
-            label: 'Compare Simulations',
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCStudioCommands.OPEN_SCRIPT_GENERATOR.id,
+            label: 'Generate Python Script',
             order: 'g'
         });
 
-        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_VIEW, {
+        menus.registerMenuAction(OpenMCStudioMenus.OPENMC_ADVANCED, {
             commandId: OpenMCStudioCommands.OPEN_OPTIMIZATION.id,
             label: 'Optimization Study',
             order: 'h'
@@ -645,6 +675,23 @@ export class OpenMCStudioContribution implements CommandContribution, MenuContri
 
     protected async openSimulationComparison(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget<SimulationComparisonWidget>(SimulationComparisonWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+    }
+
+    protected async openDAGMCEditor(filePath?: string): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<DAGMCEditorWidget>(DAGMCEditorWidget.ID);
+        await this.shell.addWidget(widget, { area: 'main' });
+        await this.shell.activateWidget(widget.id);
+        
+        // If file path provided, load it
+        if (filePath && typeof (widget as any).loadFile === 'function') {
+            await (widget as any).loadFile(filePath);
+        }
+    }
+
+    protected async openTallyConfigurator(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<TallyConfiguratorWidget>(TallyConfiguratorWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }

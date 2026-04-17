@@ -83,7 +83,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     // Bind contributions
     bindViewContribution(bind, VisualizerContribution);
-    bind(FrontendApplicationContribution).toService(VisualizerContribution);
     bind(OpenHandler).toService(VisualizerContribution);
     
     // Bind widget - NOT as singleton so fresh instances are created when reopened

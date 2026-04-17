@@ -19,13 +19,13 @@ import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
 import { AbstractViewContribution, OpenHandler, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from './visualizer-widget';
+import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { CommonMenus } from '@theia/core/lib/browser';
 import { VisualizerBackendService } from '../common/visualizer-protocol';
 
 export const VisualizerCommand = {
     id: VisualizerWidget.ID,
-    label: 'Open Nuke Visualizer'
+    label: 'Open Visualizer'
 };
 
 @injectable()
@@ -66,10 +66,10 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
-        menus.registerMenuAction(CommonMenus.VIEW, {
+        menus.registerMenuAction(NukeMenus.TOOLS, {
             commandId: VisualizerCommand.id,
             label: VisualizerCommand.label,
-            order: 'a20'
+            order: '5_visualizer'
         });
     }
 

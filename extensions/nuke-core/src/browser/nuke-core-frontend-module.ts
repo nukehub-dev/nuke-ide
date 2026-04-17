@@ -22,6 +22,7 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
+import { MenuContribution } from '@theia/core/lib/common';
 import {
     NukeCoreBackendService,
     NukeCoreBackendServiceInterface,
@@ -29,9 +30,14 @@ import {
 } from '../common/nuke-core-protocol';
 import { NukeCoreService } from './nuke-core-service';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
+import { NukeCoreMenuContribution } from './nuke-core-menus';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     console.log('[NukeCore] Initializing frontend module...');
+
+    // Menus
+    bind(NukeCoreMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(NukeCoreMenuContribution);
 
     // Preferences (in main Settings panel, not Extensions)
     bindNukeCorePreferences(bind);
@@ -49,3 +55,4 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 });
 
 export { NukeCoreService };
+export * from './nuke-core-menus';

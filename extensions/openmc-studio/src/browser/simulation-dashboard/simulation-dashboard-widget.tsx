@@ -18,6 +18,7 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandRegistry } from '@theia/core/lib/common/command';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService, SaveFileDialogProps, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
@@ -47,7 +48,6 @@ import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurato
 import { OptimizationWidget } from '../optimization/optimization-widget';
 import { DepletionTimeline } from './depletion-timeline';
 import { WeightWindowEditor, SourceBiasingEditor } from './vr';
-import { DAGMCEditorContribution } from '../dagmc-editor/dagmc-editor-contribution';
 
 // Tab types for the dashboard
 export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'depletion' | 'variance-reduction' | 'simulation';
@@ -87,8 +87,8 @@ export class SimulationDashboardWidget extends ReactWidget {
     @inject(NukeCoreService)
     protected readonly nukeCoreService!: NukeCoreService;
 
-    @inject(DAGMCEditorContribution)
-    protected readonly dagmcEditorContribution!: DAGMCEditorContribution;
+    @inject(CommandRegistry)
+    protected readonly commands!: CommandRegistry;
 
     private activeTab: DashboardTab = 'settings';
     private isRunning = false;
@@ -2890,8 +2890,10 @@ export class SimulationDashboardWidget extends ReactWidget {
 
     private async openDagmcEditor(): Promise<void> {
         const state = this.stateManager.getState();
-        if (state.settings.dagmcFile) {
-            await this.dagmcEditorContribution.openDAGMCEditor(state.settings.dagmcFile);
+        if (state.settings?.dagmcFile) {
+            await this.commands.executeCommand('openmc.openDAGMCEditor', state.settings.dagmcFile);
+        } else {
+            this.messageService.warn('No DAGMC file loaded');
         }
     }
 
