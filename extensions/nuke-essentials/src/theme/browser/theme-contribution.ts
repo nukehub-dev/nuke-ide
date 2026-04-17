@@ -46,6 +46,43 @@ export class ThemeContribution implements FrontendApplicationContribution {
         this.registerThemes();
         this.disableBuiltinThemes();
         this.initializeTopLogo();
+        this.updateFavicon();
+    }
+
+    /**
+     * Updates the browser favicon to match the current theme's accent color.
+     */
+    protected updateFavicon(): void {
+        const currentTheme = this.themeService.getCurrentTheme();
+        if (!currentTheme) return;
+
+        const config = getThemeConfig(currentTheme.id);
+        const accentColor = config?.colors.accent || '#f37524';
+
+        // Create the tinted SVG string using the same inner paths
+        const svgString = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+                <g style="color: ${accentColor}">
+                    ${LogoSvgInner}
+                </g>
+            </svg>
+        `.trim();
+
+        const encoded = encodeURIComponent(svgString)
+            .replace(/'/g, '%27')
+            .replace(/"/g, '%22');
+        
+        const dataUrl = `data:image/svg+xml,${encoded}`;
+
+        let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+        if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            link.type = 'image/svg+xml';
+            document.head.appendChild(link);
+        }
+        
+        link.href = dataUrl;
     }
 
     /**
@@ -175,6 +212,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
         // Listen for theme changes and save to nuke-theme
         this.themeService.onDidColorThemeChange(() => {
             this.saveThemeToLocalStorage();
+            this.updateFavicon();
         });
     }
 
