@@ -7,14 +7,14 @@
    ============================================================================ */
 :root {
   /* Focus glow effect - orange accent */
-  --nuke-focus-glow: 0 0 0 3px rgba(243, 117, 36, 0.25);
-  --nuke-focus-glow-strong: 0 0 0 4px rgba(243, 117, 36, 0.35);
+  --nuke-focus-glow: 0 0 0 3px color-mix(in srgb, var(--theia-focusBorder), transparent 75%);
+  --nuke-focus-glow-strong: 0 0 0 4px color-mix(in srgb, var(--theia-focusBorder), transparent 65%);
   
   /* Card shadows */
-  --nuke-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
-  --nuke-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
-  --nuke-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
-  --nuke-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15), 0 10px 10px rgba(0, 0, 0, 0.04);
+  --nuke-shadow-sm: 0 1px 3px var(--theia-scrollbar-shadow);
+  --nuke-shadow-md: 0 4px 6px var(--theia-scrollbar-shadow);
+  --nuke-shadow-lg: 0 10px 15px var(--theia-scrollbar-shadow);
+  --nuke-shadow-xl: 0 20px 25px var(--theia-scrollbar-shadow);
   
   /* Smooth transitions */
   --nuke-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -43,7 +43,7 @@
 /* Firefox scrollbar support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--theia-scrollbarSlider-background, #5a5a5a40) transparent;
+  scrollbar-color: var(--theia-scrollbarSlider-background) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -56,7 +56,7 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--theia-scrollbarSlider-background, #5a5a5a40);
+  background: var(--theia-scrollbarSlider-background);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: padding-box;
@@ -64,13 +64,13 @@
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--theia-scrollbarSlider-hover-background, #5a5a5a60);
+  background: var(--theia-scrollbarSlider-hoverBackground);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background: var(--theia-scrollbarSlider-active-background, #5a5a5a80);
+  background: var(--theia-scrollbarSlider-activeBackground);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -178,19 +178,19 @@ button.theia-button:active {
 }
 
 .lm-TabBar.theia-app-sides .lm-TabBar-tab:hover {
-  background-color: var(--theia-activityBar-hoverBackground, rgba(255,255,255,0.1));
+  background-color: color-mix(in srgb, var(--theia-foreground), transparent 90%);
 }
 
 .lm-TabBar.theia-app-left .lm-TabBar-tab.lm-mod-current {
   box-shadow: none !important;
   border-left: 2px solid var(--theia-activityBar-activeBorder);
-  background-color: var(--theia-activityBar-activeBackground, rgba(255,255,255,0.15));
+  background-color: color-mix(in srgb, var(--theia-foreground), transparent 85%);
 }
 
 .lm-TabBar.theia-app-right .lm-TabBar-tab.lm-mod-current {
   box-shadow: none !important;
   border-right: 2px solid var(--theia-activityBar-activeBorder);
-  background-color: var(--theia-activityBar-activeBackground, rgba(255,255,255,0.15));
+  background-color: color-mix(in srgb, var(--theia-foreground), transparent 85%);
 }
 
 /* ============================================================================
@@ -204,7 +204,7 @@ button.theia-button:active {
    Status Bar
    ============================================================================ */
 #theia-statusBar {
-  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -1px 3px var(--theia-scrollbar-shadow);
 }
 
 #theia-statusBar .area .element {
@@ -215,6 +215,24 @@ button.theia-button:active {
 
 #theia-statusBar .area .element.hasCommand:hover {
   background-color: var(--theia-statusBarItem-hoverBackground);
+}
+
+/* ============================================================================
+   Top Panel / Menubar Logo
+   ============================================================================ */
+#theia-top-panel {
+    display: flex;
+    align-items: center;
+}
+
+#theia-top-panel #theia\:icon {
+    width: 24px;
+    height: 24px;
+    margin: 0 8px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ============================================================================
@@ -455,7 +473,7 @@ input[type="radio"]:checked {
   background: linear-gradient(90deg, 
     var(--theia-progressBar-background) 0%, 
     var(--theia-progressBar-background) 70%,
-    rgba(243, 117, 36, 0.5) 100%
+    color-mix(in srgb, var(--theia-focusBorder), transparent 50%) 100%
   );
   animation: progress-shimmer 2s infinite;
 }
@@ -480,14 +498,14 @@ input[type="radio"]:checked {
 .monaco-editor-hover,
 .monaco-hover {
   border-radius: var(--nuke-radius-md);
-  box-shadow: var(--nuke-shadow-lg);
+  box-shadow: var(--theia-scrollbar-shadow);
 }
 
 /* ============================================================================
    Animated transitions for panels
    ============================================================================ */
 .lm-DockPanel-overlay {
-  background: rgba(243, 117, 36, 0.15);
+  background: color-mix(in srgb, var(--theia-focusBorder), transparent 85%);
   border: 2px dashed var(--theia-focusBorder);
   border-radius: var(--nuke-radius-md);
 }
@@ -535,8 +553,8 @@ a:focus-visible,
 
 /* Primary Commit Button */
 .theia-scm-action-button {
-  background: var(--theia-button-background, #f37524) !important;
-  color: var(--theia-button-foreground, #ffffff) !important;
+  background: var(--theia-button-background) !important;
+  color: var(--theia-button-foreground) !important;
   border: none !important;
   padding: 8px 16px !important;
   font-weight: 500 !important;
@@ -550,7 +568,7 @@ a:focus-visible,
 }
 
 .theia-scm-action-button:hover {
-  background: var(--theia-button-hoverBackground, #f5a623) !important;
+  background: var(--theia-button-hoverBackground) !important;
   transform: translateY(-1px);
 }
 
@@ -565,14 +583,14 @@ a:focus-visible,
 /* Divider between buttons */
 .theia-scm-action-button-divider {
   width: 1px;
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--theia-button-foreground), transparent 80%);
   align-self: stretch;
 }
 
 /* Secondary Button (More Actions) */
 .theia-scm-action-button-secondary {
-  background: var(--theia-button-background, #f37524) !important;
-  color: var(--theia-button-foreground, #ffffff) !important;
+  background: var(--theia-button-background) !important;
+  color: var(--theia-button-foreground) !important;
   border: none !important;
   padding: 8px 10px !important;
   cursor: pointer;
@@ -583,7 +601,7 @@ a:focus-visible,
 }
 
 .theia-scm-action-button-secondary:hover {
-  background: var(--theia-button-hoverBackground, #f5a623) !important;
+  background: var(--theia-button-hoverBackground) !important;
 }
 
 .theia-scm-action-button-secondary .codicon {

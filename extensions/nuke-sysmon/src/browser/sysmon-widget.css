@@ -4,27 +4,34 @@
 
 .sysmon-widget {
     --sysmon-bg-primary: var(--theia-editor-background);
-    --sysmon-bg-card: var(--theia-panel-background, #1e1e1e);
-    --sysmon-bg-elevated: var(--theia-toolbar-background, #2d2d2d);
-    --sysmon-border: var(--theia-panel-border, rgba(128, 128, 128, 0.2));
+    --sysmon-bg-card: var(--theia-editorWidget-background);
+    --sysmon-bg-elevated: var(--theia-editorWidget-background);
+    --sysmon-border: var(--theia-panel-border);
     --sysmon-text-primary: var(--theia-foreground);
     --sysmon-text-secondary: var(--theia-descriptionForeground);
+    
+    /* Adaptable glass effects using color-mix */
+    --sysmon-glass-bg: color-mix(in srgb, var(--theia-foreground), transparent 96%);
+    --sysmon-glass-border: color-mix(in srgb, var(--theia-foreground), transparent 92%);
+    
+    /* Accents - using color-mix with primary theme color where possible, or keeping standard metric colors if preferred */
     --sysmon-accent-cpu: #10b981;
     --sysmon-accent-memory: #3b82f6;
     --sysmon-accent-disk: #8b5cf6;
     --sysmon-accent-network: #f59e0b;
-    --sysmon-warning: #f59e0b;
-    --sysmon-danger: #ef4444;
-    --sysmon-success: #10b981;
-    --sysmon-glass-bg: rgba(255, 255, 255, 0.03);
-    --sysmon-glass-border: rgba(255, 255, 255, 0.08);
-    --sysmon-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --sysmon-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --sysmon-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.5);
-    --sysmon-radius-sm: 8px;
-    --sysmon-radius-md: 12px;
-    --sysmon-radius-lg: 16px;
-    --sysmon-radius-xl: 20px;
+    
+    --sysmon-warning: var(--theia-inputValidation-warningBorder);
+    --sysmon-danger: var(--theia-inputValidation-errorBorder);
+    --sysmon-success: var(--theia-inputValidation-successBorder);
+    
+    --sysmon-shadow-sm: 0 1px 2px var(--theia-scrollbar-shadow);
+    --sysmon-shadow-md: 0 4px 12px var(--theia-scrollbar-shadow);
+    --sysmon-shadow-lg: 0 8px 30px var(--theia-scrollbar-shadow);
+    
+    --sysmon-radius-sm: var(--nuke-radius-sm);
+    --sysmon-radius-md: var(--nuke-radius-md);
+    --sysmon-radius-lg: var(--nuke-radius-lg);
+    --sysmon-radius-xl: var(--nuke-radius-xl);
     
     /* Force overflow visible for scrolling */
     overflow: auto !important;
@@ -210,7 +217,7 @@
 }
 
 .sysmon-metric-card:hover .sysmon-metric-icon svg {
-    color: white;
+    color: #ffffff;
 }
 
 .sysmon-metric-badge {
@@ -386,7 +393,7 @@
     top: calc(100% + 6px);
     right: 0;
     left: 0;
-    background: var(--sysmon-bg-elevated, #2d2d2d);
+    background: var(--sysmon-bg-elevated);
     border: 1px solid var(--sysmon-border);
     border-radius: var(--sysmon-radius-md);
     padding: 8px;
@@ -421,7 +428,7 @@
 }
 
 .sysmon-disk-option.active {
-    background: rgba(139, 92, 246, 0.2);
+    background: color-mix(in srgb, var(--sysmon-accent-disk), transparent 80%);
     border: 1px solid var(--sysmon-accent-disk);
 }
 
@@ -472,12 +479,12 @@
 }
 
 .sysmon-network-icon.download {
-    background: rgba(16, 185, 129, 0.15);
+    background: color-mix(in srgb, var(--sysmon-accent-cpu), transparent 85%);
     color: var(--sysmon-accent-cpu);
 }
 
 .sysmon-network-icon.upload {
-    background: rgba(245, 158, 11, 0.15);
+    background: color-mix(in srgb, var(--sysmon-accent-network), transparent 85%);
     color: var(--sysmon-accent-network);
 }
 
@@ -707,12 +714,12 @@
 }
 
 .sysmon-graph-icon.cpu {
-    background: rgba(16, 185, 129, 0.15);
+    background: color-mix(in srgb, var(--sysmon-accent-cpu), transparent 85%);
     color: var(--sysmon-accent-cpu);
 }
 
 .sysmon-graph-icon.memory {
-    background: rgba(59, 130, 246, 0.15);
+    background: color-mix(in srgb, var(--sysmon-accent-memory), transparent 85%);
     color: var(--sysmon-accent-memory);
 }
 

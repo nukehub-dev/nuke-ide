@@ -102,10 +102,6 @@ tips:
     category: performance
     icon: 🚀
 
-  - text: Use Cardinal's parallel meshes to scale simulations on HPC systems.
-    category: performance
-    icon: 💻
-
   # Cardinal Specific
   - text: Cardinal integrates high-res thermal-hydraulics and radiation feedback.
     category: nuclear

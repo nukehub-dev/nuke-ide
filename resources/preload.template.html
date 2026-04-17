@@ -5,6 +5,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+      /* CSS Variables with hardcoded defaults - can be overridden by JS from localStorage */
+      :root {
+        --theme-accent: #f37524;
+        --theme-accent-rgb: 243, 117, 36;
+        --theme-accent-light: #ff9500;
+        --theme-accent-dark: #f5a623;
+        --theme-accent-glow: rgba(243, 117, 36, 0.5);
+        --theme-background: #1e1e1e;
+        --theme-background-rgb: 30, 30, 30;
+        --theme-foreground: #d4d4d4;
+        --theme-foreground-inverse: #ffffff;
+        --theme-description: #9ca3af;
+      }
+
+      /* Light theme */
+      body.nukeide-light {
+        --theme-accent: #e06010;
+        --theme-accent-rgb: 224, 96, 16;
+        --theme-accent-light: #ff9500;
+        --theme-accent-dark: #f5a623;
+        --theme-accent-glow: rgba(224, 96, 16, 0.5);
+        --theme-background: #ffffff;
+        --theme-foreground: #2c3e50;
+        --theme-foreground-inverse: #ffffff;
+        --theme-description: #5a6c7d;
+      }
+
       * {
         margin: 0;
         padding: 0;
@@ -18,30 +45,185 @@
       }
 
       body {
-        background: #1e1e1e;
-        color: #e8e8e8;
+        background: var(--theme-background);
+        color: var(--theme-foreground);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        transition: background-color 0.3s ease, color 0.3s ease;
       }
 
-      /* Light theme support */
-      body.nukeide-light {
-        background: #ffffff;
-        color: #2c3e50;
+      /* Animated background - Energy Field */
+      .bg-pattern {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+        pointer-events: none;
       }
 
-      body.nukeide-light .loading-status,
-      body.nukeide-light .loading-status {
-        color: #5a6c7d;
+      /* Floating energy orbs */
+      .energy-orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(60px);
+        opacity: 0.5;
+        animation: orb-float 20s ease-in-out infinite;
       }
 
-      body.nukeide-light .progress-text {
-        color: #7f8c8d;
+      .energy-orb:nth-child(1) {
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.4) 0%, transparent 70%);
+        top: -10%;
+        left: -10%;
+        animation-delay: 0s;
+        animation-duration: 25s;
       }
 
-      body.nukeide-light .tip-container {
-        color: #5a6c7d;
-        background: rgba(0, 0, 0, 0.05);
-        border-left-color: #f37524;
+      .energy-orb:nth-child(2) {
+        width: 400px;
+        height: 400px;
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.35) 0%, transparent 70%);
+        top: 40%;
+        right: -20%;
+        animation-delay: -5s;
+        animation-duration: 20s;
+      }
+
+      .energy-orb:nth-child(3) {
+        width: 350px;
+        height: 350px;
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.3) 0%, transparent 70%);
+        bottom: -15%;
+        left: 30%;
+        animation-delay: -10s;
+        animation-duration: 22s;
+      }
+
+      .energy-orb:nth-child(4) {
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.25) 0%, transparent 70%);
+        top: 20%;
+        left: 50%;
+        animation-delay: -15s;
+        animation-duration: 18s;
+      }
+
+      @keyframes orb-float {
+        0%, 100% {
+          transform: translate(0, 0) scale(1);
+        }
+        25% {
+          transform: translate(30px, -40px) scale(1.1);
+        }
+        50% {
+          transform: translate(-20px, 30px) scale(0.95);
+        }
+        75% {
+          transform: translate(-40px, -20px) scale(1.05);
+        }
+      }
+
+      /* Pulse effect on orbs */
+      .energy-orb::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.6) 0%, transparent 60%);
+        transform: translate(-50%, -50%);
+        animation: orb-pulse 6s ease-in-out infinite;
+      }
+
+      @keyframes orb-pulse {
+        0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(1); }
+        50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.2); }
+      }
+
+      /* Particle field */
+      .particles {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .particle {
+        position: absolute;
+        width: 2px;
+        height: 2px;
+        background: rgba(var(--theme-accent-rgb), 0.6);
+        border-radius: 50%;
+        animation: particle-drift 15s linear infinite;
+      }
+
+      .particle:nth-child(1) { left: 10%; top: 20%; animation-delay: 0s; animation-duration: 18s; }
+      .particle:nth-child(2) { left: 20%; top: 80%; animation-delay: -2s; animation-duration: 22s; }
+      .particle:nth-child(3) { left: 30%; top: 40%; animation-delay: -4s; animation-duration: 16s; }
+      .particle:nth-child(4) { left: 40%; top: 60%; animation-delay: -6s; animation-duration: 20s; }
+      .particle:nth-child(5) { left: 50%; top: 10%; animation-delay: -8s; animation-duration: 17s; }
+      .particle:nth-child(6) { left: 60%; top: 90%; animation-delay: -10s; animation-duration: 21s; }
+      .particle:nth-child(7) { left: 70%; top: 30%; animation-delay: -12s; animation-duration: 19s; }
+      .particle:nth-child(8) { left: 80%; top: 70%; animation-delay: -14s; animation-duration: 23s; }
+      .particle:nth-child(9) { left: 90%; top: 50%; animation-delay: -1s; animation-duration: 15s; }
+      .particle:nth-child(10) { left: 15%; top: 55%; animation-delay: -7s; animation-duration: 24s; }
+      .particle:nth-child(11) { left: 25%; top: 15%; animation-delay: -3s; animation-duration: 18s; }
+      .particle:nth-child(12) { left: 85%; top: 25%; animation-delay: -9s; animation-duration: 20s; }
+
+      @keyframes particle-drift {
+        0% {
+          transform: translateY(0) translateX(0);
+          opacity: 0;
+        }
+        10% {
+          opacity: 0.8;
+        }
+        90% {
+          opacity: 0.8;
+        }
+        100% {
+          transform: translateY(-100vh) translateX(50px);
+          opacity: 0;
+        }
+      }
+
+      /* Subtle grid overlay */
+      .grid-overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background-image: 
+          linear-gradient(rgba(var(--theme-accent-rgb), 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(var(--theme-accent-rgb), 0.03) 1px, transparent 1px);
+        background-size: 50px 50px;
+        animation: grid-pulse 8s ease-in-out infinite;
+      }
+
+      @keyframes grid-pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.5; }
+      }
+
+      /* Central glow */
+      .center-glow {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 600px;
+        height: 600px;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.08) 0%, transparent 60%);
+        animation: center-pulse 10s ease-in-out infinite;
+      }
+
+      @keyframes center-pulse {
+        0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+        50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
       }
 
       .spinner-container {
@@ -52,42 +234,44 @@
         height: 100vh;
         width: 100vw;
         position: relative;
+        z-index: 1;
       }
 
       /* Logo Container */
       .logo-wrapper {
         position: relative;
-        width: 180px;
-        height: 180px;
-        margin-bottom: 40px;
+        width: 160px;
+        height: 160px;
+        margin-bottom: 32px;
       }
 
-      /* Animated rings behind logo */
-      .logo-wrapper::before,
-      .logo-wrapper::after {
-        content: '';
+      /* Fusion rings */
+      .logo-ring {
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
         border-radius: 50%;
-        border: 2px solid rgba(243, 117, 36, 0.3);
-        animation: pulse-ring 1s ease-out infinite;
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+        opacity: 0;
+        animation: fusion-ring 2s ease-out infinite;
       }
 
-      .logo-wrapper::after {
-        width: 220px;
-        height: 220px;
-        animation-delay: 0.4s;
-      }
+      .logo-ring:nth-child(1) { width: 70px; height: 70px; animation-delay: 0s; }
+      .logo-ring:nth-child(2) { width: 100px; height: 100px; animation-delay: 0.15s; }
+      .logo-ring:nth-child(3) { width: 130px; height: 130px; animation-delay: 0.3s; }
+      .logo-ring:nth-child(4) { width: 160px; height: 160px; animation-delay: 0.45s; }
 
-      @keyframes pulse-ring {
+      @keyframes fusion-ring {
         0% {
-          transform: translate(-50%, -50%) scale(0.8);
-          opacity: 1;
+          transform: translate(-50%, -50%) scale(0.3);
+          opacity: 0;
+        }
+        20% {
+          opacity: 0.35;
         }
         100% {
-          transform: translate(-50%, -50%) scale(1.3);
+          transform: translate(-50%, -50%) scale(2);
           opacity: 0;
         }
       }
@@ -95,150 +279,139 @@
       .custom-spinner svg {
         width: 100%;
         height: 100%;
-        filter: drop-shadow(0 4px 20px rgba(243, 117, 36, 0.4));
-        animation: logo-spinner 4s infinite ease;
+        filter: drop-shadow(0 0 25px rgba(var(--theme-accent-rgb), 0.5));
+        animation: logo-spinner 8s infinite ease, logo-gradient 6s linear infinite;
       }
+
+      @keyframes logo-gradient {
+        0%, 100% { filter: drop-shadow(0 0 25px rgba(var(--theme-accent-rgb), 0.5)) hue-rotate(0deg); }
+        50% { filter: drop-shadow(0 0 35px rgba(var(--theme-accent-rgb), 0.7)) hue-rotate(15deg); }
+      }
+
       @keyframes logo-spinner {
-        0% {
-          transform: rotate(0deg);
-        }
-        5% {
-          transform: rotate(0deg);
-        }
-        20% {
-          transform: rotate(120deg);
-        }
-        25% {
-          transform: rotate(90deg);
-        }
-        30% {
-          transform: rotate(90deg);
-        }
-        45% {
-          transform: rotate(210deg);
-        }
-        50% {
-          transform: rotate(180deg);
-        }
-        55% {
-          transform: rotate(180deg);
-        }
-        70% {
-          transform: rotate(300deg);
-        }
-        75% {
-          transform: rotate(270deg);
-        }
-        80% {
-          transform: rotate(270deg);
-        }
-        95% {
-          transform: rotate(390deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
+        0% { transform: rotate(0deg); }
+        5% { transform: rotate(0deg); }
+        20% { transform: rotate(240deg); }
+        25% { transform: rotate(180deg); }
+        30% { transform: rotate(180deg); }
+        45% { transform: rotate(420deg); }
+        50% { transform: rotate(360deg); }
+        55% { transform: rotate(360deg); }
+        70% { transform: rotate(600deg); }
+        75% { transform: rotate(540deg); }
+        80% { transform: rotate(540deg); }
+        95% { transform: rotate(780deg); }
+        100% { transform: rotate(720deg); }
       }
 
       /* App Name */
       .app-name {
         font-size: 2.5rem;
         font-weight: 700;
-        letter-spacing: 2px;
-        margin-bottom: 10px;
-        background: linear-gradient(90deg, #f37524, #f5a623);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
-
-      .app-subtitle {
-        font-size: 1rem;
-        color: #8b9dc3;
-        margin-bottom: 40px;
-        letter-spacing: 1px;
-      }
-
-      body.nukeide-light .app-subtitle {
-        color: #6c7a89;
+        letter-spacing: 4px;
+        margin-bottom: 36px;
+        color: var(--theme-accent);
       }
 
       /* Progress Container */
       .progress-container {
-        width: 400px;
+        width: 360px;
         max-width: 80vw;
-        margin-bottom: 20px;
+        margin-bottom: 16px;
       }
 
-      /* Progress Bar Background */
-      .progress-bar-bg {
-        width: 100%;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 2px;
-        overflow: hidden;
+      .progress-track {
         position: relative;
+        height: 8px;
+        background: rgba(var(--theme-accent-rgb), 0.1);
+        border-radius: 10px;
+        overflow: hidden;
       }
 
-      body.nukeide-light .progress-bar-bg {
-        background: rgba(0, 0, 0, 0.1);
-      }
-
-      /* Progress Bar Fill */
       .progress-bar-fill {
+        position: absolute;
+        top: 0;
+        left: 0;
         height: 100%;
         width: 0%;
-        background: linear-gradient(90deg, #f37524, #f5a623);
-        border-radius: 2px;
-        transition: width 0.3s ease;
+        background: linear-gradient(90deg, var(--theme-accent), var(--theme-accent-light), var(--theme-accent-dark));
+        border-radius: 10px;
+        transition: width 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+        box-shadow: 0 0 16px rgba(var(--theme-accent-rgb), 0.5);
       }
 
-      /* Progress Text */
+      .progress-bar-fill::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 40px;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5));
+        border-radius: 10px;
+        animation: pulse-glow 1s ease-in-out infinite;
+      }
+
+      @keyframes pulse-glow {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.8; }
+      }
+
       .progress-info {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-top: 10px;
+        margin-top: 14px;
         font-size: 0.85rem;
       }
 
       .loading-status {
-        color: #8b9dc3;
+        color: var(--theme-description);
         font-weight: 500;
-      }
-
-      body.nukeide-light .loading-status {
-        color: #5a6c7d;
+        letter-spacing: 0.5px;
       }
 
       .progress-text {
-        color: #f37524;
-        font-weight: 600;
-        font-family: 'Consolas', 'Monaco', monospace;
+        color: var(--theme-accent);
+        font-weight: 700;
+        font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        font-size: 0.9rem;
       }
 
-      /* Tip Container */
+      /* Tip Container - bottom centered */
       .tip-container {
         position: absolute;
-        bottom: 8%;
+        bottom: 50px;
         left: 50%;
         transform: translateX(-50%);
-        max-width: 600px;
-        width: 90%;
-        padding: 16px 24px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        border-left: 3px solid #f37524;
+        max-width: 560px;
+        width: 85%;
+        padding: 18px 24px;
+        background: rgba(var(--theme-background), 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 12px;
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
         font-size: 0.9rem;
-        color: #b8c5d6;
-        text-align: left;
-        line-height: 1.5;
+        color: var(--theme-foreground);
+        line-height: 1.6;
         opacity: 0;
-        animation: fade-in-up 0.5s ease forwards;
-        animation-delay: 0.5s;
+        animation: tip-fade-in 0.5s ease forwards;
+        animation-delay: 0.8s;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        z-index: 10;
+        box-shadow: 0 8px 32px rgba(var(--theme-accent-rgb), 0.1); 
       }
 
-      @keyframes fade-in-up {
+      .tip-container:hover {
+        background: rgba(var(--theme-background), 0.9);
+        border-color: rgba(var(--theme-accent-rgb), 0.4);
+        transform: translateX(-50%) translateY(-3px);
+        box-shadow: 0 12px 40px rgba(var(--theme-accent-rgb), 0.15);
+      }
+
+      @keyframes tip-fade-in {
         from {
           opacity: 0;
           transform: translateX(-50%) translateY(20px);
@@ -250,64 +423,118 @@
       }
 
       .tip-label {
-        font-size: 0.75rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.7rem;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #f37524;
-        margin-bottom: 6px;
+        letter-spacing: 1.5px;
+        color: var(--theme-accent);
+        margin-bottom: 8px;
         font-weight: 600;
       }
 
-      /* Version badge */
-      .version-badge {
+      .tip-icon {
+        width: 14px;
+        height: 14px;
+        opacity: 0.8;
+      }
+
+      #tip-content {
+        color: var(--theme-description);
+        transition: opacity 0.3s ease;
+      }
+
+      /* Custom tooltip */
+      .tooltip {
+        position: absolute;
+        top: 50%;
+        right: 100%;
+        transform: translateY(-50%) translateX(-8px);
+        padding: 10px 14px;
+        background: var(--theme-background);
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+        border-radius: 8px;
+        font-size: 0.75rem;
+        color: var(--theme-foreground);
+        white-space: nowrap;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 9999;
+        pointer-events: none;
+        margin-right: 12px;
+      }
+
+      .tooltip::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        right: -5px;
+        transform: translateY(-50%) rotate(45deg);
+        width: 8px;
+        height: 8px;
+        background: var(--theme-background);
+        border-right: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+        border-top: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+        margin-top: -4px;
+      }
+
+      .version-badge-wrapper {
         position: absolute;
         top: 20px;
         right: 20px;
-        padding: 6px 12px;
-        background: rgba(243, 117, 36, 0.2);
-        border: 1px solid rgba(243, 117, 36, 0.4);
+        z-index: 100;
+      }
+
+      .version-badge-wrapper:hover .tooltip {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(-50%) translateX(0);
+      }
+
+      .version-badge-wrapper .version-badge {
+        position: static;
+        padding: 6px 14px;
+        background: rgba(var(--theme-accent-rgb), 0.12);
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
         border-radius: 20px;
-        font-size: 0.75rem;
-        color: #f37524;
+        font-size: 0.7rem;
+        color: var(--theme-accent);
         font-weight: 600;
         letter-spacing: 1px;
         text-decoration: none;
-        transition: all 0.2s ease;
+        transition: all 0.3s ease;
         cursor: pointer;
-        z-index: 1000;
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
       }
 
-      .version-badge:hover,
-      .version-badge:active,
-      .version-badge:visited {
-        background: rgba(243, 117, 36, 0.35);
-        border-color: rgba(243, 117, 36, 0.6);
-        transform: translateY(-1px);
-        color: #f37524;
+      .version-badge-wrapper:hover .version-badge {
+        background: linear-gradient(135deg, var(--theme-accent), var(--theme-accent-light));
+        border-color: transparent;
+        color: var(--theme-foreground-inverse);
+        transform: scale(1.02);
+        box-shadow: 0 8px 24px var(--theme-accent-glow);
+        gap: 6px;
       }
 
-      body.nukeide-light .version-badge {
-        background: rgba(243, 117, 36, 0.1);
-        border-color: rgba(243, 117, 36, 0.3);
+      .version-badge-wrapper .version-icon {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        margin-right: -12px;
+        opacity: 0;
+        transform: translateX(-8px);
+        transition: all 0.3s ease;
       }
 
-      body.nukeide-light .version-badge:hover,
-      body.nukeide-light .version-badge:active,
-      body.nukeide-light .version-badge:visited {
-        background: rgba(243, 117, 36, 0.2);
-        border-color: rgba(243, 117, 36, 0.5);
-        color: #f37524;
-      }
-
-      /* Ensure container maintains background during fade-out */
-      .spinner-container {
-        background: #1e1e1e;
-      }
-      
-      body.nukeide-light .spinner-container,
-      body.theia-light .spinner-container,
-      body.light-theia .spinner-container {
-        background: #ffffff;
+      .version-badge-wrapper:hover .version-icon {
+        opacity: 1;
+        margin-right: 0;
+        transform: translateX(0);
       }
 
       /* Hide any default Theia spinners */
@@ -321,16 +548,18 @@
       /* Responsive */
       @media (max-width: 600px) {
         .logo-wrapper {
-          width: 140px;
-          height: 140px;
+          width: 120px;
+          height: 120px;
         }
+
+        .logo-ring:nth-child(1) { width: 55px; height: 55px; }
+        .logo-ring:nth-child(2) { width: 80px; height: 80px; }
+        .logo-ring:nth-child(3) { width: 105px; height: 105px; }
+        .logo-ring:nth-child(4) { width: 130px; height: 130px; }
 
         .app-name {
           font-size: 1.8rem;
-        }
-
-        .app-subtitle {
-          font-size: 0.8rem;
+          letter-spacing: 2px;
         }
 
         .progress-container {
@@ -338,55 +567,117 @@
         }
 
         .tip-container {
-          font-size: 0.8rem;
+          bottom: 40px;
           padding: 12px 16px;
+          font-size: 0.8rem;
         }
       }
     </style>
   </head>
 
   <body>
+    <!-- Background pattern -->
+    <div class="bg-pattern">
+      <div class="energy-orb"></div>
+      <div class="energy-orb"></div>
+      <div class="energy-orb"></div>
+      <div class="energy-orb"></div>
+      <div class="center-glow"></div>
+      <div class="grid-overlay"></div>
+      <div class="particles">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+      </div>
+    </div>
+
     <script>
-      // Early theme detection to prevent flash of wrong theme
+      // Theme detection from nuke-theme localStorage with colors
+      function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '243, 117, 36';
+      }
+      function setSvgFill(element, color) {
+        if (element) {
+          element.style.fill = color;
+          const children = element.querySelectorAll('*');
+          children.forEach(child => child.style.fill = color);
+        }
+      }
       (function() {
         try {
           const storedTheme = localStorage.getItem('nuke-theme');
           if (storedTheme) {
             const theme = JSON.parse(storedTheme);
-            if (theme.id === 'nukeide-light' || theme.id === 'light' || theme.id === 'light-theia') {
-              document.body.classList.add('nukeide-light');
-            } else {
-              document.body.classList.add('nukeide-dark');
-            }
+            const isLight = theme.id === 'nukeide-light';
+            const accent = isLight ? theme.accentLight : theme.accentDark;
+            const background = isLight ? theme.backgroundLight : theme.backgroundDark;
+            const accentRgb = isLight ? (theme.accentLightRgb || hexToRgb(accent)) : (theme.accentDarkRgb || hexToRgb(accent));
+            document.body.classList.add(isLight ? 'nukeide-light' : 'nukeide-dark');
+            // Apply theme colors as CSS custom properties
+            document.body.style.setProperty('--theme-accent-rgb', accentRgb);
+            document.body.style.setProperty('--theme-accent', accent);
+            document.body.style.setProperty('--theme-accent-light', isLight ? (theme.accentLightLight || '#ff9500') : (theme.accentDarkLight || '#ff9500'));
+            document.body.style.setProperty('--theme-accent-dark', isLight ? (theme.accentLightDark || '#f5a623') : (theme.accentDarkDark || '#f5a623'));
+            document.body.style.setProperty('--theme-accent-glow', `rgba(${accentRgb}, 0.5)`);
+            document.body.style.setProperty('--theme-background-rgb', isLight ? (theme.backgroundLightRgb || '255, 255, 255') : (theme.backgroundDarkRgb || '30, 30, 30'));
+            document.body.style.setProperty('--theme-background', background);
+            document.body.style.setProperty('--theme-foreground', isLight ? theme.foregroundLight : theme.foregroundDark);
+            document.body.style.setProperty('--theme-foreground-inverse', isLight ? theme.foregroundInverseLight : theme.foregroundInverseDark);
+            document.body.style.setProperty('--theme-description', isLight ? '#5a6c7d' : '#9ca3af');
+            // Theme SVG logo
+            setSvgFill(document.querySelector('.custom-spinner svg'), accent);
           } else {
-            // Default to dark if no theme stored
+            // CSS :root defaults will apply - add dark class for light theme override
             document.body.classList.add('nukeide-dark');
           }
         } catch (e) {
-          // Fallback to dark theme
-          document.body.classList.add('nukeide-dark');
+          console.error('[preload] Theme error:', e.message);
+          // CSS :root defaults will apply
         }
       })();
     </script>
-    <a href="{{REPO_URL}}" class="version-badge" target="_blank" title="View source code">v{{VERSION}}</a>
+
+    <div class="version-badge-wrapper">
+      <a href="{{REPO_URL}}" class="version-badge" target="_blank">
+        <svg class="version-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+        </svg>
+        v{{VERSION}}
+      </a>
+      <span class="tooltip">View source code</span>
+    </div>
     
-    <div class="spinner-container">
-      <div class="logo-wrapper">
-        <div class="custom-spinner">
+      <div class="spinner-container">
+        <div class="logo-wrapper">
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="custom-spinner">
           <svg version="1.1" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-            <g transform="matrix(0.7,0,0,0.7,38.4,38.4)" style="fill: #f37524; fill-opacity: 1;">
-              <g fill="#afafaf" fill-rule="nonzero" stroke="none" stroke-width="1" style="mix-blend-mode: normal; fill: #f37524; fill-opacity: 1;">
-                <g transform="matrix(0.25,0,0,0.25,-0.16216,-0.29601)" style="fill: #f37524; fill-opacity: 1;">
-                  <g transform="matrix(3.13459,0,0,3.16815,-1119.1055,-1093.7635)" style="fill: #f37524; fill-opacity: 1;">
-                    <path d="m 385.12,463.48 c -4.44,13.5 -25.32,10.98 -24.58,-4.84 0.29333,-6.28667 1.87,-13.10333 4.73,-20.45 16.22,-41.66 43.4,-67.32 82.87,-86.81 6.57,-3.23 16,-4.4 21.9,0.25 5.87,4.63 5.15,14.67 0.11,19.81 -1.34,1.36667 -3.99667,2.91667 -7.97,4.65 -31.59,13.76 -60.02,40.66 -72.02,72.97 -1.76667,4.77333 -3.44667,9.58 -5.04,14.42 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 580.69,375.81 c -8.55,-5.25 -6.46,-18.71 1.13,-23.07 6.21,-3.57 12.23,-1.85 18.21,1.5 36.82,20.65 69.97,55.47 81.05,96.48 1.62,5.99 0.63,13.94 -4.29,18.16 -6.47,5.53 -16.75,4.78 -20.87,-3.61 -0.83333,-1.69333 -2.21667,-5.51 -4.15,-11.45 -9.63,-29.5 -29.11,-51.99 -55.74,-68.53 -5.10667,-3.16667 -10.22,-6.32667 -15.34,-9.48 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 451.17,494.48 c -14.33,-0.17 -28.77,-0.93 -43.06,-0.06 -0.32667,0.02 -0.47667,-0.13333 -0.45,-0.46 1.7,-19.31 7.65,-39.22 19.23,-54.92 12.16,-16.48 28.66,-31.06 47.76,-38.88 10.7,-4.38667 21.79667,-7.53 33.29,-9.43 0.34,-0.0533 0.50667,0.09 0.5,0.43 l -0.29,44.63 c -0.005,0.35847 -0.29165,0.64934 -0.65,0.66 -2.34,0.0933 -4.6,0.49667 -6.78,1.21 -26.17,8.65 -44.06,28.88 -48.96,56.32 -0.06,0.33333 -0.25667,0.5 -0.59,0.5 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 532.87,436.7 c -0.24916,-0.0528 -0.42553,-0.27537 -0.42,-0.53 l 0.17,-44.11 c 0.007,-0.32 0.17,-0.46667 0.49,-0.44 25.88667,2.45333 47.95,12.80333 66.19,31.05 7.21333,7.22 13.57667,15.11 19.09,23.67 9.72,15.09 12.84,30.4 14.66,48.33 0.04,0.36667 -0.12333,0.53667 -0.49,0.51 -15.1,-1.06 -30.21,-1.27 -45.33,-0.63 -0.35333,0.0133 -0.56,-0.15333 -0.62,-0.5 -1.97,-11.27 -5.31,-22.23 -12.18,-31.28 -10.14667,-13.35333 -24,-22.04333 -41.56,-26.07 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 486.45,544.05 c -29.77,-27.76 -18.47,-74.32 19.6,-86.26 15.79,-4.95 34.04,-0.2 46.42,10.55 19.84,17.25 21.61,44.46 7.24,66.3 -16.4,24.94 -51.06,30.11 -73.26,9.41 z m 39.37,-44.52 c 0,-9.72021 -7.87979,-17.6 -17.6,-17.6 -9.72021,0 -17.6,7.87979 -17.6,17.6 0,9.72021 7.87979,17.6 17.6,17.6 9.72021,0 17.6,-7.87979 17.6,-17.6 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 633.48,518.74 c 0.10004,0.005 0.19375,0.0505 0.25971,0.12588 0.066,0.0754 0.0985,0.17429 0.0903,0.27412 -4.98,56.3 -45.11,97.31 -100.96,104.1 -0.18667,0.02 -0.28,-0.0667 -0.28,-0.26 l -0.12,-45.12 c -4.4e-4,-0.32148 0.21815,-0.60193 0.53,-0.68 28.34,-7.07 48.76,-28.83 52.71,-57.94 0.0342,-0.27655 0.26678,-0.48801 0.55,-0.5 15.74,-0.71333 31.48,-0.71333 47.22,0 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 486.73,617.78 c -43.89,-14.64 -74.82,-51.87 -78.6,-98.46 -0.0267,-0.32 0.12,-0.48333 0.44,-0.49 12.47333,-0.25333 24.95,-0.36667 37.43,-0.34 1.77333,0 3.53667,0.11667 5.29,0.35 0.32667,0.0467 0.50333,0.23 0.53,0.55 2.95,28.92 29.37,51.88 56,58.18 0.25333,0.06 0.38333,0.22333 0.39,0.49 l 0.33,44.69 c 0,0.30667 -0.15,0.42667 -0.45,0.36 -9.55333,-1.99333 -16.67333,-3.77 -21.36,-5.33 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 443.36,660.71 c -35.69,-19.39 -67.56,-50.9 -81.31,-89.23 -1.72,-4.8 -3.6,-10.45 -2.27,-15.38 1.65333,-6.11333 5.62333,-9.5 11.91,-10.16 7.83,-0.82 12,3.87 14.26,10.85 2.92667,9.04 7.81333,18.68 14.66,28.92 16.87,25.23 38.11,40.65 64.92,54.16 15.45,7.78 8.04,27.95 -7.79,25.88 -4.48667,-0.59333 -9.28,-2.27333 -14.38,-5.04 z" style="fill: #f37524; fill-opacity: 1;"/>
-                    <path d="m 587.87,665.74 c -5.5,-0.8 -11.2,-4.91 -12.2,-10.7 -1.66,-9.57 2.87,-13.24 10.96,-17.83 30.8,-17.47 56.29,-41.82 66.53,-76.66 1.46667,-4.97333 2.73,-8.14 3.79,-9.5 3.35,-4.27 8.78,-5.73 14.1,-4.55 14.04,3.14 10.56,17.53 6.89,27.99 -13.54,38.63 -40.24,65.15 -74.67,86.01 -4.92,2.97 -9.83,6.06 -15.4,5.24 z" style="fill: #f37524; fill-opacity: 1;"/>
+            <g transform="matrix(0.7,0,0,0.7,38.4,38.4)" style="fill: var(--theme-accent); fill-opacity: 1;">
+              <g fill="#afafaf" fill-rule="nonzero" stroke="none" stroke-width="1" style="mix-blend-mode: normal; fill: var(--theme-accent); fill-opacity: 1;">
+                <g transform="matrix(0.25,0,0,0.25,-0.16216,-0.29601)" style="fill: var(--theme-accent); fill-opacity: 1;">
+                  <g transform="matrix(3.13459,0,0,3.16815,-1119.1055,-1093.7635)" style="fill: var(--theme-accent); fill-opacity: 1;">
+                    <path d="m 385.12,463.48 c -4.44,13.5 -25.32,10.98 -24.58,-4.84 0.29333,-6.28667 1.87,-13.10333 4.73,-20.45 16.22,-41.66 43.4,-67.32 82.87,-86.81 6.57,-3.23 16,-4.4 21.9,0.25 5.87,4.63 5.15,14.67 0.11,19.81 -1.34,1.36667 -3.99667,2.91667 -7.97,4.65 -31.59,13.76 -60.02,40.66 -72.02,72.97 -1.76667,4.77333 -3.44667,9.58 -5.04,14.42 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 580.69,375.81 c -8.55,-5.25 -6.46,-18.71 1.13,-23.07 6.21,-3.57 12.23,-1.85 18.21,1.5 36.82,20.65 69.97,55.47 81.05,96.48 1.62,5.99 0.63,13.94 -4.29,18.16 -6.47,5.53 -16.75,4.78 -20.87,-3.61 -0.83333,-1.69333 -2.21667,-5.51 -4.15,-11.45 -9.63,-29.5 -29.11,-51.99 -55.74,-68.53 -5.10667,-3.16667 -10.22,-6.32667 -15.34,-9.48 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 451.17,494.48 c -14.33,-0.17 -28.77,-0.93 -43.06,-0.06 -0.32667,0.02 -0.47667,-0.13333 -0.45,-0.46 1.7,-19.31 7.65,-39.22 19.23,-54.92 12.16,-16.48 28.66,-31.06 47.76,-38.88 10.7,-4.3867 21.79667,-7.53 33.29,-9.43 0.34,-0.0533 0.50667,0.09 0.5,0.43 l -0.29,44.63 c -0.005,0.35847 -0.29165,0.64934 -0.65,0.66 -2.34,0.0933 -4.6,0.49667 -6.78,1.21 -26.17,8.65 -44.06,28.88 -48.96,56.32 -0.06,0.33333 -0.25667,0.5 -0.59,0.5 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 532.87,436.7 c -0.24916,-0.0528 -0.42553,-0.27537 -0.42,-0.53 l 0.17,-44.11 c 0.007,-0.32 0.17,-0.46667 0.49,-0.44 25.88667,2.45333 47.95,12.80333 66.19,31.05 7.21333,7.22 13.57667,15.11 19.09,23.67 9.72,15.09 12.84,30.4 14.66,48.33 0.04,0.36667 -0.12333,0.53667 -0.49,0.51 -15.1,-1.06 -30.21,-1.27 -45.33,-0.63 -0.35333,0.0133 -0.56,-0.15333 -0.62,-0.5 -1.97,-11.27 -5.31,-22.23 -12.18,-31.28 -10.14667,-13.35333 -24,-22.04333 -41.56,-26.07 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 486.45,544.05 c -29.77,-27.76 -18.47,-74.32 19.6,-86.26 15.79,-4.95 34.04,-0.2 46.42,10.55 19.84,17.25 21.61,44.46 7.24,66.3 -16.4,24.94 -51.06,30.11 -73.26,9.41 z m 39.37,-44.52 c 0,-9.72021 -7.87979,-17.6 -17.6,-17.6 -9.72021,0 -17.6,7.87979 -17.6,17.6 0,9.72021 7.87979,17.6 17.6,17.6 9.72021,0 17.6,-7.87979 17.6,-17.6 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 633.48,518.74 c 0.10004,0.005 0.19375,0.0505 0.25971,0.12588 0.066,0.0754 0.0985,0.17429 0.0903,0.27412 -4.98,56.3 -45.11,97.31 -100.96,104.1 -0.18667,0.02 -0.28,-0.0667 -0.28,-0.26 l -0.12,-45.12 c -4.4e-4,-0.32148 0.21815,-0.60193 0.53,-0.68 28.34,-7.07 48.76,-28.83 52.71,-57.94 0.0342,-0.27655 0.26678,-0.48801 0.55,-0.5 15.74,-0.71333 31.48,-0.71333 47.22,0 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 486.73,617.78 c -43.89,-14.64 -74.82,-51.87 -78.6,-98.46 -0.0267,-0.32 0.12,-0.48333 0.44,-0.49 12.47333,-0.25333 24.95,-0.36667 37.43,-0.34 1.77333,0 3.53667,0.11667 5.29,0.35 0.32667,0.0467 0.50333,0.23 0.53,0.55 2.95,28.92 29.37,51.88 56,58.18 0.25333,0.06 0.38333,0.22333 0.39,0.49 l 0.33,44.69 c 0,0.30667 -0.15,0.42667 -0.45,0.36 -9.55333,-1.99333 -16.67333,-3.77 -21.36,-5.33 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 443.36,660.71 c -35.69,-19.39 -67.56,-50.9 -81.31,-89.23 -1.72,-4.8 -3.6,-10.45 -2.27,-15.38 1.65333,-6.11333 5.62333,-9.5 11.91,-10.16 7.83,-0.82 12,3.87 14.26,10.85 2.92667,9.04 7.81333,18.68 14.66,28.92 16.87,25.23 38.11,40.65 64.92,54.16 15.45,7.78 8.04,27.95 -7.79,25.88 -4.48667,-0.59333 -9.28,-2.27333 -14.38,-5.04 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
+                    <path d="m 587.87,665.74 c -5.5,-0.8 -11.2,-4.91 -12.2,-10.7 -1.66,-9.57 2.87,-13.24 10.96,-17.83 30.8,-17.47 56.29,-41.82 66.53,-76.66 1.46667,-4.97333 2.73,-8.14 3.79,-9.5 3.35,-4.27 8.78,-5.73 14.1,-4.55 14.04,3.14 10.56,17.53 6.89,27.99 -13.54,38.63 -40.24,65.15 -74.67,86.01 -4.92,2.97 -9.83,6.06 -15.4,5.24 z" style="fill: var(--theme-accent); fill-opacity: 1;"/>
                   </g>
                 </g>
               </g>
@@ -396,10 +687,9 @@
       </div>
 
       <div class="app-name">{{PRODUCT_NAME}}</div>
-      <div class="app-subtitle">Nuclear Engineering IDE</div>
 
       <div class="progress-container">
-        <div class="progress-bar-bg">
+        <div class="progress-track">
           <div class="progress-bar-fill" id="progress-fill"></div>
         </div>
         <div class="progress-info">
@@ -410,8 +700,13 @@
     </div>
 
     <div class="tip-container" id="tip-box">
-      <div class="tip-label">Pro Tip</div>
-      <div id="tip-content">Click anywhere to see another tip!</div>
+      <div class="tip-label">
+        <svg class="tip-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+        </svg>
+        Pro Tip
+      </div>
+      <div id="tip-content">Click anywhere to see another tip</div>
     </div>
 
     <script>
@@ -452,59 +747,55 @@
           loadingStatus.textContent = stage.status;
           currentStage++;
 
-          // Random delay between 200ms and 800ms for realistic feel
-          const delay = Math.random() * 600 + 200;
+          const delay = Math.random() * 500 + 250;
           setTimeout(updateProgress, delay);
         }
       }
 
       function updateTip() {
         const tipContent = document.getElementById('tip-content');
-        if (!tipContent) return; // Guard against null
+        if (!tipContent) return;
         
         currentTipIndex = (currentTipIndex + 1) % tips.length;
         
-        // Fade out
         tipContent.style.opacity = '0';
         tipContent.style.transition = 'opacity 0.3s ease';
         
         setTimeout(() => {
           if (tipContent) {
             tipContent.textContent = tips[currentTipIndex];
-            // Fade in
             tipContent.style.opacity = '1';
           }
         }, 300);
       }
 
       document.addEventListener('DOMContentLoaded', () => {
-        // Set initial tip
         const tipContent = document.getElementById('tip-content');
-        if (tipContent) {
+        if (tipContent && tips.length > 0) {
           tipContent.textContent = tips[currentTipIndex];
         }
         
-        // Start progress animation after DOM is ready
         setTimeout(updateProgress, 500);
-
-        // Cycle tips after DOM is ready
         setInterval(updateTip, TIP_DURATION);
-
-        // Click to change tip
         document.addEventListener('click', updateTip);
         
-        // Auto-hide after 15 seconds max
         setTimeout(() => {
           const spinnerContainer = document.querySelector('.spinner-container');
+          const tipBox = document.getElementById('tip-box');
+          const bgPattern = document.querySelector('.bg-pattern');
+          
           if (spinnerContainer) {
-            // Fade out the spinner container itself (which has proper background)
             spinnerContainer.style.opacity = '0';
             spinnerContainer.style.transition = 'opacity 0.5s ease';
             spinnerContainer.style.pointerEvents = 'none';
-            setTimeout(() => {
-              spinnerContainer.style.display = 'none';
-            }, 500);
+            setTimeout(() => { spinnerContainer.style.display = 'none'; }, 500);
           }
+          if (tipBox) {
+            tipBox.style.opacity = '0';
+            tipBox.style.transition = 'opacity 0.3s ease';
+            setTimeout(() => { tipBox.style.display = 'none'; }, 300);
+          }
+          if (bgPattern) bgPattern.style.display = 'none';
         }, 15000);
       });
     </script>

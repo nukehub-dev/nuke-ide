@@ -4,8 +4,9 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-export { Logo, LogoSvgInner } from './logo';
-export type { LogoProps } from './logo';
-export { Tooltip, useTooltip } from './tooltip';
-export { ColorPicker } from './color-picker';
-export type { ColorPickerProps } from './color-picker';
+export * from './dark';
+export * from './light';
+export * from './blue-dark';
+export * from './blue-light';
+export * from './red-dark';
+export * from './red-light';

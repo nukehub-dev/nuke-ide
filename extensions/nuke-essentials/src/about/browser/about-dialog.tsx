@@ -22,6 +22,7 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import { VSCODE_DEFAULT_API_VERSION } from '@theia/plugin-ext-vscode/lib/common/plugin-vscode-types';
 import { codicon } from '@theia/core/lib/browser';
+import { Logo } from '../../theme/browser/components';
 
 @injectable()
 export class NukeAboutDialog extends AboutDialog {
@@ -71,6 +72,7 @@ export class NukeAboutDialog extends AboutDialog {
         return (
             <div className="about-header">
                 <div className="about-logo">
+                    <Logo />
                 </div>
 
                 <div className="about-title-section">

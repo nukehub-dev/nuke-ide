@@ -3,18 +3,19 @@
    ============================================================================ */
 
 .nuke-tooltip {
-    background: var(--theia-tooltip-background, #252526);
-    color: var(--theia-tooltip-foreground, #cccccc);
-    padding: 6px 10px;
-    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-editorWidget-foreground);
+    padding: 6px 12px;
+    border-radius: var(--nuke-radius-md);
     font-size: 12px;
     font-family: var(--theia-ui-font-family);
     white-space: nowrap;
     pointer-events: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    border: 1px solid var(--theia-panel-border, #3c3c3c);
+    box-shadow: 0 4px 12px var(--theia-scrollbar-shadow);
+    border: 1px solid color-mix(in srgb, var(--theia-panel-border), transparent 50%);
     animation: tooltip-fade-in 0.15s ease-out;
     transform: translate(-50%, -100%);
+    backdrop-filter: blur(4px);
 }
 
 .nuke-tooltip-bottom {
@@ -99,7 +100,7 @@
     left: 50%;
     transform: translateX(-50%);
     border-width: 5px 5px 0;
-    border-color: var(--theia-tooltip-background, #252526) transparent transparent transparent;
+    border-color: var(--theia-editorWidget-background) transparent transparent transparent;
 }
 
 .nuke-tooltip-bottom::after {
@@ -107,7 +108,7 @@
     left: 50%;
     transform: translateX(-50%);
     border-width: 0 5px 5px;
-    border-color: transparent transparent var(--theia-tooltip-background, #252526) transparent;
+    border-color: transparent transparent var(--theia-editorWidget-background) transparent;
 }
 
 .nuke-tooltip-left::after {
@@ -115,7 +116,7 @@
     top: 50%;
     transform: translateY(-50%);
     border-width: 5px 0 5px 5px;
-    border-color: transparent transparent transparent var(--theia-tooltip-background, #252526);
+    border-color: transparent transparent transparent var(--theia-editorWidget-background);
 }
 
 .nuke-tooltip-right::after {
@@ -123,7 +124,7 @@
     top: 50%;
     transform: translateY(-50%);
     border-width: 5px 5px 5px 0;
-    border-color: transparent var(--theia-tooltip-background, #252526) transparent transparent;
+    border-color: transparent var(--theia-editorWidget-background) transparent transparent;
 }
 
 /* ============================================================================
@@ -142,10 +143,10 @@
     padding: 4px 10px;
     background: var(--theia-input-background);
     border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
+    border-radius: var(--nuke-radius-sm);
     cursor: pointer;
     font-size: 12px;
-    transition: all 150ms;
+    transition: all var(--nuke-transition-fast);
 }
 
 .nuke-color-picker-trigger:hover {
@@ -178,8 +179,8 @@
     z-index: 10000;
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    border-radius: var(--nuke-radius-lg);
+    box-shadow: 0 8px 24px var(--theia-scrollbar-shadow);
     padding: 12px;
     width: 320px;
     max-height: 400px;
@@ -207,8 +208,8 @@
 }
 
 .nuke-color-picker-close:hover {
-    background: var(--theia-errorBackground);
-    color: var(--theia-errorForeground);
+    background: var(--theia-button-secondaryHoverBackground);
+    color: var(--theia-foreground);
 }
 
 .nuke-color-groups {
@@ -251,7 +252,7 @@
     transform: scale(1.15);
     z-index: 1;
     border-color: var(--theia-foreground);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--theia-scrollbar-shadow);
 }
 
 .nuke-color-swatch.selected {
@@ -280,18 +281,10 @@
     padding: 6px 8px;
     background: var(--theia-input-background);
     border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
+    border-radius: var(--nuke-radius-sm);
     color: var(--theia-input-foreground);
     font-family: var(--theia-code-font-family);
     font-size: 12px;
-}
-
-.nuke-color-hex-input input.valid {
-    border-color: var(--theia-inputValidation-successBorder);
-}
-
-.nuke-color-hex-input input.invalid {
-    border-color: var(--theia-inputValidation-errorBorder);
 }
 
 .nuke-color-hex-input input:focus {
