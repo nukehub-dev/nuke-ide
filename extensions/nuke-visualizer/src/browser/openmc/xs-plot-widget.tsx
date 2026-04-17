@@ -36,7 +36,6 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 /** Mode for XS plotting */
 type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
@@ -475,8 +474,8 @@ export class XSPlotWidget extends ReactWidget {
                                 padding: '20px',
                                 textAlign: 'center'
                             }}>
-                                <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>
-                                    <span className={codicon('graph-line')} />
+                                <div style={{ marginBottom: '16px', opacity: 0.5 }}>
+                                    <span style={{ fontSize: '48px' }} className={codicon('graph-line')} />
                                 </div>
                                 <p>No cross-section data loaded</p>
                                 <p style={{ fontSize: '12px', marginBottom: '16px' }}>

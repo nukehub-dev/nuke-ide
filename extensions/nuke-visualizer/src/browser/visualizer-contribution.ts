@@ -28,6 +28,17 @@ export const VisualizerCommand = {
     label: 'Open Visualizer'
 };
 
+export namespace NukeVisualizerMenus {
+    export const VISUALIZER = [...NukeMenus.TOOLS, '2_visualizer'];
+
+    export const VISUALIZER_STATEPOINT = [...VISUALIZER, '1_statepoint'];
+    export const VISUALIZER_TALLY = [...VISUALIZER, '2_tally'];
+    export const VISUALIZER_DEPLETION = [...VISUALIZER, '3_depletion'];
+    export const VISUALIZER_GEOMETRY = [...VISUALIZER, '4_geometry'];
+    export const VISUALIZER_MATERIAL = [...VISUALIZER, '5_material'];
+    export const VISUALIZER_PLOT = [...VISUALIZER, '6_plot'];
+}
+
 @injectable()
 export class VisualizerContribution extends AbstractViewContribution<VisualizerWidget> implements OpenHandler, FrontendApplicationContribution {
     readonly id = 'nuke-visualizer.opener';
@@ -66,10 +77,10 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
-        menus.registerMenuAction(NukeMenus.TOOLS, {
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
             commandId: VisualizerCommand.id,
             label: VisualizerCommand.label,
-            order: '5_visualizer'
+            order: '0_main'
         });
     }
 

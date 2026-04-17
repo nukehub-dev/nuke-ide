@@ -19,7 +19,6 @@ import { OpenMCMaterial } from '../../common/visualizer-protocol';
 import { OpenMCService } from './openmc-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './openmc-material-mixer.css';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 export interface OpenMCMaterialMixerProps {
     materials: OpenMCMaterial[];

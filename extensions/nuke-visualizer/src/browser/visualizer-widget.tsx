@@ -18,6 +18,7 @@ import { ReactWidget, Message, CommonCommands } from '@theia/core/lib/browser';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { VisualizerBackendService } from '../common/visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
@@ -25,7 +26,7 @@ import { VisualizerPreferences } from './visualizer-preferences';
 @injectable()
 export class VisualizerWidget extends ReactWidget {
     static readonly ID = 'nuke-visualizer.widget';
-    static readonly LABEL = 'Nuke Visualizer';
+    static readonly LABEL = 'Visualizer';
 
     private static instances: Set<VisualizerWidget> = new Set();
 
@@ -53,6 +54,9 @@ export class VisualizerWidget extends ReactWidget {
 
     @inject(CommandRegistry)
     protected readonly commandRegistry: CommandRegistry;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
 
     @postConstruct()
     protected init(): void {
@@ -157,6 +161,29 @@ export class VisualizerWidget extends ReactWidget {
             @keyframes visualizer-shimmer {
                 0% { background-position: -200% 0; }
                 100% { background-position: 200% 0; }
+            }
+            @keyframes visualizer-float {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-8px); }
+            }
+            @keyframes visualizer-glow {
+                0%, 100% { opacity: 0.6; filter: drop-shadow(0 0 8px rgba(0,0,0,0.1)); }
+                50% { opacity: 1; filter: drop-shadow(0 0 16px rgba(0,127,212,0.3)); }
+            }
+            @keyframes visualizer-scale-in {
+                0% { opacity: 0; transform: scale(0.9); }
+                100% { opacity: 1; transform: scale(1); }
+            }
+            @keyframes visualizer-slide-up {
+                0% { opacity: 0; transform: translateY(20px); }
+                100% { opacity: 1; transform: translateY(0); }
+            }
+            .visualizer-empty-icon {
+                animation: visualizer-float 3s ease-in-out infinite, visualizer-glow 2s ease-in-out infinite;
+            }
+            .visualizer-empty-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             }
         `;
         
@@ -297,17 +324,79 @@ export class VisualizerWidget extends ReactWidget {
                         )}
                         {!isLoading && !isError && !hasWarning && (
                         <div style={{
-                            padding: '24px',
-                            background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.05))',
-                            borderRadius: '8px',
-                            border: '1px solid var(--theia-panel-border)',
-                            animation: 'visualizer-fadeIn 0.3s ease-out'
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '48px 32px',
+                            background: 'var(--theia-editorWidget-background)',
+                            animation: 'visualizer-slide-up 0.5s ease-out',
+                            height: '80%',
+                            width: '80%'
                         }}>
+                            <div className='visualizer-empty-icon' style={{
+                                fontSize: '64px',
+                                marginBottom: '24px',
+                                color: 'var(--theia-foreground)',
+                                opacity: 0.8
+                            }}>
+                                <span className='codicon codicon-symbol-misc' style={{ fontSize: '64px' }} />
+                            </div>
+                            <h3 style={{ 
+                                margin: '0 0 12px 0',
+                                fontSize: '22px',
+                                fontWeight: 600,
+                                color: 'var(--theia-foreground)',
+                                animation: 'visualizer-fadeIn 0.4s ease-out 0.1s both'
+                            }}>No Visualization Loaded</h3>
                             <p style={{ 
-                                margin: 0,
+                                margin: '0 0 24px 0',
                                 fontSize: '14px',
-                                color: 'var(--theia-foreground)'
-                            }}>{this.statusMessage}</p>
+                                color: 'var(--theia-descriptionForeground)',
+                                textAlign: 'center',
+                                maxWidth: '320px',
+                                lineHeight: 1.6,
+                                animation: 'visualizer-fadeIn 0.4s ease-out 0.2s both'
+                            }}>
+                                Open a VTK, DAGMC, or mesh file to visualize geometry and results in interactive 3D
+                            </p>
+                            <button 
+                                className='visualizer-empty-button'
+                                style={{ 
+                                    padding: '12px 24px',
+                                    backgroundColor: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
+                                    border: '1px solid var(--theia-button-border)',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    fontSize: '14px',
+                                    fontWeight: 500,
+                                    transition: 'all 0.2s ease',
+                                    animation: 'visualizer-scale-in 0.3s ease-out 0.3s both'
+                                }}
+                                onClick={() => this.browseAndOpen()}
+                            >
+                                <span className='codicon codicon-folder-opened' />
+                                Browse Files
+                            </button>
+                            <div style={{
+                                marginTop: '32px',
+                                padding: '16px 20px',
+                                background: 'rgba(100,100,100,0.05)',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                color: 'var(--theia-descriptionForeground)',
+                                animation: 'visualizer-fadeIn 0.4s ease-out 0.4s both',
+                                border: '1px solid var(--theia-panel-border)'
+                            }}>
+                                <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats:</div>
+                                <div>VTK, VTU, VTP, VTS, VTR, PVTU, PFTP</div>
+                                <div>H5M (DAGMC)</div>
+                                <div>STL, PLY, OBJ (meshes)</div>
+                            </div>
                         </div>
                         )}
                         {this.currentFile && (
@@ -532,6 +621,27 @@ export class VisualizerWidget extends ReactWidget {
     private openSettings(): void {
         // Open the preferences view
         this.commandRegistry.executeCommand(CommonCommands.OPEN_PREFERENCES.id);
+    }
+
+    private async browseAndOpen(): Promise<void> {
+        const fileUri = await this.fileDialogService.showOpenDialog({
+            title: 'Select File to Visualize',
+            openLabel: 'Open',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'VTK Files': ['vtk', 'vtu', 'vtp', 'vts', 'vtr', 'pvtu', 'pvtp'],
+                'DAGMC Files': ['h5m'],
+                'Mesh Files': ['stl', 'ply', 'obj'],
+                'All Files': ['*']
+            }
+        });
+        
+        if (fileUri) {
+            const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+            await this.loadFile(uri);
+        }
     }
 
     private async convertAndLoadDAGMC(h5mPath: string, loadId: number): Promise<void> {

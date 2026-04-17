@@ -26,7 +26,6 @@ import './openmc-geometry-tree.css';
 import { OpenMCService } from './openmc-service';
 import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCGeometry3DWidget extends ReactWidget {

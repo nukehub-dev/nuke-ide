@@ -24,7 +24,7 @@ import { OpenMCService } from './openmc-service';
 import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../common/visualizer-protocol';
 import { OpenMCMaterialMixer } from './openmc-material-mixer';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
+import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 @injectable()
 export class OpenMCMaterialExplorerWidget extends ReactWidget {
@@ -492,10 +492,10 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     render(): React.ReactNode {
         if (this.isLoading) {
             return (
-                <div className='material-explorer-container loading'>
-                    <i className='fa fa-spinner fa-spin'></i>
-                    <p>Loading materials...</p>
-                </div>
+                <>
+                    <LoadingAnimations />
+                    <SimpleLoadingSpinner message='Loading materials...' />
+                </>
             );
         }
 

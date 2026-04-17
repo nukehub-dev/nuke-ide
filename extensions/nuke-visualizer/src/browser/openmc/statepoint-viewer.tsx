@@ -610,7 +610,7 @@ const handlers = {
                         <div className="overview-metric-card overview-metric-card--accent">
                             <div className="overview-metric-header">
                                 <div className="overview-metric-icon overview-metric-icon--source">
-                                    <i className={codicon('debug-breakpoint-log')}></i>
+                                    <i className={codicon('activate-breakpoints')}></i>
                                 </div>
                                 <div className="overview-metric-badge">Source Bank</div>
                             </div>

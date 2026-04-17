@@ -55,6 +55,7 @@ import { OpenMCStatepointViewerWidget, StatepointTallySelection } from './statep
 import { PlotlyService } from '../plotly/plotly-service';
 import { PlotlyUtils } from '../plotly/plotly-utils';
 import { PlotlyFigure } from '../../common/visualizer-protocol';
+import { NukeVisualizerMenus } from '../visualizer-contribution';
 
 export namespace OpenMCCommands {
     export const OPENMC_CATEGORY = 'OpenMC';
@@ -62,7 +63,7 @@ export namespace OpenMCCommands {
     export const LOAD_STATEPOINT: Command = {
         id: 'openmc.load-statepoint',
         category: OPENMC_CATEGORY,
-        label: 'Load Statepoint File...',
+        label: 'View Statepoint...',
         iconClass: 'codicon codicon-database'
     };
     
@@ -77,7 +78,7 @@ export namespace OpenMCCommands {
         id: 'openmc.visualize-source',
         category: OPENMC_CATEGORY,
         label: 'Visualize Source Distribution...',
-        iconClass: 'codicon codicon-debug-breakpoint-log'
+        iconClass: 'codicon codicon-activate-breakpoints'
     };
     
     export const OVERLAY_TALLY_ON_GEOMETRY: Command = {
@@ -94,17 +95,10 @@ export namespace OpenMCCommands {
         iconClass: 'codicon codicon-info'
     };
     
-    export const DISCOVER_OPENMC_FILES: Command = {
-        id: 'openmc.discover-files',
-        category: OPENMC_CATEGORY,
-        label: 'Discover OpenMC Files in Directory...',
-        iconClass: 'codicon codicon-search'
-    };
-    
     export const PLOT_CROSS_SECTIONS: Command = {
         id: 'openmc.plot-xs',
         category: OPENMC_CATEGORY,
-        label: 'Plot Cross-Sections...',
+        label: 'Plot Cross-Sections',
         iconClass: 'codicon codicon-graph-line'
     };
     
@@ -140,7 +134,7 @@ export namespace OpenMCCommands {
         id: 'openmc.view-materials',
         category: OPENMC_CATEGORY,
         label: 'View Materials...',
-        iconClass: 'codicon codicon-flask'
+        iconClass: 'codicon codicon-symbol-variable'
     };
     
     export const CHECK_OVERLAPS: Command = {
@@ -400,10 +394,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             isEnabled: () => this.openmcService.getCurrentStatepoint() !== null
         });
 
-        registry.registerCommand(OpenMCCommands.DISCOVER_OPENMC_FILES, {
-            execute: () => this.discoverFilesCommand()
-        });
-
         registry.registerCommand(OpenMCCommands.PLOT_CROSS_SECTIONS, {
             execute: () => this.plotXSCommand()
         });
@@ -488,132 +478,111 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     registerMenus(registry: MenuModelRegistry): void {
-        // Register OpenMC Visualizer menu in the menubar
-        registry.registerMenuAction(['menubar', 'openmc_visualizer'], {
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER, 'Nuke Visualizer');
+
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_STATEPOINT, 'Statepoint');
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_TALLY, 'Tally');
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_DEPLETION, 'Depletion');
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_GEOMETRY, 'Geometry');
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_MATERIAL, 'Material');
+        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_PLOT, 'Cross Sections');
+
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_STATEPOINT, {
             commandId: OpenMCCommands.LOAD_STATEPOINT.id,
-            label: 'OpenMC Visualizer',
-            order: '10'
+            order: 'a'
         });
 
-        // Add items to OpenMC menu
-        registry.registerMenuAction(['openmc_visualizer'], {
-            commandId: OpenMCCommands.LOAD_STATEPOINT.id,
-            order: '1'
-        });
-
-        registry.registerMenuAction(['openmc_visualizer'], {
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
             commandId: OpenMCCommands.VISUALIZE_TALLY.id,
-            order: '2'
+            order: 'a'
         });
 
-        registry.registerMenuAction(['openmc_visualizer'], {
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
             commandId: OpenMCCommands.VISUALIZE_SOURCE.id,
-            order: '3'
+            order: 'b'
         });
 
-        registry.registerMenuAction(['openmc_visualizer'], {
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
             commandId: OpenMCCommands.OVERLAY_TALLY_ON_GEOMETRY.id,
-            order: '4'
+            order: 'c'
         });
 
-        registry.registerMenuAction(['openmc_visualizer'], {
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
             commandId: OpenMCCommands.SHOW_TALLY_INFO.id,
-            order: '5'
+            order: 'd'
         });
 
-        registry.registerMenuAction(['openmc_visualizer'], {
-            commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
-            order: '6'
-        });
-        
-        registry.registerMenuAction(['openmc_visualizer'], {
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_DEPLETION, {
             commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
-            order: '7'
+            order: 'a'
         });
-        
-        registry.registerMenuAction(['openmc_visualizer'], {
+
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_DEPLETION, {
             commandId: OpenMCCommands.COMPARE_DEPLETION.id,
-            order: '8'
-        });
-        
-        registry.registerMenuAction(['openmc_visualizer'], {
-            commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
-            order: '9'
-        });
-        
-        registry.registerMenuAction(['openmc_visualizer'], {
-            commandId: OpenMCCommands.VIEW_MATERIALS.id,
-            order: '10'
-        });
-        
-        registry.registerMenuAction(['openmc_visualizer'], {
-            commandId: OpenMCCommands.CHECK_OVERLAPS.id,
-            order: '11'
+            order: 'b'
         });
 
-        // Add context menu for OpenMC files
-        registry.registerMenuAction(['explorer-context-menu', 'openmc'], {
-            commandId: OpenMCCommands.LOAD_STATEPOINT.id,
-            when: 'resourceExtname == .h5',
-            order: '1'
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_GEOMETRY, {
+            commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
+            order: 'a'
         });
-        
-        // Add context menu for depletion files (top level for better visibility)
-        registry.registerMenuAction(['explorer-context-menu'], {
-            commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
-            when: 'resourceFilename =~ /depletion.*\\.h5/',
-            order: '2_openmc_depletion'
-        });
-        
-        // Add compare option to context menu for depletion files (top level)
-        registry.registerMenuAction(["explorer-context-menu"], {
-            commandId: OpenMCCommands.COMPARE_DEPLETION_WITH.id,
-            when: "resourceFilename =~ /depletion.*\\.h5/",
-            order: "3_openmc_compare"
-        });
-        
-        // Add context menu for materials.xml files
-        registry.registerMenuAction(['explorer-context-menu'], {
-            commandId: OpenMCCommands.VIEW_MATERIALS.id,
-            when: "resourceFilename == materials.xml",
-            order: '4_openmc_materials'
-        });
-        
-        // Add context menu for geometry.xml files
-        registry.registerMenuAction(['explorer-context-menu'], {
+
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_GEOMETRY, {
             commandId: OpenMCCommands.CHECK_OVERLAPS.id,
-            when: "resourceFilename == geometry.xml",
-            order: '5_openmc_overlaps'
+            order: 'b'
         });
-    }
+
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_MATERIAL, {
+            commandId: OpenMCCommands.VIEW_MATERIALS.id,
+            order: 'a'
+        });
+
+        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_PLOT, {
+            commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
+            order: 'a'
+        });
+
+            }
 
     private async loadStatepointCommand(): Promise<void> {
+        let files = await this.getStatepointFiles();
+        
+        const options: QuickPickValue<string>[] = [
+            { value: '__browse__', label: '$(folder-opened) Browse...', description: 'Select statepoint file from any location' }
+        ];
+        
+        if (files.length > 0) {
+            options.push({ type: 'separator', label: 'Workspace Files' } as any, ...files);
+        }
+
         const uri = await this.quickInput.showQuickPick(
-            await this.getH5Files(),
+            options,
             {
                 title: 'Select OpenMC Statepoint File',
-                placeholder: 'Choose a statepoint.h5 file'
+                placeholder: 'Choose a statepoint.[values].h5 file'
             }
         );
 
         if (uri) {
-            // Show loading progress
-            const progress = await this.messageService.showProgress({
-                text: 'Opening tally tree...',
-                options: { cancelable: false }
-            });
-
-            try {
-                await this.openmcService.loadStatepoint(new URI(uri.value));
+            if (uri.value === '__browse__') {
+                const fileUri = await this.fileDialogService.showOpenDialog({
+                    title: 'Select Statepoint File',
+                    openLabel: 'Open',
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    filters: {
+                        'HDF5 Files': ['h5'],
+                        'All Files': ['*']
+                    }
+                });
                 
-                // Show tally tree directly
-                const tallies = this.openmcService.getCurrentTallies();
-                if (tallies.length > 0) {
-                    progress.report({ message: 'Opening tally tree...' });
-                    await this.showTallyTree(new URI(uri.value));
+                if (fileUri) {
+                    const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                    await this.openStatepointViewer(uri);
                 }
-            } finally {
-                progress.cancel();
+            } else {
+                await this.openStatepointViewer(new URI(uri.value));
             }
         }
     }
@@ -792,27 +761,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         // Show info in a message or output channel
         // For now, use a simple notification
         console.log(lines.join('\n'));
-    }
-
-    private async discoverFilesCommand(): Promise<void> {
-        const workspaceRoots = this.workspaceService.tryGetRoots();
-        if (workspaceRoots.length === 0) {
-            return;
-        }
-
-        for (const root of workspaceRoots) {
-            const rootUri = new URI((root as any).resource || root);
-            const files = await this.openmcService.discoverFilesInDirectory(rootUri);
-            
-            const parts: string[] = [`Directory: ${rootUri.toString()}`];
-            if (files.geometry) parts.push(`  Geometry: ${files.geometry.path.base}`);
-            if (files.statepoint) parts.push(`  Statepoint: ${files.statepoint.path.base}`);
-            if (files.source) parts.push(`  Source: ${files.source.path.base}`);
-
-            if (parts.length > 1) {
-                console.log(parts.join('\n'));
-            }
-        }
     }
 
     private async showTallyTree(statepointUri: URI, geometryUri?: URI): Promise<void> {
@@ -1311,46 +1259,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         } catch (error) {
             this.messageService.error(`Failed to overlay tally: ${error}`);
         }
-    }
-
-    private async getH5Files(): Promise<QuickPickValue<string>[]> {
-        const workspace = this.workspaceService.workspace;
-        if (!workspace) {
-            return [];
-        }
-
-        const files: QuickPickValue<string>[] = [];
-        
-        try {
-            const rootUri = workspace.resource;
-            
-            const collectH5Files = async (uri: URI): Promise<void> => {
-                try {
-                    const dirStat = await this.fileService.resolve(uri);
-                    if (dirStat.children) {
-                        for (const child of dirStat.children) {
-                            if (child.isFile && child.name.endsWith('.h5')) {
-                                files.push({
-                                    value: child.resource.toString(),
-                                    label: child.name,
-                                    description: this.labelProvider.getLongName(child.resource)
-                                });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
-                                await collectH5Files(child.resource);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore errors for individual directories
-                }
-            };
-
-            await collectH5Files(rootUri);
-        } catch (e) {
-            console.error('[OpenMC] Failed to search for H5 files:', e);
-        }
-
-        return files;
     }
 
     private async getStatepointFiles(): Promise<QuickPickValue<string>[]> {
@@ -1984,7 +1892,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         const widget = await this.getOrCreateXSPlotWidget();
         
         if (!widget.isAttached) {
-            await this.shell.addWidget(widget, { area: 'right' });
+            await this.shell.addWidget(widget, { area: 'main' });
         }
         
         await this.shell.activateWidget(widget.id);
@@ -2005,8 +1913,8 @@ export class XSPlotViewContribution extends AbstractViewContribution<XSPlotWidge
             widgetId: XSPlotWidget.ID,
             widgetName: XSPlotWidget.LABEL,
             defaultWidgetOptions: {
-                area: 'right',
-                rank: 200
+                area: 'main',
+                rank: 0
             },
             toggleCommandId: 'xsPlot.toggle',
             toggleKeybinding: 'ctrlcmd+shift+x'
@@ -2018,7 +1926,7 @@ export class XSPlotViewContribution extends AbstractViewContribution<XSPlotWidge
         
         commands.registerCommand({
             id: 'xsPlot.open',
-            label: 'OpenMC: Open Cross-Section Plot'
+            label: 'Open Cross-Section Plot'
         }, {
             execute: () => this.openView({ reveal: true, activate: true })
         });

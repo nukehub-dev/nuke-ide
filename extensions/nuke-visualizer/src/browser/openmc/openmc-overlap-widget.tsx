@@ -26,7 +26,6 @@ import { OpenMCService } from './openmc-service';
 import { OpenMCOverlap } from '../../common/visualizer-protocol';
 import './openmc-overlap-widget.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 
 @injectable()
 export class OpenMCOverlapWidget extends ReactWidget {

@@ -14,7 +14,6 @@
     font-family: var(--theia-ui-font-family);
 }
 
-.material-explorer-container.loading,
 .material-explorer-container.error {
     align-items: center;
     justify-content: center;
@@ -23,7 +22,6 @@
     padding: 40px;
 }
 
-.material-explorer-container.loading i,
 .material-explorer-container.error i {
     font-size: 3em;
     opacity: 0.5;

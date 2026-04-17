@@ -29,7 +29,6 @@ import {
     DepletionNuclidePreset
 } from '../../common/visualizer-protocol';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 import { PlotlyComponent } from '../plotly/plotly-component';
 import { OpenMCService } from './openmc-service';
 import URI from '@theia/core/lib/common/uri';

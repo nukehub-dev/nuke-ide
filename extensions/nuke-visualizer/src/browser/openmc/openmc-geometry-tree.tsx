@@ -34,7 +34,6 @@ import {
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 import { SimpleLoadingSpinner, EmptyState, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 export interface GeometryView3DRequest {

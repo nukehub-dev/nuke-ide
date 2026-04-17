@@ -11,10 +11,10 @@
   --nuke-focus-glow-strong: 0 0 0 4px color-mix(in srgb, var(--theia-focusBorder), transparent 65%);
   
   /* Card shadows */
-  --nuke-shadow-sm: 0 1px 3px var(--theia-scrollbar-shadow);
-  --nuke-shadow-md: 0 4px 6px var(--theia-scrollbar-shadow);
-  --nuke-shadow-lg: 0 10px 15px var(--theia-scrollbar-shadow);
-  --nuke-shadow-xl: 0 20px 25px var(--theia-scrollbar-shadow);
+  --nuke-shadow-sm: 0 1px 3px var(--theia-widget-shadow);
+  --nuke-shadow-md: 0 4px 6px var(--theia-widget-shadow);
+  --nuke-shadow-lg: 0 10px 15px var(--theia-widget-shadow);
+  --nuke-shadow-xl: 0 20px 25px var(--theia-widget-shadow);
   
   /* Smooth transitions */
   --nuke-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -240,7 +240,7 @@ button.theia-button:active {
    ============================================================================ */
 .lm-Menu {
   border-radius: var(--nuke-radius-md);
-  box-shadow: var(--nuke-shadow-lg);
+  box-shadow: var(--nuke-shadow-md);
 }
 
 .lm-Menu-item {
