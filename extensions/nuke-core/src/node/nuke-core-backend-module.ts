@@ -28,10 +28,17 @@ import {
     NukeCoreBackendServiceInterface
 } from '../common/nuke-core-protocol';
 import { NukeCoreBackendServiceImpl } from './nuke-core-backend-service';
+import { EnvironmentService, PackageService, HealthService } from './services';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     console.log('[NukeCore] Initializing backend module...');
 
+    // Services
+    bind(EnvironmentService).toSelf().inSingletonScope();
+    bind(PackageService).toSelf().inSingletonScope();
+    bind(HealthService).toSelf().inSingletonScope();
+
+    // Main backend service
     bind(NukeCoreBackendServiceImpl).toSelf().inSingletonScope();
     bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService).toService(NukeCoreBackendServiceImpl);
 

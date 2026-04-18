@@ -19,7 +19,7 @@ import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegist
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/output-channel';
-import { NukeCoreService } from './nuke-core-service';
+import { NukeCoreService } from './services/nuke-core-service';
 import { PythonEnvironment } from '../common/nuke-core-protocol';
 import { NukeMenus } from './nuke-core-menus';
 

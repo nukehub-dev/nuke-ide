@@ -22,9 +22,9 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { CommonCommands } from '@theia/core/lib/browser/common-commands';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
-import { NukeCoreService } from './nuke-core-service';
-import { PythonEnvironment, NukeCoreStatusBarVisibility } from '../common/nuke-core-protocol';
-import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
+import { NukeCoreService } from '../services/nuke-core-service';
+import { PythonEnvironment, NukeCoreStatusBarVisibility } from '../../common/nuke-core-protocol';
+import { NukeCoreVisibilityService } from '../services/nuke-core-visibility-service';
 
 interface EnvironmentQuickPickItem extends QuickPickItem {
     value?: PythonEnvironment | 'settings' | 'refresh';

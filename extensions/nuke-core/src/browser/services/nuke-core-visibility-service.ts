@@ -25,7 +25,7 @@
 
 import { injectable } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common';
-import { NukeCoreStatusBarVisibilityService } from '../common/nuke-core-protocol';
+import { NukeCoreStatusBarVisibilityService } from '../../common/nuke-core-protocol';
 
 @injectable()
 export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilityService {

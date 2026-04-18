@@ -47,7 +47,7 @@ import {
     ConfigValidationResult,
     EnvironmentStatus,
     NukeCoreStatusBarVisibility
-} from '../common/nuke-core-protocol';
+} from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
 
 @injectable()

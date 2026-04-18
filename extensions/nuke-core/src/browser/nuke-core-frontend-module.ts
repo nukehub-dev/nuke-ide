@@ -31,12 +31,12 @@ import {
     NukeCoreStatusBarVisibility,
     NUKE_CORE_BACKEND_PATH
 } from '../common/nuke-core-protocol';
-import { NukeCoreService } from './nuke-core-service';
-import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
+import { NukeCoreService } from './services/nuke-core-service';
+import { NukeCoreVisibilityService } from './services/nuke-core-visibility-service';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
-import { NukeCoreStatusBarContribution } from './nuke-core-status-bar';
+import { NukeCoreStatusBarContribution } from './contributions/status-bar-contribution';
 import { NukeCoreCommandContribution } from './nuke-core-commands';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
@@ -77,9 +77,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     console.log('[NukeCore] Frontend module initialized');
 });
 
-export { NukeCoreService };
+export { NukeCoreService } from './services/nuke-core-service';
 export * from './nuke-core-menus';
 export { bindNukeCorePreferences } from './nuke-core-preferences';
-export { NukeCoreStatusBarContribution } from './nuke-core-status-bar';
-export { NukeCoreVisibilityService } from './nuke-core-visibility-service';
+export { NukeCoreStatusBarContribution } from './contributions/status-bar-contribution';
+export { NukeCoreVisibilityService } from './services/nuke-core-visibility-service';
 export { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from '../common/nuke-core-protocol';

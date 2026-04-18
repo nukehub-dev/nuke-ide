@@ -7,8 +7,8 @@
 // Common protocol exports
 export * from './nuke-core-protocol';
 
-// Re-export browser service for convenience
-export { NukeCoreService } from '../browser/nuke-core-service';
-
 // Re-export backend service interface
 export { NukeCoreBackendServiceInterface, NukeCoreBackendService } from './nuke-core-protocol';
+
+// Re-export browser service (for backward compatibility)
+export { NukeCoreService } from '../browser/services/nuke-core-service';
