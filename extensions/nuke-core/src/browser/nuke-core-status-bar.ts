@@ -135,12 +135,26 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
 
         const env = status.environment;
         if (env) {
+            // Get the configured environment name from preferences (not the fallback)
+            const configuredCondaEnv = this.preferences.get('nuke.condaEnv') as string | undefined;
+            const configuredPythonPath = this.preferences.get('nuke.pythonPath') as string | undefined;
+            const configuredName = configuredCondaEnv || (configuredPythonPath ? 'Custom' : undefined);
+            
+            // Check if we're using a fallback (configured != actual)
+            const isFallback = configuredName && configuredName !== env.name;
+            
             const icon = this.getEnvironmentIcon(env.type);
-            const text = `${icon} ${env.name}`;
+            const displayName = configuredName || env.name;
+            const fallbackIndicator = isFallback ? '⚠️ ' : '';
+            const text = `${fallbackIndicator}${icon} ${displayName}`;
+            
+            const tooltip = isFallback 
+                ? `Configured: ${displayName}\nActually using: ${env.name} (${env.version || 'unknown'})\nClick to switch environment`
+                : `Environment: ${env.name} (${env.version || 'unknown version'})\nClick to switch environment`;
             
             this.statusBar.setElement(this.STATUS_BAR_ID, {
                 text,
-                tooltip: `Environment: ${env.name} (${env.version || 'unknown version'})\nClick to switch environment`,
+                tooltip,
                 alignment: StatusBarAlignment.RIGHT,
                 priority: 100,
                 onclick: () => this.showEnvironmentPicker()

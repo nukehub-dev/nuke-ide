@@ -33,6 +33,7 @@ export interface OpenMCEnvironmentStatus {
     pythonCommand?: string;
     openmcVersion?: string;
     error?: string;
+    warning?: string;
 }
 
 @injectable()
@@ -102,8 +103,11 @@ export class OpenMCEnvironmentService {
                 ready: true,
                 environment: detection.environment,
                 pythonCommand: detection.command,
-                openmcVersion
+                openmcVersion,
+                warning: detection.warning
             };
+            
+            // Note: Fallback warnings are now handled centrally by nuke-core's onEnvironmentFallback event
         } else {
             this.currentStatus = {
                 ready: false,

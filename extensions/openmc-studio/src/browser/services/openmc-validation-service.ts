@@ -24,6 +24,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { MessageService } from '@theia/core/lib/common/message-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
 
 export interface OpenMCValidationResult {
@@ -56,6 +57,9 @@ export class OpenMCValidationService {
     
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
+
+    @inject(MessageService)
+    protected readonly messageService: MessageService;
 
     /**
      * Validate OpenMC setup.
@@ -158,6 +162,7 @@ export class OpenMCValidationService {
         pythonCommand?: string;
         pydagmcVersion?: string;
         pymoabVersion?: string;
+        warning?: string;
         error?: string;
     }> {
         try {
@@ -182,11 +187,17 @@ export class OpenMCValidationService {
                 result.command
             );
 
+            // Notify user if a fallback occurred
+            if (result.warning) {
+                this.messageService.warn(result.warning);
+            }
+
             return {
                 available: true,
                 pythonCommand: result.command,
                 pydagmcVersion: depCheck.versions['pydagmc'],
-                pymoabVersion: depCheck.versions['pymoab']
+                pymoabVersion: depCheck.versions['pymoab'],
+                warning: result.warning
             };
         } catch (error) {
             return {

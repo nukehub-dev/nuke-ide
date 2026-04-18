@@ -70,6 +70,11 @@ export class OpenMCValidationBackendService {
             }
         }
         
+        // Add fallback warning if present
+        if (detection.warning) {
+            warnings.push(detection.warning);
+        }
+        
         // Check cross-sections path (environment variable on backend)
         const crossSections = process.env.OPENMC_CROSS_SECTIONS;
         const crossSectionsSet = !!crossSections;
@@ -139,6 +144,7 @@ export class OpenMCValidationBackendService {
         pythonCommand?: string;
         pydagmcVersion?: string;
         pymoabVersion?: string;
+        warning?: string;
         error?: string;
     }> {
         try {
@@ -167,7 +173,8 @@ export class OpenMCValidationBackendService {
                 available: true,
                 pythonCommand: result.command,
                 pydagmcVersion: depCheck.versions['pydagmc'],
-                pymoabVersion: depCheck.versions['pymoab']
+                pymoabVersion: depCheck.versions['pymoab'],
+                warning: result.warning
             };
         } catch (error) {
             return {

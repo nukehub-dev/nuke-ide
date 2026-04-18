@@ -209,7 +209,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
                     if (depCheck.mismatches.length > 0) {
                         warnings.push(`Version mismatches: ${depCheck.mismatches.join(', ')}`);
                     }
-                    warnings.push(`Configured environment is missing required packages. Using fallback.`);
+                    warnings.push(`Configured Python path does not have required packages. Searching for alternative environment...`);
                 }
             } catch {
                 errors.push(`Configured Python path not valid: ${this.config.pythonPath}`);
@@ -231,6 +231,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
                     };
                 } else {
                     errors.push(`Conda env '${this.config.condaEnv}' is missing: ${depCheck.missing.join(', ')}`);
+                    warnings.push(`Configured conda environment '${this.config.condaEnv}' does not have required packages. Searching for alternative...`);
                 }
             } else {
                 errors.push(`Conda environment '${this.config.condaEnv}' not found`);

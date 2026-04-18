@@ -54,6 +54,12 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
     @postConstruct()
     protected init(): void {
         console.log('[OpenMC Studio] Service initialized');
+        
+        // Listen for environment fallback events from nuke-core
+        this.nukeCoreService.onEnvironmentFallback(event => {
+            console.log('[OpenMC Studio] Environment fallback detected:', event);
+            this.messageService.warn(event.warning, { timeout: 10000 });
+        });
     }
 
     /**

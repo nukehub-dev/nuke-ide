@@ -256,6 +256,18 @@ export interface PythonEnvironmentChangedEvent {
     currentEnv?: PythonEnvironment;
 }
 
+/** Event fired when Python environment detection falls back to a different environment */
+export interface EnvironmentFallbackEvent {
+    /** The configured environment that was requested (if any) */
+    requestedEnv?: string;
+    /** The environment that was actually used */
+    fallbackEnv: PythonEnvironment;
+    /** Warning message explaining the fallback */
+    warning: string;
+    /** Packages that were required */
+    requiredPackages: string[];
+}
+
 /** Status bar state */
 export interface EnvironmentStatus {
     /** Whether environment is configured */

@@ -245,6 +245,11 @@ export class OpenMCRunnerService {
             throw new Error(validation.errors.join('\n') || 'Failed to detect environment with OpenMC. Configure in Settings → Nuke Utils.');
         }
         
+        // Log any warnings (e.g., fallback to different environment)
+        if (validation.warnings.length > 0) {
+            this.log(`Environment warning: ${validation.warnings.join('; ')}`);
+        }
+        
         // Get OpenMC version
         let version: string | undefined;
         try {

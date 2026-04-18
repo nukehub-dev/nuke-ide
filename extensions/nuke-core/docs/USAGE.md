@@ -350,6 +350,16 @@ this.nukeCore.onStatusChanged(status => {
     console.log('Status:', status.message);
     console.log('Ready:', status.ready);
 });
+
+// Listen for environment fallback (when configured env doesn't have required packages)
+this.nukeCore.onEnvironmentFallback(event => {
+    console.log('Requested env:', event.requestedEnv);
+    console.log('Fallback env:', event.fallbackEnv.name);
+    console.log('Warning:', event.warning);
+    
+    // Show user notification
+    this.messageService.warn(event.warning, { timeout: 10000 });
+});
 ```
 
 ### Quick Checks

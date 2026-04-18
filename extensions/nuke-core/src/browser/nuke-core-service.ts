@@ -37,6 +37,7 @@ import {
     PythonEnvironment,
     PythonDetectionResult,
     PythonEnvironmentChangedEvent,
+    EnvironmentFallbackEvent,
     PackageDependency,
     DependencyCheckResult,
     PythonDetectionOptions,
@@ -69,6 +70,20 @@ export class NukeCoreService {
 
     private readonly _onStatusChanged = new Emitter<EnvironmentStatus>();
     readonly onStatusChanged: Event<EnvironmentStatus> = this._onStatusChanged.event;
+
+    private readonly _onEnvironmentFallback = new Emitter<EnvironmentFallbackEvent>();
+    /** 
+     * Event fired when Python environment detection falls back to a different environment.
+     * Useful for showing warnings to users when their configured environment doesn't have required packages.
+     * 
+     * Example usage:
+     * ```typescript
+     * nukeCore.onEnvironmentFallback(event => {
+     *     messageService.warn(`Using fallback environment: ${event.fallbackEnv.name}`);
+     * });
+     * ```
+     */
+    readonly onEnvironmentFallback: Event<EnvironmentFallbackEvent> = this._onEnvironmentFallback.event;
 
     @postConstruct()
     protected init(): void {
@@ -216,14 +231,29 @@ export class NukeCoreService {
 
     /**
      * Detect Python with specific package requirements.
+     * Emits onEnvironmentFallback if a fallback to a different environment occurs.
      */
     async detectPythonWithRequirements(
         options: PythonDetectionOptions
     ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+        const requestedEnv = this.currentConfig.condaEnv || this.currentConfig.pythonPath;
         const result = await this.backend.detectPythonWithRequirements(options);
+        
         if (result.environment) {
             this.currentEnvironment = result.environment;
             this.emitStatus();
+            
+            // Emit fallback event if warning is present (indicates fallback occurred)
+            if (result.warning && requestedEnv) {
+                const fallbackEvent: EnvironmentFallbackEvent = {
+                    requestedEnv,
+                    fallbackEnv: result.environment,
+                    warning: result.warning,
+                    requiredPackages: options.requiredPackages?.map(p => p.name) || []
+                };
+                console.log('[NukeCore] Emitting fallback event:', fallbackEvent);
+                this._onEnvironmentFallback.fire(fallbackEvent);
+            }
         }
         return result;
     }
