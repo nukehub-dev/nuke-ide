@@ -15,7 +15,7 @@
 import { injectable } from '@theia/core/shared/inversify';
 import {
     PythonConfig,
-    PythonEnvironment,
+    NukeEnvironment,
     PythonDetectionResult,
     ListEnvironmentsResult,
     PackageDependency,
@@ -27,7 +27,7 @@ export class EnvironmentService {
     
     private config: PythonConfig = {};
     private cachedPythonCommand?: string;
-    private environmentsCache?: PythonEnvironment[];
+    private environmentsCache?: NukeEnvironment[];
     private environmentsCacheTime?: number;
     private readonly CACHE_TTL = 30000; // 30 seconds
 
@@ -117,7 +117,7 @@ export class EnvironmentService {
             success: boolean;
             missing: string[];
             mismatches: string[];
-            env?: PythonEnvironment;
+            env?: NukeEnvironment;
         }> => {
             try {
                 const env = await this.getEnvironmentInfo(pythonPath, 'system');
@@ -264,8 +264,8 @@ export class EnvironmentService {
     private async findEnvironmentsWithPackages(
         requiredPackages: PackageDependency[],
         preferredEnvNames: string[]
-    ): Promise<Array<PythonEnvironment & { missingPackages: string[]; score: number }>> {
-        const matchingEnvs: Array<PythonEnvironment & { missingPackages: string[]; score: number }> = [];
+    ): Promise<Array<NukeEnvironment & { missingPackages: string[]; score: number }>> {
+        const matchingEnvs: Array<NukeEnvironment & { missingPackages: string[]; score: number }> = [];
         const allEnvsResult = await this.listEnvironments(true);
         const allEnvs = allEnvsResult.environments;
 
@@ -357,7 +357,7 @@ export class EnvironmentService {
             return this.filterAndSortEnvironments(this.environmentsCache);
         }
 
-        const environments: PythonEnvironment[] = [];
+        const environments: NukeEnvironment[] = [];
         
         // Try configured Python path
         if (this.config.pythonPath) {
@@ -408,7 +408,7 @@ export class EnvironmentService {
         return this.filterAndSortEnvironments(environments);
     }
 
-    private filterAndSortEnvironments(environments: PythonEnvironment[]): ListEnvironmentsResult {
+    private filterAndSortEnvironments(environments: NukeEnvironment[]): ListEnvironmentsResult {
         const uniqueEnvs = environments.filter((env, index, self) =>
             index === self.findIndex(e => e.pythonPath === env.pythonPath)
         );
@@ -424,8 +424,8 @@ export class EnvironmentService {
         return { environments: sortedEnvs, selected };
     }
 
-    private async findCondaEnvironments(): Promise<PythonEnvironment[]> {
-        const environments: PythonEnvironment[] = [];
+    private async findCondaEnvironments(): Promise<NukeEnvironment[]> {
+        const environments: NukeEnvironment[] = [];
         
         try {
             const { execSync } = await import('child_process');
@@ -476,8 +476,8 @@ export class EnvironmentService {
         return undefined;
     }
 
-    async findWorkspaceVenvs(): Promise<PythonEnvironment[]> {
-        const environments: PythonEnvironment[] = [];
+    async findWorkspaceVenvs(): Promise<NukeEnvironment[]> {
+        const environments: NukeEnvironment[] = [];
         
         try {
             const workspaceRoot = process.cwd();
@@ -505,7 +505,7 @@ export class EnvironmentService {
         return environments;
     }
 
-    private async getEnvironmentInfo(pythonPath: string, type: PythonEnvironment['type']): Promise<PythonEnvironment | undefined> {
+    private async getEnvironmentInfo(pythonPath: string, type: NukeEnvironment['type']): Promise<NukeEnvironment | undefined> {
         try {
             const { execSync } = await import('child_process');
             const versionOutput = execSync(`"${pythonPath}" --version`, { encoding: 'utf-8' }).trim();
@@ -540,7 +540,7 @@ export class EnvironmentService {
         }
     }
 
-    private cachePythonResult(command: string, _env: PythonEnvironment): void {
+    private cachePythonResult(command: string, _env: NukeEnvironment): void {
         this.cachedPythonCommand = command;
     }
 

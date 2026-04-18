@@ -34,9 +34,9 @@ import {
     NukeCoreBackendService,
     NukeCoreBackendServiceInterface,
     PythonConfig,
-    PythonEnvironment,
+    NukeEnvironment,
     PythonDetectionResult,
-    PythonEnvironmentChangedEvent,
+    NukeEnvironmentChangedEvent,
     EnvironmentFallbackEvent,
     PackageDependency,
     DependencyCheckResult,
@@ -63,10 +63,11 @@ export class NukeCoreService {
     protected readonly visibilityService: NukeCoreVisibilityService;
 
     private currentConfig: PythonConfig = {};
-    private currentEnvironment?: PythonEnvironment;
+    private currentEnvironment?: NukeEnvironment;
+    private lastFallbackEnv?: NukeEnvironment;
     
-    private readonly _onEnvironmentChanged = new Emitter<PythonEnvironmentChangedEvent>();
-    readonly onEnvironmentChanged: Event<PythonEnvironmentChangedEvent> = this._onEnvironmentChanged.event;
+    private readonly _onEnvironmentChanged = new Emitter<NukeEnvironmentChangedEvent>();
+    readonly onEnvironmentChanged: Event<NukeEnvironmentChangedEvent> = this._onEnvironmentChanged.event;
 
     private readonly _onStatusChanged = new Emitter<EnvironmentStatus>();
     readonly onStatusChanged: Event<EnvironmentStatus> = this._onStatusChanged.event;
@@ -95,7 +96,6 @@ export class NukeCoreService {
         // Listen for preference changes
         this.preferences.onPreferenceChanged(event => {
             if (event.preferenceName.startsWith('nuke.')) {
-                console.log(`[NukeCore] Preference changed: ${event.preferenceName}`);
                 this.syncFromPreferences();
             }
         });
@@ -148,6 +148,9 @@ export class NukeCoreService {
         this.currentConfig = { ...config };
         await this.backend.setConfig(config);
         
+        // Clear fallback when config changes
+        this.lastFallbackEnv = undefined;
+        
         // Update current environment info
         await this.updateCurrentEnvironment();
         
@@ -191,7 +194,7 @@ export class NukeCoreService {
      * List available Python environments.
      * @param searchWorkspace Also search for venvs in workspace
      */
-    async listEnvironments(searchWorkspace = false): Promise<PythonEnvironment[]> {
+    async listEnvironments(searchWorkspace = false): Promise<NukeEnvironment[]> {
         const result = await this.backend.listEnvironments(searchWorkspace);
         return result.environments;
     }
@@ -199,7 +202,7 @@ export class NukeCoreService {
     /**
      * Get the currently selected environment.
      */
-    async getSelectedEnvironment(): Promise<PythonEnvironment | undefined> {
+    async getSelectedEnvironment(): Promise<NukeEnvironment | undefined> {
         const result = await this.backend.listEnvironments();
         return result.selected;
     }
@@ -208,7 +211,7 @@ export class NukeCoreService {
      * Switch to a specific environment.
      * Updates preferences accordingly.
      */
-    async switchToEnvironment(env: PythonEnvironment): Promise<void> {
+    async switchToEnvironment(env: NukeEnvironment): Promise<void> {
         if (env.type === 'conda') {
             await this.preferences.set('nuke.condaEnv', env.name);
             await this.preferences.set('nuke.pythonPath', '');
@@ -232,6 +235,9 @@ export class NukeCoreService {
     /**
      * Detect Python with specific package requirements.
      * Emits onEnvironmentFallback if a fallback to a different environment occurs.
+     * 
+     * Note: This does NOT update currentEnvironment when a fallback occurs.
+     * The status bar should show the configured environment, not a fallback.
      */
     async detectPythonWithRequirements(
         options: PythonDetectionOptions
@@ -240,8 +246,22 @@ export class NukeCoreService {
         const result = await this.backend.detectPythonWithRequirements(options);
         
         if (result.environment) {
-            this.currentEnvironment = result.environment;
-            this.emitStatus();
+            // Check if result is a fallback (different from what was requested)
+            const isFallback = requestedEnv && result.environment.name !== requestedEnv;
+            
+            // Store fallback env so status bar can show warning
+            if (isFallback) {
+                this.lastFallbackEnv = result.environment;
+            } else {
+                this.lastFallbackEnv = undefined;
+            }
+            
+            // Only update currentEnvironment if it's not a fallback
+            // This preserves the configured environment in the status bar
+            if (!isFallback) {
+                this.currentEnvironment = result.environment;
+                this.emitStatus();
+            }
             
             // Emit fallback event if warning is present (indicates fallback occurred)
             if (result.warning && requestedEnv) {
@@ -251,7 +271,6 @@ export class NukeCoreService {
                     warning: result.warning,
                     requiredPackages: options.requiredPackages?.map(p => p.name) || []
                 };
-                console.log('[NukeCore] Emitting fallback event:', fallbackEvent);
                 this._onEnvironmentFallback.fire(fallbackEvent);
             }
         }
@@ -364,6 +383,7 @@ export class NukeCoreService {
                 configured: true,
                 ready: true,
                 environment: this.currentEnvironment,
+                fallbackEnvironment: this.lastFallbackEnv,
                 message: `${this.currentEnvironment.name} (${this.currentEnvironment.version || 'unknown version'})`,
                 visibilityRequested
             };
@@ -441,6 +461,12 @@ export class NukeCoreService {
         try {
             const result = await this.backend.listEnvironments();
             this.currentEnvironment = result.selected;
+            
+            // If current environment now matches the configured env, clear the fallback
+            const configuredName = this.currentConfig.condaEnv || this.currentConfig.pythonPath;
+            if (configuredName && result.selected?.name === configuredName) {
+                this.lastFallbackEnv = undefined;
+            }
         } catch (error) {
             console.error('[NukeCore] Failed to update current environment:', error);
         }

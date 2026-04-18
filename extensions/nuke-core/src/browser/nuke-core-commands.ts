@@ -20,7 +20,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/output-channel';
 import { NukeCoreService } from './services/nuke-core-service';
-import { PythonEnvironment } from '../common/nuke-core-protocol';
+import { NukeEnvironment } from '../common/nuke-core-protocol';
 import { NukeMenus } from './nuke-core-menus';
 
 export namespace NukeCoreCommands {
@@ -224,7 +224,7 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
 
             // Type guard to check if selected is an environment item
             if (selected && 'value' in selected && selected.value && typeof selected.value === 'object') {
-                const env = selected.value as PythonEnvironment;
+                const env = selected.value as NukeEnvironment;
                 await this.nukeCore.switchToEnvironment(env);
                 this.messageService.info(`Switched to ${env.name}`);
             }

@@ -24,12 +24,12 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common';
-import { NukeCoreService, PythonEnvironment } from 'nuke-core/lib/common';
+import { NukeCoreService, NukeEnvironment } from 'nuke-core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 
 export interface OpenMCEnvironmentStatus {
     ready: boolean;
-    environment?: PythonEnvironment;
+    environment?: NukeEnvironment;
     pythonCommand?: string;
     openmcVersion?: string;
     error?: string;
@@ -122,9 +122,9 @@ export class OpenMCEnvironmentService {
     /**
      * List all available environments that have OpenMC.
      */
-    async listOpenMCEnvironments(): Promise<Array<PythonEnvironment & { openmcVersion?: string }>> {
+    async listOpenMCEnvironments(): Promise<Array<NukeEnvironment & { openmcVersion?: string }>> {
         const allEnvs = await this.nukeCore.listEnvironments(true);
-        const openmcEnvs: Array<PythonEnvironment & { openmcVersion?: string }> = [];
+        const openmcEnvs: Array<NukeEnvironment & { openmcVersion?: string }> = [];
 
         for (const env of allEnvs) {
             try {
@@ -149,7 +149,7 @@ export class OpenMCEnvironmentService {
     /**
      * Switch to a specific environment.
      */
-    async switchToEnvironment(environment: PythonEnvironment): Promise<boolean> {
+    async switchToEnvironment(environment: NukeEnvironment): Promise<boolean> {
         try {
             await this.nukeCore.switchToEnvironment(environment);
             this.messageService.info(`Switched to environment: ${environment.name}`);
@@ -163,7 +163,7 @@ export class OpenMCEnvironmentService {
     /**
      * Show environment picker dialog.
      */
-    async showEnvironmentPicker(): Promise<PythonEnvironment | undefined> {
+    async showEnvironmentPicker(): Promise<NukeEnvironment | undefined> {
         // This will be implemented with a UI component
         // For now, return the best available
         const envs = await this.listOpenMCEnvironments();

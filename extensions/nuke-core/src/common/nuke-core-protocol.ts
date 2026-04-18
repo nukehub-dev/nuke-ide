@@ -38,8 +38,8 @@ export interface PythonConfig {
     condaEnv?: string;
 }
 
-/** Information about a Python environment */
-export interface PythonEnvironment {
+/** Information about a Nuke environment */
+export interface NukeEnvironment {
     /** Display name */
     name: string;
     /** Python executable path */
@@ -65,15 +65,15 @@ export interface PythonDetectionResult {
     /** Error message if detection failed */
     error?: string;
     /** Detected environment info */
-    environment?: PythonEnvironment;
+    environment?: NukeEnvironment;
 }
 
 /** Result of listing environments */
 export interface ListEnvironmentsResult {
     /** Available environments */
-    environments: PythonEnvironment[];
+    environments: NukeEnvironment[];
     /** Currently selected environment */
-    selected?: PythonEnvironment;
+    selected?: NukeEnvironment;
 }
 
 /** Package dependency to check */
@@ -245,15 +245,15 @@ export interface NukeCoreBackendServiceInterface {
 }
 
 /** Frontend event types */
-export interface PythonEnvironmentChangedEvent {
+export interface NukeEnvironmentChangedEvent {
     /** Previous environment */
     previous?: PythonConfig;
     /** New environment */
     current: PythonConfig;
     /** Previous environment info */
-    previousEnv?: PythonEnvironment;
+    previousEnv?: NukeEnvironment;
     /** New environment info */
-    currentEnv?: PythonEnvironment;
+    currentEnv?: NukeEnvironment;
 }
 
 /** Event fired when Python environment detection falls back to a different environment */
@@ -261,7 +261,7 @@ export interface EnvironmentFallbackEvent {
     /** The configured environment that was requested (if any) */
     requestedEnv?: string;
     /** The environment that was actually used */
-    fallbackEnv: PythonEnvironment;
+    fallbackEnv: NukeEnvironment;
     /** Warning message explaining the fallback */
     warning: string;
     /** Packages that were required */
@@ -273,7 +273,9 @@ export interface EnvironmentStatus {
     /** Whether environment is configured */
     configured: boolean;
     /** Current environment info */
-    environment?: PythonEnvironment;
+    environment?: NukeEnvironment;
+    /** Fallback environment (when configured env lacks required packages) */
+    fallbackEnvironment?: NukeEnvironment;
     /** Status message */
     message: string;
     /** Whether environment is ready for use */
