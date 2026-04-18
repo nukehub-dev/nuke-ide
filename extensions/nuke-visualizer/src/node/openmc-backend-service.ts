@@ -1488,11 +1488,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 { name: 'h5py' },
                 { name: 'openmc' }
             ],
-            autoDetectEnvs: ['visualizer', 'trame', 'openmc', 'nuke-ide']
+            autoDetectEnvs: ['openmc', 'nuke-ide']
         });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python with h5py and openmc. Configure Python in Settings → Nuke Utils.');
+            throw new Error(detectionResult.error || 'Failed to detect environment with h5py and openmc. Configure in Settings → Nuke Utils.');
         }
         
         return {

@@ -43,6 +43,17 @@ export const NukeCoreConfigSchema: PreferenceSchema = {
             type: 'string',
             description: 'Default path to OpenMC depletion chain XML file',
             default: ''
+        },
+        'nuke.showStatusBar': {
+            type: 'string',
+            enum: ['auto', 'always', 'never'],
+            enumDescriptions: [
+                'Only show status bar when Python is not configured',
+                'Always show status bar',
+                'Never show status bar'
+            ],
+            default: 'auto',
+            description: 'Control when to show the Python environment status bar item'
         }
     }
 };
@@ -52,6 +63,7 @@ export interface NukeCoreConfiguration {
     'nuke.condaEnv': string;
     'nuke.openmcCrossSections': string;
     'nuke.openmcChainFile': string;
+    'nuke.showStatusBar': 'auto' | 'always' | 'never';
 }
 
 export const NukeCorePreferences = Symbol('NukeCorePreferences');

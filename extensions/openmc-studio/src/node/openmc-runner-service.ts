@@ -241,11 +241,11 @@ export class OpenMCRunnerService {
             requiredPackages: [
                 { name: 'openmc' }
             ],
-            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
+            autoDetectEnvs: ['openmc', 'nuke-ide']
         });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python with OpenMC. Configure Python in Settings → Nuke Utils.');
+            throw new Error(detectionResult.error || 'Failed to detect environment with OpenMC. Configure in Settings → Nuke Utils.');
         }
         
         // Try to get OpenMC version (best effort - we know it's there from the detection)

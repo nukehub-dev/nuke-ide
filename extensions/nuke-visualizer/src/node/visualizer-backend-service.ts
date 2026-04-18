@@ -331,11 +331,11 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 { name: 'trame' },
                 { name: 'paraview', submodule: 'simple' }
             ],
-            autoDetectEnvs: ['visualizer', 'trame', 'paraview', 'pv']
+            autoDetectEnvs: ['visualizer', 'paraview', 'nuke-ide']
         });
         
         if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect Python with trame and paraview. Configure Python in Settings → Nuke Visualizer.');
+            throw new Error(detectionResult.error || 'Failed to detect environment with trame and paraview. Configure in Settings → Nuke Visualizer.');
         }
         
         return {

@@ -23,6 +23,8 @@
  * @module nuke-core/common
  */
 
+import type { Event } from '@theia/core/lib/common/event';
+
 export const NUKE_CORE_BACKEND_PATH = '/services/nuke-core';
 
 /** Symbol for the backend service */
@@ -43,9 +45,13 @@ export interface PythonEnvironment {
     /** Python executable path */
     pythonPath: string;
     /** Type of environment */
-    type: 'system' | 'conda' | 'venv' | 'pyenv';
+    type: 'system' | 'conda' | 'venv' | 'virtualenv' | 'pyenv' | 'poetry';
     /** Python version (e.g., "3.10.4") */
     version?: string;
+    /** Whether this environment is active/selected */
+    isActive?: boolean;
+    /** Path to environment directory (for venv/conda) */
+    envPath?: string;
 }
 
 /** Result of Python detection */
@@ -58,6 +64,8 @@ export interface PythonDetectionResult {
     warning?: string;
     /** Error message if detection failed */
     error?: string;
+    /** Detected environment info */
+    environment?: PythonEnvironment;
 }
 
 /** Result of listing environments */
@@ -76,6 +84,8 @@ export interface PackageDependency {
     submodule?: string;
     /** Whether this package is required or optional */
     required?: boolean;
+    /** Minimum version required */
+    minVersion?: string;
 }
 
 /** Result of dependency check */
@@ -84,6 +94,12 @@ export interface DependencyCheckResult {
     available: boolean;
     /** List of missing required packages */
     missing: string[];
+    /** Packages with version mismatches */
+    versionMismatches: Array<{
+        name: string;
+        found: string;
+        required: string;
+    }>;
     /** Package versions that were found */
     versions: Record<string, string>;
 }
@@ -94,6 +110,86 @@ export interface PythonDetectionOptions {
     requiredPackages?: PackageDependency[];
     /** Conda environment names to try for auto-detection (in order) */
     autoDetectEnvs?: string[];
+    /** Whether to search for venvs in workspace */
+    searchWorkspaceVenvs?: boolean;
+}
+
+/** Options for installing packages */
+export interface PackageInstallOptions {
+    /** Packages to install */
+    packages: string[];
+    /** Python path to use (defaults to detected) */
+    pythonPath?: string;
+    /** Whether to use conda (if available) or pip */
+    useConda?: boolean;
+    /** Additional arguments to pass to pip/conda */
+    extraArgs?: string[];
+}
+
+/** Result of package installation */
+export interface PackageInstallResult {
+    /** Whether installation was successful */
+    success: boolean;
+    /** Installed packages */
+    installed: string[];
+    /** Failed packages */
+    failed: string[];
+    /** Output from the install command */
+    output?: string;
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Health check result */
+export interface HealthCheckResult {
+    /** Overall health status */
+    healthy: boolean;
+    /** Individual check results */
+    checks: HealthCheckItem[];
+}
+
+/** Individual health check item */
+export interface HealthCheckItem {
+    /** Check name */
+    name: string;
+    /** Whether this check passed */
+    passed: boolean;
+    /** Status message */
+    message: string;
+    /** Severity if failed */
+    severity?: 'error' | 'warning';
+    /** Suggested fix */
+    suggestion?: string;
+}
+
+/** Configuration validation result */
+export interface ConfigValidationResult {
+    /** Whether configuration is valid */
+    valid: boolean;
+    /** Validation errors */
+    errors: ConfigValidationError[];
+    /** Validation warnings */
+    warnings: ConfigValidationWarning[];
+}
+
+/** Configuration validation error */
+export interface ConfigValidationError {
+    /** Field that failed validation */
+    field: string;
+    /** Error message */
+    message: string;
+    /** Current value */
+    value?: string;
+}
+
+/** Configuration validation warning */
+export interface ConfigValidationWarning {
+    /** Field with warning */
+    field: string;
+    /** Warning message */
+    message: string;
+    /** Current value */
+    value?: string;
 }
 
 /** Backend service interface */
@@ -120,10 +216,32 @@ export interface NukeCoreBackendServiceInterface {
     checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult>;
     
     /** List available Python environments */
-    listEnvironments(): Promise<ListEnvironmentsResult>;
+    listEnvironments(searchWorkspace?: boolean): Promise<ListEnvironmentsResult>;
     
     /** Get the Python command to use (cached detection result) */
     getPythonCommand(): Promise<string | undefined>;
+
+    /**
+     * Validate configuration settings.
+     * Checks if paths exist and are valid.
+     */
+    validateConfig(): Promise<ConfigValidationResult>;
+
+    /**
+     * Run health checks on the Nuke Core setup.
+     * @param packages Optional packages to check for (e.g., ['openmc', 'numpy'])
+     */
+    healthCheck(packages?: string[]): Promise<HealthCheckResult>;
+
+    /**
+     * Install packages in the specified Python environment.
+     */
+    installPackages(options: PackageInstallOptions): Promise<PackageInstallResult>;
+
+    /**
+     * Get detailed diagnostics information for troubleshooting.
+     */
+    getDiagnostics(): Promise<Record<string, unknown>>;
 }
 
 /** Frontend event types */
@@ -132,4 +250,63 @@ export interface PythonEnvironmentChangedEvent {
     previous?: PythonConfig;
     /** New environment */
     current: PythonConfig;
+    /** Previous environment info */
+    previousEnv?: PythonEnvironment;
+    /** New environment info */
+    currentEnv?: PythonEnvironment;
+}
+
+/** Status bar state */
+export interface EnvironmentStatus {
+    /** Whether environment is configured */
+    configured: boolean;
+    /** Current environment info */
+    environment?: PythonEnvironment;
+    /** Status message */
+    message: string;
+    /** Whether environment is ready for use */
+    ready: boolean;
+    /** Whether status bar visibility is being requested by any extension */
+    visibilityRequested: boolean;
+}
+
+/** 
+ * Symbol for the status bar visibility service.
+ * Extensions can use this to request status bar visibility when their tools are active.
+ */
+export const NukeCoreStatusBarVisibility = Symbol('NukeCoreStatusBarVisibility');
+
+/**
+ * Service for managing status bar visibility requests from dependent extensions.
+ * 
+ * Example usage:
+ * ```typescript
+ * // In your extension's widget or contribution
+ * @inject(NukeCoreStatusBarVisibility)
+ * private readonly visibility: NukeCoreStatusBarVisibilityService;
+ * 
+ * // When your tool opens
+ * const handle = this.visibility.requestVisibility('my-extension');
+ * 
+ * // When your tool closes
+ * handle.dispose();
+ * ```
+ */
+export interface NukeCoreStatusBarVisibilityService {
+    /**
+     * Request the status bar to be visible.
+     * @param source Identifier for the extension requesting visibility (e.g., 'nuke-visualizer')
+     * @returns A disposable handle. Call dispose() when visibility is no longer needed.
+     */
+    requestVisibility(source: string): { dispose: () => void };
+    
+    /**
+     * Check if any extension is currently requesting visibility.
+     */
+    isVisibilityRequested(): boolean;
+    
+    /**
+     * Event fired when visibility requests change.
+     */
+    onVisibilityChanged: Event<boolean>;
 }

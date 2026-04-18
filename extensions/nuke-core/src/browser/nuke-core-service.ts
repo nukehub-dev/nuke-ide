@@ -18,9 +18,10 @@
  * Nuke Core Frontend Service
  * 
  * Provides core infrastructure services for all NukeIDE extensions:
- * - Python environment management
- * - Configuration management (Python path, cross-sections)
- * - OpenMC availability checking
+ * - Environment management (Python/Conda)
+ * - Configuration management
+ * - Package management
+ * - Health checks
  * - Shared utilities
  * 
  * @module nuke-core/browser
@@ -35,8 +36,18 @@ import {
     PythonConfig,
     PythonEnvironment,
     PythonDetectionResult,
-    PythonEnvironmentChangedEvent
+    PythonEnvironmentChangedEvent,
+    PackageDependency,
+    DependencyCheckResult,
+    PythonDetectionOptions,
+    PackageInstallOptions,
+    PackageInstallResult,
+    HealthCheckResult,
+    ConfigValidationResult,
+    EnvironmentStatus,
+    NukeCoreStatusBarVisibility
 } from '../common/nuke-core-protocol';
+import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
 
 @injectable()
 export class NukeCoreService {
@@ -46,11 +57,18 @@ export class NukeCoreService {
     
     @inject(PreferenceService)
     protected readonly preferences: PreferenceService;
+    
+    @inject(NukeCoreStatusBarVisibility)
+    protected readonly visibilityService: NukeCoreVisibilityService;
 
     private currentConfig: PythonConfig = {};
+    private currentEnvironment?: PythonEnvironment;
     
     private readonly _onEnvironmentChanged = new Emitter<PythonEnvironmentChangedEvent>();
     readonly onEnvironmentChanged: Event<PythonEnvironmentChangedEvent> = this._onEnvironmentChanged.event;
+
+    private readonly _onStatusChanged = new Emitter<EnvironmentStatus>();
+    readonly onStatusChanged: Event<EnvironmentStatus> = this._onStatusChanged.event;
 
     @postConstruct()
     protected init(): void {
@@ -61,10 +79,7 @@ export class NukeCoreService {
         
         // Listen for preference changes
         this.preferences.onPreferenceChanged(event => {
-            if (event.preferenceName === 'nuke.pythonPath' ||
-                event.preferenceName === 'nuke.condaEnv' ||
-                event.preferenceName === 'nuke.openmcCrossSections' ||
-                event.preferenceName === 'nuke.openmcChainFile') {
+            if (event.preferenceName.startsWith('nuke.')) {
                 console.log(`[NukeCore] Preference changed: ${event.preferenceName}`);
                 this.syncFromPreferences();
             }
@@ -74,7 +89,7 @@ export class NukeCoreService {
     /**
      * Sync configuration from nuke.* preferences.
      */
-    protected syncFromPreferences(): void {
+    protected async syncFromPreferences(): Promise<void> {
         const pythonPath = this.preferences.get('nuke.pythonPath') as string | undefined;
         const condaEnv = this.preferences.get('nuke.condaEnv') as string | undefined;
         
@@ -85,7 +100,7 @@ export class NukeCoreService {
         
         if (newConfig.pythonPath !== this.currentConfig.pythonPath ||
             newConfig.condaEnv !== this.currentConfig.condaEnv) {
-            this.setConfig(newConfig);
+            await this.setConfig(newConfig);
         }
     }
     
@@ -106,17 +121,29 @@ export class NukeCoreService {
         if (this.isConfigured()) {
             return undefined;
         }
-        return 'Nuke Core is not configured. Please set Python Path or Conda Environment in Settings → Nuke Utils.';
+        return 'Nuke is not configured. Please set environment in Settings → Nuke Utils.';
     }
 
     /**
-     * Set Python configuration.
+     * Set environment configuration.
      */
     async setConfig(config: PythonConfig): Promise<void> {
         const previous = { ...this.currentConfig };
+        const previousEnv = this.currentEnvironment;
         this.currentConfig = { ...config };
         await this.backend.setConfig(config);
-        this._onEnvironmentChanged.fire({ previous, current: config });
+        
+        // Update current environment info
+        await this.updateCurrentEnvironment();
+        
+        this._onEnvironmentChanged.fire({ 
+            previous, 
+            current: config,
+            previousEnv,
+            currentEnv: this.currentEnvironment
+        });
+        
+        this.emitStatus();
     }
 
     /**
@@ -137,15 +164,89 @@ export class NukeCoreService {
      * Detect Python command based on current config.
      */
     async detectPython(): Promise<PythonDetectionResult> {
-        return this.backend.detectPython();
+        const result = await this.backend.detectPython();
+        if (result.environment) {
+            this.currentEnvironment = result.environment;
+            this.emitStatus();
+        }
+        return result;
     }
 
     /**
      * List available Python environments.
+     * @param searchWorkspace Also search for venvs in workspace
      */
-    async listEnvironments(): Promise<PythonEnvironment[]> {
-        const result = await this.backend.listEnvironments();
+    async listEnvironments(searchWorkspace = false): Promise<PythonEnvironment[]> {
+        const result = await this.backend.listEnvironments(searchWorkspace);
         return result.environments;
+    }
+
+    /**
+     * Get the currently selected environment.
+     */
+    async getSelectedEnvironment(): Promise<PythonEnvironment | undefined> {
+        const result = await this.backend.listEnvironments();
+        return result.selected;
+    }
+
+    /**
+     * Switch to a specific environment.
+     * Updates preferences accordingly.
+     */
+    async switchToEnvironment(env: PythonEnvironment): Promise<void> {
+        if (env.type === 'conda') {
+            await this.preferences.set('nuke.condaEnv', env.name);
+            await this.preferences.set('nuke.pythonPath', '');
+        } else {
+            await this.preferences.set('nuke.pythonPath', env.pythonPath);
+            await this.preferences.set('nuke.condaEnv', '');
+        }
+        // syncFromPreferences will be triggered by preference change
+    }
+
+    /**
+     * Check package dependencies.
+     */
+    async checkDependencies(
+        packages: PackageDependency[], 
+        pythonPath?: string
+    ): Promise<DependencyCheckResult> {
+        return this.backend.checkDependencies(packages, pythonPath);
+    }
+
+    /**
+     * Detect Python with specific package requirements.
+     */
+    async detectPythonWithRequirements(
+        options: PythonDetectionOptions
+    ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+        const result = await this.backend.detectPythonWithRequirements(options);
+        if (result.environment) {
+            this.currentEnvironment = result.environment;
+            this.emitStatus();
+        }
+        return result;
+    }
+
+    /**
+     * Install packages in the current or specified Python environment.
+     */
+    async installPackages(options: PackageInstallOptions): Promise<PackageInstallResult> {
+        return this.backend.installPackages(options);
+    }
+
+    /**
+     * Convenience method to install missing packages.
+     */
+    async installMissingPackages(
+        packages: string[], 
+        pythonPath?: string
+    ): Promise<PackageInstallResult> {
+        return this.installPackages({
+            packages,
+            pythonPath,
+            useConda: false // Try pip first
+        });
     }
 
     /**
@@ -159,17 +260,18 @@ export class NukeCoreService {
             return prefPath;
         }
         
-        // Otherwise return undefined (backend will check env var)
+        // Check environment variable
+        // Note: In browser, we can't access process.env directly
+        // This would need to be fetched from backend
         return undefined;
     }
     
     /**
      * Set the OpenMC cross-sections path.
+     * Saves to preferences.
      */
     async setCrossSectionsPath(path: string): Promise<void> {
-        // Note: This would need to be saved to preferences
-        // For now, just log it - actual implementation would use PreferenceService
-        console.log(`[NukeCore] Cross-sections path set to: ${path}`);
+        await this.preferences.set('nuke.openmcCrossSections', path);
     }
     
     /**
@@ -177,68 +279,144 @@ export class NukeCoreService {
      * Returns the configured path or environment variable.
      */
     getChainFilePath(): string | undefined {
-        // First check preference
         const prefPath = this.preferences.get('nuke.openmcChainFile') as string;
-        if (prefPath) {
-            return prefPath;
-        }
-        
-        // Otherwise return undefined (backend will check env var)
-        return undefined;
+        return prefPath || undefined;
     }
     
     /**
      * Set the OpenMC chain file path.
+     * Saves to preferences.
      */
     async setChainFilePath(path: string): Promise<void> {
-        // Note: This would need to be saved to preferences
-        // For now, just log it - actual implementation would use PreferenceService
-        console.log(`[NukeCore] Chain file path set to: ${path}`);
+        await this.preferences.set('nuke.openmcChainFile', path);
     }
-    
+
     /**
-     * Validate that OpenMC is ready to use.
-     * Checks: Python configured, OpenMC available, cross-sections path set.
-     * Returns detailed validation result.
+     * Validate configuration settings.
      */
-    async validateOpenMCSetup(): Promise<{
-        ready: boolean;
-        pythonConfigured: boolean;
-        openmcAvailable: boolean;
-        crossSectionsSet: boolean;
-        errors: string[];
-        warnings: string[];
-    }> {
-        const errors: string[] = [];
-        const warnings: string[] = [];
+    async validateConfig(): Promise<ConfigValidationResult> {
+        return this.backend.validateConfig();
+    }
+
+    /**
+     * Run health checks on the Nuke Core setup.
+     * @param packages Optional packages to check for (e.g., ['openmc', 'numpy'])
+     */
+    async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
+        return this.backend.healthCheck(packages);
+    }
+
+    /**
+     * Get detailed diagnostics information for troubleshooting.
+     */
+    async getDiagnostics(): Promise<Record<string, unknown>> {
+        return this.backend.getDiagnostics();
+    }
+
+    /**
+     * Get current environment status.
+     */
+    getStatus(): EnvironmentStatus {
+        const configured = this.isConfigured();
+        const visibilityRequested = this.visibilityService.isVisibilityRequested();
         
-        // Check Python detection with OpenMC requirement (auto-detects if not configured)
-        const pythonDetection = await this.backend.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
-            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
-        });
-        const pythonConfigured = pythonDetection.success || this.isConfigured();
-        if (!pythonDetection.success) {
-            errors.push(`Python detection failed: ${pythonDetection.error || 'Could not find Python with OpenMC'}. Set nuke.pythonPath or nuke.condaEnv in Settings.`);
+        if (!configured) {
+            return {
+                configured: false,
+                ready: false,
+                message: 'Not configured',
+                visibilityRequested
+            };
         }
-        
-        // OpenMC is guaranteed available if pythonDetection succeeded
-        const openmcAvailable = pythonDetection.success;
-        
-        // Check cross-sections path
-        const crossSectionsPath = this.getCrossSectionsPath();
-        const crossSectionsSet = !!crossSectionsPath;
-        if (!crossSectionsSet) {
-            warnings.push('Cross-sections path not set. Set nuke.openmcCrossSections in Settings, or set OPENMC_CROSS_SECTIONS environment variable.');
+
+        if (this.currentEnvironment) {
+            return {
+                configured: true,
+                ready: true,
+                environment: this.currentEnvironment,
+                message: `${this.currentEnvironment.name} (${this.currentEnvironment.version || 'unknown version'})`,
+                visibilityRequested
+            };
         }
-        
+
         return {
-            ready: pythonDetection.success && openmcAvailable,
-            pythonConfigured,
-            openmcAvailable,
-            crossSectionsSet,
-            errors,
-            warnings
+            configured: true,
+            ready: false,
+            message: 'Detecting environment...',
+            visibilityRequested
         };
+    }
+
+    /**
+     * Quick check if Python is ready for use.
+     */
+    async isReady(): Promise<boolean> {
+        try {
+            const cmd = await this.getPythonCommand();
+            return !!cmd;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Ensure environment is available, throwing a helpful error if not.
+     */
+    async requirePython(): Promise<string> {
+        const cmd = await this.getPythonCommand();
+        if (!cmd) {
+            throw new Error('Environment not configured. Please set up in Settings → Nuke Utils.');
+        }
+        return cmd;
+    }
+
+    /**
+     * Detect Python with required packages, with automatic suggestion for missing packages.
+     * This is a convenience method that detects Python and provides actionable next steps.
+     * 
+     * @returns Detection result with suggestion for missing packages
+     */
+    async detectWithInstallSuggestion(
+        options: PythonDetectionOptions
+    ): Promise<PythonDetectionResult & { 
+        missingPackages?: string[];
+        suggestInstall?: boolean;
+        installCommand?: string;
+    }> {
+        const result = await this.backend.detectPythonWithRequirements(options);
+        
+        if (result.success) {
+            return { ...result, suggestInstall: false };
+        }
+        
+        // If detection failed due to missing packages, suggest installation
+        if (result.missingPackages && result.missingPackages.length > 0) {
+            const packages = result.missingPackages;
+            const cmd = result.command || await this.getPythonCommand() || 'python';
+            
+            return {
+                ...result,
+                missingPackages: packages,
+                suggestInstall: true,
+                installCommand: `${cmd} -m pip install ${packages.join(' ')}`
+            };
+        }
+        
+        return result;
+    }
+
+    // Private helpers
+
+    private async updateCurrentEnvironment(): Promise<void> {
+        try {
+            const result = await this.backend.listEnvironments();
+            this.currentEnvironment = result.selected;
+        } catch (error) {
+            console.error('[NukeCore] Failed to update current environment:', error);
+        }
+    }
+
+    private emitStatus(): void {
+        this._onStatusChanged.fire(this.getStatus());
     }
 }
