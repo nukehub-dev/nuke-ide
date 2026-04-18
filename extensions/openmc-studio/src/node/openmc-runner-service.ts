@@ -36,6 +36,7 @@ import {
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 interface RunningSimulation {
     processId: string;
@@ -54,6 +55,9 @@ export class OpenMCRunnerService {
 
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
+    
+    @inject(OpenMCValidationBackendService)
+    protected readonly validationService: OpenMCValidationBackendService;
 
     private runningSimulations = new Map<string, RunningSimulation>();
     private completedSimulations = new Map<string, { workingDirectory: string; logFilePath: string }>();
@@ -232,38 +236,31 @@ export class OpenMCRunnerService {
 
     /**
      * Detect Python command to use based on configuration.
-     * Also verifies that OpenMC is available in the detected Python.
+     * Uses OpenMCValidationBackendService for consistent validation.
      */
     protected async detectPythonCommand(): Promise<{ command: string; warning?: string; version?: string }> {
-        // Use nuke-core's Python detection with OpenMC requirements
-        // If this succeeds, OpenMC is guaranteed to be available
-        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'openmc' }
-            ],
-            autoDetectEnvs: ['openmc', 'nuke-ide']
-        });
+        const validation = await this.validationService.validateOpenMCSetup();
         
-        if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect environment with OpenMC. Configure in Settings → Nuke Utils.');
+        if (!validation.ready || !validation.pythonCommand) {
+            throw new Error(validation.errors.join('\n') || 'Failed to detect environment with OpenMC. Configure in Settings → Nuke Utils.');
         }
         
-        // Try to get OpenMC version (best effort - we know it's there from the detection)
+        // Get OpenMC version
         let version: string | undefined;
         try {
             const depCheck = await this.nukeCoreService.checkDependencies(
                 [{ name: 'openmc' }],
-                detectionResult.command
+                validation.pythonCommand
             );
             version = depCheck.versions['openmc'];
         } catch {
-            // Version check failed but OpenMC is available (validated by detectPythonWithRequirements)
+            // Version check failed but OpenMC is available
         }
         
         return {
-            command: detectionResult.command,
+            command: validation.pythonCommand,
             version,
-            warning: detectionResult.warning
+            warning: validation.warnings.join('\n') || undefined
         };
     }
 

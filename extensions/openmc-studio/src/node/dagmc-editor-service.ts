@@ -77,14 +77,17 @@ export class DAGMCEditorService {
      */
     async initialize(): Promise<boolean> {
         try {
-            // Find Python with pydagmc
+            // Find Python with pydagmc (and pymoab which it depends on)
             const result = await this.coreService.detectPythonWithRequirements({
-                requiredPackages: [{ name: 'pymoab', required: false }],
-                autoDetectEnvs: ['openmc', 'dagmc', 'trame']
+                requiredPackages: [
+                    { name: 'pydagmc', required: true },
+                    { name: 'pymoab', required: false }
+                ],
+                searchWorkspaceVenvs: true
             });
 
             if (!result.success || !result.command) {
-                console.error('[DAGMC Editor] Python with pydagmc not found');
+                console.error('[DAGMC Editor] Python with pydagmc not found:', result.error);
                 return false;
             }
 

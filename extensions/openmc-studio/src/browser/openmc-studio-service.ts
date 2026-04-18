@@ -29,6 +29,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { OpenMCValidationService } from './services/openmc-validation-service';
 
 @injectable()
 export class OpenMCStudioService implements FrontendApplicationContribution {
@@ -44,6 +45,9 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
     
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
+    
+    @inject(OpenMCValidationService)
+    protected readonly validationService: OpenMCValidationService;
 
     private _isReady = false;
 
@@ -69,19 +73,20 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
         error?: string;
         needsConfig?: boolean;
     }> {
-        // Use nuke-core's validation (includes auto-detection)
-        const validation = await this.nukeCoreService.validateOpenMCSetup();
+        // Use OpenMC validation service (uses nuke-core for environment detection)
+        const validation = await this.validationService.validateOpenMCSetup();
         
         if (!validation.ready) {
             return {
                 available: false,
                 error: validation.errors.join('\n') || 'OpenMC is not properly configured',
-                needsConfig: validation.errors.some(e => e.includes('Python detection failed') || e.includes('Python not configured'))
+                needsConfig: !validation.environmentConfigured
             };
         }
         
         return {
-            available: true
+            available: true,
+            version: validation.environment?.version
         };
     }
 

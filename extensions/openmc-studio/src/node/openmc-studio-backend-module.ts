@@ -41,6 +41,7 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
 import { OptimizationBackendService } from './optimization-backend-service';
+import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 import { RpcBufferConfiguration } from './rpc-buffer-config';
 
 // ============================================================================
@@ -68,6 +69,9 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     
     // Optimization Backend service (for parameter sweeps)
     bind(OptimizationBackendService).toSelf().inSingletonScope();
+    
+    // OpenMC validation service (uses nuke-core for environment detection)
+    bind(OpenMCValidationBackendService).toSelf().inSingletonScope();
     
     // Main backend service implementation
     bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();
@@ -112,3 +116,4 @@ export { OpenMCRunnerService } from './openmc-runner-service';
 export { XMLGenerationService } from './xml-generation-service';
 export { OpenMCCADImportService } from './cad-import-service';
 export { DAGMCEditorService } from './dagmc-editor-service';
+export { OpenMCValidationBackendService, OpenMCValidationResult } from './openmc-validation-backend-service';

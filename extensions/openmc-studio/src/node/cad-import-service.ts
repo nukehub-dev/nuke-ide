@@ -321,12 +321,13 @@ export class OpenMCCADImportService {
         const warnings: string[] = [];
         
         try {
-            // Find Python with pymoab
+            // Find Python with pydagmc/pymoab
             const result = await this.coreService.detectPythonWithRequirements({
                 requiredPackages: [
-                    { name: 'pymoab', required: false }
+                    { name: 'pymoab', required: false },
+                    { name: 'pydagmc', required: false }
                 ],
-                autoDetectEnvs: ['openmc', 'dagmc']
+                autoDetectEnvs: ['openmc', 'dagmc', 'trame']
             });
 
             if (!result.success || !result.command) {

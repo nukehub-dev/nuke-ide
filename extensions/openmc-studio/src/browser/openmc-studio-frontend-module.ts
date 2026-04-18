@@ -17,8 +17,7 @@
 /**
  * OpenMC Studio Frontend Module
  * 
- * This is the entry point for the OpenMC Studio Theia extension on the frontend.
- * It configures dependency injection and registers contributions.
+ * Entry point for the OpenMC Studio Theia extension on the frontend.
  * 
  * @module openmc-studio/browser
  */
@@ -45,52 +44,66 @@ import {
 import { OpenMCStudioService } from './openmc-studio-service';
 import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-service';
-import { OpenMCSimulationRunner } from './simulation-dashboard/simulation-runner';
+import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulation-runner';
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
 
-// Contribution imports
-import { OpenMCStudioContribution } from './openmc-studio-contribution';
+// New modular services
+import {
+    OpenMCValidationService,
+    OpenMCEnvironmentService,
+    OpenMCHealthService,
+    OpenMCInstallerService
+} from './services';
+
+// Command imports
+import {
+    EnvironmentCommands,
+    ProjectCommands,
+    SimulationCommands,
+    ViewCommands
+} from './commands';
+
+// Modular contributions
+import {
+    OpenMCCommandContribution,
+    OpenMCMenuContribution,
+    OpenMCToolbarContribution,
+    OpenMCOpenHandlerContribution
+} from './contributions';
+
+// Widget imports
+import { SimulationDashboardWidget } from './widgets/simulation-dashboard/simulation-dashboard-widget';
+import { CSGBuilderWidget } from './widgets/csg-builder/csg-builder-widget';
+import { DAGMCEditorWidget } from './widgets/dagmc-editor/dagmc-editor-widget';
+import { TallyConfiguratorWidget } from './widgets/tally-configurator/tally-configurator-widget';
+import { SimulationComparisonWidget } from './widgets/simulation-comparison/comparison-widget';
+import { OptimizationWidget } from './widgets/optimization/optimization-widget';
 
 // Preferences
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
-import { SimulationDashboardWidget } from './simulation-dashboard/simulation-dashboard-widget';
-import { CSGBuilderWidget } from './csg-builder/csg-builder-widget';
-import { DAGMCEditorWidget } from './dagmc-editor/dagmc-editor-widget';
-import { TallyConfiguratorWidget } from './tally-configurator/tally-configurator-widget';
-import { SimulationComparisonWidget } from './simulation-comparison/comparison-widget';
-import { OptimizationWidget } from './optimization/optimization-widget';
-
 // Import CSS
-import './simulation-dashboard/simulation-dashboard.css';
-import './csg-builder/csg-builder.css';
-import './dagmc-editor/dagmc-editor.css';
-import './tally-configurator/tally-configurator.css';
-import './simulation-comparison/comparison.css';
-import './optimization/optimization.css';
+import './widgets/simulation-dashboard/simulation-dashboard.css';
+import './widgets/csg-builder/csg-builder.css';
+import './widgets/dagmc-editor/dagmc-editor.css';
+import './widgets/tally-configurator/tally-configurator.css';
+import './widgets/simulation-comparison/comparison.css';
+import './widgets/optimization/optimization.css';
 
-// ============================================================================
-// Dependency Injection Bindings
-// ============================================================================
-
-export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
+export default new ContainerModule((bind: interfaces.Bind) => {
     console.log('[OpenMC Studio] Initializing frontend module...');
 
     // ============================================================================
     // Preferences
     // ============================================================================
-    
     bindOpenMCStudioPreferences(bind);
 
     // ============================================================================
     // Backend Service Proxy
     // ============================================================================
-    
-    // Create proxy for backend service communication with client
     bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
         
-        // Create client object that forwards messages via window event
         const client: OpenMCStudioClient = {
             log: (message: string) => {
                 window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stdout', data: message } }));
@@ -118,76 +131,80 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     }).inSingletonScope();
 
     // ============================================================================
-    // Frontend Services
+    // Core Services
     // ============================================================================
-    
-    // Main OpenMC Studio service
     bind(OpenMCStudioService).toSelf().inSingletonScope();
-    
-    // State manager for the current simulation state
     bind(OpenMCStateManager).toSelf().inSingletonScope();
-    
-    // XML generation service
     bind(OpenMCXMLGenerationService).toSelf().inSingletonScope();
-    
-    // Python script generator
-    bind(OpenMCPythonExporter).toSelf().inSingletonScope();
-    
-    // Simulation runner
     bind(OpenMCSimulationRunner).toSelf().inSingletonScope();
+    bind(OpenMCPythonExporter).toSelf().inSingletonScope();
 
     // ============================================================================
-    // Contributions
+    // Environment & Health Services
     // ============================================================================
+    bind(OpenMCValidationService).toSelf().inSingletonScope();
+    bind(OpenMCEnvironmentService).toSelf().inSingletonScope();
+    bind(OpenMCHealthService).toSelf().inSingletonScope();
+    bind(OpenMCInstallerService).toSelf().inSingletonScope();
+
+    // ============================================================================
+    // Command Modules
+    // ============================================================================
+    bind(EnvironmentCommands).toSelf().inSingletonScope();
+    bind(ProjectCommands).toSelf().inSingletonScope();
+    bind(SimulationCommands).toSelf().inSingletonScope();
+    bind(ViewCommands).toSelf().inSingletonScope();
+
+    // ============================================================================
+    // Modular Contributions
+    // ============================================================================
+    bind(OpenMCCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCCommandContribution);
     
-    // Main contribution (commands, menus, toolbar, open handler)
-    bind(OpenMCStudioContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(OpenMCStudioContribution);
-    bind(MenuContribution).toService(OpenMCStudioContribution);
-    bind(TabBarToolbarContribution).toService(OpenMCStudioContribution);
-    bind(OpenHandler).toService(OpenMCStudioContribution);
-    bind(FrontendApplicationContribution).toService(OpenMCStudioContribution);
+    bind(OpenMCMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(OpenMCMenuContribution);
+    
+    bind(OpenMCToolbarContribution).toSelf().inSingletonScope();
+    bind(TabBarToolbarContribution).toService(OpenMCToolbarContribution);
+    
+    // OpenHandler for .nuke-openmc files
+    bind(OpenMCOpenHandlerContribution).toSelf().inSingletonScope();
+    bind(OpenHandler).toService(OpenMCOpenHandlerContribution);
+    bind(FrontendApplicationContribution).toService(OpenMCOpenHandlerContribution);
 
     // ============================================================================
     // Widget Factories
     // ============================================================================
-    
-    // Simulation Dashboard Widget
     bind(SimulationDashboardWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: SimulationDashboardWidget.ID,
         createWidget: () => container.get(SimulationDashboardWidget)
     })).inSingletonScope();
     
-    // CSG Builder Widget
     bind(CSGBuilderWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: CSGBuilderWidget.ID,
         createWidget: () => container.get(CSGBuilderWidget)
     })).inSingletonScope();
     
-    // DAGMC Editor Widget
     bind(DAGMCEditorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: DAGMCEditorWidget.ID,
         createWidget: () => container.get(DAGMCEditorWidget)
     })).inSingletonScope();
     
-    // Tally Configurator Widget
     bind(TallyConfiguratorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: TallyConfiguratorWidget.ID,
         createWidget: () => container.get(TallyConfiguratorWidget)
     })).inSingletonScope();
 
-    // Simulation Comparison Widget
     bind(SimulationComparisonWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: SimulationComparisonWidget.ID,
         createWidget: () => container.get(SimulationComparisonWidget)
     })).inSingletonScope();
 
-    // Optimization Widget - create new instance each time (not singleton)
     bind(OptimizationWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: OptimizationWidget.ID,
@@ -197,9 +214,10 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     console.log('[OpenMC Studio] Frontend module initialized');
 });
 
-// ============================================================================
-// Re-export for convenience
-// ============================================================================
-
+// Re-exports
 export { OpenMCStudioService } from './openmc-studio-service';
 export { OpenMCStateManager } from './openmc-state-manager';
+export { OpenMCValidationService, OpenMCValidationResult } from './services';
+export { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from './services';
+export { OpenMCHealthService, HealthCheckResult, HealthCheckIssue } from './services';
+export { OpenMCInstallerService, InstallOption, InstallResult } from './services';
