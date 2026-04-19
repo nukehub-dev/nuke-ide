@@ -437,6 +437,13 @@ export class NukeCoreService {
         return this.backend.getCondaCommand();
     }
 
+    /**
+     * Delete a user-created environment.
+     */
+    async deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }> {
+        return this.backend.deleteEnvironment(env);
+    }
+
     private clearCache(): void {
         this.backend.setConfig({ ...this.currentConfig });
     }

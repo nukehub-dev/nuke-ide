@@ -22,7 +22,9 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { CommonCommands } from '@theia/core/lib/browser/common-commands';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
+
 import { NukeCoreService } from '../services/nuke-core-service';
+import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
 import { NukeEnvironment, NukeCoreStatusBarVisibility } from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from '../services/nuke-core-visibility-service';
 
@@ -35,7 +37,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     
     @inject(StatusBar)
     protected readonly statusBar: StatusBar;
-    
+
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
     
@@ -47,7 +49,10 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     
     @inject(CommandService)
     protected readonly commandService: CommandService;
-    
+
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
+
     @inject(PreferenceService)
     protected readonly preferences: PreferenceService;
     
@@ -307,7 +312,13 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             } else if (selected.value === '__create__') {
                 this.commandService.executeCommand('nuke.core.createEnvironment');
             } else if (selected.value) {
-                await this.switchToEnvironment(selected.value as NukeEnvironment);
+                const env = selected.value as NukeEnvironment;
+                if (current && current.pythonPath === env.pythonPath) {
+                    // Clicked the currently active env — show actions instead of re-switching
+                    await this.envActions.showEnvActions(env);
+                } else {
+                    await this.switchToEnvironment(env);
+                }
             }
         } catch (error) {
             this.messageService.error(`Failed to list environments: ${error}`);

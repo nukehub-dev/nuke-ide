@@ -301,6 +301,12 @@ export interface NukeCoreBackendServiceInterface {
      * Returns undefined if neither is installed.
      */
     getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined>;
+
+    /**
+     * Delete a user-created environment.
+     * Only conda envs in ~/.nuke-ide/envs/ and venvs are deletable.
+     */
+    deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }>;
 }
 
 /** Frontend event types */

@@ -26,6 +26,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import {
     NukeCoreBackendServiceInterface,
     PythonConfig,
+    NukeEnvironment,
     PythonDetectionResult,
     ListEnvironmentsResult,
     PackageDependency,
@@ -116,5 +117,9 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
 
     async getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
         return this.environmentService.getCondaCommand();
+    }
+
+    async deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }> {
+        return this.environmentService.deleteEnvironment(env);
     }
 }

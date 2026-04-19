@@ -33,11 +33,16 @@ import {
 } from '../common/nuke-core-protocol';
 import { NukeCoreService } from './services/nuke-core-service';
 import { NukeCoreVisibilityService } from './services/nuke-core-visibility-service';
+import { EnvironmentActionsHelper } from './services/environment-actions-helper';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
 import { NukeCoreStatusBarContribution, WorkspaceEnvContribution } from './contributions';
-import { NukeCoreCommandContribution } from './nuke-core-commands';
+import {
+    NukeHealthCommandContribution,
+    NukeEnvironmentCommandContribution,
+    NukePackageCommandContribution
+} from './commands';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
     console.log('[NukeCore] Initializing frontend module...');
@@ -47,8 +52,12 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     bind(MenuContribution).toService(NukeCoreMenuContribution);
 
     // Commands
-    bind(NukeCoreCommandContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(NukeCoreCommandContribution);
+    bind(NukeHealthCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeHealthCommandContribution);
+    bind(NukeEnvironmentCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeEnvironmentCommandContribution);
+    bind(NukePackageCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukePackageCommandContribution);
 
     // Status Bar
     bind(NukeCoreStatusBarContribution).toSelf().inSingletonScope();
@@ -73,7 +82,10 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
 
     // Frontend service
     bind(NukeCoreService).toSelf().inSingletonScope();
-    
+
+    // Environment actions helper (shared between status bar and commands)
+    bind(EnvironmentActionsHelper).toSelf().inSingletonScope();
+
     // Status bar visibility service (for dependent extensions)
     bind(NukeCoreVisibilityService).toSelf().inSingletonScope();
     bind(NukeCoreStatusBarVisibility).toService(NukeCoreVisibilityService);

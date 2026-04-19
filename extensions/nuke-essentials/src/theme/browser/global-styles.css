@@ -277,7 +277,7 @@ button.theia-button:active {
    Notifications
    ============================================================================ */
 .theia-notification-list-item {
-  border-radius: var(--nuke-radius-md);
+  border-radius: var(--nuke-radius-md) !important;
   box-shadow: var(--nuke-shadow-xl);
   animation: notification-slide-in 0.3s ease-out;
 }
@@ -291,6 +291,10 @@ button.theia-button:active {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+.theia-notification-buttons > button {
+  max-width: 300px;
 }
 
 /* ============================================================================

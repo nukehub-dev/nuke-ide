@@ -19,6 +19,7 @@ import { MessageService } from '@theia/core/lib/common';
 import { CommandService } from '@theia/core/lib/common/command';
 import { CommonCommands } from '@theia/core/lib/browser/common-commands';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
@@ -56,6 +57,9 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
     @inject(WindowService)
     protected readonly windowService: WindowService;
 
+    @inject(EnvVariablesServer)
+    protected readonly envVariables: EnvVariablesServer;
+
     /** Track which specific files we've already suggested, so we don't spam. */
     private notifiedFiles = new Set<string>();
 
@@ -78,42 +82,53 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                 return;
             }
 
-            // Only prompt if no environment is currently configured
             const config = await this.nukeCore.getConfig();
-            if (config.pythonPath || config.condaEnv) {
-                return;
-            }
+            const hasConfig = !!(config.pythonPath || config.condaEnv);
 
-            // Mark all found files as notified so we don't re-prompt
+            // For requirements.txt, we need a working Python. Skip if none available.
+            const python = hasConfig ? await this.nukeCore.detectPython() : undefined;
+            const hasPython = python?.success ?? false;
+
+            // Determine which files to actually suggest
+            const condaYml = newFiles.find(f => f.type === 'conda-yml');
+            const reqTxt = newFiles.find(f => f.type === 'requirements-txt');
+
+            // Mark all found files as notified so we don't re-prompt this session
             for (const f of envFiles) {
                 this.notifiedFiles.add(f.uri.toString());
             }
 
-            const condaYml = newFiles.find(f => f.type === 'conda-yml');
-            const reqTxt = newFiles.find(f => f.type === 'requirements-txt');
-
             if (condaYml && reqTxt) {
+                const buttons: string[] = [];
+                if (condaYml) {
+                    buttons.push(hasConfig ? 'Update from environment.yml' : 'Create from environment.yml');
+                }
+                if (reqTxt && hasPython) {
+                    buttons.push('Install requirements.txt');
+                }
+                buttons.push('Dismiss');
+
                 const action = await this.messageService.info(
-                    `Found environment files in workspace: ${condaYml.name} and ${reqTxt.name}. Set up a Python environment?`,
-                    'Create from environment.yml',
-                    'Install requirements.txt',
-                    'Dismiss'
+                    `Found environment files in workspace: ${condaYml.name} and ${reqTxt.name}.`,
+                    ...(buttons as [string, ...string[]])
                 );
-                if (action === 'Create from environment.yml') {
+                if (action?.includes('environment.yml')) {
                     await this.setupFromCondaYml(condaYml);
                 } else if (action === 'Install requirements.txt') {
                     await this.setupFromRequirementsTxt(reqTxt);
                 }
             } else if (condaYml) {
                 const action = await this.messageService.info(
-                    `Found ${condaYml.name} in workspace. Create a conda environment from it?`,
-                    'Create Environment',
+                    hasConfig
+                        ? `Found ${condaYml.name} in workspace. Recreate/update environment from it?`
+                        : `Found ${condaYml.name} in workspace. Create a conda environment from it?`,
+                    hasConfig ? 'Recreate Environment' : 'Create Environment',
                     'Dismiss'
                 );
-                if (action === 'Create Environment') {
+                if (action === 'Create Environment' || action === 'Recreate Environment') {
                     await this.setupFromCondaYml(condaYml);
                 }
-            } else if (reqTxt) {
+            } else if (reqTxt && hasPython) {
                 const action = await this.messageService.info(
                     `Found ${reqTxt.name} in workspace. Install dependencies?`,
                     'Install with pip',
@@ -174,42 +189,81 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
             const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
             const filePath = file.uri.path.fsPath();
 
-            const args = ['env', 'create', '-f', filePath, '-y'];
+            // Parse the environment name from the YAML so we can install into ~/.nuke-ide/envs/
+            const envName = await this.parseEnvNameFromYml(file.uri);
+            const homeVar = await this.envVariables.getValue('HOME');
+            const homeDir = homeVar?.value || workspaceRoot;
+            const prefix = `${homeDir}/.nuke-ide/envs/${envName}`;
+
+            // Check if environment already exists — use update instead of create
+            let subCommand = 'create';
+            try {
+                const stat = await this.fileService.resolve(new URI(prefix + '/conda-meta'));
+                if (stat.isDirectory) {
+                    subCommand = 'update';
+                }
+            } catch {
+                // doesn't exist — safe to create
+            }
+
+            const args = ['env', subCommand, '-f', filePath, '--prefix', prefix, '-y'];
             const terminal = await this.terminalService.newTerminal({
-                title: `Create env from ${file.name}`,
+                title: `${subCommand === 'update' ? 'Update' : 'Create'} env from ${file.name}`,
                 cwd: workspaceRoot
             });
             await terminal.start();
             this.terminalService.open(terminal, { mode: 'reveal' });
             await terminal.executeCommand({ cwd: workspaceRoot, args: [condaCmd.cmd, ...args] });
 
-            this.messageService.info(`Creating environment from ${file.name} in terminal...`);
+            this.messageService.info(
+                `${subCommand === 'update' ? 'Updating' : 'Creating'} environment from ${file.name} in terminal...`
+            );
 
             await this.waitForTerminal(terminal);
 
             const status = terminal.exitStatus;
             if (status && status.code === 0) {
                 const action = await this.messageService.info(
-                    `Environment created from ${file.name}! Switch to it?`,
+                    `Environment ${subCommand === 'update' ? 'updated' : 'created'} from ${file.name}! Switch to it?`,
                     'Switch Environment',
                     'Dismiss'
                 );
                 if (action === 'Switch Environment') {
                     // Refresh environments and let user pick
                     const envs = await this.nukeCore.listEnvironments(true);
-                    if (envs.length > 0) {
+                    const newEnv = envs.find(e => e.envPath === prefix || e.name === envName);
+                    if (newEnv) {
+                        await this.nukeCore.switchToEnvironment(newEnv);
+                    } else if (envs.length > 0) {
                         await this.nukeCore.switchToEnvironment(envs[0]);
                     }
                 }
             } else {
                 this.messageService.warn(
-                    `Environment creation from ${file.name} may have failed. Check the terminal for details.`
+                    `Environment ${subCommand} from ${file.name} may have failed. Check the terminal for details.`
                 );
             }
         } catch (error) {
             console.error('[NukeCore] Error setting up from conda yml:', error);
             this.messageService.error(`Failed to create environment from ${file.name}: ${error}`);
         }
+    }
+
+    private async parseEnvNameFromYml(uri: URI): Promise<string> {
+        try {
+            const content = await this.fileService.read(uri);
+            const match = content.value.match(/^name:\s*(.+)$/m);
+            if (match) {
+                return match[1].trim();
+            }
+        } catch {
+            // ignore read errors
+        }
+        // Fallback: use the workspace folder name
+        const parts = uri.path.toString().split('/');
+        // Remove empty parts and the filename itself
+        const dirs = parts.filter(p => p).slice(0, -1);
+        return dirs[dirs.length - 1] || 'nuke-env';
     }
 
     private async setupFromRequirementsTxt(file: EnvFileInfo): Promise<void> {

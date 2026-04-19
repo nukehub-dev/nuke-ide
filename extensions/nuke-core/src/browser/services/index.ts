@@ -12,3 +12,4 @@
 
 export * from './nuke-core-service';
 export * from './nuke-core-visibility-service';
+export * from './environment-actions-helper';

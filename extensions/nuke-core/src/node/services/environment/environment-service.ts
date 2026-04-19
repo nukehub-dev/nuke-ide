@@ -582,6 +582,60 @@ export class EnvironmentService {
         return this.condaProvider.getResolver().getBestCommand();
     }
 
+    async deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }> {
+        if (!this.isUserCreatedEnv(env)) {
+            return { success: false, error: 'Only user-created environments can be deleted.' };
+        }
+
+        try {
+            if (env.type === 'conda') {
+                const best = await this.condaProvider.getResolver().getBestCommand();
+                if (!best) {
+                    return { success: false, error: 'No conda or mamba installation found.' };
+                }
+                const { execSync } = await import('child_process');
+                execSync(`"${best.cmd}" env remove --prefix "${env.envPath}" -y`, {
+                    encoding: 'utf-8',
+                    timeout: 120000
+                });
+            } else if (env.type === 'venv' || env.type === 'virtualenv') {
+                if (!env.envPath) {
+                    return { success: false, error: 'No environment path available.' };
+                }
+                const fs = await import('fs');
+                await fs.promises.rm(env.envPath, { recursive: true, force: true });
+            } else {
+                return { success: false, error: `Cannot delete ${env.type} environments.` };
+            }
+
+            this.clearCache();
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: String(error) };
+        }
+    }
+
+    private isUserCreatedEnv(env: NukeEnvironment): boolean {
+        if (!env.envPath) {
+            return false;
+        }
+        const os = require('os');
+        const path = require('path');
+        const homeDir = os.homedir();
+
+        // Conda envs created by NukeIDE are in ~/.nuke-ide/envs/
+        if (env.type === 'conda' && env.envPath.startsWith(path.join(homeDir, '.nuke-ide', 'envs'))) {
+            return true;
+        }
+
+        // All venvs/virtualenvs are considered user-managed
+        if (env.type === 'venv' || env.type === 'virtualenv') {
+            return true;
+        }
+
+        return false;
+    }
+
     async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {
         const { type, name, pythonSpecifier, cwd: explicitCwd } = options;
         let output = '';
