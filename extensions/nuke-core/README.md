@@ -8,11 +8,12 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 
 - **Environment Management**: Auto-detection of conda, mamba, venv, virtualenv, and system Python environments
 - **Environment Creation**: Create conda and venv environments directly from the IDE
+- **Environment Deletion**: Delete user-created conda/venv environments with type-to-confirm safety
 - **Configuration Management**: Validated settings for environment paths
 - **Package Management**: Install packages with pip, uv, or conda — with live terminal output
 - **Health Checks**: Comprehensive diagnostics and troubleshooting tools
 - **Status Bar**: Context-aware visibility - shows when needed, hides when not
-- **Workspace Auto-Detect**: Discovers `environment.yml` and `requirements.txt` automatically
+- **Workspace Auto-Detect**: Discovers `environment.yml` and `requirements.txt` automatically; suggests update when already configured
 
 ## Features
 
@@ -20,8 +21,8 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - **Conda / Mamba** environments (Anaconda, Miniconda, Miniforge, Mambaforge)
 - **Virtualenv** and **venv**
 - **System Python**
-- **Poetry** environments (via `poetry env list`)
-- **Pyenv** installations (via `pyenv versions`)
+- **Poetry** environments (via `poetry env list --full-path`)
+- **Pyenv** installations (via `pyenv versions --bare`)
 - Automatic workspace venv discovery
 - Cross-platform path support (Linux, macOS, Windows)
 
@@ -30,18 +31,27 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Create **venv** environments in the workspace
 - Live terminal output during creation
 - Duplicate detection — warns if environment already exists
-- Project-local environments stored in `<workspace>/.nuke-ide/envs/`
+- User-created environments stored in `~/.nuke-ide/envs/`
+
+### 🗑️ Environment Deletion
+- Delete **user-created** conda environments (in `~/.nuke-ide/envs/`) and **all venvs**
+- Protected: system, pyenv, poetry, and base conda environments cannot be deleted
+- **Type-to-confirm** safety: must type the environment name to confirm
+- Status bar refreshes automatically after deletion
 
 ### 📦 Package Management
 - Install packages via **pip**, **uv** (fast), or **conda/mamba**
 - Live terminal output during installation
 - Automatic Python path resolution — never hits system PEP 668 restrictions
 - Package manager picker: choose pip or conda at install time
+- Conda-only package support: mark packages with `condaOnly: true` (e.g., `paraview`)
 
 ### 🔔 Workspace Auto-Detect
 - Scans workspace for `environment.yml`, `environment.yaml`, `requirements.txt`
-- Suggests environment setup when files are found
-- Guides users to create environments from config files
+- Suggests **Create** when unconfigured; suggests **Update/Recreate** when already configured
+- Auto-creates conda environments from `environment.yml` into `~/.nuke-ide/envs/`
+- Auto-installs dependencies from `requirements.txt` via pip
+- Dismissed prompts are persisted across reloads in `localStorage`
 
 ### ✅ Configuration Validation
 - Validates Python executable paths
@@ -59,7 +69,7 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Shows current environment with type icon
 - Quick environment switcher (grouped by type)
 - Configuration issue indicators
-- **Environment Actions** menu: Open Terminal, Install Packages, Copy Path
+- **Environment Actions** menu: Re-select, Open Terminal, Install Packages, Update from env file, Copy Path, Delete
 
 ## Installation
 
@@ -76,6 +86,8 @@ Settings are available in **Settings → Nuke Utils**:
 | `nuke.openmcCrossSections` | Path to cross_sections.xml |
 | `nuke.openmcChainFile` | Path to depletion chain XML |
 | `nuke.showStatusBar` | Control status bar visibility (`auto`, `always`, `never`) |
+| `nuke.pipExtraIndexUrl` | Extra pip index URL for private packages (e.g., Azure Artifacts) |
+| `nuke.condaChannels` | Comma-separated conda channels (default: `conda-forge`) |
 
 ### Using with MS Python Extension
 
@@ -90,8 +102,9 @@ Access via **Tools** menu or Command Palette:
 | Command | Description |
 |---------|-------------|
 | **Switch Environment** | Quick switch between detected environments (grouped picker) |
-| **Environment Actions** | Pick an environment, then choose: Switch / Open Terminal / Install Packages / Copy Path |
+| **Environment Actions** | Pick an environment, then choose: Switch / Open Terminal / Install / Update / Copy / Delete |
 | **Create Environment** | Create a new conda or venv environment |
+| **Delete Environment** | Delete a user-created environment (type-to-confirm) |
 | **Install Package** | Install packages using pip, uv, or conda — with live terminal output |
 | **Run Health Check** | Validate your setup |
 | **Validate Configuration** | Check settings for errors |

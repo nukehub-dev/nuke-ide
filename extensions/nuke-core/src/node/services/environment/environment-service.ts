@@ -174,8 +174,9 @@ export class EnvironmentService {
                 } else {
                     if (depCheck.missing.length > 0) {
                         const missingPkgs = depCheck.missing.join(', ');
+                        const installCmd = this.buildInstallSuggestion(requiredPackages, depCheck.missing);
                         errors.push(`Configured Python missing: ${missingPkgs}`);
-                        warnings.push(`Configured Python is missing: ${missingPkgs}. To use it, run: pip install ${missingPkgs}`);
+                        warnings.push(`Configured Python is missing: ${missingPkgs}. To use it, run: ${installCmd}`);
                     } else {
                         warnings.push(`Configured Python path does not have required packages.`);
                     }
@@ -195,8 +196,9 @@ export class EnvironmentService {
                     return { success: true, command: condaPython, warning: warnings.join(' '), environment: depCheck.env };
                 } else {
                     const missingPkgs = depCheck.missing.join(', ');
+                    const installCmd = this.buildInstallSuggestion(requiredPackages, depCheck.missing);
                     errors.push(`Conda env '${this.config.condaEnv}' missing: ${missingPkgs}`);
-                    warnings.push(`Configured conda environment '${this.config.condaEnv}' is missing: ${missingPkgs}. To use it, run: conda install ${missingPkgs}`);
+                    warnings.push(`Configured conda environment '${this.config.condaEnv}' is missing: ${missingPkgs}. To use it, run: ${installCmd}`);
                 }
             } else {
                 errors.push(`Conda environment '${this.config.condaEnv}' not found`);
@@ -211,9 +213,11 @@ export class EnvironmentService {
                 const bestMatch = matchingEnvironments[0];
                 this.cachePythonResult(bestMatch.pythonPath, bestMatch);
                 const pkgList = requiredPackages.map(p => p.name).join(', ');
+                const allPkgNames = requiredPackages.map(p => p.name);
+                const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                 const warning = warnings.length > 0
                     ? `${warnings.join(' ')}. Using '${bestMatch.name}' with all required packages.`
-                    : `Using '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                    : `Using '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                 return { success: true, command: bestMatch.pythonPath, warning, environment: bestMatch };
             }
         }
@@ -226,9 +230,11 @@ export class EnvironmentService {
                 if (depCheck.success) {
                     this.cachePythonResult(condaPython, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                     const warning = warnings.length > 0
                         ? `${warnings.join(' ')}. Using auto-detected conda environment '${envName}'.`
-                        : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                        : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: condaPython, warning, environment: depCheck.env };
                 } else {
                     errors.push(`Auto-detected conda env '${envName}' missing: ${depCheck.missing.join(', ')}`);
@@ -244,9 +250,11 @@ export class EnvironmentService {
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                     const warning = warnings.length > 0
                         ? `${warnings.join(' ')} Using workspace venv '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -260,9 +268,11 @@ export class EnvironmentService {
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                     const warning = warnings.length > 0
                         ? `${warnings.join(' ')} Using poetry env '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -278,9 +288,11 @@ export class EnvironmentService {
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                     const warning = warnings.length > 0
                         ? `${warnings.join(' ')} Using pyenv env '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -295,9 +307,11 @@ export class EnvironmentService {
             if (depCheck.success) {
                 this.cachePythonResult(systemPython, depCheck.env!);
                 const pkgList = requiredPackages.map(p => p.name).join(', ');
+                const allPkgNames = requiredPackages.map(p => p.name);
+                const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                 const warning = warnings.length > 0
                     ? `${warnings.join(' ')} Using system Python.`
-                    : `Using system Python with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                    : `Using system Python with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                 return { success: true, command: systemPython, warning, environment: depCheck.env };
             }
         }
@@ -403,6 +417,57 @@ export class EnvironmentService {
             versionMismatches,
             versions
         };
+    }
+
+    /**
+     * Build an install command suggestion based on package metadata.
+     * Separates conda-only packages (e.g. paraview) from pip-installable ones.
+     * Respects per-package channels and global conda channel preferences.
+     */
+    private buildInstallSuggestion(packages: PackageDependency[], missingNames: string[]): string {
+        const missing = packages.filter(p => missingNames.includes(p.name));
+        const condaPkgs = missing.filter(p => p.condaOnly);
+        const pipPkgs = missing.filter(p => !p.condaOnly).map(p => p.name);
+
+        // Default channels from config, fallback to conda-forge
+        const defaultChannels = this.config.condaChannels
+            ? this.config.condaChannels.split(',').map(c => c.trim()).filter(Boolean)
+            : ['conda-forge'];
+
+        const parts: string[] = [];
+
+        // Conda packages: group by their channels
+        if (condaPkgs.length > 0) {
+            const channelGroups = new Map<string, string[]>();
+            for (const pkg of condaPkgs) {
+                const channels = pkg.channels?.length ? pkg.channels : defaultChannels;
+                const key = channels.join(',');
+                const list = channelGroups.get(key) || [];
+                list.push(pkg.name);
+                channelGroups.set(key, list);
+            }
+            for (const [channelsKey, names] of channelGroups) {
+                const channels = channelsKey.split(',');
+                const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
+                parts.push(`conda install ${channelArgs} ${names.join(' ')}`);
+            }
+        }
+
+        // Pip packages
+        if (pipPkgs.length > 0) {
+            const indexArg = this.config.pipExtraIndexUrl
+                ? `--extra-index-url ${this.config.pipExtraIndexUrl} `
+                : '';
+            parts.push(`pip install ${indexArg}${pipPkgs.join(' ')}`.trim());
+        }
+
+        if (parts.length === 0) {
+            return '';
+        }
+        if (parts.length === 1) {
+            return parts[0];
+        }
+        return parts.join(' and ');
     }
 
     async listEnvironments(searchWorkspace = false): Promise<ListEnvironmentsResult> {
@@ -524,7 +589,7 @@ export class EnvironmentService {
     }
 
     async prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand> {
-        const { type, name, pythonSpecifier, cwd: explicitCwd } = options;
+        const { type, name, pythonSpecifier, cwd: explicitCwd, channels, packages: extraPackages } = options;
         const os = await import('os');
         const path = await import('path');
         const fs = await import('fs');
@@ -540,7 +605,16 @@ export class EnvironmentService {
 
             const prefix = path.join(homeDir, '.nuke-ide', 'envs', name);
             const pythonArg = pythonSpecifier ? `python=${pythonSpecifier}` : 'python';
-            const args = ['create', '--prefix', prefix, pythonArg, '-y'];
+
+            // Resolve channels: explicit > preference > default
+            const condaChannels = channels?.length
+                ? channels
+                : this.config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean)
+                || ['conda-forge'];
+            const channelArgs = condaChannels.flatMap(c => ['-c', c]);
+
+            const pkgArgs = extraPackages && extraPackages.length > 0 ? extraPackages : [];
+            const args = ['create', '--prefix', prefix, ...channelArgs, pythonArg, ...pkgArgs, '-y'];
             const command = `"${best.cmd}" ${args.join(' ')}`;
             const expectedPythonPath = path.join(prefix, isWindows ? 'python.exe' : 'bin/python');
 

@@ -58,8 +58,9 @@ All commands are available in the **Tools** menu or via the Command Palette:
 | Command | Description |
 |---------|-------------|
 | `Nuke: Switch Environment` | Switch to a different environment (grouped by type) |
-| `Nuke: Environment Actions` | Select an environment, then choose: Switch / Open Terminal / Install Packages / Copy Python Path |
+| `Nuke: Environment Actions` | Select an environment, then choose: Switch / Open Terminal / Install / Update / Copy / Delete |
 | `Nuke: Create Environment` | Create a new conda or venv environment with guided wizard |
+| `Nuke: Delete Environment` | Delete a user-created environment (type-to-confirm safety) |
 | `Nuke: Install Package` | Install packages using pip, uv, or conda — with live terminal output |
 | `Nuke: Run Health Check` | Run comprehensive health checks |
 | `Nuke: Validate Configuration` | Validate settings and paths |
@@ -76,6 +77,8 @@ Settings are available in **Settings → Nuke Utils**:
 | `nuke.openmcCrossSections` | Path to OpenMC cross_sections.xml file | `""` |
 | `nuke.openmcChainFile` | Path to OpenMC depletion chain XML file | `""` |
 | `nuke.showStatusBar` | Control status bar visibility (`auto`, `always`, `never`) | `"auto"` |
+| `nuke.pipExtraIndexUrl` | Extra pip index URL for private packages | `""` |
+| `nuke.condaChannels` | Comma-separated conda channels (e.g., `conda-forge,nvidia`) | `"conda-forge"` |
 
 ### Status Bar Visibility (`nuke.showStatusBar`)
 
@@ -148,7 +151,8 @@ Nuke Core has **smart auto-detection** - it automatically searches ALL available
 const result = await this.nukeCore.detectPythonWithRequirements({
     requiredPackages: [
         { name: 'openmc', required: true },
-        { name: 'numpy', required: true, minVersion: '1.20.0' }
+        { name: 'numpy', required: true, minVersion: '1.20.0' },
+        { name: 'paraview', condaOnly: true }  // conda-only packages
     ],
     // Optional: prefer these environment names if multiple match
     autoDetectEnvs: ['openmc', 'nuke-ide'],
@@ -173,6 +177,8 @@ if (result.success) {
 6. Checks poetry environments
 7. Checks pyenv environments
 8. Falls back to system Python as last resort
+
+**Install suggestions** respect `condaOnly` flags: conda-only packages suggest `conda install -c conda-forge`, pip packages suggest `pip install`, and mixed packages show both commands.
 
 **Note:** You typically don't need `autoDetectEnvs` anymore - nuke-core will find the right environment automatically!
 
@@ -203,9 +209,28 @@ await this.nukeCore.installPackages({
 
 // Copy the Python executable path to clipboard
 await navigator.clipboard.writeText(env.pythonPath);
+
+// Check if environment is deletable
+if (env.isDeletable) {
+    // Delete the environment
+    await this.nukeCore.deleteEnvironment(env);
+}
 ```
 
 > **Note:** Opening a terminal with the environment activated is handled internally by the `Nuke: Environment Actions` command. Extensions that need this should use Theia's `TerminalService` directly or delegate to the command palette.
+
+### Environment Deletion
+
+User-created environments can be deleted. The backend enforces safety rules:
+- **Deletable**: conda envs in `~/.nuke-ide/envs/` and all venvs/virtualenvs
+- **Protected**: system Python, pyenv, poetry, and base conda environments
+
+```typescript
+const result = await this.nukeCore.deleteEnvironment(env);
+if (!result.success) {
+    console.error('Cannot delete:', result.error);
+}
+```
 
 ### Check Package Dependencies
 
@@ -213,7 +238,8 @@ await navigator.clipboard.writeText(env.pythonPath);
 const result = await this.nukeCore.checkDependencies([
     { name: 'openmc', required: true, minVersion: '0.14.0' },
     { name: 'numpy', required: true },
-    { name: 'trame', submodule: 'app', required: false }
+    { name: 'trame', submodule: 'app', required: false },
+    { name: 'paraview', condaOnly: true, required: true }
 ]);
 
 if (result.available) {
@@ -243,6 +269,35 @@ if (result.success) {
 
 // Convenience method for quick installs
 await this.nukeCore.installMissingPackages(['openmc', 'vtk']);
+```
+
+### Custom Channels and Indexes
+
+Set global defaults in **Settings → Nuke Utils**:
+- `nuke.condaChannels`: `conda-forge,nvidia,pytorch`
+- `nuke.pipExtraIndexUrl`: `https://pkgs.dev.azure.com/.../simple`
+
+Or override per-package in `PackageDependency`:
+
+```typescript
+const result = await this.nukeCore.detectPythonWithRequirements({
+    requiredPackages: [
+        { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
+        { name: 'openmc', condaOnly: true },
+        { name: 'my-private-pkg' }
+    ]
+});
+```
+
+Per-override at install time:
+
+```typescript
+await this.nukeCore.installPackages({
+    packages: ['pytorch', 'cuda-toolkit'],
+    useConda: true,
+    channels: ['pytorch', 'nvidia', 'conda-forge'],
+    extraIndexUrl: 'https://my-index.example.com/simple'
+});
 ```
 
 ### Automatic Package Installation Suggestions
@@ -465,7 +520,16 @@ const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
 const cmdInfo = await this.backend.prepareCreateEnvironmentCommand({
     type: 'conda',
     name: 'my-env',
-    pythonSpecifier: 'python=3.11'
+    pythonSpecifier: '3.11'
+});
+
+// Create with custom channels and additional packages
+const cmdInfo = await this.backend.prepareCreateEnvironmentCommand({
+    type: 'conda',
+    name: 'moose',
+    pythonSpecifier: '3.11',
+    channels: ['https://conda.software.inl.gov/public'],
+    packages: ['moose']
 });
 ```
 
@@ -515,13 +579,19 @@ nuke-core/
 │   │   ├── nuke-core-protocol.ts           # TypeScript interfaces & RPC protocol
 │   │   └── index.ts                        # Exports
 │   ├── browser/
-│   │   ├── nuke-core-service.ts            # Frontend service (proxies to backend)
+│   │   ├── services/
+│   │   │   ├── nuke-core-service.ts        # Frontend service (proxies to backend)
+│   │   │   ├── environment-actions-helper.ts # Shared env actions (terminal, install, delete)
+│   │   │   └── nuke-core-visibility-service.ts # Status bar visibility requests
+│   │   ├── commands/
+│   │   │   ├── health-command-contribution.ts       # Health/diagnostic commands
+│   │   │   ├── environment-command-contribution.ts  # Switch/Create/Delete commands
+│   │   │   └── package-command-contribution.ts      # Install package commands
+│   │   ├── contributions/
+│   │   │   ├── status-bar-contribution.ts  # Status bar widget + smart env picker
+│   │   │   └── workspace-env-contribution.ts # Scans workspace for env config files
 │   │   ├── nuke-core-preferences.ts        # Preference definitions
 │   │   ├── nuke-core-menus.ts              # Menu contributions
-│   │   ├── nuke-core-commands.ts           # Commands & menu actions (live terminal)
-│   │   ├── contributions/
-│   │   │   ├── status-bar-contribution.ts  # Status bar widget + env picker
-│   │   │   └── workspace-env-contribution.ts # Scans workspace for env config files
 │   │   ├── nuke-core-preference-layout.ts  # Settings layout
 │   │   └── nuke-core-frontend-module.ts    # DI bindings
 │   └── node/
@@ -530,6 +600,8 @@ nuke-core/
 │       │   │   ├── providers/
 │       │   │   │   ├── conda-provider.ts   # Conda/mamba env discovery
 │       │   │   │   ├── venv-provider.ts    # Venv/virtualenv discovery
+│       │   │   │   ├── poetry-provider.ts  # Poetry env discovery
+│       │   │   │   ├── pyenv-provider.ts   # Pyenv installation discovery
 │       │   │   │   └── system-provider.ts  # System Python discovery
 │       │   │   ├── utils/
 │       │   │   │   ├── conda-resolver.ts   # Conda/mamba installation finder
@@ -619,8 +691,11 @@ This allows extensions like `nuke-visualizer` and `openmc-studio` to show the Py
 
 ### Frontend (Browser)
 - **`NukeCoreService`** - Communicates with backend via WebSocket/JSON-RPC
-- **`NukeCoreCommandContribution`** - Commands with live terminal integration (install, create, switch)
-- **`NukeCoreStatusBarContribution`** - Shows current environment with grouped picker and actions
+- **`NukeHealthCommandContribution`** - Health check and diagnostic commands
+- **`NukeEnvironmentCommandContribution`** - Environment commands (switch, create, delete)
+- **`NukePackageCommandContribution`** - Package installation commands
+- **`NukeCoreStatusBarContribution`** - Shows current environment with smart picker (click current → actions, click other → switch)
+- **`EnvironmentActionsHelper`** - Shared terminal/install/delete logic used by status bar and commands
 - **`NukeCoreVisibilityService`** - Allows extensions to request status bar visibility
 
 ### Backend (Node)
@@ -633,16 +708,19 @@ The backend is modularized into providers and services:
 - **`PyenvProvider`** - Discovers pyenv Python installations via `pyenv versions --bare`
 - **`SystemProvider`** - Discovers system Python installations
 
+**Environment tagging:**
+- `NukeEnvironment.isDeletable` - Set by backend based on `isUserCreatedEnv()`: `true` for venvs and conda envs in `~/.nuke-ide/envs/`, `false` for system/pyenv/poetry/base conda
+
 **Utilities**:
 - **`CondaResolver`** - Finds conda/mamba executables across common paths and environment variables. Prefers mamba over conda.
 - **`UvResolver`** - Finds `uv` executable for fast package installation
 - **`PythonInfo`** - Inspects Python executables for versions and installed packages
 
 **Services**:
-- **`EnvironmentService`** - Aggregates all providers, manages configuration
+- **`EnvironmentService`** - Aggregates all providers, manages configuration, validates env existence
 - **`PackageService`** - Prepares install commands with fallback chain: mamba/conda → uv → pip
 - **`HealthService`** - Diagnostics and health checks
-- **`WorkspaceEnvContribution`** - Scans workspace for `environment.yml` / `requirements.txt` and suggests environment setup
+- **`WorkspaceEnvContribution`** - Scans workspace for `environment.yml` / `requirements.txt`, suggests create/update, persists dismissed prompts to `localStorage`
 
 ### Protocol
 Shared TypeScript interfaces in `nuke-core-protocol.ts` with RPC methods:

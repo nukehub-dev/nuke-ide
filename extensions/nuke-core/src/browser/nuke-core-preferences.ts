@@ -54,6 +54,16 @@ export const NukeCoreConfigSchema: PreferenceSchema = {
             ],
             default: 'auto',
             description: 'Control when to show the Python environment status bar item'
+        },
+        'nuke.pipExtraIndexUrl': {
+            type: 'string',
+            description: 'Extra pip index URL for private packages (e.g., https://pkgs.dev.azure.com/.../simple)',
+            default: ''
+        },
+        'nuke.condaChannels': {
+            type: 'string',
+            description: 'Comma-separated list of conda channels (default: conda-forge). E.g., conda-forge,nvidia,pytorch',
+            default: 'conda-forge'
         }
     }
 };
@@ -64,6 +74,8 @@ export interface NukeCoreConfiguration {
     'nuke.openmcCrossSections': string;
     'nuke.openmcChainFile': string;
     'nuke.showStatusBar': 'auto' | 'always' | 'never';
+    'nuke.pipExtraIndexUrl': string;
+    'nuke.condaChannels': string;
 }
 
 export const NukeCorePreferences = Symbol('NukeCorePreferences');

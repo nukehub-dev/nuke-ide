@@ -117,28 +117,32 @@ export class NukeCoreService {
     protected async doSyncFromPreferences(): Promise<void> {
         const inspectPath = this.preferences.inspect<string>('nuke.pythonPath');
         const inspectEnv = this.preferences.inspect<string>('nuke.condaEnv');
+        const inspectChannels = this.preferences.inspect<string>('nuke.condaChannels');
+        const inspectIndex = this.preferences.inspect<string>('nuke.pipExtraIndexUrl');
         
         let pythonPath: string | undefined;
         let condaEnv: string | undefined;
+        let condaChannels: string | undefined;
+        let pipExtraIndexUrl: string | undefined;
         
         // Only use values if they are explicitly set (non-empty)
         // Priority: workspaceFolderValue > workspaceValue > globalValue (user)
         // This avoids the Theia scope merge bug where empty workspace overrides user settings
-        if (inspectPath?.workspaceFolderValue?.trim()) {
-            pythonPath = inspectPath.workspaceFolderValue as string;
-        } else if (inspectPath?.workspaceValue?.trim()) {
-            pythonPath = inspectPath.workspaceValue as string;
-        } else if (inspectPath?.globalValue?.trim()) {
-            pythonPath = inspectPath.globalValue as string;
-        }
+        const pickValue = (inspect: { workspaceFolderValue?: unknown; workspaceValue?: unknown; globalValue?: unknown } | undefined): string | undefined => {
+            if (inspect?.workspaceFolderValue?.toString().trim()) {
+                return inspect.workspaceFolderValue as string;
+            } else if (inspect?.workspaceValue?.toString().trim()) {
+                return inspect.workspaceValue as string;
+            } else if (inspect?.globalValue?.toString().trim()) {
+                return inspect.globalValue as string;
+            }
+            return undefined;
+        };
         
-        if (inspectEnv?.workspaceFolderValue?.trim()) {
-            condaEnv = inspectEnv.workspaceFolderValue as string;
-        } else if (inspectEnv?.workspaceValue?.trim()) {
-            condaEnv = inspectEnv.workspaceValue as string;
-        } else if (inspectEnv?.globalValue?.trim()) {
-            condaEnv = inspectEnv.globalValue as string;
-        }
+        pythonPath = pickValue(inspectPath);
+        condaEnv = pickValue(inspectEnv);
+        condaChannels = pickValue(inspectChannels);
+        pipExtraIndexUrl = pickValue(inspectIndex);
         
         // CRITICAL: If preferences are empty but we already have a valid config, DON'T OVERWRITE IT
         // This handles the case where workspace scope returns "" while user scope has the real value
@@ -151,13 +155,18 @@ export class NukeCoreService {
         }
         
         // Also skip if values haven't changed
-        if (pythonPath === this.currentConfig.pythonPath && condaEnv === this.currentConfig.condaEnv) {
+        if (pythonPath === this.currentConfig.pythonPath &&
+            condaEnv === this.currentConfig.condaEnv &&
+            condaChannels === this.currentConfig.condaChannels &&
+            pipExtraIndexUrl === this.currentConfig.pipExtraIndexUrl) {
             return;
         }
         
         const newConfig: PythonConfig = {
             pythonPath: pythonPath || undefined,
-            condaEnv: condaEnv || undefined
+            condaEnv: condaEnv || undefined,
+            condaChannels: condaChannels || undefined,
+            pipExtraIndexUrl: pipExtraIndexUrl || undefined
         };
         
         await this.setConfig(newConfig);

@@ -36,6 +36,10 @@ export interface PythonConfig {
     pythonPath?: string;
     /** Conda environment name */
     condaEnv?: string;
+    /** Comma-separated conda channels (default: conda-forge) */
+    condaChannels?: string;
+    /** Extra pip index URL for private packages */
+    pipExtraIndexUrl?: string;
 }
 
 /** Information about a Nuke environment */
@@ -88,6 +92,10 @@ export interface PackageDependency {
     required?: boolean;
     /** Minimum version required */
     minVersion?: string;
+    /** Whether this package is only available via conda (not pip), e.g. paraview */
+    condaOnly?: boolean;
+    /** Conda channels to use for this package (defaults to global/preference channels) */
+    channels?: string[];
 }
 
 /** Result of dependency check */
@@ -126,6 +134,10 @@ export interface CreateEnvironmentOptions {
     pythonSpecifier?: string;
     /** Working directory for creating the environment (defaults to workspace root) */
     cwd?: string;
+    /** Conda channels to use during creation (conda only) */
+    channels?: string[];
+    /** Additional packages to install during creation (conda only, e.g. ['moose']) */
+    packages?: string[];
 }
 
 /** Result of environment creation */
@@ -162,6 +174,10 @@ export interface PackageInstallOptions {
     extraArgs?: string[];
     /** Working directory for running the install command */
     cwd?: string;
+    /** Conda channels to use (overrides preference default) */
+    channels?: string[];
+    /** Extra pip index URL (overrides preference default) */
+    extraIndexUrl?: string;
 }
 
 /** Result of package installation */
