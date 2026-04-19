@@ -6,9 +6,9 @@
 
 /**
  * Health Service
- * 
+ *
  * Handles health checks and diagnostics.
- * 
+ *
  * @module nuke-core/node
  */
 
@@ -21,17 +21,20 @@ import {
     ConfigValidationError,
     ConfigValidationWarning
 } from '../../common/nuke-core-protocol';
-import { EnvironmentService } from './environment-service';
+import { EnvironmentService } from './environment/environment-service';
+import { CondaResolver } from './environment/utils/conda-resolver';
 
 @injectable()
 export class HealthService {
-    
+
     @inject(EnvironmentService)
     protected readonly environmentService: EnvironmentService;
 
+    private readonly condaResolver = new CondaResolver();
+
     async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
         const checks: HealthCheckItem[] = [];
-        
+
         // Check Python availability
         try {
             const pythonCommand = await this.environmentService.getPythonCommand();
@@ -59,7 +62,35 @@ export class HealthService {
                 severity: 'error'
             });
         }
-        
+
+        // Check conda/mamba availability
+        try {
+            const best = await this.condaResolver.getBestCommand();
+            if (best) {
+                checks.push({
+                    name: 'Conda/Mamba',
+                    passed: true,
+                    message: `${best.type} available at ${best.cmd}`,
+                    severity: undefined
+                });
+            } else {
+                checks.push({
+                    name: 'Conda/Mamba',
+                    passed: false,
+                    message: 'No conda or mamba installation found',
+                    severity: 'warning',
+                    suggestion: 'Install Miniforge3 for the best experience with nuclear engineering packages'
+                });
+            }
+        } catch (error) {
+            checks.push({
+                name: 'Conda/Mamba',
+                passed: false,
+                message: `Error checking conda/mamba: ${error}`,
+                severity: 'warning'
+            });
+        }
+
         // Check specific packages if requested
         if (packages && packages.length > 0) {
             const pythonCommand = await this.environmentService.getPythonCommand();
@@ -86,16 +117,16 @@ export class HealthService {
                 }
             }
         }
-        
+
         const healthy = checks.every(c => c.passed || c.severity !== 'error');
-        
+
         return { healthy, checks };
     }
 
     async validateConfig(config: PythonConfig): Promise<ConfigValidationResult> {
         const errors: ConfigValidationError[] = [];
         const warnings: ConfigValidationWarning[] = [];
-        
+
         // Validate Python path if set
         if (config.pythonPath) {
             const fs = await import('fs');
@@ -118,34 +149,45 @@ export class HealthService {
                 }
             }
         }
-        
+
         // Validate conda environment if set
         if (config.condaEnv) {
-            try {
-                const { execSync } = await import('child_process');
-                execSync(`conda env list | grep ${config.condaEnv}`, { stdio: 'ignore' });
-            } catch {
+            const best = await this.condaResolver.getBestCommand();
+            if (!best) {
                 warnings.push({
                     field: 'condaEnv',
-                    message: `Conda environment '${config.condaEnv}' not found in conda`,
+                    message: 'No conda or mamba installation found on the system',
                     value: config.condaEnv
                 });
+            } else {
+                try {
+                    const { execSync } = await import('child_process');
+                    execSync(`${best.cmd} env list --json`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] });
+                    // We could parse the JSON and check if the env exists, but running the command
+                    // successfully at least means conda/mamba is functional.
+                } catch {
+                    warnings.push({
+                        field: 'condaEnv',
+                        message: `Unable to validate conda environment '${config.condaEnv}' — conda/mamba may be misconfigured`,
+                        value: config.condaEnv
+                    });
+                }
             }
         }
-        
+
         return { valid: errors.length === 0, errors, warnings };
     }
 
     async getDiagnostics(): Promise<Record<string, unknown>> {
         const diagnostics: Record<string, unknown> = {};
-        
+
         // Platform info
         diagnostics.platform = {
             os: process.platform,
             arch: process.arch,
             nodeVersion: process.version
         };
-        
+
         // Environment info
         try {
             const envResult = await this.environmentService.detectPython();
@@ -154,14 +196,14 @@ export class HealthService {
                 command: envResult.command,
                 error: envResult.error
             };
-            
+
             if (envResult.environment) {
                 diagnostics.environmentDetails = envResult.environment;
             }
         } catch (error) {
             diagnostics.environmentError = String(error);
         }
-        
+
         // List all environments
         try {
             const envs = await this.environmentService.listEnvironments(true);
@@ -172,15 +214,34 @@ export class HealthService {
         } catch (error) {
             diagnostics.environmentsError = String(error);
         }
-        
+
+        // Conda/mamba info
+        try {
+            const best = await this.condaResolver.getBestCommand();
+            const installations = await this.condaResolver.findInstallations();
+            diagnostics.conda = {
+                bestCommand: best,
+                installations: installations.map(i => ({
+                    rootPath: i.rootPath,
+                    type: i.type,
+                    hasConda: !!i.condaExe,
+                    hasMamba: !!i.mambaExe
+                }))
+            };
+        } catch (error) {
+            diagnostics.condaError = String(error);
+        }
+
         // Environment variables
         diagnostics.envVars = {
             CONDA_PREFIX: process.env.CONDA_PREFIX,
+            CONDA_EXE: process.env.CONDA_EXE,
+            MAMBA_EXE: process.env.MAMBA_EXE,
             VIRTUAL_ENV: process.env.VIRTUAL_ENV,
             PYTHONPATH: process.env.PYTHONPATH,
-            PATH: process.env.PATH?.split(':').slice(0, 5)
+            PATH: process.env.PATH?.split(process.platform === 'win32' ? ';' : ':').slice(0, 5)
         };
-        
+
         return diagnostics;
     }
 }

@@ -6,9 +6,10 @@
 
 /**
  * Environment Service
- * 
- * Handles Python environment detection and management.
- * 
+ *
+ * Orchestrates Python environment detection across multiple providers
+ * (conda/mamba, venv, system). Manages caching and configuration.
+ *
  * @module nuke-core/node
  */
 
@@ -20,16 +21,28 @@ import {
     ListEnvironmentsResult,
     PackageDependency,
     PythonDetectionOptions
-} from '../../common/nuke-core-protocol';
+} from '../../../common/nuke-core-protocol';
+import { CondaProvider, VenvProvider, SystemProvider } from './providers';
+import { getPythonInfo } from './utils/python-info';
 
 @injectable()
 export class EnvironmentService {
-    
+
     private config: PythonConfig = {};
     private cachedPythonCommand?: string;
     private environmentsCache?: NukeEnvironment[];
     private environmentsCacheTime?: number;
     private readonly CACHE_TTL = 30000; // 30 seconds
+
+    private readonly condaProvider: CondaProvider;
+    private readonly venvProvider: VenvProvider;
+    private readonly systemProvider: SystemProvider;
+
+    constructor() {
+        this.condaProvider = new CondaProvider();
+        this.venvProvider = new VenvProvider();
+        this.systemProvider = new SystemProvider();
+    }
 
     setConfig(config: PythonConfig): void {
         this.config = { ...config };
@@ -42,9 +55,9 @@ export class EnvironmentService {
 
     clearCache(): void {
         this.cachedPythonCommand = undefined;
-        // Environment cache cleared via cachedPythonCommand
         this.environmentsCache = undefined;
         this.environmentsCacheTime = undefined;
+        this.condaProvider.clearCache();
     }
 
     async detectPython(): Promise<PythonDetectionResult> {
@@ -60,26 +73,26 @@ export class EnvironmentService {
     }
 
     private async doDetectPython(): Promise<PythonDetectionResult> {
-        // Try configured path first
+        // 1. Try configured path first
         if (this.config.pythonPath) {
             try {
                 const { execSync } = await import('child_process');
                 execSync(`"${this.config.pythonPath}" --version`, { stdio: 'ignore' });
-                const env = await this.getEnvironmentInfo(this.config.pythonPath, 'system');
+                const env = await getPythonInfo(this.config.pythonPath, 'system');
                 if (env) {
                     this.cachePythonResult(this.config.pythonPath, env);
                     return { success: true, command: this.config.pythonPath, environment: env };
                 }
             } catch {
-                // Fall through to other methods
+                // Fall through
             }
         }
 
-        // Try conda environment
+        // 2. Try configured conda environment
         if (this.config.condaEnv) {
-            const condaPython = await this.findCondaPython(this.config.condaEnv);
+            const condaPython = await this.condaProvider.findPython(this.config.condaEnv);
             if (condaPython) {
-                const env = await this.getEnvironmentInfo(condaPython, 'conda');
+                const env = await getPythonInfo(condaPython, 'conda');
                 if (env) {
                     this.cachePythonResult(condaPython, env);
                     return { success: true, command: condaPython, environment: env };
@@ -87,18 +100,13 @@ export class EnvironmentService {
             }
         }
 
-        // Try system Python
-        for (const cmd of ['python3', 'python']) {
-            try {
-                const { execSync } = await import('child_process');
-                execSync(`${cmd} --version`, { stdio: 'ignore' });
-                const env = await this.getEnvironmentInfo(cmd, 'system');
-                if (env) {
-                    this.cachePythonResult(cmd, env);
-                    return { success: true, command: cmd, environment: env };
-                }
-            } catch {
-                // Try next
+        // 3. Try system Python
+        const systemPython = await this.systemProvider.findPython();
+        if (systemPython) {
+            const env = await getPythonInfo(systemPython, 'system');
+            if (env) {
+                this.cachePythonResult(systemPython, env);
+                return { success: true, command: systemPython, environment: env };
             }
         }
 
@@ -120,12 +128,11 @@ export class EnvironmentService {
             env?: NukeEnvironment;
         }> => {
             try {
-                const env = await this.getEnvironmentInfo(pythonPath, 'system');
+                const env = await getPythonInfo(pythonPath, 'system');
                 if (!env) {
                     return { success: false, missing: ['Python not valid'], mismatches: [] };
                 }
 
-                // Check each required package
                 const missing: string[] = [];
                 const mismatches: string[] = [];
 
@@ -135,7 +142,7 @@ export class EnvironmentService {
                         const versionCmd = pkg.submodule
                             ? `import ${pkg.name}.${pkg.submodule}; print(${pkg.name}.${pkg.submodule}.__version__)`
                             : `import ${pkg.name}; print(${pkg.name}.__version__)`;
-                        
+
                         execSync(`"${pythonPath}" -c "${versionCmd}"`, { stdio: 'ignore' });
                     } catch {
                         if (pkg.required !== false) {
@@ -150,7 +157,7 @@ export class EnvironmentService {
             }
         };
 
-        // Try configured Python path first
+        // 1. Try configured Python path first
         if (this.config.pythonPath) {
             try {
                 const depCheck = await testPythonWithDeps(this.config.pythonPath);
@@ -171,9 +178,9 @@ export class EnvironmentService {
             }
         }
 
-        // Try conda environment
+        // 2. Try configured conda environment
         if (this.config.condaEnv) {
-            const condaPython = await this.findCondaPython(this.config.condaEnv);
+            const condaPython = await this.condaProvider.findPython(this.config.condaEnv);
             if (condaPython) {
                 const depCheck = await testPythonWithDeps(condaPython);
                 if (depCheck.success) {
@@ -189,30 +196,30 @@ export class EnvironmentService {
             }
         }
 
-        // Search ALL environments for ones with required packages
+        // 3. Search ALL environments for ones with required packages
         if (requiredPackages.length > 0) {
-            const matchingEnvironments = await this.findEnvironmentsWithPackages(requiredPackages, autoDetectEnvs);
-            
+            const matchingEnvironments = await this.findEnvironmentsWithPackages(requiredPackages, autoDetectEnvs, searchWorkspaceVenvs);
+
             if (matchingEnvironments.length > 0) {
                 const bestMatch = matchingEnvironments[0];
                 this.cachePythonResult(bestMatch.pythonPath, bestMatch);
                 const pkgList = requiredPackages.map(p => p.name).join(', ');
-                const warning = warnings.length > 0 
+                const warning = warnings.length > 0
                     ? `${warnings.join(' ')}. Using '${bestMatch.name}' with all required packages.`
                     : `Using '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                 return { success: true, command: bestMatch.pythonPath, warning, environment: bestMatch };
             }
         }
 
-        // Try auto-detect conda environments by name
+        // 4. Try auto-detect conda environments by name
         for (const envName of autoDetectEnvs) {
-            const condaPython = await this.findCondaPython(envName);
+            const condaPython = await this.condaProvider.findPython(envName);
             if (condaPython) {
                 const depCheck = await testPythonWithDeps(condaPython);
                 if (depCheck.success) {
                     this.cachePythonResult(condaPython, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const warning = warnings.length > 0 
+                    const warning = warnings.length > 0
                         ? `${warnings.join(' ')}. Using auto-detected conda environment '${envName}'.`
                         : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                     return { success: true, command: condaPython, warning, environment: depCheck.env };
@@ -222,15 +229,15 @@ export class EnvironmentService {
             }
         }
 
-        // Try venvs in workspace
+        // 5. Try workspace venvs
         if (searchWorkspaceVenvs) {
-            const venvEnvs = await this.findWorkspaceVenvs();
+            const venvEnvs = await this.venvProvider.listEnvironments();
             for (const env of venvEnvs) {
                 const depCheck = await testPythonWithDeps(env.pythonPath);
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
                     const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const warning = warnings.length > 0 
+                    const warning = warnings.length > 0
                         ? `${warnings.join(' ')} Using workspace venv '${env.name}'.`
                         : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
@@ -238,22 +245,17 @@ export class EnvironmentService {
             }
         }
 
-        // Try system Python
-        for (const cmd of ['python', 'python3']) {
-            try {
-                const { execSync } = await import('child_process');
-                execSync(`${cmd} --version`, { stdio: 'ignore' });
-                const depCheck = await testPythonWithDeps(cmd);
-                if (depCheck.success) {
-                    this.cachePythonResult(cmd, depCheck.env!);
-                    const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const warning = warnings.length > 0 
-                        ? `${warnings.join(' ')} Using system Python.`
-                        : `Using system Python with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
-                    return { success: true, command: cmd, warning, environment: depCheck.env };
-                }
-            } catch {
-                // not found
+        // 6. Try system Python
+        const systemPython = await this.systemProvider.findPython();
+        if (systemPython) {
+            const depCheck = await testPythonWithDeps(systemPython);
+            if (depCheck.success) {
+                this.cachePythonResult(systemPython, depCheck.env!);
+                const pkgList = requiredPackages.map(p => p.name).join(', ');
+                const warning = warnings.length > 0
+                    ? `${warnings.join(' ')} Using system Python.`
+                    : `Using system Python with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                return { success: true, command: systemPython, warning, environment: depCheck.env };
             }
         }
 
@@ -261,7 +263,7 @@ export class EnvironmentService {
         const errorMessage = `Unable to find an environment with required packages.\n\n` +
             `Required: ${requiredPackages.map(p => p.name).join(', ')}\n\n` +
             `Details:\n${errors.map(e => '  • ' + e).join('\n')}`;
-        
+
         return {
             success: false,
             error: errorMessage,
@@ -271,25 +273,26 @@ export class EnvironmentService {
 
     private async findEnvironmentsWithPackages(
         requiredPackages: PackageDependency[],
-        preferredEnvNames: string[]
+        preferredEnvNames: string[],
+        searchWorkspaceVenvs: boolean
     ): Promise<Array<NukeEnvironment & { missingPackages: string[]; score: number }>> {
         const matchingEnvs: Array<NukeEnvironment & { missingPackages: string[]; score: number }> = [];
-        const allEnvsResult = await this.listEnvironments(true);
+        const allEnvsResult = await this.listEnvironments(searchWorkspaceVenvs);
         const allEnvs = allEnvsResult.environments;
 
         for (const env of allEnvs) {
             try {
                 const result = await this.checkPackages(requiredPackages, env.pythonPath);
-                
+
                 let score = 0;
                 const foundPackages = Object.keys(result.versions);
                 score += foundPackages.length * 10;
                 score += (requiredPackages.length - result.missing.length) * 10;
-                
+
                 if (preferredEnvNames.includes(env.name)) {
                     score += 20;
                 }
-                
+
                 matchingEnvs.push({
                     ...env,
                     missingPackages: result.missing,
@@ -299,14 +302,14 @@ export class EnvironmentService {
                 // Skip failed environments
             }
         }
-        
+
         return matchingEnvs.sort((a, b) => {
             const aComplete = a.missingPackages.length === 0;
             const bComplete = b.missingPackages.length === 0;
-            
+
             if (aComplete && !bComplete) return -1;
             if (!aComplete && bComplete) return 1;
-            
+
             return b.score - a.score;
         });
     }
@@ -328,7 +331,7 @@ export class EnvironmentService {
                 const versionCmd = pkg.submodule
                     ? `import ${pkg.name}.${pkg.submodule}; print(${pkg.name}.${pkg.submodule}.__version__)`
                     : `import ${pkg.name}; print(${pkg.name}.__version__)`;
-                
+
                 try {
                     const version = execSync(
                         `"${pythonPath}" -c "${versionCmd}"`,
@@ -340,7 +343,7 @@ export class EnvironmentService {
                         versionMismatches.push({ name: pkg.name, found: version, required: `>=${pkg.minVersion}` });
                     }
                 } catch {
-                    execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`, 
+                    execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`,
                         { stdio: 'ignore' });
                     versions[pkg.name] = 'installed (version unknown)';
                 }
@@ -360,17 +363,17 @@ export class EnvironmentService {
     }
 
     async listEnvironments(searchWorkspace = false): Promise<ListEnvironmentsResult> {
-        if (this.environmentsCache && this.environmentsCacheTime && 
+        if (this.environmentsCache && this.environmentsCacheTime &&
             Date.now() - this.environmentsCacheTime < this.CACHE_TTL && !searchWorkspace) {
             return this.filterAndSortEnvironments(this.environmentsCache);
         }
 
         const environments: NukeEnvironment[] = [];
-        
+
         // Try configured Python path
         if (this.config.pythonPath) {
             try {
-                const env = await this.getEnvironmentInfo(this.config.pythonPath, 'system');
+                const env = await getPythonInfo(this.config.pythonPath, 'system');
                 if (env) {
                     env.isActive = true;
                     environments.push(env);
@@ -379,10 +382,10 @@ export class EnvironmentService {
                 // Ignore
             }
         }
-        
+
         // Try conda environments
         try {
-            const condaEnvs = await this.findCondaEnvironments();
+            const condaEnvs = await this.condaProvider.listEnvironments();
             for (const env of condaEnvs) {
                 if (!environments.find(e => e.pythonPath === env.pythonPath)) {
                     if (env.pythonPath === this.config.pythonPath || env.name === this.config.condaEnv) {
@@ -394,40 +397,37 @@ export class EnvironmentService {
         } catch {
             // Conda not available
         }
-        
+
         // Try system Python
-        for (const cmd of ['python3', 'python']) {
-            try {
-                const { execSync } = await import('child_process');
-                execSync(`${cmd} --version`, { stdio: 'ignore' });
-                const env = await this.getEnvironmentInfo(cmd, 'system');
-                if (env && !environments.find(e => e.pythonPath === env.pythonPath)) {
-                    // Don't mark as active - configured pythonPath takes precedence
+        try {
+            const systemEnvs = await this.systemProvider.listEnvironments();
+            for (const env of systemEnvs) {
+                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
                     environments.push(env);
                 }
-            } catch {
-                // Not found
             }
+        } catch {
+            // Not found
         }
-        
+
         // Try workspace venvs
         if (searchWorkspace) {
             try {
-                const venvs = await this.findWorkspaceVenvs();
+                const venvs = await this.venvProvider.listEnvironments();
                 for (const env of venvs) {
                     if (!environments.find(e => e.pythonPath === env.pythonPath)) {
                         environments.push(env);
                     }
                 }
             } catch {
-                // Ignore
+                // Ignore errors
             }
         }
-        
+
         // Cache results
         this.environmentsCache = environments;
         this.environmentsCacheTime = Date.now();
-        
+
         return this.filterAndSortEnvironments(environments);
     }
 
@@ -435,132 +435,16 @@ export class EnvironmentService {
         const uniqueEnvs = environments.filter((env, index, self) =>
             index === self.findIndex(e => e.pythonPath === env.pythonPath)
         );
-        
+
         const sortedEnvs = uniqueEnvs.sort((a, b) => {
             if (a.isActive && !b.isActive) return -1;
             if (!a.isActive && b.isActive) return 1;
             return a.name.localeCompare(b.name);
         });
-        
+
         const selected = sortedEnvs.find(e => e.isActive) || sortedEnvs[0];
-        
+
         return { environments: sortedEnvs, selected };
-    }
-
-    private async findCondaEnvironments(): Promise<NukeEnvironment[]> {
-        const environments: NukeEnvironment[] = [];
-        
-        try {
-            const { execSync } = await import('child_process');
-            const output = execSync('conda env list --json', { encoding: 'utf-8' });
-            const result = JSON.parse(output);
-            
-            for (const env of result.envs) {
-                const path = await import('path');
-                const name = path.basename(env);
-                const pythonPath = path.join(env, 'bin', 'python');
-                const fs = await import('fs');
-                
-                if (fs.existsSync(pythonPath)) {
-                    const envInfo = await this.getEnvironmentInfo(pythonPath, 'conda');
-                    if (envInfo) {
-                        envInfo.name = name === 'bin' ? 'base' : name;
-                        environments.push(envInfo);
-                    }
-                }
-            }
-        } catch {
-            // Conda not available or error
-        }
-        
-        return environments;
-    }
-
-    private async findCondaPython(envName: string): Promise<string | undefined> {
-        try {
-            const { execSync } = await import('child_process');
-            const output = execSync(`conda run -n ${envName} which python`, { encoding: 'utf-8' });
-            return output.trim();
-        } catch {
-            // Try direct path
-            try {
-                const path = await import('path');
-                const os = await import('os');
-                const homeDir = os.homedir();
-                const pythonPath = path.join(homeDir, 'anaconda3', 'envs', envName, 'bin', 'python');
-                const fs = await import('fs');
-                if (fs.existsSync(pythonPath)) {
-                    return pythonPath;
-                }
-            } catch {
-                // Not found
-            }
-        }
-        return undefined;
-    }
-
-    async findWorkspaceVenvs(): Promise<NukeEnvironment[]> {
-        const environments: NukeEnvironment[] = [];
-        
-        try {
-            const workspaceRoot = process.cwd();
-            
-            const commonVenvNames = ['venv', '.venv', 'env', '.env', 'virtualenv'];
-            const fs = await import('fs');
-            const path = await import('path');
-            
-            for (const venvName of commonVenvNames) {
-                const venvPath = path.join(workspaceRoot, venvName);
-                const pythonPath = path.join(venvPath, 'bin', 'python');
-                
-                if (fs.existsSync(pythonPath)) {
-                    const env = await this.getEnvironmentInfo(pythonPath, 'venv');
-                    if (env) {
-                        env.name = `${venvName} (workspace)`;
-                        environments.push(env);
-                    }
-                }
-            }
-        } catch {
-            // Ignore errors
-        }
-        
-        return environments;
-    }
-
-    private async getEnvironmentInfo(pythonPath: string, type: NukeEnvironment['type']): Promise<NukeEnvironment | undefined> {
-        try {
-            const { execSync } = await import('child_process');
-            const versionOutput = execSync(`"${pythonPath}" --version`, { encoding: 'utf-8' }).trim();
-            const versionMatch = versionOutput.match(/Python (\d+\.\d+\.\d+)/);
-            const version = versionMatch ? versionMatch[1] : undefined;
-            
-            let name = type === 'system' ? 'system' : 'venv';
-            
-            // Try to get better name for conda environments
-            if (type === 'conda') {
-                try {
-                    const path = await import('path');
-                    name = path.basename(path.dirname(pythonPath));
-                    if (name === 'bin') name = 'base';
-                } catch {
-                    // Use default
-                }
-            }
-            
-            const path = await import('path');
-            const envPath = path.dirname(path.dirname(pythonPath));
-            
-            return {
-                name,
-                pythonPath,
-                type,
-                version,
-                envPath
-            };
-        } catch {
-            return undefined;
-        }
     }
 
     private cachePythonResult(command: string, _env: NukeEnvironment): void {
@@ -570,15 +454,15 @@ export class EnvironmentService {
     private compareVersions(v1: string, v2: string): number {
         const parts1 = v1.split('.').map(Number);
         const parts2 = v2.split('.').map(Number);
-        
+
         for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
             const p1 = parts1[i] || 0;
             const p2 = parts2[i] || 0;
-            
+
             if (p1 < p2) return -1;
             if (p1 > p2) return 1;
         }
-        
+
         return 0;
     }
 }

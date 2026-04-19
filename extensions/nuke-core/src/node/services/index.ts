@@ -6,10 +6,10 @@
 
 /**
  * Nuke Core Node Services
- * 
+ *
  * @module nuke-core/node/services
  */
 
-export * from './environment-service';
+export * from './environment/environment-service';
 export * from './package-service';
 export * from './health-service';
