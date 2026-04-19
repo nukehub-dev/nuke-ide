@@ -36,7 +36,7 @@ import { NukeCoreVisibilityService } from './services/nuke-core-visibility-servi
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
-import { NukeCoreStatusBarContribution } from './contributions/status-bar-contribution';
+import { NukeCoreStatusBarContribution, WorkspaceEnvContribution } from './contributions';
 import { NukeCoreCommandContribution } from './nuke-core-commands';
 
 export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
@@ -53,6 +53,10 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     // Status Bar
     bind(NukeCoreStatusBarContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(NukeCoreStatusBarContribution);
+
+    // Workspace env file auto-detection
+    bind(WorkspaceEnvContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(WorkspaceEnvContribution);
 
     // Override preference layout to add "Nuke Utils" category
     bind(NukePreferenceLayoutProvider).toSelf().inSingletonScope();

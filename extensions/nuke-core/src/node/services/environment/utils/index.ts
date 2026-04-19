@@ -6,3 +6,4 @@
 
 export * from './conda-resolver';
 export * from './python-info';
+export * from './uv-resolver';

@@ -34,7 +34,10 @@ import {
     PackageInstallOptions,
     PackageInstallResult,
     HealthCheckResult,
-    ConfigValidationResult
+    ConfigValidationResult,
+    CreateEnvironmentOptions,
+    CreateEnvironmentResult,
+    CreateEnvironmentCommand
 } from '../common/nuke-core-protocol';
 import { EnvironmentService, PackageService, HealthService } from './services';
 
@@ -97,5 +100,17 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
 
     async getDiagnostics(): Promise<Record<string, unknown>> {
         return this.healthService.getDiagnostics();
+    }
+
+    async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {
+        return this.environmentService.createEnvironment(options);
+    }
+
+    async prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand> {
+        return this.environmentService.prepareCreateEnvironmentCommand(options);
+    }
+
+    async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
+        return this.packageService.prepareInstallPackagesCommand(options);
     }
 }

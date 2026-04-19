@@ -20,7 +20,10 @@ import {
     PythonDetectionResult,
     ListEnvironmentsResult,
     PackageDependency,
-    PythonDetectionOptions
+    PythonDetectionOptions,
+    CreateEnvironmentOptions,
+    CreateEnvironmentResult,
+    CreateEnvironmentCommand
 } from '../../../common/nuke-core-protocol';
 import { CondaProvider, VenvProvider, SystemProvider } from './providers';
 import { getPythonInfo } from './utils/python-info';
@@ -449,6 +452,147 @@ export class EnvironmentService {
 
     private cachePythonResult(command: string, _env: NukeEnvironment): void {
         this.cachedPythonCommand = command;
+    }
+
+    async prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand> {
+        const { type, name, pythonSpecifier, cwd: explicitCwd } = options;
+        const os = await import('os');
+        const path = await import('path');
+        const fs = await import('fs');
+        const isWindows = process.platform === 'win32';
+        const homeDir = os.homedir();
+        const workspaceRoot = explicitCwd || process.cwd();
+
+        if (type === 'conda') {
+            const best = await this.condaProvider.getResolver().getBestCommand();
+            if (!best) {
+                throw new Error('No conda or mamba installation found');
+            }
+
+            const prefix = path.join(homeDir, '.nuke-ide', 'envs', name);
+            const pythonArg = pythonSpecifier ? `python=${pythonSpecifier}` : 'python';
+            const args = ['create', '--prefix', prefix, pythonArg, '-y'];
+            const command = `"${best.cmd}" ${args.join(' ')}`;
+            const expectedPythonPath = path.join(prefix, isWindows ? 'python.exe' : 'bin/python');
+
+            // Check if environment already exists
+            const condaMetaPath = path.join(prefix, 'conda-meta');
+            try {
+                await fs.promises.access(condaMetaPath);
+                throw new Error(`ALREADY_EXISTS: Environment '${name}' already exists at ${prefix}`);
+            } catch (error) {
+                const errMsg = String((error as Error)?.message || error);
+                if (errMsg.includes('ALREADY_EXISTS')) {
+                    throw error;
+                }
+                // Directory doesn't exist — safe to create
+            }
+
+            return { cwd: homeDir, command, expectedPythonPath };
+        }
+
+        if (type === 'venv') {
+            const pythonCmd = pythonSpecifier || 'python3';
+            const command = `"${pythonCmd}" -m venv "${name}"`;
+            const expectedPythonPath = path.join(workspaceRoot, name, isWindows ? 'Scripts\\python.exe' : 'bin/python');
+
+            // Check if venv already exists
+            try {
+                await fs.promises.access(expectedPythonPath);
+                throw new Error(`ALREADY_EXISTS: Virtualenv '${name}' already exists in workspace`);
+            } catch (error) {
+                const errMsg = String((error as Error)?.message || error);
+                if (errMsg.includes('ALREADY_EXISTS')) {
+                    throw error;
+                }
+                // Venv doesn't exist — safe to create
+            }
+
+            return { cwd: workspaceRoot, command, expectedPythonPath };
+        }
+
+        throw new Error(`Unknown environment type: ${type}`);
+    }
+
+    async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {
+        const { type, name, pythonSpecifier, cwd: explicitCwd } = options;
+        let output = '';
+
+        if (type === 'conda') {
+            const best = await this.condaProvider.getResolver().getBestCommand();
+            if (!best) {
+                return { success: false, error: 'No conda or mamba installation found' };
+            }
+
+            const os = await import('os');
+            const path = await import('path');
+            const isWindows = process.platform === 'win32';
+            const prefix = path.join(os.homedir(), '.nuke-ide', 'envs', name);
+
+            try {
+                const { execSync } = await import('child_process');
+                const pythonArg = pythonSpecifier ? `python=${pythonSpecifier}` : 'python';
+                const args = ['create', '--prefix', prefix, pythonArg, '-y'];
+                const result = execSync(`"${best.cmd}" ${args.join(' ')}`, {
+                    encoding: 'utf-8',
+                    timeout: 300000,
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+                output += result;
+            } catch (error) {
+                return { success: false, error: `Failed to create conda env: ${error}`, output };
+            }
+
+            const pythonPath = path.join(prefix, isWindows ? 'python.exe' : 'bin/python');
+            try {
+                const fs = await import('fs');
+                await fs.promises.access(pythonPath);
+                const env = await getPythonInfo(pythonPath, 'conda');
+                if (env) {
+                    env.name = name;
+                    this.clearCache();
+                    return { success: true, environment: env, output };
+                }
+            } catch {
+                return { success: false, error: 'Conda env created but Python not found in it', output };
+            }
+        }
+
+        if (type === 'venv') {
+            const path = await import('path');
+            const workspaceRoot = explicitCwd || process.cwd();
+            const venvPath = path.join(workspaceRoot, name);
+            const pythonCmd = pythonSpecifier || 'python3';
+
+            try {
+                const { execSync } = await import('child_process');
+                const result = execSync(`"${pythonCmd}" -m venv "${venvPath}"`, {
+                    encoding: 'utf-8',
+                    timeout: 120000,
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+                output += result;
+            } catch (error) {
+                return { success: false, error: `Failed to create venv: ${error}`, output };
+            }
+
+            const isWindows = process.platform === 'win32';
+            const pythonPath = path.join(venvPath, isWindows ? 'Scripts\\python.exe' : 'bin/python');
+            try {
+                const fs = await import('fs');
+                await fs.promises.access(pythonPath);
+                const env = await getPythonInfo(pythonPath, 'venv');
+                if (env) {
+                    env.name = `${name} (workspace)`;
+                    this.clearCache();
+                    return { success: true, environment: env, output };
+                }
+            } catch {
+                return { success: false, error: 'Venv created but Python not found in it', output };
+            }
+        }
+
+        return { success: false, error: `Unknown environment type: ${type}` };
     }
 
     private compareVersions(v1: string, v2: string): number {

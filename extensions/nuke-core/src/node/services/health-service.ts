@@ -23,6 +23,7 @@ import {
 } from '../../common/nuke-core-protocol';
 import { EnvironmentService } from './environment/environment-service';
 import { CondaResolver } from './environment/utils/conda-resolver';
+import { UvResolver } from './environment/utils/uv-resolver';
 
 @injectable()
 export class HealthService {
@@ -31,6 +32,7 @@ export class HealthService {
     protected readonly environmentService: EnvironmentService;
 
     private readonly condaResolver = new CondaResolver();
+    private readonly uvResolver = new UvResolver();
 
     async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
         const checks: HealthCheckItem[] = [];
@@ -87,6 +89,35 @@ export class HealthService {
                 name: 'Conda/Mamba',
                 passed: false,
                 message: `Error checking conda/mamba: ${error}`,
+                severity: 'warning'
+            });
+        }
+
+        // Check uv availability
+        try {
+            const uv = await this.uvResolver.findUvExe();
+            if (uv) {
+                const version = await this.uvResolver.getVersion();
+                checks.push({
+                    name: 'UV',
+                    passed: true,
+                    message: version ? `UV available: ${version}` : 'UV available',
+                    severity: undefined
+                });
+            } else {
+                checks.push({
+                    name: 'UV',
+                    passed: false,
+                    message: 'UV not found',
+                    severity: 'warning',
+                    suggestion: 'Install UV for much faster package installations: https://github.com/astral-sh/uv'
+                });
+            }
+        } catch (error) {
+            checks.push({
+                name: 'UV',
+                passed: false,
+                message: `Error checking UV: ${error}`,
                 severity: 'warning'
             });
         }
@@ -230,6 +261,18 @@ export class HealthService {
             };
         } catch (error) {
             diagnostics.condaError = String(error);
+        }
+
+        // UV info
+        try {
+            const uv = await this.uvResolver.findUvExe();
+            diagnostics.uv = {
+                available: !!uv,
+                path: uv,
+                version: uv ? await this.uvResolver.getVersion() : undefined
+            };
+        } catch (error) {
+            diagnostics.uvError = String(error);
         }
 
         // Environment variables

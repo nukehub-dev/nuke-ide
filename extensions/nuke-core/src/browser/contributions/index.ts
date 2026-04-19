@@ -11,3 +11,4 @@
  */
 
 export * from './status-bar-contribution';
+export * from './workspace-env-contribution';

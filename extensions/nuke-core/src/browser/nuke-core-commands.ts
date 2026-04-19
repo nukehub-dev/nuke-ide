@@ -17,8 +17,11 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { QuickPickService } from '@theia/core/lib/browser/quick-input';
+import { QuickPickService, QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/output-channel';
+import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
+import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { NukeCoreService } from './services/nuke-core-service';
 import { NukeEnvironment } from '../common/nuke-core-protocol';
 import { NukeMenus } from './nuke-core-menus';
@@ -48,6 +51,11 @@ export namespace NukeCoreCommands {
         id: 'nuke.core.installPackage',
         label: 'Nuke: Install Package'
     };
+
+    export const CREATE_ENVIRONMENT = {
+        id: 'nuke.core.createEnvironment',
+        label: 'Nuke: Create Environment'
+    };
 }
 
 @injectable()
@@ -61,6 +69,15 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
     
     @inject(QuickPickService)
     protected readonly quickPick: QuickPickService;
+
+    @inject(QuickInputService)
+    protected readonly quickInput: QuickInputService;
+
+    @inject(TerminalService)
+    protected readonly terminalService: TerminalService;
+
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
     
     @inject(OutputChannelManager)
     protected readonly outputManager: OutputChannelManager;
@@ -87,6 +104,10 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
         commands.registerCommand(NukeCoreCommands.INSTALL_PACKAGE, {
             execute: () => this.installPackage()
         });
+
+        commands.registerCommand(NukeCoreCommands.CREATE_ENVIRONMENT, {
+            execute: () => this.createEnvironment()
+        });
     }
 
     registerMenus(menus: MenuModelRegistry): void {
@@ -101,6 +122,12 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
             commandId: NukeCoreCommands.INSTALL_PACKAGE.id,
             label: 'Install Package',
             order: 'b'
+        });
+
+        menus.registerMenuAction(NukeMenus.TOOLS, {
+            commandId: NukeCoreCommands.CREATE_ENVIRONMENT.id,
+            label: 'Create Environment',
+            order: 'b2'
         });
 
         menus.registerMenuAction(NukeMenus.TOOLS, {
@@ -234,32 +261,224 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
     }
 
     protected async installPackage(): Promise<void> {
-        // Use native prompt for simple text input
-        const packageName = prompt('Enter package name(s) to install (e.g., "openmc" or "numpy pandas"):');
+        const packageName = await this.quickInput.input({
+            prompt: 'Enter package name(s) to install',
+            placeHolder: 'e.g., openmc or numpy pandas'
+        });
 
         if (!packageName || !packageName.trim()) {
             return;
         }
 
         const packages = packageName.trim().split(/\s+/);
-        
-        this.messageService.info(`Installing ${packages.join(', ')}...`);
-        
+
+        // Ask user which package manager to use
+        const managerItems = [
+            { label: '📦 pip / uv', description: 'Install with pip (or uv if available)', value: 'pip' as const },
+            { label: '🐍 conda / mamba', description: 'Install with conda-forge', value: 'conda' as const }
+        ];
+
+        const managerSelected = await this.quickPick.show(managerItems, {
+            placeholder: 'Select package manager'
+        });
+
+        if (!managerSelected || !('value' in managerSelected)) {
+            return;
+        }
+        const useConda = managerSelected.value === 'conda';
+
         try {
-            const result = await this.nukeCore.installPackages({ packages });
-            
-            if (result.success) {
-                this.messageService.info(`Successfully installed: ${result.installed.join(', ')}`);
+            const roots = await this.workspaceService.roots;
+            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
+            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({ packages, useConda, cwd: workspaceRoot });
+
+            const terminal = await this.terminalService.newTerminal({
+                title: `Install: ${packages.join(', ')}`,
+                cwd: cmdInfo.cwd
+            });
+            await terminal.start();
+            this.terminalService.open(terminal, { mode: 'reveal' });
+
+            const args = this.parseCommandString(cmdInfo.command);
+            await terminal.executeCommand({ cwd: cmdInfo.cwd, args });
+
+            this.messageService.info(`Installing ${packages.join(', ')} with ${useConda ? 'conda' : 'pip'} in terminal...`);
+
+            await this.waitForTerminal(terminal);
+
+            const status = terminal.exitStatus;
+            if (status && status.code === 0) {
+                this.messageService.info(`Successfully installed: ${packages.join(', ')}`);
             } else {
-                const failed = result.failed.length > 0 ? result.failed : packages;
-                this.messageService.error(`Failed to install: ${failed.join(', ')}`);
-                if (result.output) {
-                    this.showOutput('Installation Output', result.output);
-                }
+                this.messageService.warn(
+                    `Package installation may have failed or produced warnings. Check the terminal for details.`
+                );
             }
         } catch (error) {
             this.messageService.error(`Installation failed: ${error}`);
         }
+    }
+
+    protected async createEnvironment(): Promise<void> {
+        try {
+            // Step 1: Choose environment type
+            const typeItems = [
+                { label: '🐍 Conda Environment', description: 'Create a conda/mamba environment', value: 'conda' as const },
+                { label: '📦 Virtualenv (venv)', description: 'Create a Python venv in the workspace', value: 'venv' as const }
+            ];
+
+            const typeSelected = await this.quickPick.show(typeItems, {
+                placeholder: 'Select environment type'
+            });
+
+            if (!typeSelected || !('value' in typeSelected)) {
+                return;
+            }
+            const envType = typeSelected.value as 'conda' | 'venv';
+
+            // Step 2: Enter environment name
+            const envName = await this.quickInput.input({
+                prompt: `Enter ${envType} environment name`,
+                placeHolder: 'e.g., myproject'
+            });
+            if (!envName || !envName.trim()) {
+                return;
+            }
+            const name = envName.trim();
+
+            // Step 3: Optional Python specifier
+            let pythonSpecifier: string | undefined;
+            if (envType === 'conda') {
+                pythonSpecifier = await this.quickInput.input({
+                    prompt: 'Python version (optional)',
+                    placeHolder: 'e.g., 3.14 (leave empty for default)'
+                }) || undefined;
+            } else {
+                pythonSpecifier = await this.quickInput.input({
+                    prompt: 'Python executable path (optional)',
+                    placeHolder: 'e.g., /usr/bin/python3 (leave empty for python3)'
+                }) || undefined;
+            }
+
+            // Get workspace root for env creation
+            const roots = await this.workspaceService.roots;
+            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
+
+            // Get the command from backend
+            const cmdInfo = await this.nukeCore.prepareCreateEnvironmentCommand({
+                type: envType,
+                name,
+                pythonSpecifier,
+                cwd: envType === 'venv' ? workspaceRoot : undefined
+            });
+
+            // Create and open a terminal for live output
+            const terminal = await this.terminalService.newTerminal({
+                title: `Create ${envType} env: ${name}`,
+                cwd: cmdInfo.cwd
+            });
+            await terminal.start();
+            this.terminalService.open(terminal, { mode: 'reveal' });
+
+            // Parse the command string into args for executeCommand
+            // The command string from backend is already quoted properly, e.g.:
+            // "/opt/miniforge3/condabin/mamba" create --prefix ~/.nuke-ide/envs/nuke python -y
+            // We use a simple split approach; the shell command builder will handle escaping
+            const args = this.parseCommandString(cmdInfo.command);
+            await terminal.executeCommand({ cwd: cmdInfo.cwd, args });
+
+            this.messageService.info(`Creating ${envType} environment '${name}' in terminal...`);
+
+            // Poll for terminal completion
+            await this.waitForTerminal(terminal);
+
+            // After terminal closes or process exits, try to detect the new environment
+            const envs = await this.nukeCore.listEnvironments(true);
+            const newEnv = envs.find(e => e.pythonPath === cmdInfo.expectedPythonPath);
+
+            if (newEnv) {
+                const switchAction = await this.messageService.info(
+                    `${envType} environment '${name}' created!`,
+                    'Switch environment',
+                    'Dismiss'
+                );
+                if (switchAction === 'Switch environment') {
+                    await this.nukeCore.switchToEnvironment(newEnv);
+                }
+            } else {
+                this.messageService.warn(
+                    `Environment creation may still be in progress, or the new environment was not detected. ` +
+                    `Check the terminal for details.`,
+                    'Refresh Environments'
+                );
+            }
+        } catch (error) {
+            const errMsg = String((error as Error)?.message || error);
+            const match = errMsg.match(/ALREADY_EXISTS: Environment '(.+?)'/);
+            const existingName = match ? match[1] : '';
+
+            if (existingName) {
+                // Environment already exists — offer to switch to it
+                const envs = await this.nukeCore.listEnvironments(true);
+                const foundEnv = envs.find(e => e.name === existingName || e.name === `${existingName} (workspace)`);
+                if (foundEnv) {
+                    const action = await this.messageService.warn(
+                        `Environment '${existingName}' already exists.`,
+                        'Switch environment',
+                        'Dismiss'
+                    );
+                    if (action === 'Switch environment') {
+                        await this.nukeCore.switchToEnvironment(foundEnv);
+                    }
+                } else {
+                    this.messageService.warn(`Environment '${existingName}' already exists.`);
+                }
+            } else {
+                this.messageService.error(`Environment creation failed: ${error}`);
+            }
+        }
+    }
+
+    private parseCommandString(command: string): string[] {
+        // Very simple parser: split on spaces, respecting double quotes
+        const args: string[] = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < command.length; i++) {
+            const char = command[i];
+            if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ' ' && !inQuotes) {
+                if (current) {
+                    args.push(current);
+                    current = '';
+                }
+            } else {
+                current += char;
+            }
+        }
+        if (current) {
+            args.push(current);
+        }
+        return args;
+    }
+
+    private async waitForTerminal(terminal: TerminalWidget): Promise<void> {
+        return new Promise(resolve => {
+            const maxWait = 10 * 60 * 1000; // 10 minutes max
+            const interval = 1000;
+            let elapsed = 0;
+
+            const check = setInterval(() => {
+                elapsed += interval;
+                const status = terminal.exitStatus;
+                if (status || elapsed >= maxWait) {
+                    clearInterval(check);
+                    resolve();
+                }
+            }, interval);
+        });
     }
 
     protected showOutput(title: string, content: string): void {

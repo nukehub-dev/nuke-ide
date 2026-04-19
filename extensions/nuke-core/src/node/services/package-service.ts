@@ -13,21 +13,66 @@
  * @module nuke-core/node
  */
 
-import { injectable } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
 import {
     PackageInstallOptions,
     PackageInstallResult
 } from '../../common/nuke-core-protocol';
 import { CondaResolver } from './environment/utils/conda-resolver';
+import { UvResolver } from './environment/utils/uv-resolver';
+import { EnvironmentService } from './environment/environment-service';
+import { CondaProvider } from './environment/providers/conda-provider';
 
 @injectable()
 export class PackageService {
 
+    @inject(EnvironmentService)
+    protected readonly environmentService: EnvironmentService;
+
     private readonly condaResolver = new CondaResolver();
+    private readonly uvResolver = new UvResolver();
+
+    async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
+        const { packages, pythonPath: explicitPythonPath, useConda = false, extraArgs = [], cwd: explicitCwd } = options;
+        const targetPython = explicitPythonPath || await this.environmentService.getPythonCommand() || 'python';
+        const cwd = explicitCwd || process.cwd();
+
+        // Try conda/mamba first if requested
+        if (useConda) {
+            const best = await this.condaResolver.getBestCommand();
+            if (best) {
+                const config = this.environmentService.getConfig();
+                let prefixArg: string[];
+                if (config.condaEnv) {
+                    // Resolve the actual env path so --prefix works across install locations
+                    const condaProvider = new CondaProvider();
+                    const envPath = await condaProvider.findEnvPath(config.condaEnv);
+                    prefixArg = envPath ? ['--prefix', envPath] : ['-n', config.condaEnv];
+                } else {
+                    prefixArg = [];
+                }
+                const args = ['install', '-y', '-c', 'conda-forge', ...prefixArg, ...packages, ...extraArgs];
+                return { command: `"${best.cmd}" ${args.join(' ')}`, cwd };
+            }
+        }
+
+        // Try uv pip
+        const uv = await this.uvResolver.findUvExe();
+        if (uv) {
+            const args = ['pip', 'install', ...packages, ...extraArgs];
+            return { command: `"${uv}" ${args.join(' ')}`, cwd };
+        }
+
+        // Fall back to regular pip
+        const args = ['-m', 'pip', 'install', ...packages, ...extraArgs];
+        return { command: `"${targetPython}" ${args.join(' ')}`, cwd };
+    }
 
     async installPackages(options: PackageInstallOptions): Promise<PackageInstallResult> {
-        const { packages, pythonPath, useConda = false, extraArgs = [] } = options;
-        const targetPython = pythonPath || 'python';
+        const { packages, pythonPath: explicitPythonPath, useConda = false, extraArgs = [] } = options;
+
+        // Use explicitly provided path, or detect from current config, or fall back to 'python'
+        const targetPython = explicitPythonPath || await this.environmentService.getPythonCommand() || 'python';
 
         const installed: string[] = [];
         const failed: string[] = [];
@@ -55,17 +100,44 @@ export class PackageService {
                     }
                 }
             } else {
-                // Conda/mamba not available — mark all as failed so pip can try
-                output += '\nConda/mamba not found. Falling back to pip.\n';
+                // Conda/mamba not available — mark all as failed so pip/uv can try
+                output += '\nConda/mamba not found. Falling back to pip/uv.\n';
                 failed.push(...packages);
             }
         }
 
-        // Fall back to pip for failed packages or if not using conda
-        const pipPackages = useConda ? failed : packages;
+        // Fall back to uv/pip for failed packages or if not using conda
+        const remainingPackages = useConda ? failed : packages;
         failed.length = 0;
 
-        for (const pkg of pipPackages) {
+        // Try uv pip first (much faster than regular pip)
+        const uv = await this.uvResolver.findUvExe();
+        const uvPackages: string[] = [];
+        const pipPackages: string[] = [];
+
+        if (uv) {
+            for (const pkg of remainingPackages) {
+                try {
+                    const { execSync } = await import('child_process');
+                    const args = ['pip', 'install', pkg, ...extraArgs];
+                    const result = execSync(`"${uv}" ${args.join(' ')}`, {
+                        encoding: 'utf-8',
+                        timeout: 120000
+                    });
+                    output += result;
+                    installed.push(pkg);
+                } catch (error) {
+                    uvPackages.push(pkg);
+                    output += `\nFailed to install ${pkg} via uv: ${error}\n`;
+                }
+            }
+        } else {
+            // uv not available — send everything to pip
+            pipPackages.push(...remainingPackages);
+        }
+
+        // Fall back to regular pip for packages uv couldn't install
+        for (const pkg of uvPackages.length > 0 ? uvPackages : pipPackages) {
             try {
                 const { execSync } = await import('child_process');
                 const args = ['install', pkg, ...extraArgs];

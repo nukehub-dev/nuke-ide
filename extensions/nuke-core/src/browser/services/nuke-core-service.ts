@@ -46,7 +46,10 @@ import {
     HealthCheckResult,
     ConfigValidationResult,
     EnvironmentStatus,
-    NukeCoreStatusBarVisibility
+    NukeCoreStatusBarVisibility,
+    CreateEnvironmentOptions,
+    CreateEnvironmentResult,
+    CreateEnvironmentCommand
 } from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
 
@@ -400,6 +403,35 @@ export class NukeCoreService {
      */
     async getDiagnostics(): Promise<Record<string, unknown>> {
         return this.backend.getDiagnostics();
+    }
+
+    /**
+     * Create a new Python environment (conda or venv).
+     */
+    async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {
+        const result = await this.backend.createEnvironment(options);
+        if (result.success && result.environment) {
+            this.clearCache();
+        }
+        return result;
+    }
+
+    /**
+     * Prepare a shell command for creating an environment in a terminal.
+     */
+    async prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand> {
+        return this.backend.prepareCreateEnvironmentCommand(options);
+    }
+
+    /**
+     * Prepare a shell command for installing packages in a terminal.
+     */
+    async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
+        return this.backend.prepareInstallPackagesCommand(options);
+    }
+
+    private clearCache(): void {
+        this.backend.setConfig({ ...this.currentConfig });
     }
 
     /**

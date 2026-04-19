@@ -114,6 +114,40 @@ export interface PythonDetectionOptions {
     searchWorkspaceVenvs?: boolean;
 }
 
+/** Options for creating a new environment */
+export interface CreateEnvironmentOptions {
+    /** Type of environment to create */
+    type: 'conda' | 'venv';
+    /** Name of the environment */
+    name: string;
+    /** Python version (for conda) or path (for venv) */
+    pythonSpecifier?: string;
+    /** Working directory for creating the environment (defaults to workspace root) */
+    cwd?: string;
+}
+
+/** Result of environment creation */
+export interface CreateEnvironmentResult {
+    /** Whether creation was successful */
+    success: boolean;
+    /** Created environment info */
+    environment?: NukeEnvironment;
+    /** Output from the creation command */
+    output?: string;
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Prepared command for creating an environment in a terminal */
+export interface CreateEnvironmentCommand {
+    /** Working directory for the command */
+    cwd: string;
+    /** Full shell command string to execute */
+    command: string;
+    /** Expected Python path after creation */
+    expectedPythonPath: string;
+}
+
 /** Options for installing packages */
 export interface PackageInstallOptions {
     /** Packages to install */
@@ -124,6 +158,8 @@ export interface PackageInstallOptions {
     useConda?: boolean;
     /** Additional arguments to pass to pip/conda */
     extraArgs?: string[];
+    /** Working directory for running the install command */
+    cwd?: string;
 }
 
 /** Result of package installation */
@@ -242,6 +278,23 @@ export interface NukeCoreBackendServiceInterface {
      * Get detailed diagnostics information for troubleshooting.
      */
     getDiagnostics(): Promise<Record<string, unknown>>;
+
+    /**
+     * Create a new Python environment (conda or venv).
+     */
+    createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult>;
+
+    /**
+     * Prepare a shell command for creating an environment.
+     * Used by the frontend to run the command in a terminal widget for live output.
+     */
+    prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand>;
+
+    /**
+     * Prepare a shell command for installing packages.
+     * Used by the frontend to run the command in a terminal widget for live output.
+     */
+    prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }>;
 }
 
 /** Frontend event types */

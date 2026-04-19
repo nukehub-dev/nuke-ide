@@ -150,6 +150,35 @@ export class CondaProvider implements EnvironmentProvider {
     }
 
     /**
+     * Find the prefix path for a named conda environment.
+     * Uses conda env list --json for reliable resolution across install locations.
+     */
+    async findEnvPath(envName: string = 'base'): Promise<string | undefined> {
+        const best = await this.resolver.getBestCommand();
+        if (!best) {
+            return undefined;
+        }
+
+        try {
+            const { execSync } = await import('child_process');
+            const output = execSync(`${best.cmd} env list --json`, { encoding: 'utf-8' });
+            const result = JSON.parse(output);
+
+            for (const envPath of result.envs as string[]) {
+                const baseName = envPath.replace(/\\/g, '/').split('/').pop();
+                const resolvedName = (baseName === 'bin' || baseName === '') ? 'base' : baseName;
+                if (resolvedName === envName) {
+                    return envPath;
+                }
+            }
+        } catch {
+            // Unable to query env list
+        }
+
+        return undefined;
+    }
+
+    /**
      * Get cached installations or discover them.
      */
     async getInstallations(): Promise<CondaInstallation[]> {
