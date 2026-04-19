@@ -5,10 +5,32 @@ Detailed usage guide for the Nuke Core extension.
 ## Features
 
 ### Enhanced Python Environment Management
-- **Auto-detection**: Automatically detects conda, venv, virtualenv, poetry, and pyenv environments
+- **Auto-detection**: Automatically detects conda, mamba, venv, virtualenv, and system Python environments
 - **Workspace venv discovery**: Finds virtual environments in the workspace
 - **Environment switching**: Quick switch between environments via status bar or command palette
 - **Version checking**: Verifies Python versions and package compatibility
+- **Grouped environment picker**: Environments grouped by type (Conda, Venv, Other)
+- **Environment actions**: After selecting an environment, open terminal, install packages, or copy Python path
+
+### Environment Creation
+- **Create conda environments** with custom Python versions via guided wizard
+- **Create venv environments** in the workspace root or a custom location
+- **Live terminal output** during creation so you can see progress in real time
+- **Duplicate guard**: Warns and offers to switch if the environment already exists
+- **Mamba preference**: Uses mamba (faster solver) when available, falls back to conda
+
+### Package Management
+- **Install packages directly from the IDE** with pip, uv, or conda
+- **Live terminal output** during installation — no silent failures
+- **UV support**: Uses `uv pip install` for significantly faster installs when available
+- **Mamba/Conda support**: Installs packages with mamba or conda via `--prefix` when possible, falling back to `-n`
+- **Automatic fallback**: conda (if selected) → uv → pip (configurable via package manager picker)
+- **Automatic Python path resolution**: Uses the detected Python path from the current environment, never triggers PEP 668 externally-managed errors
+
+### Workspace Auto-Detect
+- Scans the workspace for `environment.yml`, `environment.yaml`, and `requirements.txt`
+- Suggests environment setup when config files are found
+- Opens terminal with auto-detected commands for users to run
 
 ### Configuration Validation
 - Validates that configured Python paths exist
@@ -19,17 +41,14 @@ Detailed usage guide for the Nuke Core extension.
 - Run comprehensive health checks from the command palette
 - View detailed diagnostics for troubleshooting
 - Get actionable suggestions for fixing issues
-
-### Package Management
-- Install packages directly from the IDE
-- Automatic fallback from conda to pip
-- Install missing dependencies with one click
+- Checks for uv and mamba availability in addition to standard tools
 
 ### Status Bar Integration
-- Shows current Nuke environment
-- Quick access to environment switcher
+- Shows current Nuke environment with type indicator
+- Quick access to grouped environment switcher
 - Visual indicators for configuration issues
 - **Configurable visibility** - avoid duplication with MS Python extension
+- **Environment actions submenu**: Open Terminal, Install Packages, Copy Python Path
 
 ## Commands
 
@@ -37,8 +56,10 @@ All commands are available in the **Tools** menu or via the Command Palette:
 
 | Command | Description |
 |---------|-------------|
-| `Nuke: Switch Environment` | Switch to a different environment |
-| `Nuke: Install Package` | Install packages using pip or conda |
+| `Nuke: Switch Environment` | Switch to a different environment (grouped by type) |
+| `Nuke: Environment Actions` | Select an environment, then choose: Switch / Open Terminal / Install Packages / Copy Python Path |
+| `Nuke: Create Environment` | Create a new conda or venv environment with guided wizard |
+| `Nuke: Install Package` | Install packages using pip, uv, or conda — with live terminal output |
 | `Nuke: Run Health Check` | Run comprehensive health checks |
 | `Nuke: Validate Configuration` | Validate settings and paths |
 | `Nuke: Show Diagnostics` | View detailed diagnostic information |
@@ -82,6 +103,8 @@ When using the Microsoft Python extension alongside NukeIDE:
    - Nuclear-specific environment validation
    - OpenMC setup verification
    - Health checks (`Tools → Nuke: Run Health Check`)
+   - Environment creation (`Tools → Nuke: Create Environment`)
+   - Package installation with live terminal output
 
 4. **Alternative: Set to `"never"`**
    - If you prefer using commands over status bars
@@ -93,7 +116,7 @@ When using the Microsoft Python extension alongside NukeIDE:
 
 ```typescript
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { NukeCoreService } from '@nuke-core/browser';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
 export class MyExtension {
@@ -141,11 +164,12 @@ if (result.success) {
 ```
 
 **How Smart Detection Works:**
-1. First tries your configured `nuke.pythonPath` or `nuke.condaEnv`
-2. Then searches ALL conda environments for ones with required packages
-3. Checks workspace venvs (if `searchWorkspaceVenvs: true`)
-4. Returns the best match (prioritizes complete package sets)
-5. Falls back to system Python as last resort
+1. First tries your configured `nuke.pythonPath`
+2. Then tries your configured `nuke.condaEnv`
+3. Searches ALL available environments for ones with required packages
+4. Tries named conda environments from `autoDetectEnvs`
+5. Checks workspace venvs (if `searchWorkspaceVenvs: true`)
+6. Falls back to system Python as last resort
 
 **Note:** You typically don't need `autoDetectEnvs` anymore - nuke-core will find the right environment automatically!
 
@@ -161,6 +185,24 @@ const current = await this.nukeCore.getSelectedEnvironment();
 // Switch to a different environment
 await this.nukeCore.switchToEnvironment(environments[0]);
 ```
+
+### Environment Actions
+
+After selecting an environment, you can install packages or use the path directly:
+
+```typescript
+// Install packages in the environment
+await this.nukeCore.installPackages({
+    packages: ['numpy', 'scipy'],
+    pythonPath: env.pythonPath,
+    useConda: env.type === 'conda'
+});
+
+// Copy the Python executable path to clipboard
+await navigator.clipboard.writeText(env.pythonPath);
+```
+
+> **Note:** Opening a terminal with the environment activated is handled internally by the `Nuke: Environment Actions` command. Extensions that need this should use Theia's `TerminalService` directly or delegate to the command palette.
 
 ### Check Package Dependencies
 
@@ -306,18 +348,21 @@ for (const check of health.checks) {
 ```
 
 **Default checks (always included):**
-- Environment availability
-- Configuration validity
+- Python Environment availability
+- Conda/Mamba availability
+- UV availability
 
 **Optional checks (when packages provided):**
 - Package availability for each specified package
+
+> **Note:** Configuration validation is a separate API (`validateConfig()`). Call it independently if you need to check settings and paths.
 
 ### Get Diagnostics
 
 ```typescript
 const diagnostics = await this.nukeCore.getDiagnostics();
 console.log('Diagnostics:', JSON.stringify(diagnostics, null, 2));
-// Includes: platform, Python version, conda info, env vars, available environments
+// Includes: platform, Python version, conda info, env vars, available environments, uv/mamba status
 ```
 
 ### Get/Set OpenMC Paths
@@ -385,7 +430,7 @@ console.log(status.message);
 For direct backend communication:
 
 ```typescript
-import { NukeCoreBackendService } from '@nuke-core/common';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 
 @inject(NukeCoreBackendService)
 private readonly backend: NukeCoreBackendServiceInterface;
@@ -405,14 +450,51 @@ const result = await this.backend.detectPythonWithRequirements({
     autoDetectEnvs: ['openmc', 'nuke-ide'],
     searchWorkspaceVenvs: true
 });
+
+// Prepare install command (returns shell command for terminal execution)
+const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
+    packages: ['numpy', 'scipy'],
+    useConda: false,
+    cwd: '/workspace/root'
+});
+
+// Prepare environment creation command
+const cmdInfo = await this.backend.prepareCreateEnvironmentCommand({
+    type: 'conda',
+    name: 'my-env',
+    pythonSpecifier: 'python=3.11'
+});
 ```
+
+### Command Preparation Methods
+
+The backend now exposes `prepare*Command()` methods that return shell commands instead of executing them directly. This allows the frontend to run commands in a **terminal widget** for live output:
+
+```typescript
+// Backend returns the command string
+const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
+    packages: ['openmc'],
+    useConda: true
+});
+
+// Frontend opens a terminal and executes the command
+const terminal = await this.terminalService.newTerminal({ title: 'Install', cwd });
+await terminal.start();
+this.terminalService.open(terminal, { mode: 'reveal' });
+await terminal.executeCommand({ cwd, args: command.split(' ') });
+```
+
+Benefits:
+- **Live output**: Users see real-time install progress
+- **Error visibility**: Failed commands show full stderr in the terminal
+- **Interaction**: Commands that prompt for input (e.g., conda solve) work correctly
 
 ## Menu Contributions
 
 The extension provides a **Tools** menu in the main menu bar. Other extensions can contribute to this menu using `NukeMenus.TOOLS`:
 
 ```typescript
-import { NukeMenus } from '@nuke-core/browser';
+import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 
 menus.registerMenuAction(NukeMenus.TOOLS, {
     commandId: 'my-extension.command',
@@ -427,22 +509,37 @@ menus.registerMenuAction(NukeMenus.TOOLS, {
 nuke-core/
 ├── src/
 │   ├── common/
-│   │   ├── nuke-core-protocol.ts      # TypeScript interfaces
-│   │   └── index.ts                   # Exports
+│   │   ├── nuke-core-protocol.ts           # TypeScript interfaces & RPC protocol
+│   │   └── index.ts                        # Exports
 │   ├── browser/
-│   │   ├── nuke-core-service.ts       # Frontend service
-│   │   ├── nuke-core-preferences.ts   # Preference definitions
-│   │   ├── nuke-core-menus.ts         # Menu contributions
-│   │   ├── nuke-core-commands.ts      # Commands & menu actions
-│   │   ├── nuke-core-status-bar.ts    # Status bar contribution
+│   │   ├── nuke-core-service.ts            # Frontend service (proxies to backend)
+│   │   ├── nuke-core-preferences.ts        # Preference definitions
+│   │   ├── nuke-core-menus.ts              # Menu contributions
+│   │   ├── nuke-core-commands.ts           # Commands & menu actions (live terminal)
+│   │   ├── contributions/
+│   │   │   ├── status-bar-contribution.ts  # Status bar widget + env picker
+│   │   │   └── workspace-env-contribution.ts # Scans workspace for env config files
 │   │   ├── nuke-core-preference-layout.ts  # Settings layout
-│   │   └── nuke-core-frontend-module.ts
+│   │   └── nuke-core-frontend-module.ts    # DI bindings
 │   └── node/
-│       ├── nuke-core-backend-service.ts    # Backend implementation
-│       └── nuke-core-backend-module.ts
+│       ├── services/
+│       │   ├── environment/
+│       │   │   ├── providers/
+│       │   │   │   ├── conda-provider.ts   # Conda/mamba env discovery
+│       │   │   │   ├── venv-provider.ts    # Venv/virtualenv discovery
+│       │   │   │   └── system-provider.ts  # System Python discovery
+│       │   │   ├── utils/
+│       │   │   │   ├── conda-resolver.ts   # Conda/mamba installation finder
+│       │   │   │   ├── uv-resolver.ts      # UV executable finder
+│       │   │   │   └── python-info.ts      # Python version/package inspection
+│       │   │   └── environment-service.ts  # Aggregates all providers
+│       │   ├── package-service.ts          # Package install command preparation
+│       │   └── health-service.ts           # Diagnostics & health checks
+│       ├── nuke-core-backend-service.ts    # Backend RPC implementation
+│       └── nuke-core-backend-module.ts     # Backend DI bindings
 ├── docs/
-│   └── USAGE.md                       # This file
-├── README.md                          # Extension overview
+│   └── USAGE.md                            # This file
+├── README.md                               # Extension overview
 └── package.json
 ```
 
@@ -454,7 +551,7 @@ If your extension depends on nuke-core, you can request the status bar to be vis
 
 ```typescript
 import { inject, injectable, postConstruct, preDestroy } from '@theia/core/shared/inversify';
-import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from '@nuke-core/browser';
+import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 
 @injectable()
 export class MyWidget {
@@ -517,19 +614,45 @@ This allows extensions like `nuke-visualizer` and `openmc-studio` to show the Py
 
 ## Architecture
 
-- **Frontend (browser)**: `NukeCoreService` - communicates with backend via WebSocket/JSON-RPC
-- **Backend (node)**: `NukeCoreBackendServiceImpl` - executes Python commands, manages config
-- **Protocol**: Shared TypeScript interfaces in `nuke-core-protocol.ts`
-- **Settings Layout**: `NukePreferenceLayoutProvider` - places preferences under "Nuke Utils"
-- **Status Bar**: `NukeCoreStatusBarContribution` - shows current environment with visibility management
-- **Commands**: `NukeCoreCommandContribution` - provides health check, diagnostics, etc.
-- **Visibility Service**: `NukeCoreVisibilityService` - allows extensions to request status bar visibility
+### Frontend (Browser)
+- **`NukeCoreService`** - Communicates with backend via WebSocket/JSON-RPC
+- **`NukeCoreCommandContribution`** - Commands with live terminal integration (install, create, switch)
+- **`NukeCoreStatusBarContribution`** - Shows current environment with grouped picker and actions
+- **`NukeCoreVisibilityService`** - Allows extensions to request status bar visibility
 
-The frontend service proxies requests to the backend, which handles:
-1. Python detection (system, conda, venv, virtualenv, pyenv, poetry)
-2. Conda environment discovery
-3. Workspace venv discovery
-4. Package availability checking
-5. Package installation (pip/conda)
-6. Configuration persistence
-7. Health checks and diagnostics
+### Backend (Node)
+The backend is modularized into providers and services:
+
+**Providers** (implement `EnvironmentProvider` interface):
+- **`CondaProvider`** - Discovers conda/mamba environments across all installations (Anaconda, Miniforge, Mambaforge, Miniconda, custom paths). Uses `conda env list --json` for cross-platform path resolution. Supports `--prefix` for out-of-root environments (e.g., `~/.conda/envs/`).
+- **`VenvProvider`** - Discovers venv/virtualenv in workspace and standard locations
+- **`SystemProvider`** - Discovers system Python installations
+
+**Utilities**:
+- **`CondaResolver`** - Finds conda/mamba executables across common paths and environment variables. Prefers mamba over conda.
+- **`UvResolver`** - Finds `uv` executable for fast package installation
+- **`PythonInfo`** - Inspects Python executables for versions and installed packages
+
+**Services**:
+- **`EnvironmentService`** - Aggregates all providers, manages configuration
+- **`PackageService`** - Prepares install commands with fallback chain: mamba/conda → uv → pip
+- **`HealthService`** - Diagnostics and health checks
+- **`WorkspaceEnvContribution`** - Scans workspace for `environment.yml` / `requirements.txt` and suggests environment setup
+
+### Protocol
+Shared TypeScript interfaces in `nuke-core-protocol.ts` with RPC methods:
+- `prepareInstallPackagesCommand()` - Returns `{ command, cwd }` for terminal execution
+- `prepareCreateEnvironmentCommand()` - Returns `{ command, cwd, expectedPythonPath }`
+- `createEnvironment()` - Direct execution (legacy path)
+
+### Key Design Decisions
+
+1. **Live Terminal Execution**: Package installation and environment creation use `prepare*Command()` + `TerminalService` instead of silent `execSync`. This gives users real-time feedback and handles interactive prompts correctly.
+
+2. **Mamba Preference**: Always prefers mamba over conda when available (faster solver). Uses `--prefix <resolvedPath>` when the env path can be resolved; falls back to `-n <name>` otherwise.
+
+3. **Cross-Platform Compatibility**: Uses `OS.type()` from `@theia/core` in frontend code instead of `process.platform` (which is Node-only). Backend handles platform-specific path logic.
+
+4. **Workspace Root as CWD**: All terminal commands use `WorkspaceService.roots[0]` as the working directory instead of `process.cwd()`, ensuring commands run in the correct project context.
+
+5. **UV Integration**: Automatically uses `uv pip install` when available for significantly faster package installation, falling back to pip if uv is not installed.

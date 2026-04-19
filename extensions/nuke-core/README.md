@@ -6,21 +6,41 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 
 `nuke-core` is a Theia extension that provides:
 
-- **Environment Management**: Auto-detection of conda, venv, virtualenv, poetry, and pyenv environments
+- **Environment Management**: Auto-detection of conda, mamba, venv, virtualenv, and system Python environments
+- **Environment Creation**: Create conda and venv environments directly from the IDE
 - **Configuration Management**: Validated settings for environment paths
-- **Package Management**: Install packages directly from the IDE
+- **Package Management**: Install packages with pip, uv, or conda — with live terminal output
 - **Health Checks**: Comprehensive diagnostics and troubleshooting tools
 - **Status Bar**: Context-aware visibility - shows when needed, hides when not
+- **Workspace Auto-Detect**: Discovers `environment.yml` and `requirements.txt` automatically
 
 ## Features
 
 ### 🐍 Multi-Environment Support
-- Conda/Mamba environments
-- Virtualenv and venv
-- Poetry environments
-- Pyenv installations
-- System Python
+- **Conda / Mamba** environments (Anaconda, Miniconda, Miniforge, Mambaforge)
+- **Virtualenv** and **venv**
+- **System Python**
+- Supports **poetry** and **pyenv** types in the protocol (discovery via system Python)
 - Automatic workspace venv discovery
+- Cross-platform path support (Linux, macOS, Windows)
+
+### 🏗️ Environment Creation
+- Create **conda** environments with custom Python versions
+- Create **venv** environments in the workspace
+- Live terminal output during creation
+- Duplicate detection — warns if environment already exists
+- Project-local environments stored in `<workspace>/.nuke-ide/envs/`
+
+### 📦 Package Management
+- Install packages via **pip**, **uv** (fast), or **conda/mamba**
+- Live terminal output during installation
+- Automatic Python path resolution — never hits system PEP 668 restrictions
+- Package manager picker: choose pip or conda at install time
+
+### 🔔 Workspace Auto-Detect
+- Scans workspace for `environment.yml`, `environment.yaml`, `requirements.txt`
+- Suggests environment setup when files are found
+- Guides users to create environments from config files
 
 ### ✅ Configuration Validation
 - Validates Python executable paths
@@ -32,16 +52,13 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Check for specific packages (generic - works with any tool)
 - View detailed diagnostics for troubleshooting
 - Get actionable suggestions
-
-### 📦 Package Management
-- Install packages with pip or conda
-- Automatic fallback mechanisms
-- Version constraint checking
+- **UV** and **Mamba** availability checks
 
 ### 📊 Status Bar
-- Shows current environment
-- Quick environment switcher
+- Shows current environment with type icon
+- Quick environment switcher (grouped by type)
 - Configuration issue indicators
+- **Environment Actions** menu: Open Terminal, Install Packages, Copy Path
 
 ## Installation
 
@@ -69,17 +86,21 @@ If you're using the Microsoft Python extension, set `nuke.showStatusBar` to:
 
 Access via **Tools** menu or Command Palette:
 
-- **Switch Environment** - Quick switch between detected environments
-- **Install Package** - Install packages using pip or conda
-- **Run Health Check** - Validate your setup
-- **Validate Configuration** - Check settings for errors
-- **Show Diagnostics** - View detailed system info
+| Command | Description |
+|---------|-------------|
+| **Switch Environment** | Quick switch between detected environments (grouped picker) |
+| **Environment Actions** | Pick an environment, then choose: Switch / Open Terminal / Install Packages / Copy Path |
+| **Create Environment** | Create a new conda or venv environment |
+| **Install Package** | Install packages using pip, uv, or conda — with live terminal output |
+| **Run Health Check** | Validate your setup |
+| **Validate Configuration** | Check settings for errors |
+| **Show Diagnostics** | View detailed system info |
 
 ## Quick Start
 
 ```typescript
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { NukeCoreService } from '@nuke-core/browser';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
 export class MyExtension {

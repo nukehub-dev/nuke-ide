@@ -16,8 +16,10 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
+import { OS } from '@theia/core/lib/common/os';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService, QuickInputService } from '@theia/core/lib/browser/quick-input';
+import { QuickPickItem, QuickPickSeparator } from '@theia/core/lib/common/quick-pick-service';
 import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/output-channel';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
@@ -55,6 +57,11 @@ export namespace NukeCoreCommands {
     export const CREATE_ENVIRONMENT = {
         id: 'nuke.core.createEnvironment',
         label: 'Nuke: Create Environment'
+    };
+
+    export const ENVIRONMENT_ACTIONS = {
+        id: 'nuke.core.environmentActions',
+        label: 'Nuke: Environment Actions'
     };
 }
 
@@ -108,6 +115,10 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
         commands.registerCommand(NukeCoreCommands.CREATE_ENVIRONMENT, {
             execute: () => this.createEnvironment()
         });
+
+        commands.registerCommand(NukeCoreCommands.ENVIRONMENT_ACTIONS, {
+            execute: () => this.environmentActions()
+        });
     }
 
     registerMenus(menus: MenuModelRegistry): void {
@@ -128,6 +139,12 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
             commandId: NukeCoreCommands.CREATE_ENVIRONMENT.id,
             label: 'Create Environment',
             order: 'b2'
+        });
+
+        menus.registerMenuAction(NukeMenus.TOOLS, {
+            commandId: NukeCoreCommands.ENVIRONMENT_ACTIONS.id,
+            label: 'Environment Actions',
+            order: 'b3'
         });
 
         menus.registerMenuAction(NukeMenus.TOOLS, {
@@ -233,31 +250,237 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
             const current = await this.nukeCore.getSelectedEnvironment();
 
             if (environments.length === 0) {
-                this.messageService.warn('No Python environments found. Please configure one in Settings.');
+                const action = await this.messageService.warn(
+                    'No Python environments found.',
+                    'Create Environment',
+                    'Open Settings'
+                );
+                if (action === 'Create Environment') {
+                    await this.createEnvironment();
+                }
                 return;
             }
 
-            const items = environments.map(env => ({
-                label: `${env.type === 'conda' ? '🐍' : env.type === 'system' ? '🐧' : '📦'} ${env.name}`,
-                description: env.version || '',
-                detail: env.pythonPath,
-                value: env,
-                picked: current?.pythonPath === env.pythonPath
-            }));
-
+            const items = this.buildEnvironmentPickerItems(environments, current);
             const selected = await this.quickPick.show(items, {
                 placeholder: 'Select Nuke Environment'
             });
 
-            // Type guard to check if selected is an environment item
-            if (selected && 'value' in selected && selected.value && typeof selected.value === 'object') {
-                const env = selected.value as NukeEnvironment;
+            if (!selected || !('value' in selected)) {
+                return;
+            }
+
+            const value = selected.value;
+            if (value === '__create__') {
+                await this.createEnvironment();
+            } else if (value === '__refresh__') {
+                await this.switchEnvironment();
+            } else if (typeof value === 'object' && value) {
+                const env = value as NukeEnvironment;
                 await this.nukeCore.switchToEnvironment(env);
                 this.messageService.info(`Switched to ${env.name}`);
             }
         } catch (error) {
             this.messageService.error(`Failed to switch environment: ${error}`);
         }
+    }
+
+    protected async environmentActions(): Promise<void> {
+        try {
+            const environments = await this.nukeCore.listEnvironments(true);
+
+            if (environments.length === 0) {
+                const action = await this.messageService.warn(
+                    'No Python environments found.',
+                    'Create Environment',
+                    'Open Settings'
+                );
+                if (action === 'Create Environment') {
+                    await this.createEnvironment();
+                }
+                return;
+            }
+
+            const current = await this.nukeCore.getSelectedEnvironment();
+            const items = this.buildEnvironmentPickerItems(environments, current);
+            const selected = await this.quickPick.show(items, {
+                placeholder: 'Select environment for actions'
+            });
+
+            if (!selected || !('value' in selected)) {
+                return;
+            }
+
+            const value = selected.value;
+            if (value === '__create__') {
+                await this.createEnvironment();
+                return;
+            } else if (value === '__refresh__') {
+                await this.environmentActions();
+                return;
+            }
+
+            const env = value as NukeEnvironment;
+            await this.showEnvironmentActionMenu(env);
+        } catch (error) {
+            this.messageService.error(`Failed to open environment actions: ${error}`);
+        }
+    }
+
+    private async showEnvironmentActionMenu(env: NukeEnvironment): Promise<void> {
+        const isConda = env.type === 'conda';
+        const actionItems = [
+            { label: '🔄 Switch to this environment', value: 'switch' as const },
+            ...(isConda ? [{ label: '🖥 Open Terminal (conda run)', value: 'terminal' as const }] : []),
+            { label: '📦 Install Packages', value: 'install' as const },
+            { label: '📋 Copy Python Path', value: 'copy' as const }
+        ];
+
+        const action = await this.quickPick.show(actionItems, {
+            placeholder: `Actions for ${env.name}`
+        });
+
+        if (!action || !('value' in action)) {
+            return;
+        }
+
+        switch (action.value) {
+            case 'switch':
+                await this.nukeCore.switchToEnvironment(env);
+                this.messageService.info(`Switched to ${env.name}`);
+                break;
+            case 'terminal':
+                await this.openEnvTerminal(env);
+                break;
+            case 'install':
+                await this.installPackageForEnv(env);
+                break;
+            case 'copy':
+                await navigator.clipboard.writeText(env.pythonPath);
+                this.messageService.info(`Copied: ${env.pythonPath}`);
+                break;
+        }
+    }
+
+    private async openEnvTerminal(env: NukeEnvironment): Promise<void> {
+        try {
+            const roots = await this.workspaceService.roots;
+            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
+
+            const terminal = await this.terminalService.newTerminal({
+                title: `${env.name}`,
+                cwd: workspaceRoot
+            });
+            await terminal.start();
+            this.terminalService.open(terminal, { mode: 'reveal' });
+
+            if (env.type === 'conda' && env.envPath) {
+                const isWindows = OS.type() === OS.Type.Windows;
+                const eol = isWindows ? '\r\n' : '\n';
+                // Use the user's default shell: $SHELL on Unix, cmd.exe on Windows
+                const shellCommand = isWindows ? 'cmd.exe /k' : '$SHELL';
+                terminal.sendText(
+                    `mamba run --prefix "${env.envPath}" ${shellCommand} || conda run --prefix "${env.envPath}" ${shellCommand}${eol}`
+                );
+            }
+        } catch (error) {
+            this.messageService.error(`Failed to open terminal: ${error}`);
+        }
+    }
+
+    private async installPackageForEnv(env: NukeEnvironment): Promise<void> {
+        const packageName = await this.quickInput.input({
+            prompt: `Install package(s) in ${env.name}`,
+            placeHolder: 'e.g., numpy openmc'
+        });
+
+        if (!packageName || !packageName.trim()) {
+            return;
+        }
+
+        const packages = packageName.trim().split(/\s+/);
+        const managerItems = [
+            { label: '📦 pip / uv', description: 'Install with pip', value: 'pip' as const },
+            ...(env.type === 'conda' ? [{ label: '🐍 conda / mamba', description: 'Install with conda-forge', value: 'conda' as const }] : [])
+        ];
+
+        const manager = await this.quickPick.show(managerItems, {
+            placeholder: 'Select package manager'
+        });
+
+        if (!manager || !('value' in manager)) {
+            return;
+        }
+
+        try {
+            const roots = await this.workspaceService.roots;
+            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
+            const useConda = manager.value === 'conda';
+            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({
+                packages,
+                useConda,
+                pythonPath: env.pythonPath,
+                cwd: workspaceRoot
+            });
+
+            const terminal = await this.terminalService.newTerminal({
+                title: `Install in ${env.name}: ${packages.join(', ')}`,
+                cwd: cmdInfo.cwd
+            });
+            await terminal.start();
+            this.terminalService.open(terminal, { mode: 'reveal' });
+
+            const args = this.parseCommandString(cmdInfo.command);
+            await terminal.executeCommand({ cwd: cmdInfo.cwd, args });
+
+            await this.waitForTerminal(terminal);
+
+            const status = terminal.exitStatus;
+            if (status && status.code === 0) {
+                this.messageService.info(`Installed in ${env.name}: ${packages.join(', ')}`);
+            } else {
+                this.messageService.warn(`Check terminal for installation results.`);
+            }
+        } catch (error) {
+            this.messageService.error(`Installation failed: ${error}`);
+        }
+    }
+
+    private buildEnvironmentPickerItems(
+        environments: NukeEnvironment[],
+        current?: NukeEnvironment
+    ): Array<QuickPickItem & { value?: unknown } | QuickPickSeparator> {
+        const condaEnvs = environments.filter(e => e.type === 'conda');
+        const venvEnvs = environments.filter(e => e.type === 'venv' || e.type === 'virtualenv');
+        const otherEnvs = environments.filter(e => !['conda', 'venv', 'virtualenv'].includes(e.type));
+
+        const items: Array<QuickPickItem & { value?: unknown } | QuickPickSeparator> = [];
+
+        const addGroup = (label: string, envs: NukeEnvironment[], icon: string) => {
+            if (envs.length === 0) return;
+            items.push({ type: 'separator', label } as QuickPickSeparator);
+            for (const env of envs) {
+                const isActive = current?.pythonPath === env.pythonPath;
+                const activeBadge = isActive ? '✓ ' : '';
+                const fallbackBadge = '';
+                items.push({
+                    label: `${activeBadge}${fallbackBadge}${icon} ${env.name}`,
+                    description: env.version || '',
+                    detail: env.pythonPath,
+                    value: env
+                });
+            }
+        };
+
+        addGroup('Conda Environments', condaEnvs, '🐍');
+        addGroup('Virtual Environments', venvEnvs, '📦');
+        addGroup('Other', otherEnvs, '🐧');
+
+        items.push({ type: 'separator', label: 'Actions' } as QuickPickSeparator);
+        items.push({ label: '➕ Create new environment', value: '__create__' });
+        items.push({ label: '🔄 Refresh environments', value: '__refresh__' });
+
+        return items;
     }
 
     protected async installPackage(): Promise<void> {

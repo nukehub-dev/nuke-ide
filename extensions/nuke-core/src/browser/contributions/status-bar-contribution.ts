@@ -27,7 +27,7 @@ import { NukeEnvironment, NukeCoreStatusBarVisibility } from '../../common/nuke-
 import { NukeCoreVisibilityService } from '../services/nuke-core-visibility-service';
 
 interface EnvironmentQuickPickItem extends QuickPickItem {
-    value?: NukeEnvironment | 'settings' | 'refresh';
+    value?: NukeEnvironment | 'settings' | 'refresh' | '__create__';
 }
 
 @injectable()
@@ -225,45 +225,24 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         });
 
         try {
-            // Search for available environments
             const environments = await this.nukeCore.listEnvironments(true);
+            const items = this.buildPickerItems(environments);
 
-            const items: Array<EnvironmentQuickPickItem | QuickPickSeparator> = [];
-
-            // If we found environments, show them
-            if (environments.length > 0) {
-                items.push(
-                    { type: 'separator' as const, label: 'Available Environments' },
-                    ...environments.map(env => ({
-                        label: `${env.type === 'conda' ? '🐍' : env.type === 'system' ? '🐧' : '📦'} ${env.name}`,
-                        description: env.version || '',
-                        detail: env.pythonPath,
-                        value: env
-                    }))
-                );
-            }
-
-            // Always show actions
-            items.push(
-                { type: 'separator' as const, label: 'Actions' },
-                { label: '$(settings) Open Settings...', value: 'settings' },
-                { label: '$(refresh) Refresh', value: 'refresh' }
-            );
-
-            const placeholder = environments.length > 0 
+            const placeholder = environments.length > 0
                 ? 'Select Nuke environment or open settings'
                 : 'No environments found. Open settings to configure.';
 
             const selected = await this.quickPick.show(items, { placeholder });
 
-            if (!selected) {
+            if (!selected || !('value' in selected)) {
                 // User cancelled
             } else if (selected.value === 'settings') {
                 this.openSettings();
             } else if (selected.value === 'refresh') {
                 this.showEnvironmentPickerForUnconfigured();
+            } else if (selected.value === '__create__') {
+                this.commandService.executeCommand('nuke.core.createEnvironment');
             } else if (selected.value) {
-                // User selected an environment
                 await this.selectEnvironmentForFirstTime(selected.value as NukeEnvironment);
             }
         } catch (error) {
@@ -313,32 +292,20 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
                 return;
             }
 
-            const items: Array<EnvironmentQuickPickItem | QuickPickSeparator> = [
-                // Environments first
-                ...environments.map(env => ({
-                    label: `${env.type === 'conda' ? '🐍' : env.type === 'system' ? '🐧' : '📦'} ${env.name}`,
-                    description: env.version || '',
-                    detail: env.pythonPath,
-                    value: env,
-                    picked: current?.pythonPath === env.pythonPath
-                })),
-                // Separator
-                { type: 'separator' as const, label: 'Actions' },
-                // Action items
-                { label: '$(settings) Open Settings...', value: 'settings' },
-                { label: '$(refresh) Refresh List', value: 'refresh' }
-            ];
+            const items = this.buildPickerItems(environments, current);
 
             const selected = await this.quickPick.show(items, {
                 placeholder: 'Select Nuke Environment'
             });
 
-            if (!selected) {
+            if (!selected || !('value' in selected)) {
                 // User cancelled
             } else if (selected.value === 'settings') {
                 this.openSettings();
             } else if (selected.value === 'refresh') {
                 this.showEnvironmentPicker();
+            } else if (selected.value === '__create__') {
+                this.commandService.executeCommand('nuke.core.createEnvironment');
             } else if (selected.value) {
                 await this.switchToEnvironment(selected.value as NukeEnvironment);
             }
@@ -361,5 +328,41 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     protected openSettings(): void {
         // Open settings and filter for Nuke Utils (search for 'nuke' which will show all nuke.* preferences)
         this.commandService.executeCommand(CommonCommands.OPEN_PREFERENCES.id, 'nuke.');
+    }
+
+    private buildPickerItems(
+        environments: NukeEnvironment[],
+        current?: NukeEnvironment
+    ): Array<EnvironmentQuickPickItem | QuickPickSeparator> {
+        const condaEnvs = environments.filter(e => e.type === 'conda');
+        const venvEnvs = environments.filter(e => e.type === 'venv' || e.type === 'virtualenv');
+        const otherEnvs = environments.filter(e => !['conda', 'venv', 'virtualenv'].includes(e.type));
+
+        const items: Array<EnvironmentQuickPickItem | QuickPickSeparator> = [];
+
+        const addGroup = (label: string, envs: NukeEnvironment[], icon: string) => {
+            if (envs.length === 0) return;
+            items.push({ type: 'separator', label });
+            for (const env of envs) {
+                const isActive = current?.pythonPath === env.pythonPath;
+                items.push({
+                    label: `${isActive ? '✓ ' : ''}${icon} ${env.name}`,
+                    description: env.version || '',
+                    detail: env.pythonPath,
+                    value: env
+                });
+            }
+        };
+
+        addGroup('Conda Environments', condaEnvs, '🐍');
+        addGroup('Virtual Environments', venvEnvs, '📦');
+        addGroup('Other', otherEnvs, '🐧');
+
+        items.push({ type: 'separator', label: 'Actions' });
+        items.push({ label: '➕ Create new environment', value: '__create__' });
+        items.push({ label: '🔄 Refresh environments', value: 'refresh' });
+        items.push({ label: '$(settings) Open Settings...', value: 'settings' });
+
+        return items;
     }
 }
