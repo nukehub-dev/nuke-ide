@@ -164,8 +164,7 @@ export class OpenMCCADImportService {
             if (!support.available || !support.pythonPath) {
                 return {
                     success: false,
-                    error: 'CAD import requires gmsh or OpenCASCADE. ' +
-                           'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
+                    error: 'CAD import requires gmsh or OpenCASCADE.'
                 };
             }
 
@@ -327,13 +326,12 @@ export class OpenMCCADImportService {
                     { name: 'pymoab', required: false },
                     { name: 'pydagmc', required: false }
                 ],
-                autoDetectEnvs: ['openmc', 'dagmc', 'trame']
             });
 
             if (!result.success || !result.command) {
                 return {
                     success: false,
-                    error: 'DAGMC import requires pymoab. Install with: conda install -c conda-forge moab'
+                    error: 'DAGMC import requires pydagmc and pymoab.'
                 };
             }
 

@@ -27,7 +27,7 @@ import { Command, CommandRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
-import { OpenMCHealthService } from '../services/openmc-health-service';
+
 
 export namespace OpenMCSimulationCommands {
     export const CATEGORY = 'OpenMC/Simulation';
@@ -78,9 +78,6 @@ export class SimulationCommands {
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
     
-    @inject(OpenMCHealthService)
-    protected readonly healthService: OpenMCHealthService;
-
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(OpenMCSimulationCommands.RUN_SIMULATION, {
             execute: () => this.runSimulation(),
@@ -106,17 +103,6 @@ export class SimulationCommands {
     }
 
     private async runSimulation(): Promise<void> {
-        // Pre-flight health check
-        const isReady = await this.healthService.isReady();
-        if (!isReady) {
-            const result = await this.healthService.runHealthCheck();
-            const errors = result.issues.filter(i => i.severity === 'error');
-            this.messageService.error(
-                `Cannot run simulation: ${errors[0]?.message || 'Environment not ready'}`
-            );
-            return;
-        }
-
         await this.openDashboard();
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         if (widget instanceof SimulationDashboardWidget) {

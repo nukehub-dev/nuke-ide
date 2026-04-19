@@ -28,7 +28,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
-import { OpenMCEnvironmentService } from './openmc-environment-service';
+import { OpenMCEnvironmentService, OPENMC_EXTRA_INDEX_URL } from './openmc-environment-service';
 
 export interface InstallOption {
     id: string;
@@ -74,7 +74,7 @@ export class OpenMCInstallerService {
             label: 'OpenMC',
             description: 'Core OpenMC Monte Carlo simulation package (pip + shimwell wheels)',
             packages: ['openmc'],
-            extraIndexUrl: 'https://shimwell.github.io/wheels'
+            extraIndexUrl: OPENMC_EXTRA_INDEX_URL
         },
         {
             id: 'dagmc',
@@ -109,7 +109,7 @@ export class OpenMCInstallerService {
             label: 'Depletion Tools',
             description: 'Burnup and depletion calculation support',
             packages: ['openmc', 'numpy', 'scipy'],
-            extraIndexUrl: 'https://shimwell.github.io/wheels'
+            extraIndexUrl: OPENMC_EXTRA_INDEX_URL
         }
     ];
 
@@ -213,19 +213,6 @@ export class OpenMCInstallerService {
         if (!result.success) {
             this.messageService.error(result.message || 'Installation failed');
         }
-    }
-
-    /**
-     * Get installation command for display purposes.
-     */
-    async getInstallCommand(packages: string[], useConda: boolean = true): Promise<string> {
-        if (useConda) {
-            const config = await this.nukeCore.getConfig();
-            const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
-            const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
-            return `conda install ${channelArgs} ${packages.join(' ')}`;
-        }
-        return `pip install ${packages.join(' ')}`;
     }
 
     /**

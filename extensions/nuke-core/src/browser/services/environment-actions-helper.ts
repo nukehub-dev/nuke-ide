@@ -23,7 +23,7 @@ import URI from '@theia/core/lib/common/uri';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
 import { NukeCoreService } from './nuke-core-service';
-import { NukeEnvironment } from '../../common/nuke-core-protocol';
+import { NukeEnvironment, PackageDependency } from '../../common/nuke-core-protocol';
 
 @injectable()
 export class EnvironmentActionsHelper {
@@ -473,6 +473,107 @@ export class EnvironmentActionsHelper {
             args.push(current);
         }
         return args;
+    }
+
+    /**
+     * Check the configured environment for required packages.
+     * If packages are missing, show a notification asking the user
+     * whether to install them into the configured environment via a live terminal.
+     * Re-checks after installation to verify.
+     *
+     * Unlike detectPythonWithRequirements(), this checks ONLY the configured
+     * environment and never falls back to a different one.
+     */
+    async ensurePackages(options: {
+        requiredPackages: PackageDependency[];
+        title?: string;
+    }): Promise<{
+        success: boolean;
+        environment?: NukeEnvironment;
+        command?: string;
+        missingPackages?: string[];
+        installed?: boolean;
+    }> {
+        const {
+            requiredPackages,
+            title = 'Install missing dependencies'
+        } = options;
+
+        // 1. Get the configured environment only (no fallback discovery)
+        const env = await this.nukeCore.getSelectedEnvironment();
+        if (!env) {
+            return { success: false };
+        }
+
+        // 2. Check dependencies in the configured env only
+        const check = await this.nukeCore.checkDependencies(requiredPackages, env.pythonPath);
+        if (check.available) {
+            return { success: true, environment: env, command: env.pythonPath };
+        }
+
+        const missing = check.missing ?? [];
+        if (missing.length === 0) {
+            // Version mismatches or other issues — can't auto-fix
+            return { success: false, environment: env, missingPackages: [] };
+        }
+
+        const pkgList = missing.join(', ');
+
+        // 3. Prompt user with a notification action
+        const action = await this.messageService.warn(
+            `Missing packages in ${env.name}: ${pkgList}`,
+            'Install'
+        );
+
+        if (action !== 'Install') {
+            return {
+                success: false,
+                environment: env,
+                missingPackages: missing,
+                installed: false
+            };
+        }
+
+        // 4. Derive install options from the PackageDependency definitions
+        const missingDefs = requiredPackages.filter(p => missing.includes(p.name));
+        const useConda = missingDefs.some(p => p.condaOnly);
+        const channels = [...new Set(missingDefs.flatMap(p => p.channels ?? []))];
+        const extraIndexUrl = missingDefs.find(p => p.extraIndexUrl)?.extraIndexUrl;
+
+        // 5. Install missing packages via unified helper
+        const installResult = await this.installPackages({
+            packages: missing,
+            title,
+            useConda,
+            channels: channels.length > 0 ? channels : undefined,
+            extraIndexUrl
+        });
+
+        if (!installResult.success) {
+            this.messageService.error(`Failed to install: ${installResult.message}`);
+            return {
+                success: false,
+                environment: env,
+                missingPackages: missing,
+                installed: false
+            };
+        }
+
+        // 5. Re-check the configured env to verify
+        const retry = await this.nukeCore.checkDependencies(requiredPackages, env.pythonPath);
+        if (retry.available) {
+            this.messageService.info(`Environment ready: ${env.name}`);
+        } else {
+            this.messageService.warn('Packages were installed but are still reported as missing. Check the terminal for details.');
+        }
+
+        return {
+            success: retry.available,
+            environment: env,
+            command: env.pythonPath,
+            missingPackages: retry.missing,
+            installed: true
+        };
     }
 
     /**

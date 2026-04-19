@@ -139,14 +139,15 @@ export class MyExtension {
         }
     }
 
-    async installDependencies() {
-        // One-shot install into the configured environment
-        const result = await this.envActions.installPackages({
-            packages: ['openmc', 'numpy'],
-            useConda: false,
-            extraIndexUrl: 'https://shimwell.github.io/wheels'
+    async ensureDependencies() {
+        // Check configured env + prompt + install in one call
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: [
+                { name: 'openmc', required: true },
+                { name: 'numpy', required: true }
+            ]
         });
-        console.log(result.success ? 'Installed!' : result.message);
+        console.log(result.success ? 'Ready!' : 'Missing:', result.missingPackages);
     }
 }
 ```

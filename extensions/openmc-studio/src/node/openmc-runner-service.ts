@@ -333,7 +333,7 @@ export class OpenMCRunnerService {
         if (!depCheck.available) {
             return {
                 available: false,
-                error: `OpenMC not installed in ${pythonCommand}. Run: pip install openmc`
+                error: `OpenMC not installed in configured environment`
             };
         }
         

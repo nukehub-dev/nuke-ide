@@ -2082,10 +2082,23 @@ export class OptimizationWidget extends ReactWidget {
             this.stateManager.setActiveOptimizationRun(newRun.id);
             this.autoSave();
 
+            // Pre-flight: detect OpenMC (with fallback) so warning shows immediately
+            const openmcCheck = await this.nukeCoreService.detectPythonWithRequirements({
+                requiredPackages: [{ name: 'openmc' }],
+                searchWorkspaceVenvs: true
+            });
+            if (!openmcCheck.success || !openmcCheck.command) {
+                this.messageService.error(openmcCheck.error || 'OpenMC is not available');
+                return;
+            }
+            if (openmcCheck.warning) {
+                this.messageService.warn(openmcCheck.warning);
+            }
+
             // Get cross-sections and chain file paths from nuke-core
             const xsPath = this.nukeCoreService.getCrossSectionsPath();
             const chainPath = this.nukeCoreService.getChainFilePath();
-            
+
             const result = await this.backendService.startOptimization({
                 runId,
                 runName: newRun.name,

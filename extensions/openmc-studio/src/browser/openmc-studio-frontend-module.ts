@@ -49,7 +49,6 @@ import { OpenMCPythonExporter } from './script-generator/python-exporter';
 
 // New modular services
 import {
-    OpenMCValidationService,
     OpenMCEnvironmentService,
     OpenMCHealthService,
     OpenMCInstallerService
@@ -142,7 +141,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // ============================================================================
     // Environment & Health Services
     // ============================================================================
-    bind(OpenMCValidationService).toSelf().inSingletonScope();
     bind(OpenMCEnvironmentService).toSelf().inSingletonScope();
     bind(OpenMCHealthService).toSelf().inSingletonScope();
     bind(OpenMCInstallerService).toSelf().inSingletonScope();
@@ -217,7 +215,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 // Re-exports
 export { OpenMCStudioService } from './openmc-studio-service';
 export { OpenMCStateManager } from './openmc-state-manager';
-export { OpenMCValidationService, OpenMCValidationResult } from './services';
 export { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from './services';
 export { OpenMCHealthService, HealthCheckResult, HealthCheckIssue } from './services';
 export { OpenMCInstallerService, InstallOption, InstallResult } from './services';

@@ -116,9 +116,9 @@ export class EnvironmentCommands {
 
     private async checkHealth(): Promise<void> {
         this.messageService.info('Running health check...');
-        
+
         const result = await this.healthService.runHealthCheck();
-        
+
         // Show summary
         const { errors, warnings, info } = result.summary;
         if (result.ready) {
@@ -133,8 +133,21 @@ export class EnvironmentCommands {
             this.messageService.error(
                 `✗ OpenMC not ready (${errors} errors, ${warnings} warnings)`
             );
+
+            // If OpenMC is missing, offer to install it via ensureOpenMC()
+            const hasEnvIssue = result.issues.some(i =>
+                i.category === 'environment' && i.autoFixable
+            );
+            if (hasEnvIssue) {
+                const ensureResult = await this.envService.ensureOpenMC();
+                if (ensureResult.success && ensureResult.installed) {
+                    this.messageService.info(
+                        `✓ OpenMC installed in ${ensureResult.environment?.name}. Run health check again to verify.`
+                    );
+                }
+            }
         }
-        
+
         // Log issues to console for detailed view
         console.log('[OpenMC Health Check] Results:');
         result.issues.forEach(issue => {
@@ -173,13 +186,18 @@ export class EnvironmentCommands {
     private async refreshEnvironment(): Promise<void> {
         await this.envService.refreshStatus();
         const status = this.envService.getStatus();
-        
+
         if (status.ready) {
             this.messageService.info(
                 `Environment refreshed: ${status.environment?.name}${status.openmcVersion ? ` (OpenMC ${status.openmcVersion})` : ''}`
             );
         } else {
-            this.messageService.warn('No OpenMC environment found');
+            // Try to offer installation if OpenMC is missing in the configured env
+            const ensureResult = await this.envService.ensureOpenMC();
+            if (!ensureResult.success && ensureResult.installed === undefined) {
+                // No configured env at all — show generic warning
+                this.messageService.warn('No OpenMC environment found. Configure a Python environment first.');
+            }
         }
     }
 

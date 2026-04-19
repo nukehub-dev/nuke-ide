@@ -27,6 +27,7 @@ import URI from '@theia/core/lib/common/uri';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
+import { OpenMCHealthService } from '../../services/openmc-health-service';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-runner';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
@@ -65,6 +66,9 @@ export class SimulationDashboardWidget extends ReactWidget {
 
     @inject(OpenMCStudioService)
     protected readonly studioService!: OpenMCStudioService;
+
+    @inject(OpenMCHealthService)
+    protected readonly healthService!: OpenMCHealthService;
 
     @inject(OpenMCXMLGenerationService)
     protected readonly xmlService!: OpenMCXMLGenerationService;
@@ -3152,12 +3156,19 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
 
-        // Check OpenMC availability first
-        const openmcCheck = await this.studioService.checkOpenMCAvailability();
-        if (!openmcCheck.available) {
+        // Check OpenMC availability (with fallback discovery across all envs)
+        const openmcCheck = await this.nukeCoreService.detectPythonWithRequirements({
+            requiredPackages: [{ name: 'openmc' }],
+            searchWorkspaceVenvs: true
+        });
+        if (!openmcCheck.success || !openmcCheck.command) {
             this.messageService.error(openmcCheck.error || 'OpenMC is not available');
             this.logToConsole(openmcCheck.error || 'OpenMC is not available', 'error');
             return;
+        }
+        if (openmcCheck.warning) {
+            this.messageService.warn(openmcCheck.warning);
+            this.logToConsole(`Warning: ${openmcCheck.warning}`, 'warn');
         }
 
         // Select working directory
@@ -3188,7 +3199,6 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.lastSimulationDirectory = uri.path.toString();
         
         this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
-        this.logToConsole(`Using OpenMC: ${openmcCheck.version || 'unknown version'}`);
 
         const simState = this.stateManager.getState();
         const simHasCSG = simState.geometry.cells.length > 0;

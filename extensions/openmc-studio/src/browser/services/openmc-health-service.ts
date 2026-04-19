@@ -127,45 +127,48 @@ export class OpenMCHealthService {
     // Individual Check Methods
     // -------------------------------------------------------------------------
 
-    private async checkEnvironment(): Promise<{ 
-        available: boolean; 
+    private async checkEnvironment(): Promise<{
+        available: boolean;
         issues: HealthCheckIssue[];
         pythonCommand?: string;
         environment?: { name: string; version?: string };
     }> {
         const issues: HealthCheckIssue[] = [];
-        
-        const detection = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
-            searchWorkspaceVenvs: true
-        });
 
-        if (!detection.success) {
-            if (this.nukeCore.isConfigured()) {
-                issues.push({
-                    severity: 'error',
-                    category: 'environment',
-                    message: 'Configured environment does not have OpenMC',
-                    suggestion: detection.error || 'Install OpenMC or switch to an environment with OpenMC',
-                    autoFixable: true
-                });
-            } else {
-                issues.push({
-                    severity: 'error',
-                    category: 'environment',
-                    message: 'No Python environment configured',
-                    suggestion: 'Configure Python in Settings → Nuke Utils, or install OpenMC',
-                    autoFixable: false
-                });
-            }
+        const env = await this.nukeCore.getSelectedEnvironment();
+        if (!env) {
+            issues.push({
+                severity: 'error',
+                category: 'environment',
+                message: 'No Python environment configured',
+                suggestion: 'Configure Python in Settings → Nuke Utils, or install OpenMC',
+                autoFixable: false
+            });
+            return { available: false, issues };
+        }
+
+        // Check OpenMC in the configured env only (no fallback discovery)
+        const depCheck = await this.nukeCore.checkDependencies(
+            [{ name: 'openmc' }],
+            env.pythonPath
+        );
+
+        if (!depCheck.available) {
+            issues.push({
+                severity: 'error',
+                category: 'environment',
+                message: `Configured environment '${env.name}' does not have OpenMC`,
+                suggestion: 'Install OpenMC or switch to an environment with OpenMC',
+                autoFixable: true
+            });
             return { available: false, issues };
         }
 
         return {
             available: true,
             issues,
-            pythonCommand: detection.command,
-            environment: detection.environment
+            pythonCommand: env.pythonPath,
+            environment: env
         };
     }
 
@@ -174,9 +177,6 @@ export class OpenMCHealthService {
         version?: string
     }> {
         const issues: HealthCheckIssue[] = [];
-        const config = await this.nukeCore.getConfig();
-        const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
-        const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
 
         try {
             const depCheck = await this.nukeCore.checkDependencies(
@@ -189,22 +189,10 @@ export class OpenMCHealthService {
                     severity: 'error',
                     category: 'openmc',
                     message: 'OpenMC package not found',
-                    suggestion: `Install OpenMC: conda install ${channelArgs} openmc`,
                     autoFixable: true
                 });
             } else {
                 const version = depCheck.versions['openmc'];
-                if (version) {
-                    const majorVersion = parseInt(version.split('.')[0]);
-                    if (majorVersion < 0) {
-                        issues.push({
-                            severity: 'warning',
-                            category: 'openmc',
-                            message: `OpenMC version ${version} may be outdated`,
-                            suggestion: 'Consider upgrading to OpenMC 0.14.0 or later'
-                        });
-                    }
-                }
                 return { issues, version };
             }
         } catch (error) {
@@ -253,9 +241,6 @@ export class OpenMCHealthService {
 
     private async checkMPI(pythonCommand: string): Promise<{ issues: HealthCheckIssue[] }> {
         const issues: HealthCheckIssue[] = [];
-        const config = await this.nukeCore.getConfig();
-        const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
-        const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
 
         try {
             const depCheck = await this.nukeCore.checkDependencies(
@@ -267,8 +252,7 @@ export class OpenMCHealthService {
                 issues.push({
                     severity: 'info',
                     category: 'mpi',
-                    message: 'MPI support not available (mpi4py not installed)',
-                    suggestion: `Install mpi4py for parallel simulations: conda install ${channelArgs} mpi4py`
+                    message: 'MPI support not available (mpi4py not installed)'
                 });
             }
         } catch {

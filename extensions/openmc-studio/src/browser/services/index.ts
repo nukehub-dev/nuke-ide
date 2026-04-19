@@ -14,7 +14,6 @@
  * @module openmc-studio/browser/services
  */
 
-export * from './openmc-validation-service';
 export * from './openmc-environment-service';
 export * from './openmc-health-service';
 export * from './openmc-installer-service';

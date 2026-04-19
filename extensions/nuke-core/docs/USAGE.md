@@ -381,9 +381,9 @@ if (!result.success && result.suggestInstall) {
 }
 ```
 
-### Complete Package Management Workflow
+### Ensure Packages (Detect + Prompt + Install)
 
-Here's a workflow for extensions that need specific packages:
+The easiest way for extensions to guarantee required packages are available in the **configured** environment:
 
 ```typescript
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
@@ -391,44 +391,73 @@ import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 @inject(EnvironmentActionsHelper)
 private readonly envActions: EnvironmentActionsHelper;
 
-async function ensureEnvironment() {
-    // 1. Try to detect with required packages
-    const result = await this.nukeCore.detectWithInstallSuggestion({
+async function setup() {
+    const result = await this.envActions.ensurePackages({
         requiredPackages: [
             { name: 'openmc', required: true },
             { name: 'numpy', required: true }
-        ]
+        ],
+        title: 'Install OpenMC dependencies'
     });
 
     if (result.success) {
-        // Environment found with all packages
-        return result.command;
+        console.log('Ready:', result.environment?.name);
+        console.log('Python:', result.command);
+    } else if (result.installed === false) {
+        console.log('User declined installation');
+    } else if (!result.environment) {
+        console.log('No configured environment');
+    } else {
+        console.log('Failed to install:', result.missingPackages);
     }
+}
+```
 
-    // 2. If packages are missing, suggest installation
-    if (result.suggestInstall && result.missingPackages) {
-        const shouldInstall = await this.showInstallPrompt(
-            `Missing packages: ${result.missingPackages.join(', ')}. Install?`
-        );
+**What `ensurePackages` does:**
+1. Gets the **configured** environment (never a fallback)
+2. Runs `checkDependencies()` directly on the configured env's python path
+3. If all packages exist → returns success immediately
+4. If packages are missing → shows a Theia notification:
+   - Message: `Missing packages in <env>: pkg1, pkg2`
+   - Action: **"Install"**
+5. If user clicks the action → launches a live terminal and installs the missing packages into the **configured** environment
+6. Re-checks dependencies on the configured env to verify
+7. Returns the final result
 
-        if (shouldInstall) {
-            const installResult = await this.envActions.installPackages({
-                packages: result.missingPackages,
-                title: 'Install missing dependencies'
-            });
+> **Important:** `ensurePackages` checks **only** the configured environment. It does NOT search other environments or return fallbacks. If you need discovery across all envs, use `detectPythonWithRequirements` instead.
 
-            if (installResult.success) {
-                // Retry detection after installation
-                return this.ensureEnvironment();
-            } else {
-                throw new Error(`Failed to install packages: ${installResult.message}`);
-            }
+> **Tip:** This is the recommended pattern for extensions like `openmc-studio` that need specific packages. One call replaces the entire detect → prompt → install → retry chain.
+
+### Manual Workflow (Advanced)
+
+If you need custom UI or logic, use the lower-level APIs directly:
+
+```typescript
+// 1. Detect
+const result = await this.nukeCore.detectPythonWithRequirements({
+    requiredPackages: [{ name: 'openmc', required: true }]
+});
+
+if (result.success) {
+    return result.command;
+}
+
+// 2. Prompt yourself
+if (result.missingPackages) {
+    const installResult = await this.envActions.installPackages({
+        packages: result.missingPackages,
+        title: 'Install missing dependencies'
+    });
+
+    if (installResult.success) {
+        // 3. Retry detection
+        const retry = await this.nukeCore.detectPythonWithRequirements({
+            requiredPackages: [{ name: 'openmc', required: true }]
+        });
+        if (retry.success) {
+            return retry.command;
         }
     }
-
-    // 3. If no environment found, let user select one
-    const environments = await this.nukeCore.listEnvironments(true);
-    // ... show picker and let user select
 }
 ```
 

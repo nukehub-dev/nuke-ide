@@ -25,6 +25,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common';
 import { NukeCoreService, NukeEnvironment } from 'nuke-core/lib/common';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { MessageService } from '@theia/core/lib/common/message-service';
 
 export interface OpenMCEnvironmentStatus {
@@ -36,12 +37,18 @@ export interface OpenMCEnvironmentStatus {
     warning?: string;
 }
 
+/** Shared extra index URL for OpenMC pip installs. Single source of truth. */
+export const OPENMC_EXTRA_INDEX_URL = 'https://shimwell.github.io/wheels';
+
 @injectable()
 export class OpenMCEnvironmentService {
     
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
     
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -79,41 +86,46 @@ export class OpenMCEnvironmentService {
 
     /**
      * Refresh the environment status.
+     * Checks ONLY the configured environment — never falls back to a different one.
      */
     async refreshStatus(): Promise<OpenMCEnvironmentStatus> {
-        const detection = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' }
-            ],
-            searchWorkspaceVenvs: true
-        });
+        const env = await this.nukeCore.getSelectedEnvironment();
 
-        if (detection.success && detection.command) {
-            // Get OpenMC version
-            let openmcVersion: string | undefined;
-            try {
-                const depCheck = await this.nukeCore.checkDependencies(
-                    [{ name: 'openmc' }],
-                    detection.command
-                );
-                openmcVersion = depCheck.versions['openmc'];
-            } catch {
-                // Version check failed
-            }
-
-            this.currentStatus = {
-                ready: true,
-                environment: detection.environment,
-                pythonCommand: detection.command,
-                openmcVersion,
-                warning: detection.warning
-            };
-            
-            // Note: Fallback warnings are now handled centrally by nuke-core's onEnvironmentFallback event
-        } else {
+        if (!env) {
             this.currentStatus = {
                 ready: false,
-                error: detection.error || 'OpenMC not found in any environment'
+                error: 'No Python environment configured'
+            };
+            this._onEnvironmentChanged.fire(this.currentStatus);
+            return this.currentStatus;
+        }
+
+        // Check OpenMC in the configured env only (no fallback discovery)
+        try {
+            const depCheck = await this.nukeCore.checkDependencies(
+                [{ name: 'openmc' }],
+                env.pythonPath
+            );
+
+            if (depCheck.available) {
+                this.currentStatus = {
+                    ready: true,
+                    environment: env,
+                    pythonCommand: env.pythonPath,
+                    openmcVersion: depCheck.versions['openmc']
+                };
+            } else {
+                this.currentStatus = {
+                    ready: false,
+                    environment: env,
+                    error: `OpenMC not installed in ${env.name}`
+                };
+            }
+        } catch {
+            this.currentStatus = {
+                ready: false,
+                environment: env,
+                error: `Failed to check OpenMC in ${env.name}`
             };
         }
 
@@ -183,6 +195,74 @@ export class OpenMCEnvironmentService {
     }
 
     /**
+     * Ensure OpenMC is installed in the configured environment.
+     * Detects first; if missing, prompts the user with a notification
+     * to install via a live terminal. Re-detects after installation.
+     */
+    async ensureOpenMC(): Promise<{
+        success: boolean;
+        installed?: boolean;
+        environment?: NukeEnvironment;
+        pythonCommand?: string;
+    }> {
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: [
+                { name: 'openmc', extraIndexUrl: OPENMC_EXTRA_INDEX_URL }
+            ],
+            title: 'Install OpenMC'
+        });
+
+        if (result.success && result.environment) {
+            // Refresh our cached status
+            await this.refreshStatus();
+            return {
+                success: true,
+                installed: result.installed,
+                environment: result.environment,
+                pythonCommand: result.command
+            };
+        }
+
+        return {
+            success: false,
+            installed: result.installed
+        };
+    }
+
+    /**
+     * Ensure DAGMC tools (moab, pydagmc) are installed in the configured environment.
+     */
+    async ensureDAGMC(): Promise<{
+        success: boolean;
+        installed?: boolean;
+        environment?: NukeEnvironment;
+        pythonCommand?: string;
+    }> {
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: [
+                { name: 'moab', condaOnly: true, channels: ['conda-forge'] },
+                { name: 'pydagmc', condaOnly: true, channels: ['conda-forge'] }
+            ],
+            title: 'Install DAGMC Tools'
+        });
+
+        if (result.success && result.environment) {
+            await this.refreshStatus();
+            return {
+                success: true,
+                installed: result.installed,
+                environment: result.environment,
+                pythonCommand: result.command
+            };
+        }
+
+        return {
+            success: false,
+            installed: result.installed
+        };
+    }
+
+    /**
      * Check for DAGMC support in current environment.
      */
     async hasDAGMCSupport(): Promise<boolean> {
@@ -190,14 +270,14 @@ export class OpenMCEnvironmentService {
         if (!pythonCommand) return false;
 
         try {
-            const result = await this.nukeCore.detectPythonWithRequirements({
-                requiredPackages: [
-                    { name: 'pydagmc', condaOnly: true, channels: ['conda-forge'] },
-                    { name: 'pymoab', condaOnly: true, channels: ['conda-forge'] }
+            const result = await this.nukeCore.checkDependencies(
+                [
+                    { name: 'pydagmc' },
+                    { name: 'pymoab' }
                 ],
-                searchWorkspaceVenvs: true
-            });
-            return result.success;
+                pythonCommand
+            );
+            return result.available;
         } catch {
             return false;
         }
