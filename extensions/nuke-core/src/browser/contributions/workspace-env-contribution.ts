@@ -23,8 +23,7 @@ import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import URI from '@theia/core/lib/common/uri';
-import { NukeCoreService } from '../services/nuke-core-service';
-import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
+import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 
 export interface EnvFileInfo {
     type: 'conda-yml' | 'requirements-txt';

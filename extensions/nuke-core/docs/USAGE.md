@@ -200,12 +200,20 @@ await this.nukeCore.switchToEnvironment(environments[0]);
 After selecting an environment, you can install packages or use the path directly:
 
 ```typescript
-// Install packages in the environment
-await this.nukeCore.installPackages({
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
+
+@inject(EnvironmentActionsHelper)
+private readonly envActions: EnvironmentActionsHelper;
+
+// Install packages into a specific environment (one-shot, with live terminal)
+const result = await this.envActions.installPackages({
     packages: ['numpy', 'scipy'],
-    pythonPath: env.pythonPath,
+    pythonPath: env.pythonPath,  // target this env explicitly
     useConda: env.type === 'conda'
 });
+if (result.success) {
+    console.log(result.message);
+}
 
 // Copy the Python executable path to clipboard
 await navigator.clipboard.writeText(env.pythonPath);
@@ -252,23 +260,59 @@ if (result.available) {
 
 ### Install Packages
 
+The recommended way to install packages is through `EnvironmentActionsHelper.installPackages()` — a unified frontend method that handles CWD resolution, terminal creation, and execution:
+
 ```typescript
-// Install packages using default Python
-const result = await this.nukeCore.installPackages({
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
+
+@inject(EnvironmentActionsHelper)
+private readonly envActions: EnvironmentActionsHelper;
+
+// One-shot install into the configured environment
+const result = await this.envActions.installPackages({
     packages: ['openmc', 'numpy'],
-    useConda: false,  // Use pip (set to true to try conda first)
-    extraArgs: ['--upgrade']
+    title: 'Install OpenMC dependencies',  // terminal title
+    useConda: false,  // pip (set to true for conda/mamba)
+    channels: ['conda-forge'],           // optional per-install channels
+    extraIndexUrl: 'https://shimwell.github.io/wheels'  // optional extra index
 });
 
 if (result.success) {
-    console.log('Installed:', result.installed);
+    console.log(result.message);  // "Installed openmc, numpy successfully"
 } else {
-    console.log('Failed:', result.failed);
-    console.log('Output:', result.output);
+    console.log(result.message);  // "Installation failed or was cancelled..."
 }
+```
 
-// Convenience method for quick installs
-await this.nukeCore.installMissingPackages(['openmc', 'vtk']);
+**How it works:**
+1. Resolves the **configured** environment's python path (never a fallback-detected one)
+2. Resolves workspace root as CWD
+3. Calls `prepareInstallPackagesCommand()` to build the command
+4. Runs the command in a live terminal widget
+5. Returns `{ success, message }`
+
+#### Advanced: Manual Terminal Execution
+
+If you need custom terminal handling (e.g., custom widgets), use the low-level `prepareInstallPackagesCommand()`:
+
+```typescript
+import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
+
+@inject(TerminalService)
+private readonly terminalService: TerminalService;
+
+// 1. Prepare the command
+const { command, cwd } = await this.nukeCore.prepareInstallPackagesCommand({
+    packages: ['openmc', 'numpy'],
+    useConda: false,
+    pythonPath: '/home/user/.conda/envs/dev/bin/python'  // explicit
+});
+
+// 2. Create and run in your own terminal
+const terminal = await this.terminalService.newTerminal({ title: 'Custom Install', cwd });
+await terminal.start();
+this.terminalService.open(terminal, { mode: 'reveal' });
+await terminal.executeCommand({ cwd, args: command.split(' ') });
 ```
 
 ### Custom Channels and Indexes
@@ -292,7 +336,7 @@ const result = await this.nukeCore.detectPythonWithRequirements({
 Per-override at install time:
 
 ```typescript
-await this.nukeCore.installPackages({
+const result = await this.envActions.installPackages({
     packages: ['pytorch', 'cuda-toolkit'],
     useConda: true,
     channels: ['pytorch', 'nvidia', 'conda-forge'],
@@ -314,13 +358,26 @@ const result = await this.nukeCore.detectWithInstallSuggestion({
 
 if (!result.success && result.suggestInstall) {
     console.log('Missing packages:', result.missingPackages);
-    console.log('Install command:', result.installCommand);
-    
-    // Option 1: Show command to user for manual installation
-    // Option 2: Automatically install
-    await this.nukeCore.installPackages({ 
-        packages: result.missingPackages! 
+    console.log('Suggested command:', result.installCommand);
+
+    // Automatically install via unified helper
+    const installResult = await this.envActions.installPackages({
+        packages: result.missingPackages!,
+        title: 'Install missing dependencies'
     });
+
+    if (installResult.success) {
+        // Retry detection after installation
+        const retry = await this.nukeCore.detectPythonWithRequirements({
+            requiredPackages: [
+                { name: 'openmc', required: true },
+                { name: 'numpy', required: true }
+            ]
+        });
+        if (retry.success) {
+            console.log('Environment ready:', retry.environment?.name);
+        }
+    }
 }
 ```
 
@@ -329,6 +386,11 @@ if (!result.success && result.suggestInstall) {
 Here's a workflow for extensions that need specific packages:
 
 ```typescript
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
+
+@inject(EnvironmentActionsHelper)
+private readonly envActions: EnvironmentActionsHelper;
+
 async function ensureEnvironment() {
     // 1. Try to detect with required packages
     const result = await this.nukeCore.detectWithInstallSuggestion({
@@ -348,17 +410,18 @@ async function ensureEnvironment() {
         const shouldInstall = await this.showInstallPrompt(
             `Missing packages: ${result.missingPackages.join(', ')}. Install?`
         );
-        
+
         if (shouldInstall) {
-            const installResult = await this.nukeCore.installPackages({
-                packages: result.missingPackages
+            const installResult = await this.envActions.installPackages({
+                packages: result.missingPackages,
+                title: 'Install missing dependencies'
             });
-            
+
             if (installResult.success) {
                 // Retry detection after installation
                 return this.ensureEnvironment();
             } else {
-                throw new Error(`Failed to install packages: ${installResult.failed.join(', ')}`);
+                throw new Error(`Failed to install packages: ${installResult.message}`);
             }
         }
     }
@@ -718,7 +781,8 @@ The backend is modularized into providers and services:
 
 **Services**:
 - **`EnvironmentService`** - Aggregates all providers, manages configuration, validates env existence
-- **`PackageService`** - Prepares install commands with fallback chain: mamba/conda → uv → pip
+- **`PackageService`** - Prepares install commands with fallback chain: mamba/conda → uv → pip. Resolves configured environment's python path before falling back to auto-detected.
+- **`EnvironmentActionsHelper`** - Unified frontend helper for one-shot installs. Extensions should call `installPackages()` instead of manually orchestrating `prepareInstallPackagesCommand()` + `TerminalService`.
 - **`HealthService`** - Diagnostics and health checks
 - **`WorkspaceEnvContribution`** - Scans workspace for `environment.yml` / `requirements.txt`, suggests create/update, persists dismissed prompts to `localStorage`
 

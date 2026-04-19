@@ -16,7 +16,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/output-channel';
-import { NukeCoreService } from '../services/nuke-core-service';
+import { NukeCoreService } from '../services';
 import { NukeCoreCommands } from './index';
 import { NukeMenus } from '../nuke-core-menus';
 

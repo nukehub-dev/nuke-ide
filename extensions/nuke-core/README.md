@@ -41,10 +41,12 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 
 ### 📦 Package Management
 - Install packages via **pip**, **uv** (fast), or **conda/mamba**
-- Live terminal output during installation
-- Automatic Python path resolution — never hits system PEP 668 restrictions
+- Live terminal output during installation — no silent failures
+- **Unified `installPackages()` API** for extensions: one call handles CWD, terminal, and execution
+- Automatic Python path resolution — uses configured env, never a fallback-detected one
 - Package manager picker: choose pip or conda at install time
 - Conda-only package support: mark packages with `condaOnly: true` (e.g., `paraview`)
+- Per-install overrides: `channels`, `extraIndexUrl`, `extraArgs`
 
 ### 🔔 Workspace Auto-Detect
 - Scans workspace for `environment.yml`, `environment.yaml`, `requirements.txt`
@@ -115,11 +117,15 @@ Access via **Tools** menu or Command Palette:
 ```typescript
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 
 @injectable()
 export class MyExtension {
     @inject(NukeCoreService)
     private readonly nukeCore: NukeCoreService;
+
+    @inject(EnvironmentActionsHelper)
+    private readonly envActions: EnvironmentActionsHelper;
 
     async doSomething() {
         // Detect Python with required packages
@@ -131,6 +137,16 @@ export class MyExtension {
         if (result.success) {
             console.log('Using:', result.environment?.name);
         }
+    }
+
+    async installDependencies() {
+        // One-shot install into the configured environment
+        const result = await this.envActions.installPackages({
+            packages: ['openmc', 'numpy'],
+            useConda: false,
+            extraIndexUrl: 'https://shimwell.github.io/wheels'
+        });
+        console.log(result.success ? 'Installed!' : result.message);
     }
 }
 ```

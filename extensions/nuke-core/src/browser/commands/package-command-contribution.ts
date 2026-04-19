@@ -16,10 +16,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService, QuickInputService } from '@theia/core/lib/browser/quick-input';
-import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
-import { WorkspaceService } from '@theia/workspace/lib/browser';
-import { NukeCoreService } from '../services/nuke-core-service';
-import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
+import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 import { NukeCoreCommands } from './index';
 import { NukeMenus } from '../nuke-core-menus';
 
@@ -37,12 +34,6 @@ export class NukePackageCommandContribution implements CommandContribution, Menu
 
     @inject(QuickInputService)
     protected readonly quickInput: QuickInputService;
-
-    @inject(TerminalService)
-    protected readonly terminalService: TerminalService;
-
-    @inject(WorkspaceService)
-    protected readonly workspaceService: WorkspaceService;
 
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
@@ -86,37 +77,19 @@ export class NukePackageCommandContribution implements CommandContribution, Menu
         if (!managerSelected || !('value' in managerSelected)) {
             return;
         }
+
         const useConda = managerSelected.value === 'conda';
 
-        try {
-            const roots = await this.workspaceService.roots;
-            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
-            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({ packages, useConda, cwd: workspaceRoot });
+        const result = await this.envActions.installPackages({
+            packages,
+            title: `Install: ${packages.join(', ')}`,
+            useConda
+        });
 
-            const terminal = await this.terminalService.newTerminal({
-                title: `Install: ${packages.join(', ')}`,
-                cwd: cmdInfo.cwd
-            });
-            await terminal.start();
-            this.terminalService.open(terminal, { mode: 'reveal' });
-
-            const args = this.envActions.parseCommandString(cmdInfo.command);
-            await terminal.executeCommand({ cwd: cmdInfo.cwd, args });
-
-            this.messageService.info(`Installing ${packages.join(', ')} with ${useConda ? 'conda' : 'pip'} in terminal...`);
-
-            await this.envActions.waitForTerminal(terminal);
-
-            const status = terminal.exitStatus;
-            if (status && status.code === 0) {
-                this.messageService.info(`Successfully installed: ${packages.join(', ')}`);
-            } else {
-                this.messageService.warn(
-                    `Package installation may have failed or produced warnings. Check the terminal for details.`
-                );
-            }
-        } catch (error) {
-            this.messageService.error(`Installation failed: ${error}`);
+        if (result.success) {
+            this.messageService.info(result.message);
+        } else {
+            this.messageService.warn(result.message);
         }
     }
 }

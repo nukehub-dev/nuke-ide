@@ -20,8 +20,7 @@ import { QuickPickItem, QuickPickSeparator } from '@theia/core/lib/common/quick-
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
-import { NukeCoreService } from '../services/nuke-core-service';
-import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
+import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 import { NukeEnvironment } from '../../common/nuke-core-protocol';
 import { NukeCoreCommands } from './index';
 import { NukeMenus } from '../nuke-core-menus';

@@ -23,8 +23,7 @@ import { CommandService } from '@theia/core/lib/common/command';
 import { CommonCommands } from '@theia/core/lib/browser/common-commands';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 
-import { NukeCoreService } from '../services/nuke-core-service';
-import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
+import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 import { NukeEnvironment, NukeCoreStatusBarVisibility } from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from '../services/nuke-core-visibility-service';
 

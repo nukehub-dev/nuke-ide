@@ -16,17 +16,18 @@
 
 /**
  * OpenMC Installer Service
- * 
- * Handles package installation for OpenMC and related tools.
- * 
+ *
+ * Thin wrapper around nuke-core's unified installPackages().
+ * Extensions should follow this pattern: define options → show dialog → call installPackages().
+ *
  * @module openmc-studio/browser
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
+import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { NukeCoreService } from 'nuke-core/lib/common';
-import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services/environment-actions-helper';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { OpenMCEnvironmentService } from './openmc-environment-service';
 
 export interface InstallOption {
@@ -48,18 +49,18 @@ export interface InstallResult {
 
 @injectable()
 export class OpenMCInstallerService {
-    
+
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
-    
+
     @inject(OpenMCEnvironmentService)
     protected readonly envService: OpenMCEnvironmentService;
 
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
-    
-    @inject(WorkspaceService)
-    protected readonly workspaceService: WorkspaceService;
+
+    @inject(QuickPickService)
+    protected readonly quickPick: QuickPickService;
 
     @inject(MessageService)
     protected readonly messageService: MessageService;
@@ -78,9 +79,22 @@ export class OpenMCInstallerService {
         {
             id: 'dagmc',
             label: 'DAGMC Tools',
-            description: 'CAD-based geometry support (pip + shimwell wheels)',
+            description: 'CAD-based geometry support (moab, pydagmc) — conda only',
             packages: ['moab', 'pydagmc'],
-            extraIndexUrl: 'https://shimwell.github.io/wheels'
+            useConda: true,
+            channels: ['conda-forge']
+        },
+        {
+            id: 'openmc-plotter',
+            label: 'OpenMC Plotter',
+            description: 'Interactive visualization tool for OpenMC',
+            packages: ['openmc-plotter']
+        },
+        {
+            id: 'visualization',
+            label: 'Visualization Tools',
+            description: 'VTK, matplotlib, and plotting utilities',
+            packages: ['vtk', 'matplotlib', 'numpy']
         },
         {
             id: 'mpi',
@@ -120,7 +134,8 @@ export class OpenMCInstallerService {
     }
 
     /**
-     * Install packages using nuke-core in a live terminal.
+     * Install packages into the configured environment using nuke-core's
+     * unified installPackages(). Handles CWD, terminal, and messages.
      */
     async installPackages(
         packages: string[],
@@ -128,87 +143,34 @@ export class OpenMCInstallerService {
         channels?: string[],
         extraIndexUrl?: string
     ): Promise<InstallResult> {
-        // Use the configured environment's python path, not the fallback-detected one.
-        // getPythonCommand() may return a different env that happens to have the packages.
-        const config = await this.nukeCore.getConfig();
-        const selectedEnv = await this.nukeCore.getSelectedEnvironment();
+        const result = await this.envActions.installPackages({
+            packages,
+            title: `Install: ${packages.join(', ')}`,
+            useConda,
+            channels,
+            extraIndexUrl
+        });
 
-        let pythonPath: string | undefined;
-        if (selectedEnv && (
-            (config.condaEnv && selectedEnv.name === config.condaEnv) ||
-            (config.pythonPath && selectedEnv.pythonPath === config.pythonPath)
-        )) {
-            pythonPath = selectedEnv.pythonPath;
-        } else if (config.pythonPath) {
-            pythonPath = config.pythonPath;
-        } else {
-            // No configured env — fall back to detected
-            pythonPath = await this.envService.getPythonCommand();
-        }
+        // Refresh OpenMC-specific status after install
+        await this.envService.refreshStatus();
 
-        if (!pythonPath) {
+        if (result.success) {
+            this.messageService.info(`Successfully installed: ${packages.join(', ')}`);
             return {
-                success: false,
-                installed: [],
-                failed: packages,
-                message: 'No Python environment available'
+                success: true,
+                installed: packages,
+                failed: [],
+                message: result.message
             };
         }
 
-        // Resolve workspace root for CWD so installs run in the project directory
-        const roots = await this.workspaceService.roots;
-        const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
-
-        try {
-            // 1. Prepare the install command
-            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({
-                packages,
-                useConda,
-                channels,
-                extraIndexUrl,
-                pythonPath,
-                cwd: workspaceRoot
-            });
-
-            // 2. Run in a live terminal so the user sees progress
-            const success = await this.envActions.runCommandInTerminal({
-                title: `Install: ${packages.join(', ')}`,
-                cwd: cmdInfo.cwd,
-                args: this.envActions.parseCommandString(cmdInfo.command)
-            });
-
-            // 3. Refresh environment status after installation
-            await this.envService.refreshStatus();
-
-            if (success) {
-                this.messageService.info(`Successfully installed: ${packages.join(', ')}`);
-                return {
-                    success: true,
-                    installed: packages,
-                    failed: [],
-                    message: `Installed ${packages.join(', ')} in terminal`
-                };
-            } else {
-                this.messageService.warn(
-                    `Installation may have failed. Check the terminal for details.`
-                );
-                return {
-                    success: false,
-                    installed: [],
-                    failed: packages,
-                    message: 'Installation failed or was cancelled. Check the terminal for details.'
-                };
-            }
-        } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            this.messageService.error(`Installation failed: ${msg}`);
-            return {
-                success: false,
-                installed: [],
-                failed: packages,
-                message: msg
-            };
-        }
+        this.messageService.warn(result.message);
+        return {
+            success: false,
+            installed: [],
+            failed: packages,
+            message: result.message
+        };
     }
 
     /**
@@ -226,6 +188,31 @@ export class OpenMCInstallerService {
         }
 
         return this.installPackages(option.packages, option.useConda, option.channels, option.extraIndexUrl);
+    }
+
+    /**
+     * Show a QuickPick dialog with predefined install options.
+     */
+    async showInstallDialog(): Promise<void> {
+        const items = this.installOptions.map(opt => ({
+            label: opt.label,
+            description: opt.packages.join(', '),
+            detail: opt.description,
+            value: opt.id
+        }));
+
+        const selected = await this.quickPick.show(items, {
+            placeholder: 'Select packages to install into the configured environment'
+        });
+
+        if (!selected || !('value' in selected)) {
+            return;
+        }
+
+        const result = await this.installOption(selected.value as string);
+        if (!result.success) {
+            this.messageService.error(result.message || 'Installation failed');
+        }
     }
 
     /**
@@ -247,14 +234,5 @@ export class OpenMCInstallerService {
     async canInstall(): Promise<boolean> {
         const pythonCommand = await this.envService.getPythonCommand();
         return !!pythonCommand;
-    }
-
-    /**
-     * Show installation dialog and handle user selection.
-     */
-    async showInstallDialog(): Promise<void> {
-        // This will be implemented with a UI component
-        // For now, just log available options
-        console.log('[OpenMC Installer] Available options:', this.installOptions);
     }
 }

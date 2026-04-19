@@ -328,6 +328,85 @@ export class EnvironmentActionsHelper {
     }
 
     /**
+     * Unified package install into the configured (or explicit) environment.
+     * Resolves workspace CWD, prepares the command, runs in a live terminal,
+     * and returns success/failure. Extensions should prefer this over
+     * calling prepareInstallPackagesCommand + runCommandInTerminal manually.
+     */
+    async installPackages(options: {
+        packages: string[];
+        title?: string;
+        useConda?: boolean;
+        channels?: string[];
+        extraIndexUrl?: string;
+        pythonPath?: string;
+        cwd?: string;
+    }): Promise<{ success: boolean; message: string }> {
+        const {
+            packages,
+            title = `Install: ${packages.join(', ')}`,
+            useConda = false,
+            channels,
+            extraIndexUrl,
+            pythonPath: explicitPythonPath,
+            cwd: explicitCwd
+        } = options;
+
+        // Resolve CWD: explicit > workspace root > process.cwd()
+        let cwd = explicitCwd;
+        if (!cwd) {
+            const roots = await this.workspaceService.roots;
+            cwd = roots[0]?.resource?.path?.toString() || '';
+        }
+
+        // Resolve target python: explicit > configured env > fallback detected
+        let pythonPath = explicitPythonPath;
+        if (!pythonPath) {
+            const config = await this.nukeCore.getConfig();
+            const selectedEnv = await this.nukeCore.getSelectedEnvironment();
+            if (selectedEnv && (
+                (config.condaEnv && selectedEnv.name === config.condaEnv) ||
+                (config.pythonPath && selectedEnv.pythonPath === config.pythonPath)
+            )) {
+                pythonPath = selectedEnv.pythonPath;
+            } else if (config.pythonPath) {
+                pythonPath = config.pythonPath;
+            }
+        }
+
+        try {
+            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({
+                packages,
+                useConda,
+                channels,
+                extraIndexUrl,
+                pythonPath,
+                cwd
+            });
+
+            const success = await this.runCommandInTerminal({
+                title,
+                cwd: cmdInfo.cwd,
+                args: this.parseCommandString(cmdInfo.command)
+            });
+
+            if (success) {
+                return {
+                    success: true,
+                    message: `Installed ${packages.join(', ')} successfully`
+                };
+            }
+            return {
+                success: false,
+                message: 'Installation failed or was cancelled. Check the terminal for details.'
+            };
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return { success: false, message: msg };
+        }
+    }
+
+    /**
      * Install packages in the specified environment via live terminal.
      */
     async installPackageForEnv(env: NukeEnvironment): Promise<void> {
@@ -354,37 +433,18 @@ export class EnvironmentActionsHelper {
             return;
         }
 
-        try {
-            const roots = await this.workspaceService.roots;
-            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
-            const useConda = manager.value === 'conda';
-            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({
-                packages,
-                useConda,
-                pythonPath: env.pythonPath,
-                cwd: workspaceRoot
-            });
+        const useConda = manager.value === 'conda';
+        const result = await this.installPackages({
+            packages,
+            title: `Install in ${env.name}: ${packages.join(', ')}`,
+            useConda,
+            pythonPath: env.pythonPath
+        });
 
-            const terminal = await this.terminalService.newTerminal({
-                title: `Install in ${env.name}: ${packages.join(', ')}`,
-                cwd: cmdInfo.cwd
-            });
-            await terminal.start();
-            this.terminalService.open(terminal, { mode: 'reveal' });
-
-            const args = this.parseCommandString(cmdInfo.command);
-            await terminal.executeCommand({ cwd: cmdInfo.cwd, args });
-
-            await this.waitForTerminal(terminal);
-
-            const status = terminal.exitStatus;
-            if (!status || status.code === undefined || status.code === 0) {
-                this.messageService.info(`Installed in ${env.name}: ${packages.join(', ')}`);
-            } else {
-                this.messageService.warn(`Check terminal for installation results.`);
-            }
-        } catch (error) {
-            this.messageService.error(`Installation failed: ${error}`);
+        if (result.success) {
+            this.messageService.info(`Installed in ${env.name}: ${packages.join(', ')}`);
+        } else {
+            this.messageService.warn(result.message);
         }
     }
 
