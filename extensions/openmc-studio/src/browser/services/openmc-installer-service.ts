@@ -24,7 +24,9 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services/environment-actions-helper';
 import { OpenMCEnvironmentService } from './openmc-environment-service';
 
 export interface InstallOption {
@@ -32,7 +34,9 @@ export interface InstallOption {
     label: string;
     description: string;
     packages: string[];
-    useConda: boolean;
+    useConda?: boolean;
+    channels?: string[];
+    extraIndexUrl?: string;
 }
 
 export interface InstallResult {
@@ -50,7 +54,13 @@ export class OpenMCInstallerService {
     
     @inject(OpenMCEnvironmentService)
     protected readonly envService: OpenMCEnvironmentService;
+
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
     
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -61,44 +71,31 @@ export class OpenMCInstallerService {
         {
             id: 'openmc',
             label: 'OpenMC',
-            description: 'Core OpenMC Monte Carlo simulation package',
+            description: 'Core OpenMC Monte Carlo simulation package (pip + shimwell wheels)',
             packages: ['openmc'],
-            useConda: true
-        },
-        {
-            id: 'openmc-plotter',
-            label: 'OpenMC Plotter',
-            description: 'Interactive visualization tool for OpenMC',
-            packages: ['openmc-plotter'],
-            useConda: true
+            extraIndexUrl: 'https://shimwell.github.io/wheels'
         },
         {
             id: 'dagmc',
             label: 'DAGMC Tools',
-            description: 'CAD-based geometry support (pymoab, pydagmc)',
+            description: 'CAD-based geometry support (pip + shimwell wheels)',
             packages: ['moab', 'pydagmc'],
-            useConda: true
-        },
-        {
-            id: 'visualization',
-            label: 'Visualization Tools',
-            description: 'VTK, matplotlib, and plotting utilities',
-            packages: ['vtk', 'matplotlib', 'numpy'],
-            useConda: true
+            extraIndexUrl: 'https://shimwell.github.io/wheels'
         },
         {
             id: 'mpi',
             label: 'MPI Support',
-            description: 'Parallel processing with mpi4py',
+            description: 'Parallel processing with mpi4py — conda recommended',
             packages: ['mpi4py'],
-            useConda: true
+            useConda: true,
+            channels: ['conda-forge']
         },
         {
             id: 'depletion',
             label: 'Depletion Tools',
             description: 'Burnup and depletion calculation support',
             packages: ['openmc', 'numpy', 'scipy'],
-            useConda: true
+            extraIndexUrl: 'https://shimwell.github.io/wheels'
         }
     ];
 
@@ -123,15 +120,33 @@ export class OpenMCInstallerService {
     }
 
     /**
-     * Install packages using nuke-core.
+     * Install packages using nuke-core in a live terminal.
      */
     async installPackages(
         packages: string[],
-        useConda: boolean = true
+        useConda: boolean = false,
+        channels?: string[],
+        extraIndexUrl?: string
     ): Promise<InstallResult> {
-        const pythonCommand = await this.envService.getPythonCommand();
-        
-        if (!pythonCommand) {
+        // Use the configured environment's python path, not the fallback-detected one.
+        // getPythonCommand() may return a different env that happens to have the packages.
+        const config = await this.nukeCore.getConfig();
+        const selectedEnv = await this.nukeCore.getSelectedEnvironment();
+
+        let pythonPath: string | undefined;
+        if (selectedEnv && (
+            (config.condaEnv && selectedEnv.name === config.condaEnv) ||
+            (config.pythonPath && selectedEnv.pythonPath === config.pythonPath)
+        )) {
+            pythonPath = selectedEnv.pythonPath;
+        } else if (config.pythonPath) {
+            pythonPath = config.pythonPath;
+        } else {
+            // No configured env — fall back to detected
+            pythonPath = await this.envService.getPythonCommand();
+        }
+
+        if (!pythonPath) {
             return {
                 success: false,
                 installed: [],
@@ -140,31 +155,50 @@ export class OpenMCInstallerService {
             };
         }
 
-        this.messageService.info(`Installing packages: ${packages.join(', ')}...`);
+        // Resolve workspace root for CWD so installs run in the project directory
+        const roots = await this.workspaceService.roots;
+        const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
 
         try {
-            const result = await this.nukeCore.installPackages({
+            // 1. Prepare the install command
+            const cmdInfo = await this.nukeCore.prepareInstallPackagesCommand({
                 packages,
                 useConda,
-                pythonPath: pythonCommand
+                channels,
+                extraIndexUrl,
+                pythonPath,
+                cwd: workspaceRoot
             });
 
-            if (result.success) {
-                this.messageService.info(`Successfully installed: ${result.installed.join(', ')}`);
-                
-                // Refresh environment status after installation
-                await this.envService.refreshStatus();
-            } else {
-                const failedList = result.failed.length > 0 ? result.failed.join(', ') : 'unknown packages';
-                this.messageService.error(`Failed to install: ${failedList}`);
-            }
+            // 2. Run in a live terminal so the user sees progress
+            const success = await this.envActions.runCommandInTerminal({
+                title: `Install: ${packages.join(', ')}`,
+                cwd: cmdInfo.cwd,
+                args: this.envActions.parseCommandString(cmdInfo.command)
+            });
 
-            return {
-                success: result.success,
-                installed: result.installed,
-                failed: result.failed,
-                message: result.output
-            };
+            // 3. Refresh environment status after installation
+            await this.envService.refreshStatus();
+
+            if (success) {
+                this.messageService.info(`Successfully installed: ${packages.join(', ')}`);
+                return {
+                    success: true,
+                    installed: packages,
+                    failed: [],
+                    message: `Installed ${packages.join(', ')} in terminal`
+                };
+            } else {
+                this.messageService.warn(
+                    `Installation may have failed. Check the terminal for details.`
+                );
+                return {
+                    success: false,
+                    installed: [],
+                    failed: packages,
+                    message: 'Installation failed or was cancelled. Check the terminal for details.'
+                };
+            }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Installation failed: ${msg}`);
@@ -191,15 +225,18 @@ export class OpenMCInstallerService {
             };
         }
 
-        return this.installPackages(option.packages, option.useConda);
+        return this.installPackages(option.packages, option.useConda, option.channels, option.extraIndexUrl);
     }
 
     /**
      * Get installation command for display purposes.
      */
-    getInstallCommand(packages: string[], useConda: boolean = true): string {
+    async getInstallCommand(packages: string[], useConda: boolean = true): Promise<string> {
         if (useConda) {
-            return `conda install -c conda-forge ${packages.join(' ')}`;
+            const config = await this.nukeCore.getConfig();
+            const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
+            const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
+            return `conda install ${channelArgs} ${packages.join(' ')}`;
         }
         return `pip install ${packages.join(' ')}`;
     }

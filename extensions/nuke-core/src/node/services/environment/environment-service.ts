@@ -427,7 +427,6 @@ export class EnvironmentService {
     private buildInstallSuggestion(packages: PackageDependency[], missingNames: string[]): string {
         const missing = packages.filter(p => missingNames.includes(p.name));
         const condaPkgs = missing.filter(p => p.condaOnly);
-        const pipPkgs = missing.filter(p => !p.condaOnly).map(p => p.name);
 
         // Default channels from config, fallback to conda-forge
         const defaultChannels = this.config.condaChannels
@@ -453,12 +452,20 @@ export class EnvironmentService {
             }
         }
 
-        // Pip packages
-        if (pipPkgs.length > 0) {
-            const indexArg = this.config.pipExtraIndexUrl
-                ? `--extra-index-url ${this.config.pipExtraIndexUrl} `
-                : '';
-            parts.push(`pip install ${indexArg}${pipPkgs.join(' ')}`.trim());
+        // Pip packages: group by extra index URL
+        const pipPkgObjs = missing.filter(p => !p.condaOnly);
+        if (pipPkgObjs.length > 0) {
+            const indexGroups = new Map<string | undefined, string[]>();
+            for (const pkg of pipPkgObjs) {
+                const index = pkg.extraIndexUrl || this.config.pipExtraIndexUrl || undefined;
+                const list = indexGroups.get(index) || [];
+                list.push(pkg.name);
+                indexGroups.set(index, list);
+            }
+            for (const [index, names] of indexGroups) {
+                const indexArg = index ? `--extra-index-url ${index} ` : '';
+                parts.push(`pip install ${indexArg}${names.join(' ')}`.trim());
+            }
         }
 
         if (parts.length === 0) {

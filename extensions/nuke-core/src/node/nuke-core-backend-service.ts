@@ -33,7 +33,6 @@ import {
     DependencyCheckResult,
     PythonDetectionOptions,
     PackageInstallOptions,
-    PackageInstallResult,
     HealthCheckResult,
     ConfigValidationResult,
     CreateEnvironmentOptions,
@@ -84,10 +83,6 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
     async checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult> {
         const targetPython = pythonPath || await this.getPythonCommand() || 'python';
         return this.environmentService.checkPackages(packages, targetPython);
-    }
-
-    async installPackages(options: PackageInstallOptions): Promise<PackageInstallResult> {
-        return this.packageService.installPackages(options);
     }
 
     async healthCheck(packages?: string[]): Promise<HealthCheckResult> {

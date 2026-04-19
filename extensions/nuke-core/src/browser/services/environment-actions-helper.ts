@@ -273,6 +273,33 @@ export class EnvironmentActionsHelper {
     }
 
     /**
+     * Run an arbitrary command in a live terminal.
+     * Returns true on success (exit code 0).
+     */
+    async runCommandInTerminal(options: {
+        title: string;
+        cwd: string;
+        args: string[];
+    }): Promise<boolean> {
+        const terminal = await this.terminalService.newTerminal({
+            title: options.title,
+            cwd: options.cwd
+        });
+        await terminal.start();
+        this.terminalService.open(terminal, { mode: 'reveal' });
+        await terminal.executeCommand({ cwd: options.cwd, args: options.args });
+
+        await this.waitForTerminal(terminal);
+
+        const status = terminal.exitStatus;
+        if (status && status.code !== undefined) {
+            return status.code === 0;
+        }
+        // No exit status recorded (user likely closed terminal manually) — assume OK
+        return true;
+    }
+
+    /**
      * Open a terminal with the environment activated (conda/mamba run).
      */
     async openEnvTerminal(env: NukeEnvironment): Promise<void> {

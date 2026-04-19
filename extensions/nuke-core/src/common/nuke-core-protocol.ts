@@ -96,6 +96,8 @@ export interface PackageDependency {
     condaOnly?: boolean;
     /** Conda channels to use for this package (defaults to global/preference channels) */
     channels?: string[];
+    /** Extra pip index URL for this package (e.g. https://shimwell.github.io/wheels) */
+    extraIndexUrl?: string;
 }
 
 /** Result of dependency check */
@@ -286,11 +288,6 @@ export interface NukeCoreBackendServiceInterface {
      * @param packages Optional packages to check for (e.g., ['openmc', 'numpy'])
      */
     healthCheck(packages?: string[]): Promise<HealthCheckResult>;
-
-    /**
-     * Install packages in the specified Python environment.
-     */
-    installPackages(options: PackageInstallOptions): Promise<PackageInstallResult>;
 
     /**
      * Get detailed diagnostics information for troubleshooting.

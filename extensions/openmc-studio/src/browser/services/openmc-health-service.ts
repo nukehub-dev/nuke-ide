@@ -169,12 +169,15 @@ export class OpenMCHealthService {
         };
     }
 
-    private async checkOpenMC(pythonCommand: string): Promise<{ 
-        issues: HealthCheckIssue[]; 
-        version?: string 
+    private async checkOpenMC(pythonCommand: string): Promise<{
+        issues: HealthCheckIssue[];
+        version?: string
     }> {
         const issues: HealthCheckIssue[] = [];
-        
+        const config = await this.nukeCore.getConfig();
+        const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
+        const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
+
         try {
             const depCheck = await this.nukeCore.checkDependencies(
                 [{ name: 'openmc', required: true }],
@@ -186,7 +189,7 @@ export class OpenMCHealthService {
                     severity: 'error',
                     category: 'openmc',
                     message: 'OpenMC package not found',
-                    suggestion: 'Install OpenMC: conda install -c conda-forge openmc',
+                    suggestion: `Install OpenMC: conda install ${channelArgs} openmc`,
                     autoFixable: true
                 });
             } else {
@@ -250,7 +253,10 @@ export class OpenMCHealthService {
 
     private async checkMPI(pythonCommand: string): Promise<{ issues: HealthCheckIssue[] }> {
         const issues: HealthCheckIssue[] = [];
-        
+        const config = await this.nukeCore.getConfig();
+        const channels = config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean) || ['conda-forge'];
+        const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
+
         try {
             const depCheck = await this.nukeCore.checkDependencies(
                 [{ name: 'mpi4py', required: false }],
@@ -262,7 +268,7 @@ export class OpenMCHealthService {
                     severity: 'info',
                     category: 'mpi',
                     message: 'MPI support not available (mpi4py not installed)',
-                    suggestion: 'Install mpi4py for parallel simulations: conda install -c conda-forge mpi4py'
+                    suggestion: `Install mpi4py for parallel simulations: conda install ${channelArgs} mpi4py`
                 });
             }
         } catch {

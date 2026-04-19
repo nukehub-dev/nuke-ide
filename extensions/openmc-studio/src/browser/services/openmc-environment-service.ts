@@ -82,7 +82,9 @@ export class OpenMCEnvironmentService {
      */
     async refreshStatus(): Promise<OpenMCEnvironmentStatus> {
         const detection = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: [
+                { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' }
+            ],
             searchWorkspaceVenvs: true
         });
 
@@ -189,7 +191,10 @@ export class OpenMCEnvironmentService {
 
         try {
             const result = await this.nukeCore.detectPythonWithRequirements({
-                requiredPackages: [{ name: 'pydagmc' }],
+                requiredPackages: [
+                    { name: 'pydagmc', condaOnly: true, channels: ['conda-forge'] },
+                    { name: 'pymoab', condaOnly: true, channels: ['conda-forge'] }
+                ],
                 searchWorkspaceVenvs: true
             });
             return result.success;

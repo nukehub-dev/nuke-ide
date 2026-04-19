@@ -42,7 +42,6 @@ import {
     DependencyCheckResult,
     PythonDetectionOptions,
     PackageInstallOptions,
-    PackageInstallResult,
     HealthCheckResult,
     ConfigValidationResult,
     EnvironmentStatus,
@@ -332,25 +331,7 @@ export class NukeCoreService {
     /**
      * Install packages in the current or specified Python environment.
      */
-    async installPackages(options: PackageInstallOptions): Promise<PackageInstallResult> {
-        return this.backend.installPackages(options);
-    }
-
-    /**
-     * Convenience method to install missing packages.
-     */
-    async installMissingPackages(
-        packages: string[], 
-        pythonPath?: string
-    ): Promise<PackageInstallResult> {
-        return this.installPackages({
-            packages,
-            pythonPath,
-            useConda: false // Try pip first
-        });
-    }
-
-    /**
+/**
      * Get the OpenMC cross-sections path.
      * Returns the configured path or environment variable.
      */
