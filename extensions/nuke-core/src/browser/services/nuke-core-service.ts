@@ -430,6 +430,13 @@ export class NukeCoreService {
         return this.backend.prepareInstallPackagesCommand(options);
     }
 
+    /**
+     * Get the best available conda/mamba command.
+     */
+    async getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
+        return this.backend.getCondaCommand();
+    }
+
     private clearCache(): void {
         this.backend.setConfig({ ...this.currentConfig });
     }

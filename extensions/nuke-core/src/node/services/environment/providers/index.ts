@@ -8,3 +8,5 @@ export * from './base';
 export * from './conda-provider';
 export * from './venv-provider';
 export * from './system-provider';
+export * from './poetry-provider';
+export * from './pyenv-provider';

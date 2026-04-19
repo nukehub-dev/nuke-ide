@@ -295,6 +295,12 @@ export interface NukeCoreBackendServiceInterface {
      * Used by the frontend to run the command in a terminal widget for live output.
      */
     prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }>;
+
+    /**
+     * Get the best available conda/mamba command.
+     * Returns undefined if neither is installed.
+     */
+    getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined>;
 }
 
 /** Frontend event types */

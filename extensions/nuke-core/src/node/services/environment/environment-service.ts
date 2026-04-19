@@ -25,7 +25,7 @@ import {
     CreateEnvironmentResult,
     CreateEnvironmentCommand
 } from '../../../common/nuke-core-protocol';
-import { CondaProvider, VenvProvider, SystemProvider } from './providers';
+import { CondaProvider, VenvProvider, SystemProvider, PoetryProvider, PyenvProvider } from './providers';
 import { getPythonInfo } from './utils/python-info';
 
 @injectable()
@@ -40,11 +40,15 @@ export class EnvironmentService {
     private readonly condaProvider: CondaProvider;
     private readonly venvProvider: VenvProvider;
     private readonly systemProvider: SystemProvider;
+    private readonly poetryProvider: PoetryProvider;
+    private readonly pyenvProvider: PyenvProvider;
 
     constructor() {
         this.condaProvider = new CondaProvider();
         this.venvProvider = new VenvProvider();
         this.systemProvider = new SystemProvider();
+        this.poetryProvider = new PoetryProvider();
+        this.pyenvProvider = new PyenvProvider();
     }
 
     setConfig(config: PythonConfig): void {
@@ -248,7 +252,43 @@ export class EnvironmentService {
             }
         }
 
-        // 6. Try system Python
+        // 6. Try poetry environments
+        try {
+            const poetryEnvs = await this.poetryProvider.listEnvironments();
+            for (const env of poetryEnvs) {
+                const depCheck = await testPythonWithDeps(env.pythonPath);
+                if (depCheck.success) {
+                    this.cachePythonResult(env.pythonPath, depCheck.env!);
+                    const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const warning = warnings.length > 0
+                        ? `${warnings.join(' ')} Using poetry env '${env.name}'.`
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                    return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
+                }
+            }
+        } catch {
+            // Poetry not available
+        }
+
+        // 7. Try pyenv environments
+        try {
+            const pyenvEnvs = await this.pyenvProvider.listEnvironments();
+            for (const env of pyenvEnvs) {
+                const depCheck = await testPythonWithDeps(env.pythonPath);
+                if (depCheck.success) {
+                    this.cachePythonResult(env.pythonPath, depCheck.env!);
+                    const pkgList = requiredPackages.map(p => p.name).join(', ');
+                    const warning = warnings.length > 0
+                        ? `${warnings.join(' ')} Using pyenv env '${env.name}'.`
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
+                    return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
+                }
+            }
+        } catch {
+            // pyenv not available
+        }
+
+        // 8. Try system Python
         const systemPython = await this.systemProvider.findPython();
         if (systemPython) {
             const depCheck = await testPythonWithDeps(systemPython);
@@ -427,6 +467,30 @@ export class EnvironmentService {
             }
         }
 
+        // Try poetry environments
+        try {
+            const poetryEnvs = await this.poetryProvider.listEnvironments();
+            for (const env of poetryEnvs) {
+                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                    environments.push(env);
+                }
+            }
+        } catch {
+            // Poetry not available
+        }
+
+        // Try pyenv environments
+        try {
+            const pyenvEnvs = await this.pyenvProvider.listEnvironments();
+            for (const env of pyenvEnvs) {
+                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                    environments.push(env);
+                }
+            }
+        } catch {
+            // pyenv not available
+        }
+
         // Cache results
         this.environmentsCache = environments;
         this.environmentsCacheTime = Date.now();
@@ -512,6 +576,10 @@ export class EnvironmentService {
         }
 
         throw new Error(`Unknown environment type: ${type}`);
+    }
+
+    async getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
+        return this.condaProvider.getResolver().getBestCommand();
     }
 
     async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {

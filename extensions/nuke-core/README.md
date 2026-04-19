@@ -20,7 +20,8 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - **Conda / Mamba** environments (Anaconda, Miniconda, Miniforge, Mambaforge)
 - **Virtualenv** and **venv**
 - **System Python**
-- Supports **poetry** and **pyenv** types in the protocol (discovery via system Python)
+- **Poetry** environments (via `poetry env list`)
+- **Pyenv** installations (via `pyenv versions`)
 - Automatic workspace venv discovery
 - Cross-platform path support (Linux, macOS, Windows)
 

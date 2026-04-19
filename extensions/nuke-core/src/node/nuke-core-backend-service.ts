@@ -113,4 +113,8 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
     async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
         return this.packageService.prepareInstallPackagesCommand(options);
     }
+
+    async getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
+        return this.environmentService.getCondaCommand();
+    }
 }

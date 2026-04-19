@@ -24,6 +24,7 @@ import { OutputChannelManager, OutputChannel } from '@theia/output/lib/browser/o
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
+import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { NukeCoreService } from './services/nuke-core-service';
 import { NukeEnvironment } from '../common/nuke-core-protocol';
 import { NukeMenus } from './nuke-core-menus';
@@ -85,7 +86,10 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
 
     @inject(WorkspaceService)
     protected readonly workspaceService: WorkspaceService;
-    
+
+    @inject(WindowService)
+    protected readonly windowService: WindowService;
+
     @inject(OutputChannelManager)
     protected readonly outputManager: OutputChannelManager;
 
@@ -655,6 +659,15 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
                     }
                 } else {
                     this.messageService.warn(`Environment '${existingName}' already exists.`);
+                }
+            } else if (errMsg.includes('No conda or mamba installation found')) {
+                const action = await this.messageService.warn(
+                    'No conda or mamba installation found. Install Miniforge3 to create conda environments.',
+                    'Open Miniforge Website',
+                    'Dismiss'
+                );
+                if (action === 'Open Miniforge Website') {
+                    this.windowService.openNewWindow('https://github.com/conda-forge/miniforge');
                 }
             } else {
                 this.messageService.error(`Environment creation failed: ${error}`);

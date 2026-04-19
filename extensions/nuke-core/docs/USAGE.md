@@ -5,7 +5,7 @@ Detailed usage guide for the Nuke Core extension.
 ## Features
 
 ### Enhanced Python Environment Management
-- **Auto-detection**: Automatically detects conda, mamba, venv, virtualenv, and system Python environments
+- **Auto-detection**: Automatically detects conda, mamba, venv, virtualenv, poetry, pyenv, and system Python environments
 - **Workspace venv discovery**: Finds virtual environments in the workspace
 - **Environment switching**: Quick switch between environments via status bar or command palette
 - **Version checking**: Verifies Python versions and package compatibility
@@ -30,7 +30,8 @@ Detailed usage guide for the Nuke Core extension.
 ### Workspace Auto-Detect
 - Scans the workspace for `environment.yml`, `environment.yaml`, and `requirements.txt`
 - Suggests environment setup when config files are found
-- Opens terminal with auto-detected commands for users to run
+- **Auto-creates conda environments** from `environment.yml` with live terminal output
+- **Auto-installs dependencies** from `requirements.txt` via pip with live terminal output
 
 ### Configuration Validation
 - Validates that configured Python paths exist
@@ -169,7 +170,9 @@ if (result.success) {
 3. Searches ALL available environments for ones with required packages
 4. Tries named conda environments from `autoDetectEnvs`
 5. Checks workspace venvs (if `searchWorkspaceVenvs: true`)
-6. Falls back to system Python as last resort
+6. Checks poetry environments
+7. Checks pyenv environments
+8. Falls back to system Python as last resort
 
 **Note:** You typically don't need `autoDetectEnvs` anymore - nuke-core will find the right environment automatically!
 
@@ -626,6 +629,8 @@ The backend is modularized into providers and services:
 **Providers** (implement `EnvironmentProvider` interface):
 - **`CondaProvider`** - Discovers conda/mamba environments across all installations (Anaconda, Miniforge, Mambaforge, Miniconda, custom paths). Uses `conda env list --json` for cross-platform path resolution. Supports `--prefix` for out-of-root environments (e.g., `~/.conda/envs/`).
 - **`VenvProvider`** - Discovers venv/virtualenv in workspace and standard locations
+- **`PoetryProvider`** - Discovers Poetry virtual environments via `poetry env list --full-path`
+- **`PyenvProvider`** - Discovers pyenv Python installations via `pyenv versions --bare`
 - **`SystemProvider`** - Discovers system Python installations
 
 **Utilities**:
