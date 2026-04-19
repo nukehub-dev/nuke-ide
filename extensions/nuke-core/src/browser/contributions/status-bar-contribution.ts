@@ -144,7 +144,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
                 text: '$(warning) Nuke: Not Configured',
                 tooltip: 'Click to select environment',
                 alignment: StatusBarAlignment.RIGHT,
-                priority: 100,
+                priority: 200,
                 onclick: () => this.showEnvironmentPickerForUnconfigured()
             });
             return;
@@ -156,7 +156,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
                 text: '$(sync~spin) Nuke: Detecting...',
                 tooltip: 'Detecting environment...',
                 alignment: StatusBarAlignment.RIGHT,
-                priority: 100
+                priority: 200
             });
             return;
         }
@@ -195,7 +195,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
                 text,
                 tooltip,
                 alignment: StatusBarAlignment.RIGHT,
-                priority: 100,
+                priority: 200,
                 onclick: () => this.showEnvironmentPicker()
             });
         }
@@ -221,7 +221,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         this.statusBar.setElement(this.STATUS_BAR_ID, {
             text: '$(sync~spin) Loading...',
             alignment: StatusBarAlignment.RIGHT,
-            priority: 100
+            priority: 200
         });
 
         try {
@@ -291,7 +291,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         this.statusBar.setElement(this.STATUS_BAR_ID, {
             text: '$(sync~spin) Loading...',
             alignment: StatusBarAlignment.RIGHT,
-            priority: 100
+            priority: 200
         });
 
         try {
