@@ -219,7 +219,7 @@ export class NukeCoreCommandContribution implements CommandContribution, MenuCon
             }));
 
             const selected = await this.quickPick.show(items, {
-                placeholder: 'Select Python Environment'
+                placeholder: 'Select Nuke Environment'
             });
 
             // Type guard to check if selected is an environment item

@@ -159,9 +159,12 @@ export class EnvironmentService {
                     return { success: true, command: this.config.pythonPath, environment: depCheck.env };
                 } else {
                     if (depCheck.missing.length > 0) {
-                        errors.push(`Configured Python missing: ${depCheck.missing.join(', ')}`);
+                        const missingPkgs = depCheck.missing.join(', ');
+                        errors.push(`Configured Python missing: ${missingPkgs}`);
+                        warnings.push(`Configured Python is missing: ${missingPkgs}. To use it, run: pip install ${missingPkgs}`);
+                    } else {
+                        warnings.push(`Configured Python path does not have required packages.`);
                     }
-                    warnings.push(`Configured Python path does not have required packages.`);
                 }
             } catch {
                 errors.push(`Configured Python path not valid: ${this.config.pythonPath}`);
@@ -177,8 +180,9 @@ export class EnvironmentService {
                     this.cachePythonResult(condaPython, depCheck.env!);
                     return { success: true, command: condaPython, warning: warnings.join(' '), environment: depCheck.env };
                 } else {
-                    errors.push(`Conda env '${this.config.condaEnv}' missing: ${depCheck.missing.join(', ')}`);
-                    warnings.push(`Configured conda environment '${this.config.condaEnv}' does not have required packages.`);
+                    const missingPkgs = depCheck.missing.join(', ');
+                    errors.push(`Conda env '${this.config.condaEnv}' missing: ${missingPkgs}`);
+                    warnings.push(`Configured conda environment '${this.config.condaEnv}' is missing: ${missingPkgs}. To use it, run: conda install ${missingPkgs}`);
                 }
             } else {
                 errors.push(`Conda environment '${this.config.condaEnv}' not found`);
@@ -192,9 +196,10 @@ export class EnvironmentService {
             if (matchingEnvironments.length > 0) {
                 const bestMatch = matchingEnvironments[0];
                 this.cachePythonResult(bestMatch.pythonPath, bestMatch);
+                const pkgList = requiredPackages.map(p => p.name).join(', ');
                 const warning = warnings.length > 0 
-                    ? `${warnings.join(' ')} Using '${bestMatch.name}' with all required packages.` 
-                    : `Using '${bestMatch.name}' with all required packages. Configure 'nuke.condaEnv' or 'nuke.pythonPath' to use a specific environment.`;
+                    ? `${warnings.join(' ')}. Using '${bestMatch.name}' with all required packages.`
+                    : `Using '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                 return { success: true, command: bestMatch.pythonPath, warning, environment: bestMatch };
             }
         }
@@ -206,9 +211,10 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(condaPython);
                 if (depCheck.success) {
                     this.cachePythonResult(condaPython, depCheck.env!);
+                    const pkgList = requiredPackages.map(p => p.name).join(', ');
                     const warning = warnings.length > 0 
-                        ? `${warnings.join(' ')} Using auto-detected conda environment '${envName}'.` 
-                        : `Using auto-detected conda environment '${envName}'. Configure 'nuke.condaEnv' to use a specific environment.`;
+                        ? `${warnings.join(' ')}. Using auto-detected conda environment '${envName}'.`
+                        : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                     return { success: true, command: condaPython, warning, environment: depCheck.env };
                 } else {
                     errors.push(`Auto-detected conda env '${envName}' missing: ${depCheck.missing.join(', ')}`);
@@ -223,9 +229,10 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(env.pythonPath);
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
+                    const pkgList = requiredPackages.map(p => p.name).join(', ');
                     const warning = warnings.length > 0 
-                        ? `${warnings.join(' ')} Using workspace venv '${env.name}'.` 
-                        : `Using workspace venv '${env.name}'. Configure 'nuke.pythonPath' to use a specific environment.`;
+                        ? `${warnings.join(' ')} Using workspace venv '${env.name}'.`
+                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -239,9 +246,10 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(cmd);
                 if (depCheck.success) {
                     this.cachePythonResult(cmd, depCheck.env!);
+                    const pkgList = requiredPackages.map(p => p.name).join(', ');
                     const warning = warnings.length > 0 
-                        ? `${warnings.join(' ')} Using system Python.` 
-                        : `Using system Python. For better results, configure 'nuke.pythonPath' or 'nuke.condaEnv'.`;
+                        ? `${warnings.join(' ')} Using system Python.`
+                        : `Using system Python with required packages (${pkgList}). To use your configured environment, install: pip install ${pkgList}`;
                     return { success: true, command: cmd, warning, environment: depCheck.env };
                 }
             } catch {
@@ -385,6 +393,21 @@ export class EnvironmentService {
             }
         } catch {
             // Conda not available
+        }
+        
+        // Try system Python
+        for (const cmd of ['python3', 'python']) {
+            try {
+                const { execSync } = await import('child_process');
+                execSync(`${cmd} --version`, { stdio: 'ignore' });
+                const env = await this.getEnvironmentInfo(cmd, 'system');
+                if (env && !environments.find(e => e.pythonPath === env.pythonPath)) {
+                    // Don't mark as active - configured pythonPath takes precedence
+                    environments.push(env);
+                }
+            } catch {
+                // Not found
+            }
         }
         
         // Try workspace venvs

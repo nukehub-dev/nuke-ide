@@ -75,7 +75,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             this.updateStatusBar();
         });
         
-        // Listen for preference changes
+        // Listen for preference changes (mainly workspace scope)
         this.preferences.onPreferenceChanged(event => {
             if (event.preferenceName === 'nuke.showStatusBar' || 
                 event.preferenceName === 'nuke.pythonPath' || 
@@ -88,6 +88,32 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         this.visibilityService.onVisibilityChanged(() => {
             this.updateStatusBar();
         });
+        
+        // Poll for user preference changes every 5 seconds
+        // This catches user scope changes that don't trigger onPreferenceChanged
+        setInterval(() => this.checkUserPreferences(), 5000);
+    }
+    
+    private lastUserPythonPath?: string;
+    private lastUserCondaEnv?: string;
+    
+    private async checkUserPreferences(): Promise<void> {
+        // Check if user preferences have changed
+        const inspectPath = this.preferences.inspect<string>('nuke.pythonPath');
+        const inspectEnv = this.preferences.inspect<string>('nuke.condaEnv');
+        
+        const userPythonPath = inspectPath?.globalValue?.trim();
+        const userCondaEnv = inspectEnv?.globalValue?.trim();
+        
+        const prefsChanged = userPythonPath !== this.lastUserPythonPath || 
+                           userCondaEnv !== this.lastUserCondaEnv;
+        
+        if (prefsChanged) {
+            console.log('[NukeCore] User preferences changed via direct edit');
+            this.lastUserPythonPath = userPythonPath;
+            this.lastUserCondaEnv = userCondaEnv;
+            this.updateStatusBar();
+        }
     }
 
     protected async updateStatusBar(): Promise<void> {
@@ -99,7 +125,9 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             return;
         }
 
-        const isConfigured = this.nukeCore.isConfigured();
+        // Get status - uses internal config state
+        const status = this.nukeCore.getStatus();
+        const isConfigured = status.configured;
         const visibilityRequested = this.visibilityService.isVisibilityRequested();
         
         // In 'auto' mode:
@@ -123,8 +151,6 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
 
         // If we get here, either we're in 'always' mode, or an extension requested visibility
-        const status = this.nukeCore.getStatus();
-        
         if (!status.ready) {
             this.statusBar.setElement(this.STATUS_BAR_ID, {
                 text: '$(sync~spin) Nuke: Detecting...',
@@ -144,12 +170,13 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             const configuredCondaEnv = this.preferences.get('nuke.condaEnv') as string | undefined;
             const configuredPythonPath = this.preferences.get('nuke.pythonPath') as string | undefined;
             
-            // For conda env, use the exact env name; for pythonPath, show 'Custom'
+            // For conda env, use the exact env name; for pythonPath, extract the name from path
             let configuredName: string | undefined;
             if (configuredCondaEnv) {
                 configuredName = configuredCondaEnv;
             } else if (configuredPythonPath) {
-                configuredName = 'Custom';
+                // Extract name from python path (e.g., /usr/bin/python3 -> python3)
+                configuredName = configuredPythonPath.split('/').pop() || 'Custom';
             }
             
             const icon = this.getEnvironmentIcon(env.type);
@@ -224,7 +251,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             );
 
             const placeholder = environments.length > 0 
-                ? 'Select Python environment or open settings'
+                ? 'Select Nuke environment or open settings'
                 : 'No environments found. Open settings to configure.';
 
             const selected = await this.quickPick.show(items, { placeholder });
@@ -303,7 +330,7 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
             ];
 
             const selected = await this.quickPick.show(items, {
-                placeholder: 'Select Python Environment'
+                placeholder: 'Select Nuke Environment'
             });
 
             if (!selected) {

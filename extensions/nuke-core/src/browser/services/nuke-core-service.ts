@@ -96,37 +96,77 @@ export class NukeCoreService {
         // Listen for preference changes
         this.preferences.onPreferenceChanged(event => {
             if (event.preferenceName.startsWith('nuke.')) {
-                this.syncFromPreferences();
+                console.log('[NukeCore] Preference changed:', event.preferenceName);
+                // Use setTimeout to ensure the preference has been fully processed
+                setTimeout(() => this.syncFromPreferences(), 0);
             }
         });
     }
 
     /**
      * Sync configuration from nuke.* preferences.
+     * Handles the case where workspace scope returns empty string overriding user settings.
      */
     protected async syncFromPreferences(): Promise<void> {
-        const pythonPath = this.preferences.get('nuke.pythonPath') as string | undefined;
-        const condaEnv = this.preferences.get('nuke.condaEnv') as string | undefined;
+        await this.doSyncFromPreferences();
+    }
+    
+    protected async doSyncFromPreferences(): Promise<void> {
+        const inspectPath = this.preferences.inspect<string>('nuke.pythonPath');
+        const inspectEnv = this.preferences.inspect<string>('nuke.condaEnv');
+        
+        let pythonPath: string | undefined;
+        let condaEnv: string | undefined;
+        
+        // Only use values if they are explicitly set (non-empty)
+        // Priority: workspaceFolderValue > workspaceValue > globalValue (user)
+        // This avoids the Theia scope merge bug where empty workspace overrides user settings
+        if (inspectPath?.workspaceFolderValue?.trim()) {
+            pythonPath = inspectPath.workspaceFolderValue as string;
+        } else if (inspectPath?.workspaceValue?.trim()) {
+            pythonPath = inspectPath.workspaceValue as string;
+        } else if (inspectPath?.globalValue?.trim()) {
+            pythonPath = inspectPath.globalValue as string;
+        }
+        
+        if (inspectEnv?.workspaceFolderValue?.trim()) {
+            condaEnv = inspectEnv.workspaceFolderValue as string;
+        } else if (inspectEnv?.workspaceValue?.trim()) {
+            condaEnv = inspectEnv.workspaceValue as string;
+        } else if (inspectEnv?.globalValue?.trim()) {
+            condaEnv = inspectEnv.globalValue as string;
+        }
+        
+        // CRITICAL: If preferences are empty but we already have a valid config, DON'T OVERWRITE IT
+        // This handles the case where workspace scope returns "" while user scope has the real value
+        // We only allow clearing if explicitly set to empty, not from scope merge issues
+        const hasExistingConfig = this.currentConfig.pythonPath || this.currentConfig.condaEnv;
+        const hasNewPrefs = pythonPath || condaEnv;
+        
+        if (!hasNewPrefs && hasExistingConfig) {
+            return;
+        }
+        
+        // Also skip if values haven't changed
+        if (pythonPath === this.currentConfig.pythonPath && condaEnv === this.currentConfig.condaEnv) {
+            return;
+        }
         
         const newConfig: PythonConfig = {
             pythonPath: pythonPath || undefined,
             condaEnv: condaEnv || undefined
         };
         
-        if (newConfig.pythonPath !== this.currentConfig.pythonPath ||
-            newConfig.condaEnv !== this.currentConfig.condaEnv) {
-            await this.setConfig(newConfig);
-        }
+        await this.setConfig(newConfig);
     }
     
     /**
      * Check if Nuke Core is properly configured.
      * Returns false if Python path or conda env is not set.
+     * Uses internal currentConfig to avoid Theia preference scope merging issues.
      */
     isConfigured(): boolean {
-        const pythonPath = this.preferences.get('nuke.pythonPath') as string;
-        const condaEnv = this.preferences.get('nuke.condaEnv') as string;
-        return !!(pythonPath || condaEnv);
+        return !!(this.currentConfig.pythonPath || this.currentConfig.condaEnv);
     }
     
     /**
@@ -364,12 +404,14 @@ export class NukeCoreService {
 
     /**
      * Get current environment status.
+     * Uses internal config state instead of preferences to avoid scope issues.
      */
     getStatus(): EnvironmentStatus {
-        const configured = this.isConfigured();
+        // Use internal currentConfig instead of preferences to avoid workspace/user scope issues
+        const hasConfig = !!(this.currentConfig.pythonPath || this.currentConfig.condaEnv);
         const visibilityRequested = this.visibilityService.isVisibilityRequested();
         
-        if (!configured) {
+        if (!hasConfig) {
             return {
                 configured: false,
                 ready: false,
