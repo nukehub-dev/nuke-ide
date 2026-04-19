@@ -52,6 +52,8 @@ export interface NukeEnvironment {
     isActive?: boolean;
     /** Path to environment directory (for venv/conda) */
     envPath?: string;
+    /** Whether this environment can be deleted by the user */
+    isDeletable?: boolean;
 }
 
 /** Result of Python detection */

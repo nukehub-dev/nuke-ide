@@ -441,7 +441,25 @@ export class NukeCoreService {
      * Delete a user-created environment.
      */
     async deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }> {
-        return this.backend.deleteEnvironment(env);
+        const result = await this.backend.deleteEnvironment(env);
+
+        if (result.success) {
+            const wasConfigured =
+                (this.currentConfig.condaEnv && env.name === this.currentConfig.condaEnv) ||
+                this.currentConfig.pythonPath === env.pythonPath;
+
+            if (wasConfigured) {
+                // Use setConfig to properly clear everything and emit all events
+                await this.setConfig({});
+            } else if (this.currentEnvironment?.pythonPath === env.pythonPath) {
+                // Deleted env was the active fallback but not the configured one
+                this.currentEnvironment = undefined;
+                this.lastFallbackEnv = undefined;
+                this.emitStatus();
+            }
+        }
+
+        return result;
     }
 
     private clearCache(): void {
@@ -477,10 +495,11 @@ export class NukeCoreService {
             };
         }
 
+        // Configured env name/path does not match any discovered environment
         return {
-            configured: true,
+            configured: false,
             ready: false,
-            message: 'Detecting environment...',
+            message: 'Not configured',
             visibilityRequested
         };
     }
@@ -548,11 +567,25 @@ export class NukeCoreService {
     private async updateCurrentEnvironment(): Promise<void> {
         try {
             const result = await this.backend.listEnvironments();
-            this.currentEnvironment = result.selected;
-            
+            const configuredConda = this.currentConfig.condaEnv;
+            const configuredPath = this.currentConfig.pythonPath;
+
+            if (configuredConda) {
+                // Look for an environment whose name matches the configured conda env
+                const match = result.environments.find(e => e.name === configuredConda);
+                this.currentEnvironment = match;
+            } else if (configuredPath) {
+                // Look for an environment whose pythonPath matches the configured path
+                const match = result.environments.find(e => e.pythonPath === configuredPath);
+                this.currentEnvironment = match;
+            } else {
+                // No specific env configured — use the default selected one
+                this.currentEnvironment = result.selected;
+            }
+
             // If current environment now matches the configured env, clear the fallback
-            const configuredName = this.currentConfig.condaEnv || this.currentConfig.pythonPath;
-            if (configuredName && result.selected?.name === configuredName) {
+            const configuredName = configuredConda || configuredPath;
+            if (configuredName && this.currentEnvironment?.name === configuredName) {
                 this.lastFallbackEnv = undefined;
             }
         } catch (error) {

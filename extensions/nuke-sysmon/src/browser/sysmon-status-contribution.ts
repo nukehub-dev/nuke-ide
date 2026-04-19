@@ -84,7 +84,7 @@ export class SysmonStatusContribution implements FrontendApplicationContribution
             text: `$(chip) ${cpu}% $(server) ${mem}% $(database) ${disk}%`,
             tooltip: this.buildTooltip(metrics),
             alignment: StatusBarAlignment.RIGHT,
-            priority: 10,
+            priority: 1,
             command: SYSMON_OPEN_DASHBOARD_COMMAND.id
         });
     }

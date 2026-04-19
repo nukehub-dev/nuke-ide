@@ -503,6 +503,11 @@ export class EnvironmentService {
             index === self.findIndex(e => e.pythonPath === env.pythonPath)
         );
 
+        // Mark deletable status on each environment
+        for (const env of uniqueEnvs) {
+            env.isDeletable = this.isUserCreatedEnv(env);
+        }
+
         const sortedEnvs = uniqueEnvs.sort((a, b) => {
             if (a.isActive && !b.isActive) return -1;
             if (!a.isActive && b.isActive) return 1;

@@ -22,10 +22,9 @@ import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
-import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
 import URI from '@theia/core/lib/common/uri';
 import { NukeCoreService } from '../services/nuke-core-service';
+import { EnvironmentActionsHelper } from '../services/environment-actions-helper';
 
 export interface EnvFileInfo {
     type: 'conda-yml' | 'requirements-txt';
@@ -48,9 +47,6 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
-    @inject(TerminalService)
-    protected readonly terminalService: TerminalService;
-
     @inject(CommandService)
     protected readonly commandService: CommandService;
 
@@ -60,10 +56,17 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
     @inject(EnvVariablesServer)
     protected readonly envVariables: EnvVariablesServer;
 
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
+
     /** Track which specific files we've already suggested, so we don't spam. */
     private notifiedFiles = new Set<string>();
+    private readonly STORAGE_KEY = 'nuke-core:notified-env-files';
 
     async onStart(): Promise<void> {
+        // Restore previously-dismissed prompts from localStorage
+        this.loadNotifiedFiles();
+
         // Initial scan after workspace has loaded
         setTimeout(() => this.scanWorkspace(), 3000);
 
@@ -71,6 +74,28 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         this.workspaceService.onWorkspaceChanged(() => {
             this.scanWorkspace();
         });
+    }
+
+    private loadNotifiedFiles(): void {
+        try {
+            const raw = localStorage.getItem(this.STORAGE_KEY);
+            if (raw) {
+                const arr = JSON.parse(raw) as string[];
+                for (const uri of arr) {
+                    this.notifiedFiles.add(uri);
+                }
+            }
+        } catch {
+            // ignore corrupted storage
+        }
+    }
+
+    private saveNotifiedFiles(): void {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify([...this.notifiedFiles]));
+        } catch {
+            // ignore storage errors
+        }
     }
 
     private async scanWorkspace(): Promise<void> {
@@ -93,10 +118,11 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
             const condaYml = newFiles.find(f => f.type === 'conda-yml');
             const reqTxt = newFiles.find(f => f.type === 'requirements-txt');
 
-            // Mark all found files as notified so we don't re-prompt this session
+            // Mark all found files as notified so we don't re-prompt
             for (const f of envFiles) {
                 this.notifiedFiles.add(f.uri.toString());
             }
+            this.saveNotifiedFiles();
 
             if (condaYml && reqTxt) {
                 const buttons: string[] = [];
@@ -185,18 +211,17 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                 return;
             }
 
-            const roots = await this.workspaceService.roots;
-            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
-            const filePath = file.uri.path.fsPath();
-
             // Parse the environment name from the YAML so we can install into ~/.nuke-ide/envs/
             const envName = await this.parseEnvNameFromYml(file.uri);
             const homeVar = await this.envVariables.getValue('HOME');
+            const roots = await this.workspaceService.roots;
+            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
             const homeDir = homeVar?.value || workspaceRoot;
             const prefix = `${homeDir}/.nuke-ide/envs/${envName}`;
+            const filePath = file.uri.path.fsPath();
 
             // Check if environment already exists — use update instead of create
-            let subCommand = 'create';
+            let subCommand: 'create' | 'update' = 'create';
             try {
                 const stat = await this.fileService.resolve(new URI(prefix + '/conda-meta'));
                 if (stat.isDirectory) {
@@ -206,30 +231,20 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                 // doesn't exist — safe to create
             }
 
-            const args = ['env', subCommand, '-f', filePath, '--prefix', prefix, '-y'];
-            const terminal = await this.terminalService.newTerminal({
-                title: `${subCommand === 'update' ? 'Update' : 'Create'} env from ${file.name}`,
-                cwd: workspaceRoot
-            });
-            await terminal.start();
-            this.terminalService.open(terminal, { mode: 'reveal' });
-            await terminal.executeCommand({ cwd: workspaceRoot, args: [condaCmd.cmd, ...args] });
-
-            this.messageService.info(
-                `${subCommand === 'update' ? 'Updating' : 'Creating'} environment from ${file.name} in terminal...`
+            const success = await this.envActions.runCondaEnvFromFile(
+                subCommand,
+                filePath,
+                prefix,
+                `${subCommand === 'update' ? 'Update' : 'Create'} env from ${file.name}`
             );
 
-            await this.waitForTerminal(terminal);
-
-            const status = terminal.exitStatus;
-            if (status && status.code === 0) {
+            if (success) {
                 const action = await this.messageService.info(
                     `Environment ${subCommand === 'update' ? 'updated' : 'created'} from ${file.name}! Switch to it?`,
                     'Switch Environment',
                     'Dismiss'
                 );
                 if (action === 'Switch Environment') {
-                    // Refresh environments and let user pick
                     const envs = await this.nukeCore.listEnvironments(true);
                     const newEnv = envs.find(e => e.envPath === prefix || e.name === envName);
                     if (newEnv) {
@@ -280,25 +295,13 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                 return;
             }
 
-            const roots = await this.workspaceService.roots;
-            const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
-            const filePath = file.uri.path.fsPath();
+            const success = await this.envActions.runPipInstallFromFile(
+                python.command,
+                file.uri.path.fsPath(),
+                `Install from ${file.name}`
+            );
 
-            const args = ['-m', 'pip', 'install', '-r', filePath];
-            const terminal = await this.terminalService.newTerminal({
-                title: `Install from ${file.name}`,
-                cwd: workspaceRoot
-            });
-            await terminal.start();
-            this.terminalService.open(terminal, { mode: 'reveal' });
-            await terminal.executeCommand({ cwd: workspaceRoot, args: [python.command, ...args] });
-
-            this.messageService.info(`Installing dependencies from ${file.name} in terminal...`);
-
-            await this.waitForTerminal(terminal);
-
-            const status = terminal.exitStatus;
-            if (status && status.code === 0) {
+            if (success) {
                 this.messageService.info(`Dependencies from ${file.name} installed successfully!`);
             } else {
                 this.messageService.warn(
@@ -309,22 +312,5 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
             console.error('[NukeCore] Error setting up from requirements.txt:', error);
             this.messageService.error(`Failed to install from ${file.name}: ${error}`);
         }
-    }
-
-    private async waitForTerminal(terminal: TerminalWidget): Promise<void> {
-        return new Promise(resolve => {
-            const maxWait = 10 * 60 * 1000; // 10 minutes max
-            const interval = 1000;
-            let elapsed = 0;
-
-            const check = setInterval(() => {
-                elapsed += interval;
-                const status = terminal.exitStatus;
-                if (status || elapsed >= maxWait) {
-                    clearInterval(check);
-                    resolve();
-                }
-            }, interval);
-        });
     }
 }

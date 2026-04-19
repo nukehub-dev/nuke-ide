@@ -114,7 +114,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
                 return;
             }
 
-            const items = this.buildEnvironmentPickerItems(environments, current);
+            const items = this.buildEnvironmentPickerItems(environments, current, true);
             const selected = await this.quickPick.show(items, {
                 placeholder: 'Select Nuke Environment'
             });
@@ -313,7 +313,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
                 return;
             }
 
-            const items = this.buildEnvironmentPickerItems(environments, current);
+            const items = this.buildEnvironmentPickerItems(environments, current, false);
             const selected = await this.quickPick.show(items, {
                 placeholder: 'Select environment to delete'
             });
@@ -355,7 +355,8 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
 
     protected buildEnvironmentPickerItems(
         environments: NukeEnvironment[],
-        current?: NukeEnvironment
+        current?: NukeEnvironment,
+        includeActions = true
     ): Array<QuickPickItem & { value?: unknown } | QuickPickSeparator> {
         const condaEnvs = environments.filter(e => e.type === 'conda');
         const venvEnvs = environments.filter(e => e.type === 'venv' || e.type === 'virtualenv');
@@ -382,9 +383,11 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         addGroup('Virtual Environments', venvEnvs, '📦');
         addGroup('Other', otherEnvs, '🐧');
 
-        items.push({ type: 'separator', label: 'Actions' } as QuickPickSeparator);
-        items.push({ label: '➕ Create new environment', value: '__create__' });
-        items.push({ label: '🔄 Refresh environments', value: '__refresh__' });
+        if (includeActions) {
+            items.push({ type: 'separator', label: 'Actions' } as QuickPickSeparator);
+            items.push({ label: '➕ Create new environment', value: '__create__' });
+            items.push({ label: '🔄 Refresh environments', value: '__refresh__' });
+        }
 
         return items;
     }
