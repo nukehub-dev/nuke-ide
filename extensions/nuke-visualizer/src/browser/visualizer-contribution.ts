@@ -17,15 +17,26 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
 import { AbstractViewContribution, OpenHandler, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
+import { OpenViewArguments } from '@theia/core/lib/browser/shell/view-contribution';
 import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from './visualizer-widget';
 import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
+import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService, NukeCoreService } from 'nuke-core/lib/common';
+import { HealthCheckFramework } from './services/health-check-framework';
+import { MessageService } from '@theia/core/lib/common';
+import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
 
 export const VisualizerCommand = {
     id: VisualizerWidget.ID,
     label: 'Open Visualizer'
+};
+
+export const VisualizerHealthCheckCommand = {
+    id: 'nuke-visualizer.health-check',
+    label: 'Run Health Check',
+    category: 'Visualizer'
 };
 
 export namespace NukeVisualizerMenus {
@@ -75,6 +86,21 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     @inject(FrontendApplication)
     protected readonly app: FrontendApplication;
 
+    @inject(NukeCoreStatusBarVisibility)
+    protected readonly visibilityService: NukeCoreStatusBarVisibilityService;
+
+    @inject(HealthCheckFramework)
+    protected readonly healthCheckFramework: HealthCheckFramework;
+
+    @inject(MessageService)
+    protected readonly messageService: MessageService;
+
+    @inject(NukeCoreService)
+    protected readonly nukeCore: NukeCoreService;
+
+    @inject(OutputChannelManager)
+    protected readonly outputChannelManager: OutputChannelManager;
+
     constructor() {
         super({
             widgetId: VisualizerWidget.ID,
@@ -90,9 +116,81 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     }
 
     override registerCommands(commands: CommandRegistry): void {
+        // Register base visualizer health requirements eagerly (not in onStart)
+        this.healthCheckFramework.registerHealthRequirements({
+            id: 'base-visualizer',
+            name: 'Base Visualizer',
+            packages: [
+                { name: 'trame', submodule: 'app', required: true },
+                { name: 'paraview', submodule: 'simple', required: true, condaOnly: true },
+                { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
+                { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' }
+            ]
+        });
         commands.registerCommand(VisualizerCommand, {
             execute: () => this.openView({ reveal: true, activate: true }),
         });
+        commands.registerCommand(VisualizerHealthCheckCommand, {
+            execute: () => this.runHealthCheck(),
+        });
+    }
+
+    protected async runHealthCheck(): Promise<void> {
+        const report = await this.healthCheckFramework.runAllHealthChecks();
+        const env = await this.nukeCore.getSelectedEnvironment();
+        const envName = env?.name || 'current environment';
+        const channel = this.outputChannelManager.getChannel('Nuke Visualizer');
+
+        channel.clear();
+        channel.appendLine('═'.repeat(50));
+        channel.appendLine(` Health Check — ${envName}`);
+        channel.appendLine('═'.repeat(50));
+
+        if (report.healthy) {
+            channel.appendLine('✓ All visualization plugins are healthy!');
+            channel.show({ preserveFocus: true });
+            this.messageService.info('All visualization plugins are healthy!');
+            return;
+        }
+
+        for (const plugin of report.plugins) {
+            channel.appendLine('');
+            channel.appendLine(` ${plugin.pluginName}`);
+            channel.appendLine('─'.repeat(40));
+
+            if (plugin.healthy) {
+                channel.appendLine(' ✓ All required packages available');
+                continue;
+            }
+
+            // Show infrastructure checks first
+            const infraChecks = plugin.checks.filter(c => !c.name.startsWith('Package:'));
+            for (const check of infraChecks) {
+                const icon = check.passed ? '✓' : '⚠';
+                channel.appendLine(` ${icon} ${check.name}: ${check.message}`);
+            }
+
+            // Show failed package checks (suggestions come from HealthCheckFramework)
+            const packageChecks = plugin.checks.filter(c => c.name.startsWith('Package:'));
+            for (const check of packageChecks) {
+                const pkgName = check.name.replace('Package: ', '');
+                if (check.passed) {
+                    channel.appendLine(` ✓ ${pkgName}: available`);
+                } else {
+                    channel.appendLine(` ✗ ${pkgName}: not installed`);
+                    if (check.suggestion) {
+                        channel.appendLine(`   → ${check.suggestion}`);
+                    }
+                }
+            }
+        }
+
+        channel.appendLine('');
+        channel.appendLine('═'.repeat(50));
+        channel.show({ preserveFocus: true });
+        this.messageService.warn(
+            `Health check found missing packages in ${envName}. See Nuke Visualizer output.`
+        );
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
@@ -101,6 +199,11 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             commandId: VisualizerCommand.id,
             label: VisualizerCommand.label,
             order: '0_main'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+            commandId: VisualizerHealthCheckCommand.id,
+            label: VisualizerHealthCheckCommand.label,
+            order: 'z_health'
         });
     }
 
@@ -117,6 +220,13 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             return 100; // Low priority for mesh files
         }
         return 0;
+    }
+
+    override async openView(args?: Partial<OpenViewArguments>): Promise<VisualizerWidget> {
+        const widget = await super.openView(args);
+        const handle = this.visibilityService.requestVisibility('nuke-visualizer');
+        widget.disposed.connect(() => handle.dispose());
+        return widget;
     }
 
     async open(uri: URI): Promise<VisualizerWidget> {
@@ -153,6 +263,10 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
 
         // Load the file
         await widget.loadFile(uri);
+
+        // Request status bar visibility while this widget is open
+        const handle = this.visibilityService.requestVisibility('nuke-visualizer');
+        widget.disposed.connect(() => handle.dispose());
         
         return widget;
     }

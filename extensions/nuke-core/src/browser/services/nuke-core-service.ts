@@ -192,10 +192,21 @@ export class NukeCoreService {
 
     /**
      * Set environment configuration.
+     * Only emits onEnvironmentChanged when the config actually changes
+     * from a previously established state (not on initial load).
      */
     async setConfig(config: PythonConfig): Promise<void> {
         const previous = { ...this.currentConfig };
         const previousEnv = this.currentEnvironment;
+        
+        // Skip if config hasn't actually changed
+        if (previous.pythonPath === config.pythonPath &&
+            previous.condaEnv === config.condaEnv &&
+            previous.condaChannels === config.condaChannels &&
+            previous.pipExtraIndexUrl === config.pipExtraIndexUrl) {
+            return;
+        }
+        
         this.currentConfig = { ...config };
         await this.backend.setConfig(config);
         
@@ -205,12 +216,17 @@ export class NukeCoreService {
         // Update current environment info
         await this.updateCurrentEnvironment();
         
-        this._onEnvironmentChanged.fire({ 
-            previous, 
-            current: config,
-            previousEnv,
-            currentEnv: this.currentEnvironment
-        });
+        // Only emit if there was a previously configured environment.
+        // Skip on initial load when previous was empty.
+        const hadPreviousConfig = !!(previous.pythonPath || previous.condaEnv);
+        if (hadPreviousConfig) {
+            this._onEnvironmentChanged.fire({ 
+                previous, 
+                current: config,
+                previousEnv,
+                currentEnv: this.currentEnvironment
+            });
+        }
         
         this.emitStatus();
     }
@@ -382,9 +398,9 @@ export class NukeCoreService {
 
     /**
      * Run health checks on the Nuke Core setup.
-     * @param packages Optional packages to check for (e.g., ['openmc', 'numpy'])
+     * @param packages Optional packages to check for with metadata (e.g., [{name: 'openmc', extraIndexUrl: '...'}])
      */
-    async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
+    async healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult> {
         return this.backend.healthCheck(packages);
     }
 

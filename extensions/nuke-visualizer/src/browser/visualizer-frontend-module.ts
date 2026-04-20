@@ -54,10 +54,13 @@ import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials
 import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
+import { HealthCheckFramework } from './services/health-check-framework';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
     bind(PlotlyService).to(PlotlyServiceImpl).inSingletonScope();
+    // Bind health check framework
+    bind(HealthCheckFramework).toSelf().inSingletonScope();
     // Bind preferences
     bindVisualizerPreferences(bind);
 

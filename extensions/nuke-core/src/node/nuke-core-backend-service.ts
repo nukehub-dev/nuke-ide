@@ -85,7 +85,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
         return this.environmentService.checkPackages(packages, targetPython);
     }
 
-    async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
+    async healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult> {
         return this.healthService.healthCheck(packages);
     }
 

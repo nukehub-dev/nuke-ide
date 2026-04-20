@@ -19,7 +19,8 @@ import {
     HealthCheckItem,
     ConfigValidationResult,
     ConfigValidationError,
-    ConfigValidationWarning
+    ConfigValidationWarning,
+    PackageDependency
 } from '../../common/nuke-core-protocol';
 import { EnvironmentService } from './environment/environment-service';
 import { CondaResolver } from './environment/utils/conda-resolver';
@@ -34,7 +35,23 @@ export class HealthService {
     private readonly condaResolver = new CondaResolver();
     private readonly uvResolver = new UvResolver();
 
-    async healthCheck(packages?: string[]): Promise<HealthCheckResult> {
+    private buildInstallSuggestion(pkg: PackageDependency): string {
+        if (pkg.installCommand) {
+            return pkg.installCommand;
+        }
+        if (pkg.condaOnly) {
+            const channels = pkg.channels?.length
+                ? pkg.channels.map(c => `-c ${c}`).join(' ')
+                : '-c conda-forge';
+            return `conda install ${channels} ${pkg.name}`;
+        }
+        if (pkg.extraIndexUrl) {
+            return `pip install --extra-index-url ${pkg.extraIndexUrl} ${pkg.name}`;
+        }
+        return `pip install ${pkg.name}`;
+    }
+
+    async healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult> {
         const checks: HealthCheckItem[] = [];
 
         // Check Python availability
@@ -129,20 +146,20 @@ export class HealthService {
                 for (const pkg of packages) {
                     try {
                         const { execSync } = await import('child_process');
-                        execSync(`"${pythonCommand}" -c "import ${pkg}"`, { stdio: 'ignore' });
+                        execSync(`"${pythonCommand}" -c "import ${pkg.name}"`, { stdio: 'ignore' });
                         checks.push({
-                            name: `Package: ${pkg}`,
+                            name: `Package: ${pkg.name}`,
                             passed: true,
-                            message: `${pkg} is available`,
+                            message: `${pkg.name} is available`,
                             severity: undefined
                         });
                     } catch {
                         checks.push({
-                            name: `Package: ${pkg}`,
+                            name: `Package: ${pkg.name}`,
                             passed: false,
-                            message: `${pkg} is not installed`,
+                            message: `${pkg.name} is not installed`,
                             severity: 'warning',
-                            suggestion: `Install ${pkg} with: pip install ${pkg}`
+                            suggestion: this.buildInstallSuggestion(pkg)
                         });
                     }
                 }

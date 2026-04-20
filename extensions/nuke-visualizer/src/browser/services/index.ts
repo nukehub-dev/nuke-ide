@@ -5,3 +5,5 @@
 // *****************************************************************************
 
 // Base visualizer services barrel export.
+
+export * from './health-check-framework';

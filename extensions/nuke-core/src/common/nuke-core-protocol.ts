@@ -98,6 +98,8 @@ export interface PackageDependency {
     channels?: string[];
     /** Extra pip index URL for this package (e.g. https://shimwell.github.io/wheels) */
     extraIndexUrl?: string;
+    /** Explicit install command override (e.g. 'pip install git+https://github.com/...') */
+    installCommand?: string;
 }
 
 /** Result of dependency check */
@@ -285,9 +287,9 @@ export interface NukeCoreBackendServiceInterface {
 
     /**
      * Run health checks on the Nuke Core setup.
-     * @param packages Optional packages to check for (e.g., ['openmc', 'numpy'])
+     * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'paraview', condaOnly: true}])
      */
-    healthCheck(packages?: string[]): Promise<HealthCheckResult>;
+    healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult>;
 
     /**
      * Get detailed diagnostics information for troubleshooting.

@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { Emitter, Event } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
@@ -35,6 +35,7 @@ import { OpenMCMultiScoreData } from '../../plotly/plotly-utils';
 import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
+import { HealthCheckFramework } from '../../services/health-check-framework';
 import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 
@@ -94,6 +95,9 @@ export class OpenMCService {
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
 
+    @inject(HealthCheckFramework)
+    protected readonly healthFramework: HealthCheckFramework;
+
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
 
@@ -103,18 +107,56 @@ export class OpenMCService {
     private currentStatepoint: OpenMCStatepointInfo | null = null;
     private currentTallies: OpenMCTallyInfo[] = [];
 
+    @postConstruct()
+    protected init(): void {
+        // Register OpenMC health requirements
+        this.healthFramework.registerHealthRequirements({
+            id: 'openmc',
+            name: 'OpenMC',
+            packages: [
+                { name: 'openmc', required: true, extraIndexUrl: 'https://shimwell.github.io/wheels' },
+                { name: 'h5py', required: true },
+                { name: 'numpy', required: true }
+            ]
+        });
+
+        // Listen for environment changes from nuke-core
+        this.nukeCoreService.onEnvironmentChanged(event => {
+            const envName = event.currentEnv?.name || 'unknown';
+            console.log(`[OpenMC] Environment changed to ${envName}, clearing cached state`);
+
+            // Only notify if there was actually a statepoint loaded
+            if (this.currentStatepoint) {
+                this.clearStatepoint();
+                this.messageService.info(
+                    `Environment changed to ${envName}. OpenMC state cleared — reload your statepoint to use the new environment.`
+                );
+            } else {
+                this.clearStatepoint();
+            }
+        });
+
+        this.nukeCoreService.onEnvironmentFallback(event => {
+            this.messageService.warn(
+                `Using fallback environment ${event.fallbackEnv.name} for OpenMC operations. ` +
+                `Configured environment lacks required packages: ${event.requiredPackages.join(', ')}.`
+            );
+        });
+    }
+
     /**
      * Ensure required OpenMC packages are installed in the configured environment.
      * Prompts the user with an Install action if packages are missing.
+     * Uses the health check framework's registered requirements.
      */
     async ensureOpenMCPackages(): Promise<boolean> {
+        const req = this.healthFramework.getRequirements('openmc');
+        if (!req) {
+            return true;
+        }
         const result = await this.envActions.ensurePackages({
-            requiredPackages: [
-                { name: 'openmc', required: true },
-                { name: 'h5py', required: true },
-                { name: 'numpy', required: true }
-            ],
-            title: 'Install OpenMC dependencies'
+            requiredPackages: req.packages,
+            title: `Install ${req.name} dependencies`
         });
         return result.success;
     }
@@ -243,6 +285,21 @@ export class OpenMCService {
     clearStatepoint(): void {
         this.currentStatepoint = null;
         this.currentTallies = [];
+    }
+
+    /**
+     * Stop all running OpenMC Python servers.
+     */
+    async stopAllServers(): Promise<void> {
+        // Get all OpenMC widgets in the main area and stop their servers
+        const widgets = this.shell.getWidgets('main');
+        for (const widget of widgets) {
+            if (widget instanceof VisualizerWidget) {
+                // Widgets track their own server ports; we can't directly stop them from here
+                // without port tracking. For now, the backend service handles process lifecycle.
+                // Future: track active ports in this service.
+            }
+        }
     }
 
     /**
