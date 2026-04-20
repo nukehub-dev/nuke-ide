@@ -16,6 +16,14 @@
 
 import { PythonConfig, VisualizerClient } from './base-visualizer-protocol';
 export { PythonConfig, VisualizerClient } from './base-visualizer-protocol';
+import { PackageDependency } from 'nuke-core/lib/common';
+
+/** Default package requirements for OpenMC operations */
+export const OPENMC_REQUIREMENTS: PackageDependency[] = [
+    { name: 'h5py', required: true },
+    { name: 'openmc', required: true, extraIndexUrl: 'https://shimwell.github.io/wheels' },
+    { name: 'numpy', required: true }
+];
 
 // === OpenMC Integration Types ===
 

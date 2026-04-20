@@ -22,7 +22,7 @@ import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from './visualizer-widget';
 import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { VisualizerBackendService } from '../common/base-visualizer-protocol';
+import { VisualizerBackendService, BASE_VISUALIZER_REQUIREMENTS } from '../common/base-visualizer-protocol';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService, NukeCoreService } from 'nuke-core/lib/common';
 import { HealthCheckFramework } from './services/health-check-framework';
 import { MessageService } from '@theia/core/lib/common';
@@ -120,12 +120,7 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
         this.healthCheckFramework.registerHealthRequirements({
             id: 'base-visualizer',
             name: 'Base Visualizer',
-            packages: [
-                { name: 'trame', submodule: 'app', required: true },
-                { name: 'paraview', submodule: 'simple', required: true, condaOnly: true },
-                { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
-                { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' }
-            ]
+            packages: BASE_VISUALIZER_REQUIREMENTS
         });
         commands.registerCommand(VisualizerCommand, {
             execute: () => this.openView({ reveal: true, activate: true }),

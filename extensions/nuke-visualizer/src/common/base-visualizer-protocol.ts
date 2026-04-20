@@ -14,7 +14,17 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+import { PackageDependency } from 'nuke-core/lib/common';
+
 export const VisualizerBackendService = Symbol('VisualizerBackendService');
+
+/** Default package requirements for base visualizer (VTK/Paraview) operations */
+export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = [
+    { name: 'trame', submodule: 'app', required: true },
+    { name: 'paraview', submodule: 'simple', required: true, condaOnly: true },
+    { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
+    { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' }
+];
 
 export interface PythonConfig {
     pythonPath?: string;

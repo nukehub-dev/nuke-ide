@@ -79,6 +79,27 @@ export class EnvironmentService {
         return result.success ? result.command : undefined;
     }
 
+    /**
+     * Get the Python command for the explicitly configured environment only.
+     * Unlike getPythonCommand(), this does NOT fall back to auto-detected environments.
+     * Returns undefined if no Python is configured or the configured one is invalid.
+     */
+    async getConfiguredPythonCommand(): Promise<string | undefined> {
+        if (this.config.pythonPath) {
+            try {
+                const { execSync } = await import('child_process');
+                execSync(`"${this.config.pythonPath}" --version`, { stdio: 'ignore' });
+                return this.config.pythonPath;
+            } catch {
+                return undefined;
+            }
+        }
+        if (this.config.condaEnv) {
+            return this.condaProvider.findPython(this.config.condaEnv);
+        }
+        return undefined;
+    }
+
     private async doDetectPython(): Promise<PythonDetectionResult> {
         // 1. Try configured path first
         if (this.config.pythonPath) {

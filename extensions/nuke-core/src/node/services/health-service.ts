@@ -54,32 +54,45 @@ export class HealthService {
     async healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult> {
         const checks: HealthCheckItem[] = [];
 
-        // Check Python availability
+        // Check configured Python availability (does not include fallbacks)
+        const configuredPython = await this.environmentService.getConfiguredPythonCommand();
+        if (configuredPython) {
+            checks.push({
+                name: 'Configured Python Environment',
+                passed: true,
+                message: `Python available at ${configuredPython}`,
+                severity: undefined
+            });
+        } else {
+            const config = this.environmentService.getConfig();
+            const hasConfig = !!(config.pythonPath || config.condaEnv);
+            checks.push({
+                name: 'Configured Python Environment',
+                passed: false,
+                message: hasConfig
+                    ? `Configured Python not found (${config.pythonPath || config.condaEnv})`
+                    : 'No Python environment configured',
+                severity: 'error',
+                suggestion: hasConfig
+                    ? 'Check that the configured path or conda environment exists'
+                    : 'Configure nuke.pythonPath or nuke.condaEnv in settings'
+            });
+        }
+
+        // Check active Python (may be a fallback)
         try {
-            const pythonCommand = await this.environmentService.getPythonCommand();
-            if (pythonCommand) {
+            const activePython = await this.environmentService.getPythonCommand();
+            if (activePython && activePython !== configuredPython) {
                 checks.push({
-                    name: 'Python Environment',
+                    name: 'Active Python Environment',
                     passed: true,
-                    message: `Python available at ${pythonCommand}`,
-                    severity: undefined
-                });
-            } else {
-                checks.push({
-                    name: 'Python Environment',
-                    passed: false,
-                    message: 'Python not found',
-                    severity: 'error',
-                    suggestion: 'Configure nuke.pythonPath or nuke.condaEnv in settings'
+                    message: `Using fallback Python at ${activePython}`,
+                    severity: 'warning',
+                    suggestion: 'Install missing packages into your configured environment to use it'
                 });
             }
-        } catch (error) {
-            checks.push({
-                name: 'Python Environment',
-                passed: false,
-                message: `Error checking Python: ${error}`,
-                severity: 'error'
-            });
+        } catch {
+            // Ignore — configured Python check already covers the error case
         }
 
         // Check conda/mamba availability
@@ -139,14 +152,14 @@ export class HealthService {
             });
         }
 
-        // Check specific packages if requested
+        // Check specific packages in the configured environment (not fallback)
         if (packages && packages.length > 0) {
-            const pythonCommand = await this.environmentService.getPythonCommand();
-            if (pythonCommand) {
+            if (configuredPython) {
                 for (const pkg of packages) {
+                    const importName = pkg.submodule || pkg.name;
                     try {
                         const { execSync } = await import('child_process');
-                        execSync(`"${pythonCommand}" -c "import ${pkg.name}"`, { stdio: 'ignore' });
+                        execSync(`"${configuredPython}" -c "import ${importName}"`, { stdio: 'ignore' });
                         checks.push({
                             name: `Package: ${pkg.name}`,
                             passed: true,
@@ -158,10 +171,20 @@ export class HealthService {
                             name: `Package: ${pkg.name}`,
                             passed: false,
                             message: `${pkg.name} is not installed`,
-                            severity: 'warning',
+                            severity: pkg.required !== false ? 'error' : 'warning',
                             suggestion: this.buildInstallSuggestion(pkg)
                         });
                     }
+                }
+            } else {
+                for (const pkg of packages) {
+                    checks.push({
+                        name: `Package: ${pkg.name}`,
+                        passed: false,
+                        message: `${pkg.name} cannot be checked — no configured Python`,
+                        severity: pkg.required !== false ? 'error' : 'warning',
+                        suggestion: this.buildInstallSuggestion(pkg)
+                    });
                 }
             }
         }

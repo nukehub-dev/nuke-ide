@@ -516,12 +516,14 @@ for (const check of health.checks) {
 ```
 
 **Default checks (always included):**
-- Python Environment availability
+- Configured Python Environment availability (checks your explicitly configured path/env, not fallbacks)
 - Conda/Mamba availability
 - UV availability
+- Active Python Environment (shown when a fallback env is being used because the configured one lacks required packages)
 
 **Optional checks (when packages provided):**
-- Package availability for each specified package
+- Package availability for each specified package — checked against the **configured** environment, not fallbacks
+- Missing required packages are reported as `error` severity; optional packages as `warning`
 - Smart install suggestions based on `PackageDependency` metadata:
   - `installCommand` → used as-is (highest priority)
   - `condaOnly` → `conda install -c <channels> <pkg>`

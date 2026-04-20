@@ -19,7 +19,8 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface, PackageDependency } from 'nuke-core/lib/common';
-import { PythonConfig } from '../../common/base-visualizer-protocol';
+import { OPENMC_REQUIREMENTS } from '../../common/openmc-protocol';
+import { PythonConfig, BASE_VISUALIZER_REQUIREMENTS } from '../../common/base-visualizer-protocol';
 
 export interface PythonCommandResult {
     command: string;
@@ -32,18 +33,8 @@ export interface ScriptExecutionResult {
     status: number | null;
 }
 
-/** Default package requirements for OpenMC operations */
-export const OPENMC_REQUIREMENTS: PackageDependency[] = [
-    { name: 'h5py', required: true },
-    { name: 'openmc', required: true },
-    { name: 'numpy', required: true }
-];
-
-/** Default package requirements for base visualizer (VTK/Paraview) operations */
-export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = [
-    { name: 'trame', submodule: 'app', required: true },
-    { name: 'paraview', submodule: 'simple', required: true }
-];
+export { OPENMC_REQUIREMENTS } from '../../common/openmc-protocol';
+export { BASE_VISUALIZER_REQUIREMENTS } from '../../common/base-visualizer-protocol';
 
 @injectable()
 export class PythonCommandHelper {

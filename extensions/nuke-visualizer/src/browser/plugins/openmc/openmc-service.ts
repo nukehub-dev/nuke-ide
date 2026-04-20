@@ -27,7 +27,8 @@ import {
     XSPlotData,
     XSGroupStructuresResponse,
     OpenMCHeatmapData,
-    OpenMCHeatmapPlane
+    OpenMCHeatmapPlane,
+    OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
@@ -113,11 +114,7 @@ export class OpenMCService {
         this.healthFramework.registerHealthRequirements({
             id: 'openmc',
             name: 'OpenMC',
-            packages: [
-                { name: 'openmc', required: true, extraIndexUrl: 'https://shimwell.github.io/wheels' },
-                { name: 'h5py', required: true },
-                { name: 'numpy', required: true }
-            ]
+            packages: OPENMC_REQUIREMENTS
         });
 
         // Listen for environment changes from nuke-core
