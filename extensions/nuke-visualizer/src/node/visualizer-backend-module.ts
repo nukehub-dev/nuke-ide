@@ -20,10 +20,12 @@ import { BackendApplicationContribution } from '@theia/core/lib/node/backend-app
 import { 
     VisualizerBackendService, 
     VISUALIZER_BACKEND_PATH,
-    VisualizerClient,
+    VisualizerClient
+} from '../common/base-visualizer-protocol';
+import {
     OpenMCBackendService,
     OPENMC_BACKEND_PATH
-} from '../common/visualizer-protocol';
+} from '../common/openmc-protocol';
 import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
 import { OpenMCBackendServiceImpl } from './plugins/openmc/openmc-backend-service';
 import { PythonCommandHelper } from './services/python-command-helper';

@@ -19,7 +19,7 @@ import { injectable, postConstruct, inject } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
-import { OpenMCHeatmapData, OpenMCHeatmapPlane } from '../../../../../common/visualizer-protocol';
+import { OpenMCHeatmapData, OpenMCHeatmapPlane } from '../../../../../common/openmc-protocol';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';

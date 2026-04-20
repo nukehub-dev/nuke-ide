@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+
 import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
@@ -29,7 +29,7 @@ import {
     XSGroupStructuresResponse,
     PythonConfig,
     VisualizerClient
-} from '../../../common/visualizer-protocol';
+} from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
 import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService } from './services';
@@ -44,7 +44,6 @@ interface OpenMCProcess {
 export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private processes: Map<number, OpenMCProcess> = new Map();
     private reservedPorts: Set<number> = new Set();
-    private pythonConfig: PythonConfig = {};
     private client: VisualizerClient | undefined;
 
     @inject(RawProcessFactory)
@@ -73,7 +72,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async setPythonConfig(config: PythonConfig): Promise<void> {
-        this.pythonConfig = config;
         // Also update nuke-core config
         await this.nukeCoreService.setConfig({
             pythonPath: config.pythonPath,
@@ -101,9 +99,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonInfo = await this.detectPythonCommand();
+            const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.findOpenMCScript();
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
 
             const args: string[] = [
                 scriptPath,
@@ -150,9 +148,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonInfo = await this.detectPythonCommand();
+            const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.findOpenMCScript();
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
 
             const args: string[] = [
                 scriptPath,
@@ -191,9 +189,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonInfo = await this.detectPythonCommand();
+            const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.findOpenMCScript();
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
 
             const args: string[] = [
                 scriptPath,
@@ -312,38 +310,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any[]> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'heatmap-all', statepointPath, tallyId.toString(),
-            plane,
-            '--score-index', scoreIndex.toString(),
-            '--nuclide-index', nuclideIndex.toString()
-        ];
-
-        console.log(`[OpenMC] Running heatmap-all command: ${pythonCommand} ${args.join(' ')}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            maxBuffer: 100 * 1024 * 1024  // 100MB for all slices
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Heatmap-all command failed with status ${result.status}`);
-            console.error(`[OpenMC] stderr: ${result.stderr}`);
-            throw new Error(result.stderr || `Command failed with status ${result.status}`);
-        }
-
-        try {
-            console.log(`[OpenMC] Heatmap-all output length: ${result.stdout?.length || 0} characters`);
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse heatmap-all JSON: ${e}`);
-            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
-            throw e;
-        }
+        return this.statepointService.getAllHeatmapSlices(statepointPath, tallyId, plane, scoreIndex, nuclideIndex);
     }
 
     async stopServer(port: number): Promise<void> {
@@ -358,41 +325,31 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async checkOpenMCAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
         try {
-            const pythonInfo = await this.detectPythonCommand();
-            const pythonCommand = pythonInfo.command;
-            const warning = pythonInfo.warning;
+            const python = await this.pythonHelper.detectPython();
+            const check = await this.pythonHelper.checkPackages(python.command);
             
-            // Check for h5py using nuke-core
-            const h5pyCheck = await this.nukeCoreService.checkDependencies(
-                [{ name: 'h5py' }],
-                pythonCommand
-            );
-            
-            if (!h5pyCheck.available) {
+            if (!check.available) {
                 return {
                     available: false,
-                    message: `h5py not installed in ${pythonCommand}. Run: pip install h5py`,
-                    warning
+                    message: `Missing packages: ${check.missing.join(', ')}. Run: pip install ${check.missing.join(' ')}`,
+                    warning: python.warning
                 };
             }
 
-            // Check for OpenMC script
-            const scriptPath = this.findOpenMCScript();
-            
-            if (!fs.existsSync(scriptPath)) {
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            if (!require('fs').existsSync(scriptPath)) {
                 return {
                     available: false,
                     message: `OpenMC integration script not found at ${scriptPath}`,
-                    warning
+                    warning: python.warning
                 };
             }
 
             return {
                 available: true,
                 message: 'OpenMC integration available',
-                warning
+                warning: python.warning
             };
-
         } catch (error) {
             return {
                 available: false,
@@ -409,28 +366,21 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
         try {
-            const pythonInfo = await this.detectPythonCommand();
-            const pythonCommand = pythonInfo.command;
-            const warning = pythonInfo.warning;
+            const python = await this.pythonHelper.detectPython();
+            const check = await this.pythonHelper.checkPackages(python.command, [{ name: 'openmc', required: true }]);
             
-            // Check for openmc module using nuke-core
-            const openmcCheck = await this.nukeCoreService.checkDependencies(
-                [{ name: 'openmc' }],
-                pythonCommand
-            );
-            
-            if (!openmcCheck.available) {
+            if (!check.available) {
                 return {
                     available: false,
-                    message: `OpenMC Python module not installed in ${pythonCommand}. Run: pip install openmc`,
-                    warning
+                    message: `OpenMC Python module not installed. Run: pip install openmc`,
+                    warning: python.warning
                 };
             }
 
             return {
                 available: true,
                 message: 'OpenMC Python module available',
-                warning
+                warning: python.warning
             };
         } catch (error) {
             return {
@@ -487,9 +437,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
         let overlapsPath: string | undefined;
         try {
-            const pythonInfo = await this.detectPythonCommand();
+            const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.findOpenMCScript();
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
 
             const args: string[] = [
                 scriptPath,
@@ -566,100 +516,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async mixMaterials(request: any): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'mix-materials', request.filePath,
-            '--material-ids', request.materialIds.join(','),
-            '--fractions', request.fractions.join(','),
-            '--percent-type', request.percentType
-        ];
-
-        if (request.name) {
-            args.push('--name', request.name);
-        }
-
-        if (request.id !== undefined) {
-            args.push('--id', request.id.toString());
-        }
-
-        console.log(`[OpenMC] Running mix-materials command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        // Try to parse stdout even if status is not 0, as our script catches exceptions
-        // and prints them as JSON to stdout.
-        if (result.stdout) {
-            try {
-                const data = JSON.parse(result.stdout);
-                if (data.error) {
-                    console.error(`[OpenMC] Mix materials failed (JSON error): ${data.error}`);
-                    if (data.traceback) {
-                        console.error(`[OpenMC] Traceback: ${data.traceback}`);
-                    }
-                    return { error: data.error };
-                }
-                if (result.status === 0) {
-                    return { material: data };
-                }
-            } catch (e) {
-                // Not JSON or other parse error, continue to stderr check
-            }
-        }
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Mix materials command failed with status ${result.status}`);
-            console.error(`[OpenMC] Stderr: ${result.stderr}`);
-            return { error: result.stderr || `Command failed with status ${result.status}` };
-        }
-
-        return { error: 'Unknown error occurred during material mixing' };
+        return this.geometryService.mixMaterials(request);
     }
 
     async addMaterial(filePath: string, materialXml: string): Promise<void> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'add-material', filePath,
-            '--material-xml', materialXml
-        ];
-
-        console.log(`[OpenMC] Running add-material command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.stdout) {
-            try {
-                const data = JSON.parse(result.stdout);
-                if (data.error) {
-                    console.error(`[OpenMC] Add material failed (JSON error): ${data.error}`);
-                    throw new Error(data.error);
-                }
-                if (result.status === 0) {
-                    return;
-                }
-            } catch (e) {
-                if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
-                    throw e;
-                }
-            }
-        }
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Add material command failed with status ${result.status}`);
-            console.error(`[OpenMC] Stderr: ${result.stderr}`);
-            throw new Error(result.stderr || `Command failed with status ${result.status}`);
-        }
+        return this.geometryService.addMaterialToFile(filePath, materialXml);
     }
 
     // === Statepoint Viewer ===
@@ -685,9 +546,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.reservedPorts.add(port);
 
         try {
-            const pythonInfo = await this.detectPythonCommand();
+            const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.findOpenMCScript();
+            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
 
             const args: string[] = [
                 scriptPath,
@@ -832,63 +693,5 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
     }
 
-    private async detectPythonCommand(): Promise<{ command: string; warning?: string }> {
-        // Sync config with nuke-core
-        if (this.pythonConfig.pythonPath || this.pythonConfig.condaEnv) {
-            await this.nukeCoreService.setConfig({
-                pythonPath: this.pythonConfig.pythonPath,
-                condaEnv: this.pythonConfig.condaEnv
-            });
-        }
-        
-        // Use nuke-core to detect Python with OpenMC-specific requirements
-        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'h5py' },
-                { name: 'openmc' }
-            ],
-            autoDetectEnvs: ['openmc', 'nuke-ide']
-        });
-        
-        if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect environment with h5py and openmc. Configure in Settings → Nuke Utils.');
-        }
-        
-        return {
-            command: detectionResult.command,
-            warning: detectionResult.warning
-        };
-    }
 
-    private getExtensionPath(): string {
-        try {
-            return path.dirname(require.resolve('nuke-visualizer/package.json'));
-        } catch (e) {
-            // Fallback to __dirname if require.resolve fails
-            return path.resolve(__dirname, '../..');
-        }
-    }
-
-    private findOpenMCScript(): string {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/openmc_server.py');
-        
-        if (fs.existsSync(scriptPath)) {
-            return scriptPath;
-        }
-
-        // Fallback search in common locations
-        const fallbackPaths = [
-            path.resolve(__dirname, '../../../../extensions/nuke-visualizer/python/openmc_server.py'),
-            path.resolve(process.cwd(), 'extensions/nuke-visualizer/python/openmc_server.py'),
-        ];
-        
-        for (const fp of fallbackPaths) {
-            if (fs.existsSync(fp)) {
-                return fp;
-            }
-        }
-
-        return scriptPath;
-    }
 }

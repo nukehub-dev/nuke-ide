@@ -18,7 +18,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import { NukeCoreBackendService, NukeCoreBackendServiceInterface, PackageDependency } from 'nuke-core/lib/common';
 import { PythonConfig } from '../../common/base-visualizer-protocol';
 
 export interface PythonCommandResult {
@@ -31,6 +31,19 @@ export interface ScriptExecutionResult {
     stderr: string;
     status: number | null;
 }
+
+/** Default package requirements for OpenMC operations */
+export const OPENMC_REQUIREMENTS: PackageDependency[] = [
+    { name: 'h5py', required: true },
+    { name: 'openmc', required: true },
+    { name: 'numpy', required: true }
+];
+
+/** Default package requirements for base visualizer (VTK/Paraview) operations */
+export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = [
+    { name: 'trame', submodule: 'app', required: true },
+    { name: 'paraview', submodule: 'simple', required: true }
+];
 
 @injectable()
 export class PythonCommandHelper {
@@ -52,9 +65,11 @@ export class PythonCommandHelper {
     /**
      * Detect a Python command that satisfies the given package requirements.
      * Delegates to nuke-core's smart detection with fallback.
+     *
+     * Defaults to OpenMC requirements if none specified.
      */
     async detectPython(
-        requirements?: { name: string; submodule?: string }[],
+        requirements: PackageDependency[] = OPENMC_REQUIREMENTS,
         autoDetectEnvs?: string[]
     ): Promise<PythonCommandResult> {
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
@@ -63,7 +78,7 @@ export class PythonCommandHelper {
         });
 
         if (!detectionResult.success || !detectionResult.command) {
-            const reqList = requirements?.map(r => r.name).join(', ') || 'required packages';
+            const reqList = requirements.filter(r => r.required !== false).map(r => r.name).join(', ') || 'required packages';
             throw new Error(
                 detectionResult.error ||
                 `Failed to detect Python environment with ${reqList}. Configure in Settings → Nuke Utils.`
@@ -73,6 +88,32 @@ export class PythonCommandHelper {
         return {
             command: detectionResult.command,
             warning: detectionResult.warning
+        };
+    }
+
+    /**
+     * Detect Python for base visualizer operations (VTK/Paraview).
+     * Uses BASE_VISUALIZER_REQUIREMENTS by default.
+     */
+    async detectPythonForBaseVisualizer(
+        autoDetectEnvs?: string[]
+    ): Promise<PythonCommandResult> {
+        return this.detectPython(BASE_VISUALIZER_REQUIREMENTS, autoDetectEnvs);
+    }
+
+    /**
+     * Check if the given Python command has the required packages installed.
+     * Delegates to nuke-core's checkDependencies.
+     */
+    async checkPackages(
+        pythonCommand: string,
+        requirements: PackageDependency[] = OPENMC_REQUIREMENTS
+    ): Promise<{ available: boolean; missing: string[]; versions: Record<string, string> }> {
+        const result = await this.nukeCoreService.checkDependencies(requirements, pythonCommand);
+        return {
+            available: result.available,
+            missing: result.missing,
+            versions: result.versions
         };
     }
 
@@ -87,9 +128,10 @@ export class PythonCommandHelper {
             maxBuffer?: number;
             timeout?: number;
             encoding?: BufferEncoding;
+            requirements?: PackageDependency[];
         }
     ): Promise<ScriptExecutionResult> {
-        const python = await this.detectPython();
+        const python = await this.detectPython(options?.requirements);
         const result = spawnSync(python.command, [scriptPath, ...args], {
             encoding: options?.encoding ?? 'utf8',
             maxBuffer: options?.maxBuffer ?? 10 * 1024 * 1024,
@@ -113,6 +155,7 @@ export class PythonCommandHelper {
         options?: {
             maxBuffer?: number;
             timeout?: number;
+            requirements?: PackageDependency[];
         }
     ): Promise<T> {
         const result = await this.executeScript(scriptPath, args, options);

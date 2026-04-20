@@ -15,7 +15,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
-import { OpenMCMaterial } from '../../../../../common/visualizer-protocol';
+import { OpenMCMaterial } from '../../../../../common/openmc-protocol';
 import { OpenMCService } from '../../openmc-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './openmc-material-mixer.css';

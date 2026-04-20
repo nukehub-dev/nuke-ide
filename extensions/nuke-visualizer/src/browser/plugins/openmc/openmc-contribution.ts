@@ -54,7 +54,7 @@ import { OpenMCOverlapWidget } from './widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget, StatepointTallySelection } from './widgets/statepoint/statepoint-viewer';
 import { PlotlyService } from '../../plotly/plotly-service';
 import { PlotlyUtils } from '../../plotly/plotly-utils';
-import { PlotlyFigure } from '../../../common/visualizer-protocol';
+import { PlotlyFigure } from '../../../common/base-visualizer-protocol';
 import { NukeVisualizerMenus } from '../../visualizer-contribution';
 import { OpenMCCommands } from './commands';
 

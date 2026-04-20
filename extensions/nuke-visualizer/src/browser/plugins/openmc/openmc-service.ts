@@ -28,12 +28,13 @@ import {
     XSGroupStructuresResponse,
     OpenMCHeatmapData,
     OpenMCHeatmapPlane
-} from '../../../common/visualizer-protocol';
+} from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCMultiScoreData } from '../../plotly/plotly-utils';
 import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 
@@ -90,6 +91,9 @@ export class OpenMCService {
     @inject(OpenMCFileDiscoveryService)
     protected readonly fileDiscovery: OpenMCFileDiscoveryService;
 
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
+
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
 
@@ -100,19 +104,43 @@ export class OpenMCService {
     private currentTallies: OpenMCTallyInfo[] = [];
 
     /**
+     * Ensure required OpenMC packages are installed in the configured environment.
+     * Prompts the user with an Install action if packages are missing.
+     */
+    async ensureOpenMCPackages(): Promise<boolean> {
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: [
+                { name: 'openmc', required: true },
+                { name: 'h5py', required: true },
+                { name: 'numpy', required: true }
+            ],
+            title: 'Install OpenMC dependencies'
+        });
+        return result.success;
+    }
+
+    /**
      * Check if OpenMC integration is available.
+     * If packages are missing, prompts the user to install them.
      */
     async checkAvailability(): Promise<boolean> {
         try {
+            // First try the lightweight backend check
             const result = await this.openmcBackend.checkOpenMCAvailable();
             if (result.warning) {
                 this.messageService.warn(result.warning);
             }
-            if (!result.available) {
-                this.messageService.warn(`OpenMC integration: ${result.message}`);
-                return false;
+            if (result.available) {
+                return true;
             }
-            return true;
+
+            // If not available due to missing packages, offer to install
+            if (result.message.includes('Missing packages') || result.message.includes('not installed')) {
+                return await this.ensureOpenMCPackages();
+            }
+
+            this.messageService.warn(`OpenMC integration: ${result.message}`);
+            return false;
         } catch (error) {
             console.error('[OpenMC] Error checking availability:', error);
             return false;

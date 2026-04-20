@@ -27,7 +27,7 @@ import {
     DepletionScaleType,
     DepletionXAxis,
     DepletionNuclidePreset
-} from '../../../../../common/visualizer-protocol';
+} from '../../../../../common/openmc-protocol';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';

@@ -23,7 +23,7 @@ import './openmc-tally-tree.css';
 import { Emitter, Event } from '@theia/core';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
-import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../../../../common/visualizer-protocol';
+import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';

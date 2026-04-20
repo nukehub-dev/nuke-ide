@@ -28,7 +28,7 @@ import {
     OpenMCStatepointFullInfo, 
     OpenMCTallyInfo, 
     OpenMCKGenerationData
-} from '../../../../../common/visualizer-protocol';
+} from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';

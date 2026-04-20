@@ -21,7 +21,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from '../../openmc-service';
-import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../../../../common/visualizer-protocol';
+import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../../../../common/openmc-protocol';
 import { OpenMCMaterialMixer } from './openmc-material-mixer';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';

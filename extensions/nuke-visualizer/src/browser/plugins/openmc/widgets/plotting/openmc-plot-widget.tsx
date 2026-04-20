@@ -19,7 +19,8 @@ import { injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
-import { OpenMCSpectrumData, OpenMCSpatialPlotData, PlotlyFigure } from '../../../../../common/visualizer-protocol';
+import { OpenMCSpectrumData, OpenMCSpatialPlotData } from '../../../../../common/openmc-protocol';
+import { PlotlyFigure } from '../../../../../common/base-visualizer-protocol';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { PlotlyUtils } from '../../../../plotly/plotly-utils';
 

@@ -28,7 +28,7 @@ import {
     COMMON_XS_REACTIONS,
     XS_ENERGY_REGIONS,
     XSEnergyRegion
-} from '../../../../../common/visualizer-protocol';
+} from '../../../../../common/openmc-protocol';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import { NukeCoreService } from 'nuke-core/lib/common';

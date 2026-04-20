@@ -20,7 +20,7 @@ import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { CommandRegistry } from '@theia/core/lib/common/command';
-import { VisualizerBackendService } from '../common/visualizer-protocol';
+import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
 
 @injectable()

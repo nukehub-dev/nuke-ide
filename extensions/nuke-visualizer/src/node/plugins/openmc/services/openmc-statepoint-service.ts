@@ -117,7 +117,7 @@ export class OpenMCStatepointService {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         return await this.pythonHelper.executeScriptJson<OpenMCStatepointFullInfo>(
             this.getScriptPath(),
-            ['statepoint-full-info', statepointPath],
+            ['statepoint-info', statepointPath],
             { timeout: 30000 }
         );
     }
@@ -249,5 +249,41 @@ export class OpenMCStatepointService {
             args,
             { timeout: 30000 }
         );
+    }
+
+    async getAllHeatmapSlices(
+        statepointPath: string,
+        tallyId: number,
+        plane: 'xy' | 'xz' | 'yz',
+        scoreIndex: number = 0,
+        nuclideIndex: number = 0
+    ): Promise<any[]> {
+        await this.pythonHelper.syncConfig(this.pythonConfig);
+        const args = [
+            'heatmap-all', statepointPath, tallyId.toString(),
+            plane,
+            '--score-index', scoreIndex.toString(),
+            '--nuclide-index', nuclideIndex.toString()
+        ];
+
+        const result = await this.pythonHelper.executeScript(this.getScriptPath(), args, {
+            timeout: 60000,
+            maxBuffer: 100 * 1024 * 1024  // 100MB for all slices
+        });
+
+        if (result.status !== 0) {
+            console.error(`[OpenMC] Heatmap-all command failed with status ${result.status}`);
+            console.error(`[OpenMC] stderr: ${result.stderr}`);
+            throw new Error(result.stderr || `Command failed with status ${result.status}`);
+        }
+
+        try {
+            console.log(`[OpenMC] Heatmap-all output length: ${result.stdout?.length || 0} characters`);
+            return JSON.parse(result.stdout);
+        } catch (e) {
+            console.error(`[OpenMC] Failed to parse heatmap-all JSON: ${e}`);
+            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
+            throw e;
+        }
     }
 }

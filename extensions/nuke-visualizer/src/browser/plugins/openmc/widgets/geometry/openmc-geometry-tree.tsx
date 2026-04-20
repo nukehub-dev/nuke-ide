@@ -30,7 +30,7 @@ import {
     OpenMCCell, 
     OpenMCSurface,
     OpenMCLattice
-} from '../../../../../common/visualizer-protocol';
+} from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';

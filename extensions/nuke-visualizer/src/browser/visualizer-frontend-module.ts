@@ -23,10 +23,12 @@ import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@t
 import { 
     VisualizerBackendService, 
     VISUALIZER_BACKEND_PATH, 
-    VisualizerClient,
+    VisualizerClient
+} from '../common/base-visualizer-protocol';
+import {
     OpenMCBackendService,
     OPENMC_BACKEND_PATH
-} from '../common/visualizer-protocol';
+} from '../common/openmc-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { bindVisualizerPreferences } from './visualizer-preferences';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';

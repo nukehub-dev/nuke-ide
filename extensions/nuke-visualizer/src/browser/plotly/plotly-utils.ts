@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { OpenMCSpectrumData, OpenMCSpatialPlotData } from '../../common/visualizer-protocol';
+import { OpenMCSpectrumData, OpenMCSpatialPlotData } from '../../common/openmc-protocol';
 
 /** Container for multiple OpenMC scores to be plotted on same axis */
 export interface OpenMCMultiScoreData {

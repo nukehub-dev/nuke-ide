@@ -21,7 +21,7 @@ import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from './visualizer-widget';
 import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { VisualizerBackendService } from '../common/visualizer-protocol';
+import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 
 export const VisualizerCommand = {
     id: VisualizerWidget.ID,

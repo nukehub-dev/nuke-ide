@@ -17,10 +17,9 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process/lib/node/raw-process';
 import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
-import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
-import { execSync, spawnSync } from 'child_process';
+import { execSync } from 'child_process';
 import { 
     VisualizerBackendService, 
     PythonConfig, 
@@ -31,8 +30,9 @@ import {
     ScreenshotOptions,
     ScreenshotResult,
     DEFAULT_VISUALIZATION_STATE
-} from '../common/visualizer-protocol';
+} from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import { PythonCommandHelper } from './services/python-command-helper';
 
 @injectable()
 export class VisualizerBackendServiceImpl implements VisualizerBackendService, BackendApplicationContribution {
@@ -45,6 +45,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
+
+    @inject(PythonCommandHelper)
+    protected readonly pythonHelper: PythonCommandHelper;
 
     setClient(client: VisualizerClient): void {
         this.client = client;
@@ -74,10 +77,10 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         
         try {
             // Find the Python script
-            const pythonScript = this.findPythonScript();
+            const pythonScript = this.pythonHelper.findScript('visualizer_app.py');
             
             // Detect Python command
-            const pythonInfo = await this.detectPythonCommand(config);
+            const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
             const warning = pythonInfo.warning;
             
             const args: string[] = [pythonScript, '--port', port.toString()];
@@ -193,67 +196,51 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
     async convertDagmc(filePath: string, volumeId?: number): Promise<string> {
         this.log(`Starting DAGMC conversion: ${filePath}${volumeId !== undefined ? ` (volume ${volumeId})` : ''}`);
         
-        // Find the dagmc converter script
-        const converterScript = this.findDagmcConverterScript();
-        
-        // Find Python command
-        const pythonInfo = await this.detectPythonCommand();
+        const converterScript = this.pythonHelper.findScript('dagmc_converter.py');
+        const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
         this.log(`[Converter] Using Python: ${pythonInfo.command}`);
-        
-        try {
-            // Build command arguments
-            const args = [converterScript, filePath];
-            if (volumeId !== undefined) {
-                args.push('--volume', String(volumeId));
-            }
-            
-            this.log(`[Converter] Command: "${pythonInfo.command}" "${args.join('" "')}"`);
-            
-            // Run the converter script
-            const result = spawnSync(
-                pythonInfo.command,
-                args,
-                { encoding: 'utf8' }
-            );
-            
-            if (result.status !== 0) {
-                const errorOutput = (result.stdout || '') + (result.stderr || '');
-                this.errorLog(`[Converter] FAILED with status ${result.status}. Output: ${errorOutput}`);
-                throw new Error(errorOutput || `Conversion failed with status ${result.status}`);
-            }
-            
-            this.log(`[Converter] Output: ${result.stdout}`);
-            
-            // Parse output to find converted file path
-            const match = result.stdout.match(/Output: (.+)/);
-            if (match) {
-                const vtkPath = match[1].trim();
-                if (fs.existsSync(vtkPath)) {
-                    this.log(`[Converter] Success: ${vtkPath}`);
-                    return vtkPath;
-                }
-            }
-            
-            // Fallback: try to infer VTK path
-            let vtkPath: string;
-            if (volumeId !== undefined) {
-                // Volume extraction output
-                vtkPath = filePath.replace(/\.h5m$/i, `_${volumeId}.vtk`);
-            } else {
-                vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
-            }
-            
+
+        const args = [converterScript, filePath];
+        if (volumeId !== undefined) {
+            args.push('--volume', String(volumeId));
+        }
+
+        this.log(`[Converter] Command: "${pythonInfo.command}" "${args.join('" "')}"`);
+
+        const result = await this.pythonHelper.executeScript(converterScript, args.slice(1));
+
+        if (result.status !== 0) {
+            const errorOutput = (result.stdout || '') + (result.stderr || '');
+            this.errorLog(`[Converter] FAILED with status ${result.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Conversion failed with status ${result.status}`);
+        }
+
+        this.log(`[Converter] Output: ${result.stdout}`);
+
+        // Parse output to find converted file path
+        const match = result.stdout.match(/Output: (.+)/);
+        if (match) {
+            const vtkPath = match[1].trim();
             if (fs.existsSync(vtkPath)) {
-                this.log(`[Converter] Success (inferred): ${vtkPath}`);
+                this.log(`[Converter] Success: ${vtkPath}`);
                 return vtkPath;
             }
-            
-            throw new Error(`Conversion completed but could not find output VTK file. Output: ${result.stdout}`);
-            
-        } catch (error) {
-            this.errorLog(`[Converter] ERROR: ${error instanceof Error ? error.message : String(error)}`);
-            throw new Error(error instanceof Error ? error.message : String(error));
         }
+
+        // Fallback: try to infer VTK path
+        let vtkPath: string;
+        if (volumeId !== undefined) {
+            vtkPath = filePath.replace(/\.h5m$/i, `_${volumeId}.vtk`);
+        } else {
+            vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
+        }
+
+        if (fs.existsSync(vtkPath)) {
+            this.log(`[Converter] Success (inferred): ${vtkPath}`);
+            return vtkPath;
+        }
+
+        throw new Error(`Conversion completed but could not find output VTK file. Output: ${result.stdout}`);
     }
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
@@ -316,66 +303,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         return info;
     }
 
-    private async detectPythonCommand(config?: PythonConfig): Promise<{ command: string; env?: NodeJS.ProcessEnv; description?: string; warning?: string }> {
-        // Set config in nuke-core if provided
-        if (config?.pythonPath || config?.condaEnv) {
-            await this.nukeCoreService.setConfig({
-                pythonPath: config.pythonPath,
-                condaEnv: config.condaEnv
-            });
-        }
-        
-        // Use nuke-core to detect Python with visualizer-specific requirements
-        const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'trame' },
-                { name: 'paraview', submodule: 'simple' }
-            ],
-            autoDetectEnvs: ['visualizer', 'paraview', 'nuke-ide']
-        });
-        
-        if (!detectionResult.success || !detectionResult.command) {
-            throw new Error(detectionResult.error || 'Failed to detect environment with trame and paraview. Configure in Settings → Nuke Visualizer.');
-        }
-        
-        return {
-            command: detectionResult.command,
-            warning: detectionResult.warning
-        };
-    }
-
-    private getExtensionPath(): string {
-        try {
-            return path.dirname(require.resolve('nuke-visualizer/package.json'));
-        } catch (e) {
-            // Fallback to __dirname if require.resolve fails (e.g. during development/testing)
-            return path.normalize(path.join(__dirname, '../..'));
-        }
-    }
-
-    private findPythonScript(): string {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.normalize(path.join(extensionPath, 'python/visualizer_app.py'));
-        if (fs.existsSync(scriptPath)) {
-            console.log(`[VisualizerBackend] Found Python script at: ${scriptPath}`);
-            return scriptPath;
-        }
-
-        console.error(`[VisualizerBackend] Could not find visualizer_app.py at ${scriptPath}`);
-        return scriptPath;
-    }
-
-    private findDagmcConverterScript(): string {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.normalize(path.join(extensionPath, 'python/dagmc_converter.py'));
-        if (fs.existsSync(scriptPath)) {
-            console.log(`[VisualizerBackend] Found DAGMC converter script at: ${scriptPath}`);
-            return scriptPath;
-        }
-
-        console.error(`[VisualizerBackend] Could not find dagmc_converter.py at ${scriptPath}`);
-        return scriptPath;
-    }
 
     // === Visualization Controls ===
     // Note: Interactive controls are handled directly in the trame UI.

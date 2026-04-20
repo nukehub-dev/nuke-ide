@@ -16,7 +16,7 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
-import { PlotlyFigure } from '../../common/visualizer-protocol';
+import { PlotlyFigure } from '../../common/base-visualizer-protocol';
 import { OpenMCPlotWidget } from '../plugins/openmc/widgets/plotting/openmc-plot-widget';
 
 export const PlotlyService = Symbol('PlotlyService');
