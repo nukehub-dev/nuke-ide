@@ -155,23 +155,44 @@ export class HealthService {
         // Check specific packages in the configured environment (not fallback)
         if (packages && packages.length > 0) {
             if (configuredPython) {
+                const checkResult = await this.environmentService.checkPackages(packages, configuredPython);
                 for (const pkg of packages) {
-                    const importName = pkg.submodule || pkg.name;
-                    try {
-                        const { execSync } = await import('child_process');
-                        execSync(`"${configuredPython}" -c "import ${importName}"`, { stdio: 'ignore' });
+                    const version = checkResult.versions[pkg.name];
+                    const isMissing = checkResult.missing.includes(pkg.name);
+                    const mismatch = checkResult.versionMismatches.find(v => v.name === pkg.name);
+
+                    if (mismatch) {
                         checks.push({
                             name: `Package: ${pkg.name}`,
-                            passed: true,
-                            message: `${pkg.name} is available`,
-                            severity: undefined
+                            passed: false,
+                            message: `${pkg.name} ${mismatch.found} < required ${mismatch.required}`,
+                            severity: pkg.required !== false ? 'error' : 'warning',
+                            suggestion: this.buildInstallSuggestion(pkg)
                         });
-                    } catch {
+                    } else if (isMissing) {
                         checks.push({
                             name: `Package: ${pkg.name}`,
                             passed: false,
                             message: `${pkg.name} is not installed`,
                             severity: pkg.required !== false ? 'error' : 'warning',
+                            suggestion: this.buildInstallSuggestion(pkg)
+                        });
+                    } else if (version) {
+                        checks.push({
+                            name: `Package: ${pkg.name}`,
+                            passed: true,
+                            message: version === 'installed (version unknown)'
+                                ? `${pkg.name} is available`
+                                : `${pkg.name} ${version}`,
+                            severity: undefined
+                        });
+                    } else {
+                        // Optional package missing — show for completeness
+                        checks.push({
+                            name: `Package: ${pkg.name}`,
+                            passed: false,
+                            message: `${pkg.name} is not installed (optional)`,
+                            severity: 'warning',
                             suggestion: this.buildInstallSuggestion(pkg)
                         });
                     }

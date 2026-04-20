@@ -153,29 +153,20 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             channel.appendLine(` ${plugin.pluginName}`);
             channel.appendLine('─'.repeat(40));
 
-            if (plugin.healthy) {
-                channel.appendLine(' ✓ All required packages available');
-                continue;
-            }
-
             // Show infrastructure checks first
             const infraChecks = plugin.checks.filter(c => !c.name.startsWith('Package:'));
             for (const check of infraChecks) {
-                const icon = check.passed ? '✓' : '⚠';
+                const icon = check.passed ? '✓' : check.severity === 'error' ? '✗' : '⚠';
                 channel.appendLine(` ${icon} ${check.name}: ${check.message}`);
             }
 
-            // Show failed package checks (suggestions come from HealthCheckFramework)
+            // Show package checks (use backend message which includes versions)
             const packageChecks = plugin.checks.filter(c => c.name.startsWith('Package:'));
             for (const check of packageChecks) {
-                const pkgName = check.name.replace('Package: ', '');
-                if (check.passed) {
-                    channel.appendLine(` ✓ ${pkgName}: available`);
-                } else {
-                    channel.appendLine(` ✗ ${pkgName}: not installed`);
-                    if (check.suggestion) {
-                        channel.appendLine(`   → ${check.suggestion}`);
-                    }
+                const icon = check.passed ? '✓' : check.severity === 'error' ? '✗' : '⚠';
+                channel.appendLine(` ${icon} ${check.message}`);
+                if (!check.passed && check.suggestion) {
+                    channel.appendLine(`   → ${check.suggestion}`);
                 }
             }
         }

@@ -406,6 +406,7 @@ export class EnvironmentService {
 
         for (const pkg of packages) {
             try {
+                // Strategy 1: __version__ attribute (most common)
                 const versionCmd = pkg.submodule
                     ? `import ${pkg.name}.${pkg.submodule}; print(${pkg.name}.${pkg.submodule}.__version__)`
                     : `import ${pkg.name}; print(${pkg.name}.__version__)`;
@@ -420,11 +421,31 @@ export class EnvironmentService {
                     if (pkg.minVersion && this.compareVersions(version, pkg.minVersion) < 0) {
                         versionMismatches.push({ name: pkg.name, found: version, required: `>=${pkg.minVersion}` });
                     }
+                    continue;
                 } catch {
-                    execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`,
-                        { stdio: 'ignore' });
-                    versions[pkg.name] = 'installed (version unknown)';
+                    // fall through to strategy 2
                 }
+
+                // Strategy 2: importlib.metadata (packages like trame that lack __version__)
+                try {
+                    const version = execSync(
+                        `"${pythonPath}" -c "import importlib.metadata; print(importlib.metadata.version('${pkg.name}'))"`,
+                        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+                    ).trim();
+                    versions[pkg.name] = version;
+
+                    if (pkg.minVersion && this.compareVersions(version, pkg.minVersion) < 0) {
+                        versionMismatches.push({ name: pkg.name, found: version, required: `>=${pkg.minVersion}` });
+                    }
+                    continue;
+                } catch {
+                    // fall through to strategy 3
+                }
+
+                // Strategy 3: confirm importable but version unknown
+                execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`,
+                    { stdio: 'ignore' });
+                versions[pkg.name] = 'installed (version unknown)';
             } catch {
                 if (pkg.required !== false) {
                     missing.push(pkg.name);
