@@ -8,41 +8,41 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND (Browser/Electron)           │
-│                                                              │
-│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│   │ Base Viz     │  │ OpenMC       │  │ Your Plugin  │     │
-│   │ (widgets,    │  │ (widgets,    │  │ (widgets,    │     │
-│   │  commands)   │  │  commands)   │  │  commands)   │     │
-│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │
+│                        FRONTEND (Browser/Electron)          │
+│                                                             │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│   │ Base Viz     │  │ OpenMC       │  │ Your Plugin  │      │
+│   │ (widgets,    │  │ (widgets,    │  │ (widgets,    │      │
+│   │  commands)   │  │  commands)   │  │  commands)   │      │
+│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
 │          │                 │                 │              │
 │          └─────────────────┴─────────────────┘              │
 │                            │                                │
-│          ┌─────────────────┴─────────────────┐             │
-│          │  Shared: HealthCheckFramework      │             │
-│          │         PlotlyService              │             │
-│          │         NukeCoreService            │             │
-│          └─────────────────┬─────────────────┘             │
-│                            │ RPC (WebSocket)               │
+│          ┌─────────────────┴─────────────────┐              │
+│          │  Shared: HealthCheckFramework     │              │
+│          │         PlotlyService             │              │
+│          │         NukeCoreService           │              │
+│          └─────────────────┬─────────────────┘              │
+│                            │ RPC (WebSocket)                │
 └────────────────────────────┼────────────────────────────────┘
                              │
 ┌────────────────────────────┼────────────────────────────────┐
-│                        BACKEND (Node.js)                     │
-│                                                              │
+│                        BACKEND (Node.js)                    │
+│                                                             │
 │          ┌─────────────────┴─────────────────┐              │
-│          │  Shared: PythonCommandHelper       │              │
-│          │         (detect, execute, spawn)   │              │
+│          │  Shared: PythonCommandHelper      │              │
+│          │         (detect, execute, spawn)  │              │
 │          └─────────────────┬─────────────────┘              │
-│                            │                                 │
-│   ┌──────────────┐  ┌──────┴───────┐  ┌──────────────┐     │
-│   │ Base Viz     │  │ OpenMC       │  │ Your Plugin  │     │
-│   │ Backend      │  │ Backend      │  │ Backend      │     │
-│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │
+│                            │                                │
+│   ┌──────────────┐  ┌──────┴───────┐  ┌──────────────┐      │
+│   │ Base Viz     │  │ OpenMC       │  │ Your Plugin  │      │
+│   │ Backend      │  │ Backend      │  │ Backend      │      │
+│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
 │          │                 │                 │              │
 │          └─────────────────┴─────────────────┘              │
-│                            │                                 │
-│              python/*.py (one per plugin)                    │
-└──────────────────────────────────────────────────────────────┘
+│                            │                                │
+│              python/server.py (unified entry point)         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -105,9 +105,13 @@ Python scripts that do the actual scientific visualization.
 - Serve HTTP on a localhost port
 
 **Key scripts:**
-- `visualizer_app.py` — Trame server for VTK/mesh files
-- `openmc_server.py` — Multi-mode server for OpenMC (subcommands: `visualize-mesh`, `visualize-source`, `visualize-geometry`, etc.)
+- `server.py` — Unified entry point with auto-discovery and plugin routing
+- `nuke_viz/` — Shared framework (`@command` decorator, registry, server)
+- `plugins/openmc/` — OpenMC plugin (commands + lib modules)
+- `plugins/base/` — Base visualizer plugin (Trame server)
 - `dagmc_converter.py` — H5M → VTK conversion using MOAB
+
+Plugins register commands via the `@command` decorator. Importing a command module triggers registration automatically — no manual routing needed.
 
 ---
 
@@ -123,7 +127,7 @@ Python scripts that do the actual scientific visualization.
 6. `OpenMCStatepointService` calls **`PythonCommandHelper.executeScriptJson()`**.
 7. `PythonCommandHelper` detects Python with `openmc` + `h5py`, then runs:
    ```bash
-   python openmc_commands/statepoint.py load-statepoint /path/to/statepoint_100.h5
+   python server.py openmc.info /path/to/statepoint_100.h5
    ```
 8. **Python** reads the HDF5 file and prints JSON to stdout.
 9. **Backend** parses JSON and returns `OpenMCStatepointInfo`.
@@ -189,10 +193,21 @@ extensions/nuke-visualizer/
 │           ├── openmc-backend-service.ts
 │           └── services/
 ├── python/                              # Python scripts
-│   ├── visualizer_app.py                # Trame server
-│   ├── openmc_server.py                 # OpenMC server
-│   ├── dagmc_converter.py
-│   └── openmc_commands/                 # Helper modules
+│   ├── server.py                        # Unified entry point
+│   ├── nuke_viz/                        # Framework package
+│   │   ├── plugin.py                    # @command + @arg decorators
+│   │   ├── registry.py                  # Auto-discovery
+│   │   └── server.py                    # CLI routing
+│   ├── plugins/                         # Plugin packages
+│   │   ├── openmc/                      # OpenMC plugin
+│   │   │   ├── commands/                # @command-decorated modules
+│   │   │   └── lib/                     # Helper modules
+│   │   └── base/                        # Base visualizer plugin
+│   │       ├── commands/serve.py
+│   │       └── lib/
+│   ├── dagmc_converter.py               # H5M → VTK converter
+│   ├── openmc_server.py                 # Backward-compat shim
+│   └── visualizer_app.py                # Backward-compat shim
 └── docs/                                # This documentation
 ```
 

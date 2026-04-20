@@ -37,7 +37,7 @@ import { PythonCommandHelper } from './services/python-command-helper';
 /**
  * Node.js backend implementation of the base visualizer RPC service.
  *
- * Spawns Python processes running `visualizer_app.py` (Trame/ParaView)
+ * Spawns Python processes running `server.py base.serve` (Trame/ParaView)
  * to serve interactive 3D visualizations. Manages process lifecycle,
  * port allocation, DAGMC conversion, and log streaming.
  *
@@ -87,13 +87,13 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         
         try {
             // Find the Python script
-            const pythonScript = this.pythonHelper.findScript('visualizer_app.py');
+            const pythonScript = this.pythonHelper.findScript('server.py');
             
             // Detect Python command
             const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
             const warning = pythonInfo.warning;
             
-            const args: string[] = [pythonScript, '--port', port.toString()];
+            const args: string[] = [pythonScript, 'base.serve', '--port', port.toString()];
             if (filePath) {
                 args.push('--file', filePath);
             }

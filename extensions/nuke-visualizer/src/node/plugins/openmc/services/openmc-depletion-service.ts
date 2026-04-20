@@ -13,18 +13,18 @@ export class OpenMCDepletionService {
     protected readonly pythonHelper: PythonCommandHelper;
 
     private get scriptPath(): string {
-        return this.pythonHelper.findScript('openmc_server.py');
+        return this.pythonHelper.findScript('server.py');
     }
 
     async getDepletionSummary(filePath: string): Promise<any> {
         return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['depletion-summary', filePath], { timeout: 30000 }
+            this.scriptPath, ['openmc.depletion-summary', filePath], { timeout: 30000 }
         );
     }
 
     async getDepletionMaterials(filePath: string): Promise<any[]> {
         const result = await this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['depletion-materials', filePath], { timeout: 30000 }
+            this.scriptPath, ['openmc.depletion-materials', filePath], { timeout: 30000 }
         );
         return result.materials || [];
     }
@@ -35,7 +35,7 @@ export class OpenMCDepletionService {
         nuclides?: string[],
         includeActivity?: boolean
     ): Promise<any> {
-        const args = ['depletion-data', filePath, materialIndex.toString()];
+        const args = ['openmc.depletion-data', filePath, materialIndex.toString()];
         if (nuclides && nuclides.length > 0) {
             args.push('--nuclides', nuclides.join(','));
         }

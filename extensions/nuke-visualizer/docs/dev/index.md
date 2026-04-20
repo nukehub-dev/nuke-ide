@@ -40,10 +40,23 @@ src/
         └── services/          # OpenMC-specific backend services
 
 python/                        # Python scripts
-├── visualizer_app.py          # Trame server for base visualizer
-├── openmc_server.py           # OpenMC visualization server
+├── server.py                  # Unified entry point (auto-discovers plugins)
+├── nuke_viz/                  # Framework package
+│   ├── plugin.py              # @command + @arg decorators
+│   ├── registry.py            # Plugin auto-discovery
+│   └── server.py              # CLI routing
+├── plugins/                   # Plugin packages (self-contained)
+│   ├── openmc/                # OpenMC plugin
+│   │   ├── plugin.py          # Imports commands, triggers registration
+│   │   ├── commands/          # @command-decorated handlers
+│   │   └── lib/               # Helper modules (reader, geometry, etc.)
+│   └── base/                  # Base visualizer plugin
+│       ├── plugin.py
+│       ├── commands/serve.py  # Trame server command
+│       └── lib/               # common.py, dagmc.py
 ├── dagmc_converter.py         # H5M → VTK converter
-└── openmc_commands/           # OpenMC helper modules
+├── openmc_server.py           # Backward-compat shim
+└── visualizer_app.py          # Backward-compat shim
 ```
 
 ## API Reference

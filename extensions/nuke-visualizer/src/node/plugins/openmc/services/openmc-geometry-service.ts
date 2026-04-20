@@ -13,11 +13,11 @@ export class OpenMCGeometryService {
     protected readonly pythonHelper: PythonCommandHelper;
 
     private get scriptPath(): string {
-        return this.pythonHelper.findScript('openmc_server.py');
+        return this.pythonHelper.findScript('server.py');
     }
 
     async getGeometryHierarchy(filePath: string): Promise<any> {
-        const result = await this.pythonHelper.executeScript(this.scriptPath, ['geometry', filePath], {
+        const result = await this.pythonHelper.executeScript(this.scriptPath, ['openmc.geometry', filePath], {
             timeout: 30000,
             maxBuffer: 10 * 1024 * 1024
         });
@@ -37,13 +37,13 @@ export class OpenMCGeometryService {
 
     async getMaterials(filePath: string): Promise<any> {
         return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['materials', filePath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
+            this.scriptPath, ['openmc.materials', filePath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
         );
     }
 
     async getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<any> {
         return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['material-cell-linkage', materialsPath, geometryPath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
+            this.scriptPath, ['openmc.material-cell-linkage', materialsPath, geometryPath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
         );
     }
 
@@ -56,7 +56,7 @@ export class OpenMCGeometryService {
         id?: number;
     }): Promise<any> {
         const args = [
-            'mix-materials', request.filePath,
+            'openmc.mix-materials', request.filePath,
             '--material-ids', request.materialIds.join(','),
             '--fractions', request.fractions.join(','),
             '--percent-type', request.percentType
@@ -84,7 +84,7 @@ export class OpenMCGeometryService {
 
     async addMaterialToFile(filePath: string, materialXml: string): Promise<void> {
         await this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['add-material', filePath, materialXml], { timeout: 30000 }
+            this.scriptPath, ['openmc.add-material', filePath, materialXml], { timeout: 30000 }
         );
     }
 
@@ -96,7 +96,7 @@ export class OpenMCGeometryService {
         parallel?: boolean;
     }): Promise<any> {
         const args: string[] = [
-            'check-overlaps', request.geometryPath,
+            'openmc.check-overlaps', request.geometryPath,
             '--samples', (request.samplePoints || 100000).toString(),
             '--tolerance', (request.tolerance || 1e-6).toString()
         ];
@@ -111,7 +111,7 @@ export class OpenMCGeometryService {
     async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {
         return this.pythonHelper.executeScriptJson<any>(
             this.scriptPath,
-            ['overlap-viz', geometryPath, '--overlaps', JSON.stringify(overlaps), '--marker-size', '1.0'],
+            ['openmc.overlap-viz', geometryPath, '--overlaps', JSON.stringify(overlaps), '--marker-size', '1.0'],
             { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
         );
     }

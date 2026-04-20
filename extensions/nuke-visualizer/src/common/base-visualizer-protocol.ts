@@ -45,7 +45,7 @@ export interface EnvironmentInfo {
 
 /**
  * Visualization state for interactive controls.
- * Mirrors the state in Python backend (visualizer_app.py).
+ * Mirrors the state in Python backend (server.py base.serve).
  */
 export interface VisualizationState {
     /** Opacity value between 0.0 and 1.0 */
@@ -142,7 +142,7 @@ export interface VisualizerBackendService {
 
     /**
      * Start a new Trame visualizer server for the given file.
-     * Spawns a Python process running `python/visualizer_app.py`.
+     * Spawns a Python process running `python/server.py base.serve`.
      *
      * @param filePath Path to file to visualize (VTK, H5M, STL, etc.)
      * @param config Optional Python environment override

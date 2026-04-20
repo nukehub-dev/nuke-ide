@@ -14,11 +14,11 @@ export class OpenMCXSService {
     protected readonly pythonHelper: PythonCommandHelper;
 
     private get scriptPath(): string {
-        return this.pythonHelper.findScript('openmc_server.py');
+        return this.pythonHelper.findScript('server.py');
     }
 
     async getXSData(request: any): Promise<any> {
-        const args = ['xs-plot', '--reactions', request.reactions.join(',')];
+        const args = ['openmc.xs-plot', '--reactions', request.reactions.join(',')];
 
         if (request.nuclides?.length > 0) {
             args.push('--nuclides', request.nuclides.join(','));
@@ -71,7 +71,7 @@ export class OpenMCXSService {
     }
 
     async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
-        const args = ['list-nuclides'];
+        const args = ['openmc.list-nuclides'];
         if (crossSectionsPath) { args.push('--cross-sections', crossSectionsPath); }
 
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, { timeout: 30000 });
@@ -80,7 +80,7 @@ export class OpenMCXSService {
     }
 
     async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
-        const args = ['list-thermal-materials'];
+        const args = ['openmc.list-thermal-materials'];
         if (crossSectionsPath) { args.push('--cross-sections', crossSectionsPath); }
 
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, { timeout: 30000 });
@@ -89,7 +89,7 @@ export class OpenMCXSService {
     }
 
     async getGroupStructures(): Promise<XSGroupStructuresResponse> {
-        const result = await this.pythonHelper.executeScript(this.scriptPath, ['list-group-structures'], { timeout: 10000 });
+        const result = await this.pythonHelper.executeScript(this.scriptPath, ['openmc.list-group-structures'], { timeout: 10000 });
         if (result.status !== 0) {
             return { structures: [], metadata: { openmc_available: false, sources: [] } };
         }

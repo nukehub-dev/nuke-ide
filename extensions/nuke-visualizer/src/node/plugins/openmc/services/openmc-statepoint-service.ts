@@ -46,7 +46,7 @@ export class OpenMCStatepointService {
 
     private getScriptPath(): string {
         if (!this.scriptPath) {
-            return this.pythonHelper.findScript('openmc_server.py');
+            return this.pythonHelper.findScript('server.py');
         }
         return this.scriptPath;
     }
@@ -60,7 +60,7 @@ export class OpenMCStatepointService {
             k_eff_std?: number;
             n_tallies: number;
             tally_ids: number[];
-        }>(this.getScriptPath(), ['info', statepointPath], { timeout: 30000 });
+        }>(this.getScriptPath(), ['openmc.info', statepointPath], { timeout: 30000 });
 
         return {
             file: statepointPath,
@@ -91,7 +91,7 @@ export class OpenMCStatepointService {
                 }>;
                 has_mesh: boolean;
             }>
-        >(this.getScriptPath(), ['list', statepointPath], { timeout: 30000 });
+        >(this.getScriptPath(), ['openmc.list', statepointPath], { timeout: 30000 });
 
         return raw.map(t => ({
             id: t.id,
@@ -117,7 +117,7 @@ export class OpenMCStatepointService {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         return await this.pythonHelper.executeScriptJson<OpenMCStatepointFullInfo>(
             this.getScriptPath(),
-            ['statepoint-info', statepointPath],
+            ['openmc.statepoint-info', statepointPath],
             { timeout: 30000 }
         );
     }
@@ -126,14 +126,14 @@ export class OpenMCStatepointService {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         return await this.pythonHelper.executeScriptJson<OpenMCKGenerationData>(
             this.getScriptPath(),
-            ['k-generation', statepointPath],
+            ['openmc.k-generation', statepointPath],
             { timeout: 30000 }
         );
     }
 
     async getSourceData(statepointPath: string, maxParticles?: number): Promise<OpenMCSourceData> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
-        const args = ['source-data', statepointPath];
+        const args = ['openmc.source-data', statepointPath];
         if (maxParticles !== undefined) {
             args.push('--max-particles', maxParticles.toString());
         }
@@ -146,7 +146,7 @@ export class OpenMCStatepointService {
 
     async getEnergyDistribution(statepointPath: string, nBins?: number): Promise<OpenMCEnergyDistribution> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
-        const args = ['energy-distribution', statepointPath];
+        const args = ['openmc.energy-distribution', statepointPath];
         if (nBins !== undefined) {
             args.push('--bins', nBins.toString());
         }
@@ -164,7 +164,7 @@ export class OpenMCStatepointService {
         nuclideIndex?: number
     ): Promise<{ energy_bins: number[]; values: number[]; std_dev: number[]; error?: string }> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
-        const args = ['spectrum', statepointPath, tallyId.toString()];
+        const args = ['openmc.spectrum', statepointPath, tallyId.toString()];
         if (scoreIndex !== undefined) {
             args.push('--score-index', scoreIndex.toString());
         }
@@ -186,7 +186,7 @@ export class OpenMCStatepointService {
         nuclideIndex?: number
     ): Promise<{ positions: number[]; values: number[]; std_dev?: number[]; axis: string; error?: string }> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
-        const args = ['spatial', statepointPath, tallyId.toString(), axis];
+        const args = ['openmc.spatial', statepointPath, tallyId.toString(), axis];
         if (scoreIndex !== undefined) {
             args.push('--score-index', scoreIndex.toString());
         }
@@ -223,7 +223,7 @@ export class OpenMCStatepointService {
         error?: string;
     }> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
-        const args = ['heatmap', statepointPath, tallyId.toString(), plane, sliceIndex.toString()];
+        const args = ['openmc.heatmap', statepointPath, tallyId.toString(), plane, sliceIndex.toString()];
         if (scoreIndex !== undefined) {
             args.push('--score-index', scoreIndex.toString());
         }
@@ -260,7 +260,7 @@ export class OpenMCStatepointService {
     ): Promise<any[]> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         const args = [
-            'heatmap-all', statepointPath, tallyId.toString(),
+            'openmc.heatmap-all', statepointPath, tallyId.toString(),
             plane,
             '--score-index', scoreIndex.toString(),
             '--nuclide-index', nuclideIndex.toString()

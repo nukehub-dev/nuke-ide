@@ -191,7 +191,7 @@ export class PythonCommandHelper {
      * Find the absolute path to a Python script within the extension's `python/` directory.
      * Searches installed `lib/python/`, development `src/python/`, and fallback paths.
      *
-     * @param scriptName Name of the script file (e.g., `'visualizer_app.py'`)
+     * @param scriptName Name of the script file (e.g., `'server.py'`)
      * @returns Absolute path to the script
      */
     findScript(scriptName: string): string {

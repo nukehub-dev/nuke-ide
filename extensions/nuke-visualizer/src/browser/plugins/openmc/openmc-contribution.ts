@@ -752,14 +752,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             if (selection.action === 'view-3d') {
                 await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
             } else if (selection.action === 'overlay-geometry') {
-                // Show tally selector for overlay
-                const geometryFiles = await this.getGeometryFiles();
-                if (geometryFiles.length > 0) {
-                    const geometryUri = new URI(geometryFiles[0].value);
-                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, currentStatepointUri, options);
-                } else {
-                    this.messageService.warn('No geometry file found for overlay');
-                }
+                await this.handleOverlayOnGeometry(selection, currentStatepointUri);
             } else if (selection.action === 'heatmap') {
                 // Handle heatmap - delegate to existing heatmap logic
                 const tallySelection: TallySelection = {

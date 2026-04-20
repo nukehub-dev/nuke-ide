@@ -43,7 +43,7 @@ interface OpenMCProcess {
 /**
  * Node.js backend implementation of the OpenMC visualization RPC service.
  *
- * Spawns Python processes running `openmc_server.py` for 3D tally/geometry
+ * Spawns Python processes running `server.py` for 3D tally/geometry
  * visualization, and delegates data queries to specialized sub-services:
  * - {@link OpenMCStatepointService} — statepoint and tally data
  * - {@link OpenMCGeometryService} — geometry hierarchy and materials
@@ -114,11 +114,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
 
             const args: string[] = [
                 scriptPath,
-                'visualize-mesh',
+                'openmc.visualize-mesh',
                 statepointPath,
                 tallyId.toString(),
                 '--port', port.toString()
@@ -163,11 +163,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
 
             const args: string[] = [
                 scriptPath,
-                'visualize-source',
+                'openmc.visualize-source',
                 sourcePath,
                 '--port', port.toString()
             ];
@@ -204,11 +204,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
 
             const args: string[] = [
                 scriptPath,
-                'visualize-overlay',
+                'openmc.visualize-overlay',
                 geometryPath,
                 statepointPath,
                 tallyId.toString(),
@@ -349,7 +349,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 };
             }
 
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
             if (!require('fs').existsSync(scriptPath)) {
                 return {
                     available: false,
@@ -452,11 +452,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
 
             const args: string[] = [
                 scriptPath,
-                'visualize-geometry',
+                'openmc.visualize-geometry',
                 filePath,
                 '--port', port.toString()
             ];
@@ -561,11 +561,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const pythonInfo = await this.pythonHelper.detectPython();
             const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('openmc_server.py');
+            const scriptPath = this.pythonHelper.findScript('server.py');
 
             const args: string[] = [
                 scriptPath,
-                'visualize-statepoint-source',
+                'openmc.visualize-statepoint-source',
                 statepointPath,
                 '--port', port.toString()
             ];

@@ -22,42 +22,42 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND                                        │
-│                                                                              │
-│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   (your plugin here) │
-│   │ Base Viz    │   │ OpenMC      │   │ YourPlugin  │                        │
-│   │             │   │             │   │             │                        │
-│   │ Widgets     │   │ Widgets     │   │ Widgets     │                        │
-│   │ Commands    │   │ Commands    │   │ Commands    │                        │
-│   │ Menus       │   │ Menus       │   │ Menus       │                        │
-│   └──────┬──────┘   └──────┬──────┘   └──────┬──────┘                        │
-│          │                 │                 │                               │
-│          └─────────────────┴─────────────────┘                               │
-│                            │                                                 │
-│          ┌─────────────────┴─────────────────┐                               │
-│          │  HealthCheckFramework              │                               │
-│          │  PlotlyService                     │                               │
-│          │  NukeCoreService                   │                               │
-│          └─────────────────┬─────────────────┘                               │
-│                            │ RPC                                             │
-└────────────────────────────┼─────────────────────────────────────────────────┘
+│                              FRONTEND                                       │
+│                                                                             │
+│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   (your plugin here)  │
+│   │ Base Viz    │   │ OpenMC      │   │ YourPlugin  │                       │
+│   │             │   │             │   │             │                       │
+│   │ Widgets     │   │ Widgets     │   │ Widgets     │                       │
+│   │ Commands    │   │ Commands    │   │ Commands    │                       │
+│   │ Menus       │   │ Menus       │   │ Menus       │                       │
+│   └──────┬──────┘   └──────┬──────┘   └──────┬──────┘                       │
+│          │                 │                 │                              │
+│          └─────────────────┴─────────────────┘                              │
+│                            │                                                │
+│          ┌─────────────────┴─────────────────┐                              │
+│          │  HealthCheckFramework             │                              │
+│          │  PlotlyService                    │                              │
+│          │  NukeCoreService                  │                              │
+│          └─────────────────┬─────────────────┘                              │
+│                            │ RPC                                            │
+└────────────────────────────┼────────────────────────────────────────────────┘
                              │
-┌────────────────────────────┼─────────────────────────────────────────────────┐
-│                            │  BACKEND                                         │
-│          ┌─────────────────┴─────────────────┐                               │
-│          │  PythonCommandHelper               │                               │
-│          │  (detects Python, runs scripts)    │                               │
-│          └─────────────────┬─────────────────┘                               │
-│                            │                                                 │
-│   ┌─────────────┐   ┌──────┴───────┐   ┌─────────────┐   (your backend)    │
-│   │ Base Viz    │   │ OpenMC       │   │ YourPlugin  │                       │
-│   │ Backend     │   │ Backend      │   │ Backend     │                       │
-│   └──────┬──────┘   └──────┬───────┘   └──────┬──────┘                       │
-│          │                 │                  │                               │
-│          └─────────────────┴──────────────────┘                               │
-│                            │                                                  │
-│                    python/your_server.py                                       │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────┼────────────────────────────────────────────────┐
+│                            │  BACKEND                                       │
+│          ┌─────────────────┴─────────────────┐                              │
+│          │  PythonCommandHelper              │                              │
+│          │  (detects Python, runs scripts)   │                              │
+│          └─────────────────┬─────────────────┘                              │
+│                            │                                                │
+│   ┌─────────────┐   ┌──────┴───────┐   ┌─────────────┐   (your backend)     │
+│   │ Base Viz    │   │ OpenMC       │   │ YourPlugin  │                      │
+│   │ Backend     │   │ Backend      │   │ Backend     │                      │
+│   └──────┬──────┘   └──────┬───────┘   └──────┬──────┘                      │
+│          │                 │                  │                             │
+│          └─────────────────┴──────────────────┘                             │
+│                            │                                                │
+│                    python/your_server.py                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key insight:** Each plugin is self-contained but reuses shared infrastructure. You do NOT modify `nuke-visualizer` core files. You add your plugin under `src/browser/plugins/your-plugin/` and `src/node/plugins/your-plugin/`, then wire it into the DI modules.
