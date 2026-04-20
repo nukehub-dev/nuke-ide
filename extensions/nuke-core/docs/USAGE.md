@@ -328,10 +328,24 @@ const result = await this.nukeCore.detectPythonWithRequirements({
     requiredPackages: [
         { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
         { name: 'openmc', condaOnly: true },
+        { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
+        { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
         { name: 'my-private-pkg' }
     ]
 });
 ```
+
+**`PackageDependency` fields:**
+| Field | Description |
+|-------|-------------|
+| `name` | Package name to import |
+| `submodule` | Submodule for version check (e.g., `'app'` for `trame.app`) |
+| `required` | Whether this package is required or optional |
+| `minVersion` | Minimum version required |
+| `condaOnly` | Use `conda install` instead of `pip` (e.g. `paraview`) |
+| `channels` | Conda channels for this package |
+| `extraIndexUrl` | Extra pip index URL (e.g. `https://shimwell.github.io/wheels`) |
+| `installCommand` | Explicit install command override (highest priority) |
 
 Per-override at install time:
 
@@ -479,14 +493,18 @@ for (const warning of validation.warnings) {
 
 ### Health Check
 
-Run health checks on the environment. You can optionally check for specific packages:
+Run health checks on the environment. You can optionally check for specific packages with metadata-driven install suggestions:
 
 ```typescript
 // Basic health check (environment + configuration)
 const health = await this.nukeCore.healthCheck();
 
-// Health check with specific packages
-const health = await this.nukeCore.healthCheck(['openmc', 'numpy', 'vtk']);
+// Health check with packages
+const health = await this.nukeCore.healthCheck([
+    { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
+    { name: 'paraview', condaOnly: true },
+    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
+]);
 
 console.log('Healthy:', health.healthy);
 for (const check of health.checks) {
@@ -504,6 +522,11 @@ for (const check of health.checks) {
 
 **Optional checks (when packages provided):**
 - Package availability for each specified package
+- Smart install suggestions based on `PackageDependency` metadata:
+  - `installCommand` → used as-is (highest priority)
+  - `condaOnly` → `conda install -c <channels> <pkg>`
+  - `extraIndexUrl` → `pip install --extra-index-url <url> <pkg>`
+  - fallback → `pip install <pkg>`
 
 > **Note:** Configuration validation is a separate API (`validateConfig()`). Call it independently if you need to check settings and paths.
 
