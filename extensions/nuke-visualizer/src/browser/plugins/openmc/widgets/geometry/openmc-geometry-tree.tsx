@@ -22,7 +22,7 @@ import { Message } from '@lumino/messaging';
 import { Emitter, Event } from '@theia/core';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
-import { OpenMCService } from './openmc-service';
+import { OpenMCService } from '../../openmc-service';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
 import { 
     OpenMCGeometryHierarchy, 
@@ -30,7 +30,7 @@ import {
     OpenMCCell, 
     OpenMCSurface,
     OpenMCLattice
-} from '../../common/visualizer-protocol';
+} from '../../../../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';

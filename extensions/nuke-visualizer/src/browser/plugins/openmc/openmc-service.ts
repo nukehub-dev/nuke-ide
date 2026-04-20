@@ -28,12 +28,14 @@ import {
     XSGroupStructuresResponse,
     OpenMCHeatmapData,
     OpenMCHeatmapPlane
-} from '../../common/visualizer-protocol';
-import { VisualizerWidget } from '../visualizer-widget';
+} from '../../../common/visualizer-protocol';
+import { VisualizerWidget } from '../../visualizer-widget';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
-import { OpenMCMultiScoreData } from '../plotly/plotly-utils';
-import { VisualizerPreferences } from '../visualizer-preferences';
+import { OpenMCMultiScoreData } from '../../plotly/plotly-utils';
+import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
+import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -81,6 +83,12 @@ export class OpenMCService {
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
+
+    @inject(OpenMCWidgetFactory)
+    protected readonly widgetFactory: OpenMCWidgetFactory;
+
+    @inject(OpenMCFileDiscoveryService)
+    protected readonly fileDiscovery: OpenMCFileDiscoveryService;
 
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
@@ -537,39 +545,7 @@ export class OpenMCService {
      * Discover OpenMC-related files in a directory.
      */
     async discoverFilesInDirectory(directoryUri: URI): Promise<OpenMCFileSet> {
-        const files: OpenMCFileSet = {};
-
-        try {
-            const stat = await this.fileService.resolve(directoryUri);
-            
-            if (!stat.isDirectory) {
-                return files;
-            }
-
-            for (const child of stat.children || []) {
-                const name = child.name.toLowerCase();
-                
-                // Look for geometry files
-                if (name.endsWith('.h5m') || name.endsWith('.vtk')) {
-                    files.geometry = child.resource;
-                }
-                
-                // Look for statepoint files
-                if (name.startsWith('statepoint') && name.endsWith('.h5')) {
-                    files.statepoint = child.resource;
-                }
-                
-                // Look for source files
-                if (name === 'source.h5') {
-                    files.source = child.resource;
-                }
-            }
-
-        } catch (error) {
-            console.error('[OpenMC] Error discovering files:', error);
-        }
-
-        return files;
+        return this.fileDiscovery.discoverFilesInDirectory(directoryUri);
     }
 
     /**
@@ -678,32 +654,14 @@ export class OpenMCService {
      * Get filter description for display.
      */
     getFilterDescription(filter: { type: string; bins: number; meshDimensions?: number[] }): string {
-        if (filter.type === 'mesh' && filter.meshDimensions) {
-            return `Mesh (${filter.meshDimensions.join('×')})`;
-        }
-        return `${filter.type} (${filter.bins} bins)`;
+        return this.fileDiscovery.getFilterDescription(filter);
     }
 
     /**
      * Get a human-readable tally description.
      */
     getTallyDescription(tally: OpenMCTallyInfo): string {
-        const parts: string[] = [];
-        
-        if (tally.scores.length > 0) {
-            parts.push(tally.scores.join(', '));
-        }
-        
-        if (tally.nuclides.length > 0 && !tally.nuclides.includes('total')) {
-            parts.push(tally.nuclides.join(', '));
-        }
-        
-        const filterDesc = tally.filters.map(f => this.getFilterDescription(f)).join(', ');
-        if (filterDesc) {
-            parts.push(filterDesc);
-        }
-        
-        return parts.join(' | ') || 'Tally';
+        return this.fileDiscovery.getTallyDescription(tally);
     }
 
     // === Cross-Section (XS) Plotting ===

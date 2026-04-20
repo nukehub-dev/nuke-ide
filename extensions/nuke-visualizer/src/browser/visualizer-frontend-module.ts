@@ -31,20 +31,26 @@ import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { bindVisualizerPreferences } from './visualizer-preferences';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
 import URI from '@theia/core/lib/common/uri';
-import { OpenMCService } from './openmc/openmc-service';
-import { OpenMCContribution, XSPlotViewContribution, OpenMCTalliesViewContribution } from './openmc/openmc-contribution';
-import { OpenMCTallySelector } from './openmc/tally-selector';
-import { OpenMCTallyTreeWidget } from './openmc/openmc-tally-tree';
-import { OpenMCPlotWidget } from './openmc/openmc-plot-widget';
-import { OpenMCHeatmapWidget } from './openmc/openmc-heatmap-widget';
-import { XSPlotWidget } from './openmc/xs-plot-widget';
-import { OpenMCDepletionWidget } from './openmc/openmc-depletion-widget';
-import { OpenMCDepletionCompareWidget } from './openmc/openmc-depletion-compare-widget';
-import { OpenMCGeometryTreeWidget } from './openmc/openmc-geometry-tree';
-import { OpenMCGeometry3DWidget } from './openmc/openmc-geometry-3d-widget';
-import { OpenMCMaterialExplorerWidget } from './openmc/openmc-material-explorer';
-import { OpenMCOverlapWidget } from './openmc/openmc-overlap-widget';
-import { OpenMCStatepointViewerWidget } from './openmc/statepoint-viewer';
+import { OpenMCService } from './plugins/openmc/openmc-service';
+import { OpenMCWidgetFactory } from './plugins/openmc/services/openmc-widget-factory';
+import { OpenMCFileDiscoveryService } from './plugins/openmc/services/openmc-file-discovery';
+import { OpenMCContribution, XSPlotViewContribution, OpenMCTalliesViewContribution } from './plugins/openmc/openmc-contribution';
+import { OpenMCStatepointCommands } from './plugins/openmc/commands/statepoint-commands';
+import { OpenMCGeometryCommands } from './plugins/openmc/commands/geometry-commands';
+import { OpenMCPlottingCommands } from './plugins/openmc/commands/plotting-commands';
+import { OpenMCDepletionCommands } from './plugins/openmc/commands/depletion-commands';
+import { OpenMCTallySelector } from './plugins/openmc/widgets/statepoint/tally-selector';
+import { OpenMCTallyTreeWidget } from './plugins/openmc/widgets/statepoint/openmc-tally-tree';
+import { OpenMCPlotWidget } from './plugins/openmc/widgets/plotting/openmc-plot-widget';
+import { OpenMCHeatmapWidget } from './plugins/openmc/widgets/plotting/openmc-heatmap-widget';
+import { XSPlotWidget } from './plugins/openmc/widgets/plotting/xs-plot-widget';
+import { OpenMCDepletionWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-widget';
+import { OpenMCDepletionCompareWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-compare-widget';
+import { OpenMCGeometryTreeWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-tree';
+import { OpenMCGeometry3DWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
+import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials/openmc-material-explorer';
+import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
+import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -138,8 +144,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH, client);
     }).inSingletonScope();
     
-    // Bind OpenMC frontend service
+    // Bind OpenMC frontend services
     bind(OpenMCService).toSelf().inSingletonScope();
+    bind(OpenMCWidgetFactory).toSelf().inSingletonScope();
+    bind(OpenMCFileDiscoveryService).toSelf().inSingletonScope();
     
     // Bind OpenMC contribution
     bind(OpenMCContribution).toSelf().inSingletonScope();
@@ -147,6 +155,16 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(CommandContribution).toService(OpenMCContribution);
     bind(MenuContribution).toService(OpenMCContribution);
     bind(OpenHandler).toService(OpenMCContribution);
+
+    // OpenMC plugin command contributions
+    bind(OpenMCStatepointCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCStatepointCommands);
+    bind(OpenMCGeometryCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCGeometryCommands);
+    bind(OpenMCPlottingCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCPlottingCommands);
+    bind(OpenMCDepletionCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCDepletionCommands);
     
     // Bind tally selector
     bind(OpenMCTallySelector).toSelf().inSingletonScope();

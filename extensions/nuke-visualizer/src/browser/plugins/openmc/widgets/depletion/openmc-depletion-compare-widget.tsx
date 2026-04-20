@@ -18,8 +18,8 @@ import * as React from 'react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { PlotlyComponent } from '../plotly/plotly-component';
-import { OpenMCService } from './openmc-service';
+import { PlotlyComponent } from '../../../../plotly/plotly-component';
+import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 
 type ComparePlotType = 'concentration' | 'normalized' | 'difference';

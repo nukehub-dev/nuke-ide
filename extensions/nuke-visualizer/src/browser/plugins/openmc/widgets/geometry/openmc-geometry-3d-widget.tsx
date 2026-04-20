@@ -23,7 +23,7 @@ import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
-import { OpenMCService } from './openmc-service';
+import { OpenMCService } from '../../openmc-service';
 import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 

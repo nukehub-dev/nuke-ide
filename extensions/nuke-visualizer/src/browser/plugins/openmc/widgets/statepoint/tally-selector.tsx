@@ -16,7 +16,7 @@
 
 import { injectable } from '@theia/core/shared/inversify';
 import { QuickInputService, QuickPickValue, QuickPickItem } from '@theia/core/lib/browser';
-import { OpenMCTallyInfo, COLOR_MAP_PRESETS } from '../../common/visualizer-protocol';
+import { OpenMCTallyInfo, COLOR_MAP_PRESETS } from '../../../../../common/visualizer-protocol';
 
 export interface TallySelection {
     /** Selected tally ID */

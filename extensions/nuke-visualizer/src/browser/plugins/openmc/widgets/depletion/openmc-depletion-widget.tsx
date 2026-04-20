@@ -27,10 +27,10 @@ import {
     DepletionScaleType,
     DepletionXAxis,
     DepletionNuclidePreset
-} from '../../common/visualizer-protocol';
+} from '../../../../../common/visualizer-protocol';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import { PlotlyComponent } from '../plotly/plotly-component';
-import { OpenMCService } from './openmc-service';
+import { PlotlyComponent } from '../../../../plotly/plotly-component';
+import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 
 @injectable()

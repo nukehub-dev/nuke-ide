@@ -23,16 +23,16 @@ import './statepoint-viewer.css';
 import { Emitter, Event } from '@theia/core';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { QuickInputService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
-import { OpenMCService } from './openmc-service';
+import { OpenMCService } from '../../openmc-service';
 import { 
     OpenMCStatepointFullInfo, 
     OpenMCTallyInfo, 
     OpenMCKGenerationData
-} from '../../common/visualizer-protocol';
+} from '../../../../../common/visualizer-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { PlotlyComponent } from '../plotly/plotly-component';
+import { PlotlyComponent } from '../../../../plotly/plotly-component';
 
 export interface StatepointTallySelection {
     tallyId: number;
@@ -122,7 +122,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (existingWidget) {
             return existingWidget;
         }
-        const { OpenMCPlotWidget } = await import('./openmc-plot-widget');
+        const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCPlotWidget.ID, { id: widgetId } as any);
     }
 
@@ -131,7 +131,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (existingWidget) {
             return existingWidget;
         }
-        const { OpenMCHeatmapWidget } = await import('./openmc-heatmap-widget');
+        const { OpenMCHeatmapWidget } = await import('../plotting/openmc-heatmap-widget');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCHeatmapWidget.ID, { id: widgetId } as any);
     }
     
@@ -285,7 +285,7 @@ const handlers = {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 const data = await this.openmcService.getHeatmapSlice(statepointUri, selection.tallyId, 'xy', 0, scoreIdx, nuclideIdx);
-                                const heatmapWidgetId = `${(await import('./openmc-heatmap-widget')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
+                                const heatmapWidgetId = `${(await import('../plotting/openmc-heatmap-widget')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
                                 const heatmapWidget = await this.getOrCreateHeatmapWidget(heatmapWidgetId);
                                 heatmapWidget.setData(
                                     data,
@@ -311,7 +311,7 @@ const handlers = {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, nuclideIdx);
-                                const { OpenMCPlotWidget } = await import('./openmc-plot-widget');
+                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spectrum`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 (plotWidget as any).setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
@@ -329,7 +329,7 @@ const handlers = {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 const data = await this.openmcService.getSpatialPlot(statepointUri, selection.tallyId, 'z', scoreIdx, nuclideIdx);
-                                const { OpenMCPlotWidget } = await import('./openmc-plot-widget');
+                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spatial`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 (plotWidget as any).setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);

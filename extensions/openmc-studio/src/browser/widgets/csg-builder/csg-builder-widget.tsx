@@ -42,8 +42,8 @@ import {
 } from '../../../common/openmc-state-schema';
 
 // Import from nuke-visualizer for 3D preview
-import { OpenMCService } from 'nuke-visualizer/lib/browser/openmc/openmc-service';
-import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/openmc/openmc-geometry-3d-widget';
+import { OpenMCService } from 'nuke-visualizer/lib/browser/plugins/openmc/openmc-service';
+import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
 
 export type CSGBuilderTab = 'surfaces' | 'cells' | 'universes';
 

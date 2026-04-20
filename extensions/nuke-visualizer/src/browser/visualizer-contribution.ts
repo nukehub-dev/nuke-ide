@@ -29,14 +29,33 @@ export const VisualizerCommand = {
 };
 
 export namespace NukeVisualizerMenus {
+    /** Root Visualizer menu under Tools */
     export const VISUALIZER = [...NukeMenus.TOOLS, '2_visualizer'];
 
-    export const VISUALIZER_STATEPOINT = [...VISUALIZER, '1_statepoint'];
-    export const VISUALIZER_TALLY = [...VISUALIZER, '2_tally'];
-    export const VISUALIZER_DEPLETION = [...VISUALIZER, '3_depletion'];
-    export const VISUALIZER_GEOMETRY = [...VISUALIZER, '4_geometry'];
-    export const VISUALIZER_MATERIAL = [...VISUALIZER, '5_material'];
-    export const VISUALIZER_PLOT = [...VISUALIZER, '6_plot'];
+    /** OpenMC plugin submenu under Visualizer */
+    export const OPENMC = [...VISUALIZER, '1_openmc'];
+
+    // OpenMC sub-menus (kept for backward compatibility during migration)
+    export const OPENMC_STATEPOINT = [...OPENMC, '1_statepoint'];
+    export const OPENMC_TALLY = [...OPENMC, '2_tally'];
+    export const OPENMC_DEPLETION = [...OPENMC, '3_depletion'];
+    export const OPENMC_GEOMETRY = [...OPENMC, '4_geometry'];
+    export const OPENMC_MATERIAL = [...OPENMC, '5_material'];
+    export const OPENMC_PLOT = [...OPENMC, '6_plot'];
+
+    // Deprecated aliases — will be removed in Phase 5
+    /** @deprecated Use OPENMC_STATEPOINT */
+    export const VISUALIZER_STATEPOINT = OPENMC_STATEPOINT;
+    /** @deprecated Use OPENMC_TALLY */
+    export const VISUALIZER_TALLY = OPENMC_TALLY;
+    /** @deprecated Use OPENMC_DEPLETION */
+    export const VISUALIZER_DEPLETION = OPENMC_DEPLETION;
+    /** @deprecated Use OPENMC_GEOMETRY */
+    export const VISUALIZER_GEOMETRY = OPENMC_GEOMETRY;
+    /** @deprecated Use OPENMC_MATERIAL */
+    export const VISUALIZER_MATERIAL = OPENMC_MATERIAL;
+    /** @deprecated Use OPENMC_PLOT */
+    export const VISUALIZER_PLOT = OPENMC_PLOT;
 }
 
 @injectable()
@@ -77,6 +96,7 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
+        menus.registerSubmenu(NukeVisualizerMenus.VISUALIZER, 'Visualizer');
         menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
             commandId: VisualizerCommand.id,
             label: VisualizerCommand.label,

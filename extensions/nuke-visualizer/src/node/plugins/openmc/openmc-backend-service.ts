@@ -26,12 +26,13 @@ import {
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
     OpenMCVisualizationResult,
-    OpenMCFilter,
     XSGroupStructuresResponse,
     PythonConfig,
     VisualizerClient
-} from '../common/visualizer-protocol';
+} from '../../../common/visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import { PythonCommandHelper } from '../../services/python-command-helper';
+import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService } from './services';
 
 interface OpenMCProcess {
     process: RawProcess;
@@ -52,6 +53,21 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
+    @inject(PythonCommandHelper)
+    protected readonly pythonHelper: PythonCommandHelper;
+
+    @inject(OpenMCStatepointService)
+    protected readonly statepointService: OpenMCStatepointService;
+
+    @inject(OpenMCGeometryService)
+    protected readonly geometryService: OpenMCGeometryService;
+
+    @inject(OpenMCXSService)
+    protected readonly xsService: OpenMCXSService;
+
+    @inject(OpenMCDepletionService)
+    protected readonly depletionService: OpenMCDepletionService;
+
     setClient(client: VisualizerClient): void {
         this.client = client;
     }
@@ -63,78 +79,16 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             pythonPath: config.pythonPath,
             condaEnv: config.condaEnv
         });
+        this.statepointService.setPythonConfig(config);
         console.log(`[OpenMC] Python config updated: ${JSON.stringify(config)}`);
     }
 
     async loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const result = spawnSync(
-            pythonCommand,
-            [scriptPath, 'info', statepointPath],
-            { encoding: 'utf8', timeout: 30000 }
-        );
-
-        if (result.status !== 0) {
-            throw new Error(result.stderr || `Failed to load statepoint: ${result.status}`);
-        }
-
-        try {
-            const info = JSON.parse(result.stdout);
-            return {
-                file: statepointPath,
-                batches: info.batches,
-                generationsPerBatch: info.generations_per_batch || 1,
-                kEff: info.k_eff,
-                kEffStd: info.k_eff_std,
-                nTallies: info.n_tallies,
-                tallyIds: info.tally_ids
-            };
-        } catch (error) {
-            throw new Error(`Failed to parse statepoint info: ${error}`);
-        }
+        return this.statepointService.loadStatepoint(statepointPath);
     }
 
     async listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const result = spawnSync(
-            pythonCommand,
-            [scriptPath, 'list', statepointPath],
-            { encoding: 'utf8', timeout: 30000 }
-        );
-
-        if (result.status !== 0) {
-            throw new Error(result.stderr || `Failed to list tallies: ${result.status}`);
-        }
-
-        try {
-            const tallies = JSON.parse(result.stdout);
-            return tallies.map((t: any) => ({
-                id: t.id,
-                name: t.name,
-                scores: t.scores,
-                nuclides: t.nuclides,
-                filters: t.filters.map((f: any): OpenMCFilter => ({
-                    type: f.type,
-                    bins: f.bins,
-                    meshDimensions: f.mesh_dimensions,
-                    meshBounds: f.mesh_info ? {
-                        lowerLeft: f.mesh_info.lower_left,
-                        upperRight: f.mesh_info.upper_right
-                    } : undefined,
-                    meshType: f.mesh_type,
-                    meshWidth: f.width
-                })),
-                hasMesh: t.has_mesh
-            }));
-        } catch (error) {
-            throw new Error(`Failed to parse tally list: ${error}`);
-        }
+        return this.statepointService.listTallies(statepointPath);
     }
 
     async visualizeMeshTally(
@@ -327,38 +281,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'spectrum', statepointPath, tallyId.toString(),
-            '--score-index', scoreIndex.toString(),
-            '--nuclide-index', nuclideIndex.toString()
-        ];
-
-        console.log(`[OpenMC] Running spectrum command: ${pythonCommand} ${args.join(' ')}`);
-
-        // Increased maxBuffer to 10MB for large spectra
-        const result = spawnSync(pythonCommand, args, { 
-            encoding: 'utf8',
-            maxBuffer: 10 * 1024 * 1024 
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Spectrum command failed with status ${result.status}`);
-            console.error(`[OpenMC] stderr: ${result.stderr}`);
-            throw new Error(result.stderr || `Command failed with status ${result.status}`);
-        }
-
-        try {
-            console.log(`[OpenMC] Spectrum output length: ${result.stdout?.length || 0} characters`);
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse spectrum JSON: ${e}`);
-            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
-            throw e;
-        }
+        return this.statepointService.getEnergySpectrum(statepointPath, tallyId, scoreIndex, nuclideIndex);
     }
 
     async getSpatialPlot(
@@ -368,39 +291,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'spatial', statepointPath, tallyId.toString(), 
-            axis,
-            '--score-index', scoreIndex.toString(),
-            '--nuclide-index', nuclideIndex.toString()
-        ];
-
-        console.log(`[OpenMC] Running spatial plot command: ${pythonCommand} ${args.join(' ')}`);
-
-        // Increased maxBuffer to 10MB for large mesh data
-        const result = spawnSync(pythonCommand, args, { 
-            encoding: 'utf8',
-            maxBuffer: 10 * 1024 * 1024 
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Spatial plot command failed with status ${result.status}`);
-            console.error(`[OpenMC] stderr: ${result.stderr}`);
-            throw new Error(result.stderr || `Command failed with status ${result.status}`);
-        }
-
-        try {
-            console.log(`[OpenMC] Spatial output length: ${result.stdout?.length || 0} characters`);
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse spatial plot JSON: ${e}`);
-            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
-            throw e;
-        }
+        return this.statepointService.getSpatialPlot(statepointPath, tallyId, axis, scoreIndex, nuclideIndex);
     }
 
     async getHeatmapSlice(
@@ -411,40 +302,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         scoreIndex: number = 0,
         nuclideIndex: number = 0
     ): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'heatmap', statepointPath, tallyId.toString(),
-            plane,
-            sliceIndex.toString(),
-            '--score-index', scoreIndex.toString(),
-            '--nuclide-index', nuclideIndex.toString()
-        ];
-
-        console.log(`[OpenMC] Running heatmap command: ${pythonCommand} ${args.join(' ')}`);
-
-        // Increased maxBuffer to 50MB for large mesh data
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            maxBuffer: 50 * 1024 * 1024
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Heatmap command failed with status ${result.status}`);
-            console.error(`[OpenMC] stderr: ${result.stderr}`);
-            throw new Error(result.stderr || `Command failed with status ${result.status}`);
-        }
-
-        try {
-            console.log(`[OpenMC] Heatmap output length: ${result.stdout?.length || 0} characters`);
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse heatmap JSON: ${e}`);
-            console.error(`[OpenMC] Raw output (first 500 chars): ${result.stdout?.substring(0, 500)}`);
-            throw e;
-        }
+        return this.statepointService.getHeatmapSlice(statepointPath, tallyId, plane, sliceIndex, scoreIndex, nuclideIndex);
     }
 
     async getAllHeatmapSlices(
@@ -546,108 +404,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     // === Cross-Section (XS) Plotting ===
 
     async getXSData(request: any): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath,
-            'xs-plot',
-            '--reactions', request.reactions.join(',')
-        ];
-
-        // Add nuclides if provided
-        if (request.nuclides && request.nuclides.length > 0) {
-            args.push('--nuclides', request.nuclides.join(','));
-        }
-
-        // Add temperature (default 294K)
-        args.push('--temperature', (request.temperature || 294).toString());
-
-        // Add energy range or region preset
-        if (request.energyRegion) {
-            args.push('--energy-region', request.energyRegion);
-        } else if (request.energyRange) {
-            args.push('--energy-min', request.energyRange[0].toString());
-            args.push('--energy-max', request.energyRange[1].toString());
-        }
-
-        // Add cross-section path
-        if (request.crossSectionsPath) {
-            args.push('--cross-sections', request.crossSectionsPath);
-        }
-
-        // Add temperature comparison mode
-        if (request.temperatureComparison) {
-            const temps = request.temperatureComparison.temperatures.join(',');
-            args.push('--temp-comparison', temps);
-        }
-
-        // Add materials for mixed nuclide calculations
-        if (request.materials && request.materials.length > 0) {
-            args.push('--materials', JSON.stringify(request.materials));
-        }
-
-        // Add flux spectrum for reaction rate calculation
-        if (request.fluxSpectrum) {
-            args.push('--flux-spectrum', JSON.stringify(request.fluxSpectrum));
-        }
-
-        // Add library comparison mode
-        if (request.libraryComparison) {
-            args.push('--library-comparison', JSON.stringify(request.libraryComparison));
-        }
-
-        // Add uncertainty extraction flag
-        if (request.includeUncertainty) {
-            args.push('--include-uncertainty');
-        }
-
-        // Add integral quantities calculation flag
-        if (request.includeIntegrals) {
-            args.push('--include-integrals');
-        }
-
-        // Add derivative calculation flag
-        if (request.includeDerivative) {
-            args.push('--include-derivative');
-        }
-
-        // Add group structure for multigroup XS
-        if (request.groupStructure && request.groupStructure !== 'continuous') {
-            args.push('--group-structure', request.groupStructure);
-        }
-
-        // Add thermal scattering mode
-        if (request.thermalScattering) {
-            args.push('--thermal-scattering', JSON.stringify(request.thermalScattering));
-        }
-
-        console.log(`[OpenMC] Running XS plot command: ${pythonCommand} ${args.join(' ')}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            maxBuffer: 50 * 1024 * 1024,  // 50MB buffer for large derivative datasets
-            timeout: 120000  // Increased for complex calculations
-        });
-
-        // Log stderr for debugging (even on success)
-        if (result.stderr) {
-            console.log(`[OpenMC] Python stderr: ${result.stderr}`);
-        }
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] XS plot command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get XS data');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse XS data: ${e}`);
-            console.error(`[OpenMC] Raw output: ${result.stdout?.substring(0, 500)}`);
-            throw e;
-        }
+        return this.xsService.getXSData(request);
     }
 
     async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
@@ -684,147 +441,25 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'list-nuclides'];
-        if (crossSectionsPath) {
-            args.push('--cross-sections', crossSectionsPath);
-        }
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] List nuclides command failed: ${result.stderr}`);
-            return [];
-        }
-
-        try {
-            const data = JSON.parse(result.stdout);
-            return data.nuclides || [];
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse nuclides list: ${e}`);
-            return [];
-        }
+        return this.xsService.getAvailableNuclides(crossSectionsPath);
     }
 
     async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'list-thermal-materials'];
-        if (crossSectionsPath) {
-            args.push('--cross-sections', crossSectionsPath);
-        }
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] List thermal materials command failed: ${result.stderr}`);
-            return [];
-        }
-
-        try {
-            const data = JSON.parse(result.stdout);
-            return data.materials || [];
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse thermal materials list: ${e}`);
-            return [];
-        }
+        return this.xsService.getAvailableThermalMaterials(crossSectionsPath);
     }
 
     async getGroupStructures(): Promise<XSGroupStructuresResponse> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'list-group-structures'];
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 10000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] List group structures command failed: ${result.stderr}`);
-            return { structures: [], metadata: { openmc_available: false, sources: [] } };
-        }
-
-        try {
-            const data = JSON.parse(result.stdout);
-            return {
-                structures: data.structures || [],
-                metadata: data.metadata || { openmc_available: false, sources: [] }
-            };
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse group structures list: ${e}`);
-            return { structures: [], metadata: { openmc_available: false, sources: [] } };
-        }
+        return this.xsService.getGroupStructures();
     }
 
     // === Depletion/Burnup Methods ===
 
     async getDepletionSummary(filePath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'depletion-summary', filePath];
-
-        console.log(`[OpenMC] Running depletion-summary command for ${filePath}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Depletion summary command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to load depletion summary');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse depletion summary: ${e}`);
-            throw e;
-        }
+        return this.depletionService.getDepletionSummary(filePath);
     }
 
     async getDepletionMaterials(filePath: string): Promise<any[]> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'depletion-materials', filePath];
-
-        console.log(`[OpenMC] Running depletion-materials command for ${filePath}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Depletion materials command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to load depletion materials');
-        }
-
-        try {
-            const data = JSON.parse(result.stdout);
-            return data.materials || [];
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse depletion materials: ${e}`);
-            throw e;
-        }
+        return this.depletionService.getDepletionMaterials(filePath);
     }
 
     async getDepletionData(
@@ -833,70 +468,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         nuclides?: string[],
         includeActivity?: boolean
     ): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [
-            scriptPath, 'depletion-data', filePath, materialIndex.toString()
-        ];
-
-        if (nuclides && nuclides.length > 0) {
-            args.push('--nuclides', nuclides.join(','));
-        }
-
-        console.log(`[OpenMC] Running depletion-data command for material ${materialIndex}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 60000,
-            maxBuffer: 50 * 1024 * 1024  // 50MB for large depletion files
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Depletion data command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to load depletion data');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse depletion data: ${e}`);
-            throw e;
-        }
+        return this.depletionService.getDepletionData(filePath, materialIndex, nuclides, includeActivity);
     }
 
     // === Geometry Hierarchy Viewer ===
 
     async getGeometryHierarchy(filePath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'geometry', filePath];
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000,
-            maxBuffer: 10 * 1024 * 1024  // 10MB for large geometry files
-        });
-
-        // Check if stdout is empty
-        if (!result.stdout || result.stdout.trim() === '') {
-            throw new Error('Geometry parser returned empty output. The file may not be a valid OpenMC geometry file.');
-        }
-
-        // Try to parse the output as JSON (even if status is non-zero, error info is in JSON)
-        try {
-            const parsed = JSON.parse(result.stdout);
-            // If there's an error in the JSON, return it (don't throw)
-            if (parsed.error) {
-                return parsed;  // Return the error object so frontend can handle it
-            }
-            return parsed;
-        } catch (e) {
-            throw new Error('Failed to parse geometry data. The file may be corrupted or not a valid geometry file.');
-        }
+        return this.geometryService.getGeometryHierarchy(filePath);
     }
 
     async visualizeGeometry(
@@ -980,62 +558,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     // === Material Explorer ===
 
     async getMaterials(filePath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'materials', filePath];
-
-        console.log(`[OpenMC] Running materials command for ${filePath}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000,
-            maxBuffer: 10 * 1024 * 1024  // 10MB for large materials files
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Materials command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to load materials');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse materials data: ${e}`);
-            throw e;
-        }
+        return this.geometryService.getMaterials(filePath);
     }
-    
-    /**
-     * Get mapping of materials to cells that use them.
-     */
+
     async getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'material-cell-linkage', materialsPath, geometryPath];
-
-        console.log(`[OpenMC] Running material-cell-linkage command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000,
-            maxBuffer: 10 * 1024 * 1024
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Material-cell linkage command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get material-cell linkage');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse material-cell linkage: ${e}`);
-            throw e;
-        }
+        return this.geometryService.getMaterialCellLinkage(materialsPath, geometryPath);
     }
 
     async mixMaterials(request: any): Promise<any> {
@@ -1138,119 +665,19 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     // === Statepoint Viewer ===
 
     async getStatepointFullInfo(statepointPath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'statepoint-info', statepointPath];
-
-        console.log(`[OpenMC] Running statepoint-info command for ${statepointPath}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 120000,
-            maxBuffer: 500 * 1024 * 1024  // 500MB for large statepoints
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Statepoint info command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get statepoint info');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse statepoint info: ${e}`);
-            throw e;
-        }
+        return this.statepointService.getStatepointFullInfo(statepointPath);
     }
 
     async getKGenerationData(statepointPath: string): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'k-generation', statepointPath];
-
-        console.log(`[OpenMC] Running k-generation command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] K-generation command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get k-generation data');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse k-generation data: ${e}`);
-            throw e;
-        }
+        return this.statepointService.getKGenerationData(statepointPath);
     }
 
     async getSourceData(statepointPath: string, maxParticles?: number): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'source-data', statepointPath];
-        if (maxParticles) {
-            args.push('--max-particles', maxParticles.toString());
-        }
-
-        console.log(`[OpenMC] Running source-data command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 120000,
-            maxBuffer: 200 * 1024 * 1024  // 200MB for source data
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Source data command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get source data');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse source data: ${e}`);
-            throw e;
-        }
+        return this.statepointService.getSourceData(statepointPath, maxParticles);
     }
 
     async getEnergyDistribution(statepointPath: string, nBins?: number): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args = [scriptPath, 'energy-distribution', statepointPath];
-        if (nBins) {
-            args.push('--bins', nBins.toString());
-        }
-
-        console.log(`[OpenMC] Running energy-distribution command`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Energy distribution command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get energy distribution');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse energy distribution: ${e}`);
-            throw e;
-        }
+        return this.statepointService.getEnergyDistribution(statepointPath, nBins);
     }
 
     async visualizeStatepointSource(statepointPath: string): Promise<any> {
@@ -1291,79 +718,11 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     // === Geometry Overlap Checker ===
 
     async checkOverlaps(request: any): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args: string[] = [
-            scriptPath,
-            'check-overlaps',
-            request.geometryPath,
-            '--samples', (request.samplePoints || 100000).toString(),
-            '--tolerance', (request.tolerance || 1e-6).toString()
-        ];
-
-        if (request.bounds) {
-            args.push('--bounds', JSON.stringify(request.bounds));
-        }
-
-        if (request.parallel) {
-            args.push('--parallel');
-        }
-
-        console.log(`[OpenMC] Running overlap check on ${request.geometryPath}`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 300000,  // 5 minute timeout for large geometries
-            maxBuffer: 50 * 1024 * 1024  // 50MB for large result sets
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Overlap check command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to check overlaps');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse overlap results: ${e}`);
-            throw e;
-        }
+        return this.geometryService.checkOverlaps(request);
     }
 
     async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {
-        const pythonInfo = await this.detectPythonCommand();
-        const pythonCommand = pythonInfo.command;
-        const scriptPath = this.findOpenMCScript();
-
-        const args: string[] = [
-            scriptPath,
-            'overlap-viz',
-            geometryPath,
-            '--overlaps', JSON.stringify(overlaps),
-            '--marker-size', '1.0'
-        ];
-
-        console.log(`[OpenMC] Getting overlap visualization data`);
-
-        const result = spawnSync(pythonCommand, args, {
-            encoding: 'utf8',
-            timeout: 30000,
-            maxBuffer: 10 * 1024 * 1024
-        });
-
-        if (result.status !== 0) {
-            console.error(`[OpenMC] Overlap viz command failed: ${result.stderr}`);
-            throw new Error(result.stderr || 'Failed to get overlap visualization');
-        }
-
-        try {
-            return JSON.parse(result.stdout);
-        } catch (e) {
-            console.error(`[OpenMC] Failed to parse overlap viz data: ${e}`);
-            throw e;
-        }
+        return this.geometryService.getOverlapVisualization(geometryPath, overlaps);
     }
 
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {

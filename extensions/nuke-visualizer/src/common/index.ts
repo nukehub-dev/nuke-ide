@@ -14,8 +14,5 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-// TEMPORARY SHIM: Re-exports from split protocol files.
-// TODO: Remove this file in Phase 5. All consumers should import from
-//       'nuke-visualizer/lib/common' or the specific protocol file directly.
 export * from './base-visualizer-protocol';
 export * from './openmc-protocol';

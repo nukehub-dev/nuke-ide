@@ -22,8 +22,8 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { OpenMCService } from './openmc-service';
-import { OpenMCOverlap } from '../../common/visualizer-protocol';
+import { OpenMCService } from '../../openmc-service';
+import { OpenMCOverlap } from '../../../../../common/visualizer-protocol';
 import './openmc-overlap-widget.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 

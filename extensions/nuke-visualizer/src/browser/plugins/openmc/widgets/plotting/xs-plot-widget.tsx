@@ -28,9 +28,9 @@ import {
     COMMON_XS_REACTIONS,
     XS_ENERGY_REGIONS,
     XSEnergyRegion
-} from '../../common/visualizer-protocol';
-import { PlotlyComponent } from '../plotly/plotly-component';
-import { OpenMCService } from './openmc-service';
+} from '../../../../../common/visualizer-protocol';
+import { PlotlyComponent } from '../../../../plotly/plotly-component';
+import { OpenMCService } from '../../openmc-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';

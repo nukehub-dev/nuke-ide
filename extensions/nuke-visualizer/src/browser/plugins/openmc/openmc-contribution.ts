@@ -15,7 +15,7 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { Command, CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
+import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common';
 import { 
     QuickInputService, 
@@ -40,110 +40,24 @@ import { WidgetManager } from '@theia/core/lib/browser';
 import { NavigatorDiff } from '@theia/navigator/lib/browser/navigator-diff';
 import { DiffUris } from '@theia/core/lib/browser/diff-uris';
 import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
-import { OpenMCTallySelector } from './tally-selector';
-import { OpenMCTallyTreeWidget, TallySelection } from './openmc-tally-tree';
-import { OpenMCPlotWidget } from './openmc-plot-widget';
-import { OpenMCHeatmapWidget } from './openmc-heatmap-widget';
-import { XSPlotWidget } from './xs-plot-widget';
-import { OpenMCDepletionWidget } from './openmc-depletion-widget';
-import { OpenMCDepletionCompareWidget } from './openmc-depletion-compare-widget';
-import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from './openmc-geometry-tree';
-import { OpenMCGeometry3DWidget } from './openmc-geometry-3d-widget';
-import { OpenMCMaterialExplorerWidget } from './openmc-material-explorer';
-import { OpenMCOverlapWidget } from './openmc-overlap-widget';
-import { OpenMCStatepointViewerWidget, StatepointTallySelection } from './statepoint-viewer';
-import { PlotlyService } from '../plotly/plotly-service';
-import { PlotlyUtils } from '../plotly/plotly-utils';
-import { PlotlyFigure } from '../../common/visualizer-protocol';
-import { NukeVisualizerMenus } from '../visualizer-contribution';
+import { OpenMCTallySelector } from './widgets/statepoint/tally-selector';
+import { OpenMCTallyTreeWidget, TallySelection } from './widgets/statepoint/openmc-tally-tree';
+import { OpenMCPlotWidget } from './widgets/plotting/openmc-plot-widget';
+import { OpenMCHeatmapWidget } from './widgets/plotting/openmc-heatmap-widget';
+import { XSPlotWidget } from './widgets/plotting/xs-plot-widget';
+import { OpenMCDepletionWidget } from './widgets/depletion/openmc-depletion-widget';
+import { OpenMCDepletionCompareWidget } from './widgets/depletion/openmc-depletion-compare-widget';
+import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from './widgets/geometry/openmc-geometry-tree';
+import { OpenMCGeometry3DWidget } from './widgets/geometry/openmc-geometry-3d-widget';
+import { OpenMCMaterialExplorerWidget } from './widgets/materials/openmc-material-explorer';
+import { OpenMCOverlapWidget } from './widgets/geometry/openmc-overlap-widget';
+import { OpenMCStatepointViewerWidget, StatepointTallySelection } from './widgets/statepoint/statepoint-viewer';
+import { PlotlyService } from '../../plotly/plotly-service';
+import { PlotlyUtils } from '../../plotly/plotly-utils';
+import { PlotlyFigure } from '../../../common/visualizer-protocol';
+import { NukeVisualizerMenus } from '../../visualizer-contribution';
+import { OpenMCCommands } from './commands';
 
-export namespace OpenMCCommands {
-    export const OPENMC_CATEGORY = 'OpenMC';
-    
-    export const LOAD_STATEPOINT: Command = {
-        id: 'openmc.load-statepoint',
-        category: OPENMC_CATEGORY,
-        label: 'View Statepoint...',
-        iconClass: 'codicon codicon-database'
-    };
-    
-    export const VISUALIZE_TALLY: Command = {
-        id: 'openmc.visualize-tally',
-        category: OPENMC_CATEGORY,
-        label: 'Visualize Tally...',
-        iconClass: 'codicon codicon-graph'
-    };
-    
-    export const VISUALIZE_SOURCE: Command = {
-        id: 'openmc.visualize-source',
-        category: OPENMC_CATEGORY,
-        label: 'Visualize Source Distribution...',
-        iconClass: 'codicon codicon-activate-breakpoints'
-    };
-    
-    export const OVERLAY_TALLY_ON_GEOMETRY: Command = {
-        id: 'openmc.overlay-tally',
-        category: OPENMC_CATEGORY,
-        label: 'Overlay Tally on Geometry...',
-        iconClass: 'codicon codicon-layers'
-    };
-    
-    export const SHOW_TALLY_INFO: Command = {
-        id: 'openmc.show-tally-info',
-        category: OPENMC_CATEGORY,
-        label: 'Show Tally Information',
-        iconClass: 'codicon codicon-info'
-    };
-    
-    export const PLOT_CROSS_SECTIONS: Command = {
-        id: 'openmc.plot-xs',
-        category: OPENMC_CATEGORY,
-        label: 'Plot Cross-Sections',
-        iconClass: 'codicon codicon-graph-line'
-    };
-    
-    export const OPEN_DEPLETION_VIEWER: Command = {
-        id: 'openmc.open-depletion',
-        category: OPENMC_CATEGORY,
-        label: 'View Depletion Results...',
-        iconClass: 'codicon codicon-flame'
-    };
-    
-    export const COMPARE_DEPLETION: Command = {
-        id: 'openmc.compare-depletion',
-        category: OPENMC_CATEGORY,
-        label: 'Compare Depletion Results...',
-        iconClass: 'codicon codicon-git-compare'
-    };
-    
-    export const COMPARE_DEPLETION_WITH: Command = {
-        id: 'openmc.compare-depletion-with',
-        category: OPENMC_CATEGORY,
-        label: 'Compare Depletion Results',
-        iconClass: 'codicon codicon-git-compare'
-    };
-    
-    export const VIEW_GEOMETRY_HIERARCHY: Command = {
-        id: 'openmc.view-geometry-hierarchy',
-        category: OPENMC_CATEGORY,
-        label: 'View Geometry Hierarchy...',
-        iconClass: 'codicon codicon-repo'
-    };
-    
-    export const VIEW_MATERIALS: Command = {
-        id: 'openmc.view-materials',
-        category: OPENMC_CATEGORY,
-        label: 'View Materials...',
-        iconClass: 'codicon codicon-symbol-variable'
-    };
-    
-    export const CHECK_OVERLAPS: Command = {
-        id: 'openmc.check-overlaps',
-        category: OPENMC_CATEGORY,
-        label: 'Check Geometry Overlaps...',
-        iconClass: 'codicon codicon-search'
-    };
-}
 
 @injectable()
 export class OpenMCContribution implements FrontendApplicationContribution, OpenHandler {
@@ -372,53 +286,22 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     registerCommands(registry: CommandRegistry): void {
-        registry.registerCommand(OpenMCCommands.LOAD_STATEPOINT, {
-            execute: () => this.loadStatepointCommand()
-        });
-
-        registry.registerCommand(OpenMCCommands.VISUALIZE_TALLY, {
-            execute: () => this.visualizeTallyCommand(),
-            isEnabled: () => this.openmcService.getCurrentStatepoint() !== null
-        });
-
-        registry.registerCommand(OpenMCCommands.VISUALIZE_SOURCE, {
-            execute: () => this.visualizeSourceCommand()
-        });
-
-        registry.registerCommand(OpenMCCommands.OVERLAY_TALLY_ON_GEOMETRY, {
-            execute: () => this.overlayTallyCommand()
-        });
-
-        registry.registerCommand(OpenMCCommands.SHOW_TALLY_INFO, {
-            execute: () => this.showTallyInfoCommand(),
-            isEnabled: () => this.openmcService.getCurrentStatepoint() !== null
-        });
-
-        registry.registerCommand(OpenMCCommands.PLOT_CROSS_SECTIONS, {
-            execute: () => this.plotXSCommand()
-        });
-        
-        registry.registerCommand(OpenMCCommands.OPEN_DEPLETION_VIEWER, {
-            execute: () => this.openDepletionViewerCommand()
-        });
-        
-        registry.registerCommand(OpenMCCommands.COMPARE_DEPLETION, {
-            execute: () => this.compareDepletionCommand()
-        });
-        
+        // NOTE: Most OpenMC commands are now registered by dedicated CommandContribution
+        // classes (OpenMCStatepointCommands, OpenMCGeometryCommands, etc.).
+        // The complex COMPARE_DEPLETION_WITH handler remains here until it can be safely extracted.
         registry.registerCommand(OpenMCCommands.COMPARE_DEPLETION_WITH, {
             execute: async () => {
                 const selection = this.selectionService.selection;
-                
+
                 // Handle multiple selection (exactly 2 files)
                 if (Array.isArray(selection) && selection.length === 2) {
                     const uriA = selection[0] instanceof URI ? selection[0] : (selection[0] as any).uri;
                     const uriB = selection[1] instanceof URI ? selection[1] : (selection[1] as any).uri;
-                    
+
                     if (uriA && uriB) {
                         const isDepletionA = uriA.path.base.includes('depletion') && uriA.path.base.endsWith('.h5');
                         const isDepletionB = uriB.path.base.includes('depletion') && uriB.path.base.endsWith('.h5');
-                        
+
                         if (isDepletionA && isDepletionB) {
                             try {
                                 const progress = await this.messageService.showProgress({
@@ -445,7 +328,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         }
                     }
                 }
-                
+
                 // Fallback to single selection behavior
                 let uri: URI | undefined;
                 if (Array.isArray(selection) && selection.length > 0) {
@@ -455,7 +338,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 } else if (selection && 'uri' in selection) {
                     uri = (selection as any).uri;
                 }
-                
+
                 if (uri) {
                     this.compareDepletionWithCommand(uri);
                 } else {
@@ -463,88 +346,76 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 }
             }
         });
-        
-        registry.registerCommand(OpenMCCommands.VIEW_GEOMETRY_HIERARCHY, {
-            execute: () => this.viewGeometryHierarchyCommand()
-        });
-        
-        registry.registerCommand(OpenMCCommands.VIEW_MATERIALS, {
-            execute: () => this.viewMaterialsCommand()
-        });
-        
-        registry.registerCommand(OpenMCCommands.CHECK_OVERLAPS, {
-            execute: () => this.checkOverlapsCommand()
-        });
     }
 
     registerMenus(registry: MenuModelRegistry): void {
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER, 'Nuke Visualizer');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC, 'OpenMC');
 
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_STATEPOINT, 'Statepoint');
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_TALLY, 'Tally');
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_DEPLETION, 'Depletion');
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_GEOMETRY, 'Geometry');
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_MATERIAL, 'Material');
-        registry.registerSubmenu(NukeVisualizerMenus.VISUALIZER_PLOT, 'Cross Sections');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_STATEPOINT, 'Statepoint');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_TALLY, 'Tally');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_DEPLETION, 'Depletion');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_GEOMETRY, 'Geometry');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_MATERIAL, 'Materials');
+        registry.registerSubmenu(NukeVisualizerMenus.OPENMC_PLOT, 'Plotting');
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_STATEPOINT, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_STATEPOINT, {
             commandId: OpenMCCommands.LOAD_STATEPOINT.id,
             order: 'a'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_TALLY, {
             commandId: OpenMCCommands.VISUALIZE_TALLY.id,
             order: 'a'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_TALLY, {
             commandId: OpenMCCommands.VISUALIZE_SOURCE.id,
             order: 'b'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_TALLY, {
             commandId: OpenMCCommands.OVERLAY_TALLY_ON_GEOMETRY.id,
             order: 'c'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_TALLY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_TALLY, {
             commandId: OpenMCCommands.SHOW_TALLY_INFO.id,
             order: 'd'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_DEPLETION, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_DEPLETION, {
             commandId: OpenMCCommands.OPEN_DEPLETION_VIEWER.id,
             order: 'a'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_DEPLETION, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_DEPLETION, {
             commandId: OpenMCCommands.COMPARE_DEPLETION.id,
             order: 'b'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_GEOMETRY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_GEOMETRY, {
             commandId: OpenMCCommands.VIEW_GEOMETRY_HIERARCHY.id,
             order: 'a'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_GEOMETRY, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_GEOMETRY, {
             commandId: OpenMCCommands.CHECK_OVERLAPS.id,
             order: 'b'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_MATERIAL, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_MATERIAL, {
             commandId: OpenMCCommands.VIEW_MATERIALS.id,
             order: 'a'
         });
 
-        registry.registerMenuAction(NukeVisualizerMenus.VISUALIZER_PLOT, {
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_PLOT, {
             commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
             order: 'a'
         });
 
             }
 
-    private async loadStatepointCommand(): Promise<void> {
+    async loadStatepointCommand(): Promise<void> {
         let files = await this.getStatepointFiles();
         
         const options: QuickPickValue<string>[] = [
@@ -587,7 +458,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async visualizeTallyCommand(): Promise<void> {
+    async visualizeTallyCommand(): Promise<void> {
         const statepoint = this.openmcService.getCurrentStatepoint();
         if (!statepoint) {
             return;
@@ -596,7 +467,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         await this.showTallyTree(new URI(statepoint.file));
     }
 
-    private async visualizeSourceCommand(): Promise<void> {
+    async visualizeSourceCommand(): Promise<void> {
         // Get source files from workspace
         const files = await this.getSourceFiles();
         
@@ -639,7 +510,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async overlayTallyCommand(): Promise<void> {
+    async overlayTallyCommand(): Promise<void> {
         // Get geometry files from workspace (both DAGMC and geometry.xml)
         const geometryFiles = await this.getGeometryFiles();
         
@@ -738,7 +609,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         await this.showTallySelectorForOverlay(geometryUri, statepointUri);
     }
 
-    private async showTallyInfoCommand(): Promise<void> {
+    async showTallyInfoCommand(): Promise<void> {
         const statepoint = this.openmcService.getCurrentStatepoint();
         const tallies = this.openmcService.getCurrentTallies();
 
@@ -1404,7 +1275,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         return files;
     }
 
-    private async openDepletionViewerCommand(): Promise<void> {
+    async openDepletionViewerCommand(): Promise<void> {
         // Find depletion results files in workspace
         const files = await this.getDepletionFiles();
         
@@ -1465,7 +1336,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async compareDepletionCommand(): Promise<void> {
+    async compareDepletionCommand(): Promise<void> {
         // Get depletion files from workspace
         const workspaceFiles = await this.getDepletionFiles();
         
@@ -1568,7 +1439,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async compareDepletionWithCommand(uriA: URI): Promise<void> {
+    async compareDepletionWithCommand(uriA: URI): Promise<void> {
         // Use the provided file as Case A
         const labelA = uriA.path.base;
         
@@ -1753,7 +1624,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async viewGeometryHierarchyCommand(): Promise<void> {
+    async viewGeometryHierarchyCommand(): Promise<void> {
         // Open file dialog to select geometry.xml or model directory
         const fileUri = await this.fileDialogService.showOpenDialog({
             title: 'Select OpenMC Geometry File',
@@ -1769,7 +1640,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         await this.openGeometryHierarchy(uri);
     }
     
-    private async viewMaterialsCommand(): Promise<void> {
+    async viewMaterialsCommand(): Promise<void> {
         // Open file dialog to select materials.xml
         const fileUri = await this.fileDialogService.showOpenDialog({
             title: 'Select OpenMC Materials File',
@@ -1806,7 +1677,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async checkOverlapsCommand(): Promise<void> {
+    async checkOverlapsCommand(): Promise<void> {
         // Open file dialog to select geometry file
         const fileUri = await this.fileDialogService.showOpenDialog({
             title: 'Select OpenMC Geometry File',
@@ -1888,7 +1759,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         return files;
     }
 
-    private async plotXSCommand(): Promise<void> {
+    async plotXSCommand(): Promise<void> {
         const widget = await this.getOrCreateXSPlotWidget();
         
         if (!widget.isAttached) {
