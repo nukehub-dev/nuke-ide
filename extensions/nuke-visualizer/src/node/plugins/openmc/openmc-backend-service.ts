@@ -40,6 +40,19 @@ interface OpenMCProcess {
     filePath: string;
 }
 
+/**
+ * Node.js backend implementation of the OpenMC visualization RPC service.
+ *
+ * Spawns Python processes running `openmc_server.py` for 3D tally/geometry
+ * visualization, and delegates data queries to specialized sub-services:
+ * - {@link OpenMCStatepointService} — statepoint and tally data
+ * - {@link OpenMCGeometryService} — geometry hierarchy and materials
+ * - {@link OpenMCXSService} — cross-section plotting
+ * - {@link OpenMCDepletionService} — depletion/burnup analysis
+ *
+ * @see src/common/openmc-protocol.ts for the RPC interface
+ * @see src/browser/plugins/openmc/openmc-service.ts for the frontend consumer
+ */
 @injectable()
 export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private processes: Map<number, OpenMCProcess> = new Map();

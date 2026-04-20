@@ -43,6 +43,8 @@ export class PythonCommandHelper {
 
     /**
      * Sync Python configuration with nuke-core before detection.
+     * Ensures that subsequent `detectPython` calls use the specified
+     * interpreter or conda environment.
      */
     async syncConfig(config?: PythonConfig): Promise<void> {
         if (config?.pythonPath || config?.condaEnv) {
@@ -55,9 +57,14 @@ export class PythonCommandHelper {
 
     /**
      * Detect a Python command that satisfies the given package requirements.
-     * Delegates to nuke-core's smart detection with fallback.
+     * Delegates to `nuke-core` for smart detection across conda, venv, and system paths.
      *
-     * Defaults to OpenMC requirements if none specified.
+     * Throws if no suitable Python is found. The error message suggests
+     * configuring the environment in Settings → Nuke Utils.
+     *
+     * @param requirements Package requirements to satisfy (defaults to OpenMC requirements)
+     * @param autoDetectEnvs Preferred conda/virtualenv names to check first
+     * @returns Python command path and optional warning
      */
     async detectPython(
         requirements: PackageDependency[] = OPENMC_REQUIREMENTS,
@@ -83,8 +90,10 @@ export class PythonCommandHelper {
     }
 
     /**
-     * Detect Python for base visualizer operations (VTK/Paraview).
-     * Uses BASE_VISUALIZER_REQUIREMENTS by default.
+     * Detect Python for base visualizer operations (VTK/Paraview/Trame).
+     * Uses {@link BASE_VISUALIZER_REQUIREMENTS} by default.
+     *
+     * @param autoDetectEnvs Preferred environment names
      */
     async detectPythonForBaseVisualizer(
         autoDetectEnvs?: string[]
@@ -94,7 +103,11 @@ export class PythonCommandHelper {
 
     /**
      * Check if the given Python command has the required packages installed.
-     * Delegates to nuke-core's checkDependencies.
+     * Delegates to `nuke-core`'s dependency checker.
+     *
+     * @param pythonCommand Path to the Python executable to check
+     * @param requirements Package requirements (defaults to OpenMC requirements)
+     * @returns Availability, missing packages, and detected versions
      */
     async checkPackages(
         pythonCommand: string,
@@ -111,6 +124,11 @@ export class PythonCommandHelper {
     /**
      * Execute a Python script with the given arguments.
      * Automatically detects Python with the specified requirements before running.
+     *
+     * @param scriptPath Absolute path to the Python script
+     * @param args Command-line arguments passed to the script
+     * @param options Execution options (timeout, buffer size, requirements)
+     * @returns stdout, stderr, and exit status
      */
     async executeScript(
         scriptPath: string,
@@ -139,6 +157,12 @@ export class PythonCommandHelper {
     /**
      * Execute a Python script and parse the stdout as JSON.
      * Throws if the script exits non-zero or stdout is not valid JSON.
+     *
+     * @param scriptPath Absolute path to the Python script
+     * @param args Command-line arguments passed to the script
+     * @param options Execution options (timeout, requirements)
+     * @returns Parsed JSON output cast to type T
+     * @throws Error if script fails or output is not valid JSON
      */
     async executeScriptJson<T>(
         scriptPath: string,
@@ -164,7 +188,11 @@ export class PythonCommandHelper {
     }
 
     /**
-     * Find the absolute path to a Python script within the extension's python/ directory.
+     * Find the absolute path to a Python script within the extension's `python/` directory.
+     * Searches installed `lib/python/`, development `src/python/`, and fallback paths.
+     *
+     * @param scriptName Name of the script file (e.g., `'visualizer_app.py'`)
+     * @returns Absolute path to the script
      */
     findScript(scriptName: string): string {
         const extensionPath = this.getExtensionPath();
@@ -192,6 +220,9 @@ export class PythonCommandHelper {
 
     /**
      * Get the root path of the nuke-visualizer extension.
+     * Used internally by {@link findScript}.
+     *
+     * @returns Absolute path to the extension root
      */
     getExtensionPath(): string {
         try {

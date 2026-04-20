@@ -34,6 +34,16 @@ import {
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from './services/python-command-helper';
 
+/**
+ * Node.js backend implementation of the base visualizer RPC service.
+ *
+ * Spawns Python processes running `visualizer_app.py` (Trame/ParaView)
+ * to serve interactive 3D visualizations. Manages process lifecycle,
+ * port allocation, DAGMC conversion, and log streaming.
+ *
+ * @see src/common/base-visualizer-protocol.ts for the RPC interface
+ * @see src/browser/visualizer-widget.tsx for the frontend consumer
+ */
 @injectable()
 export class VisualizerBackendServiceImpl implements VisualizerBackendService, BackendApplicationContribution {
     private processes: Map<number, RawProcess> = new Map();

@@ -129,58 +129,94 @@ export interface ServerInfo {
     warning?: string;
 }
 
+/**
+ * Backend RPC service for the base 3D mesh/DAGMC visualizer.
+ *
+ * Implemented by `VisualizerBackendServiceImpl` in the Node backend.
+ * Frontend accesses it via WebSocket RPC proxy bound to {@link VISUALIZER_BACKEND_PATH}.
+ *
+ * @see src/node/visualizer-backend-service.ts
+ */
 export interface VisualizerBackendService {
     // === Server Management ===
 
-    /** Start a new visualizer server for the given file
-     * @param filePath Path to file to visualize
-     * @param config Python configuration
-     * @param theme UI theme ('dark' or 'light')
+    /**
+     * Start a new Trame visualizer server for the given file.
+     * Spawns a Python process running `python/visualizer_app.py`.
+     *
+     * @param filePath Path to file to visualize (VTK, H5M, STL, etc.)
+     * @param config Optional Python environment override
+     * @param theme UI theme — 'dark' or 'light', propagated to the Trame app
+     * @returns Server info including allocated port and URL
      */
     startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
 
-    /** Stop the visualizer server on the given port */
+    /**
+     * Stop the visualizer server running on the given port.
+     * Kills the associated Python process and frees the port.
+     */
     stopServer(port: number): Promise<void>;
 
-    /** Convert DAGMC .h5m file to VTK format */
     /**
-     * Convert DAGMC H5M file to VTK for visualization.
+     * Convert a DAGMC H5M file to VTK format for visualization.
+     * Runs `python/dagmc_converter.py` via MOAB/PyDAGMC.
+     *
      * @param filePath Path to the H5M file
      * @param volumeId Optional volume ID to extract only that volume
      * @returns Path to the generated VTK file
      */
     convertDagmc(filePath: string, volumeId?: number): Promise<string>;
 
-    /** Check Python environment for dependencies */
+    /**
+     * Check the configured Python environment for base visualizer dependencies.
+     * Reports versions of trame, paraview, and moab if available.
+     */
     checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
 
-    /** Set the client for receiving log messages */
+    /**
+     * Set the client for receiving log messages and server lifecycle events.
+     * Called by the RPC framework when a frontend connects.
+     */
     setClient(client: VisualizerClient): void;
 
-    // === Visualization Controls ===
+    // === Visualization Controls (Future API) ===
 
-    /** Get current visualization state from a running server */
+    /** Get current visualization state from a running server. Placeholder for external control API. */
     getVisualizationState(port: number): Promise<VisualizationState>;
 
-    /** Update visualization state (opacity, representation, etc.) */
+    /** Update visualization state (opacity, representation, etc.). Placeholder for external control API. */
     updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
 
-    /** Reset camera to default position */
+    /** Reset camera to default position. Placeholder for external control API. */
     resetCamera(port: number): Promise<boolean>;
 
-    /** Set camera to a preset view */
+    /** Set camera to a preset view. Placeholder for external control API. */
     setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
 
     // === Export ===
 
-    /** Capture screenshot of current view */
+    /** Capture screenshot of current view. Placeholder for external control API. */
     captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
 }
 
+/**
+ * Client-side interface for receiving log streams and lifecycle events
+ * from the backend. The frontend provides an implementation of this
+ * interface when creating the RPC proxy.
+ *
+ * @see src/browser/visualizer-frontend-module.ts for the client implementation
+ */
 export interface VisualizerClient {
+    /** Log a standard message (stdout from Python). */
     log(message: string): void;
+
+    /** Log an error message (stderr from Python or backend failure). */
     error(message: string): void;
+
+    /** Show a warning toast to the user. */
     warn(message: string): void;
+
+    /** Called when a visualization server process exits. */
     onServerStop(port: number): void;
 }
 

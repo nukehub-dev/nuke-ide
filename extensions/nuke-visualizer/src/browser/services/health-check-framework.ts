@@ -5,10 +5,23 @@
 // *****************************************************************************
 
 /**
- * Plugin-Agnostic Health Check Framework
+ * Plugin-agnostic health check framework for nuke-visualizer.
  *
- * Allows each visualization plugin to register its package requirements.
- * Provides unified health checks across all registered plugins.
+ * Each visualization plugin registers its {@link PackageDependency} requirements
+ * during initialization. The framework then provides unified health checks
+ * across all registered plugins by delegating to `NukeCoreService`.
+ *
+ * ### Usage
+ * ```typescript
+ * this.healthFramework.registerHealthRequirements({
+ *     id: 'my-plugin',
+ *     name: 'My Plugin',
+ *     packages: [{ name: 'my-package', required: true }]
+ * });
+ * const report = await this.healthFramework.runAllHealthChecks();
+ * ```
+ *
+ * @see src/browser/visualizer-contribution.ts for health check UI integration
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
