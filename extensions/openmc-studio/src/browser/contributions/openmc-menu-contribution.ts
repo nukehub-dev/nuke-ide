@@ -36,8 +36,8 @@ export namespace OpenMCMenus {
     export const OPENMC_SIMULATION = [...OPENMC, '2_simulation'];
     export const OPENMC_GEOMETRY = [...OPENMC, '3_geometry'];
     export const OPENMC_XML = [...OPENMC, '4_xml'];
-    export const OPENMC_ENVIRONMENT = [...OPENMC, '5_environment'];
     export const OPENMC_ADVANCED = [...OPENMC, '6_advanced'];
+    export const OPENMC_ENVIRONMENT = [...OPENMC, 'z_environment'];
 }
 
 @injectable()
@@ -154,33 +154,18 @@ export class OpenMCMenuContribution implements MenuContribution {
     private registerEnvironmentMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
             commandId: OpenMCEnvironmentCommands.CHECK_HEALTH.id,
-            label: 'Check Environment Health',
+            label: 'Run Health Check',
             order: 'a'
-        });
-        menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
-            commandId: OpenMCEnvironmentCommands.SWITCH_ENVIRONMENT.id,
-            label: 'Switch Environment',
-            order: 'b'
-        });
-        menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
-            commandId: OpenMCEnvironmentCommands.REFRESH_ENVIRONMENT.id,
-            label: 'Refresh Status',
-            order: 'c'
         });
         menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
             commandId: OpenMCEnvironmentCommands.INSTALL_OPENMC.id,
             label: 'Install OpenMC',
-            order: 'd'
+            order: 'b'
         });
         menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
             commandId: OpenMCEnvironmentCommands.INSTALL_DAGMC.id,
             label: 'Install DAGMC Tools',
-            order: 'e'
-        });
-        menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
-            commandId: OpenMCEnvironmentCommands.SHOW_DIAGNOSTICS.id,
-            label: 'Show Diagnostics',
-            order: 'f'
+            order: 'c'
         });
     }
 

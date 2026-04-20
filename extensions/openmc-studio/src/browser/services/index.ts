@@ -17,3 +17,4 @@
 export * from './openmc-environment-service';
 export * from './openmc-health-service';
 export * from './openmc-installer-service';
+export * from './openmc-package-metadata';

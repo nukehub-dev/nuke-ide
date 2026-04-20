@@ -18,8 +18,11 @@ This guide covers the most common issues and how to fix them.
    conda create -n nuke-env -c conda-forge openmc paraview trame h5py numpy
    conda activate nuke-env
    ```
-3. **Run the health check** (`Tools → Visualizer → Run Health Check`) and follow the suggested install commands.
-4. Check the **Nuke Visualizer** output channel for the exact missing packages.
+3. **Run the health check** (`Tools → Visualizer → Environment → Run Health Check`) and follow the suggested install commands.
+4. Or use the **Environment** submenu to install missing packages directly:
+   - `Install Base Visualizer Dependencies`
+   - `Install OpenMC Dependencies`
+5. Check the **Nuke Visualizer** output channel for the exact missing packages.
 
 ---
 
@@ -83,7 +86,7 @@ Health checks verify the **currently configured** environment, not fallback envi
 **Fix:**
 1. Go to `Settings → Nuke Utils`.
 2. Switch to the correct Python path / conda environment.
-3. Re-run the health check.
+3. Re-run the health check (`Tools → Visualizer → Environment → Run Health Check`).
 
 ---
 

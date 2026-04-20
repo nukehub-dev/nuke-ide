@@ -216,5 +216,5 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 export { OpenMCStudioService } from './openmc-studio-service';
 export { OpenMCStateManager } from './openmc-state-manager';
 export { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from './services';
-export { OpenMCHealthService, HealthCheckResult, HealthCheckIssue } from './services';
+export { OpenMCHealthService, HealthCheckResult, HealthCheckIssue, HealthCheckItem } from './services';
 export { OpenMCInstallerService, InstallOption, InstallResult } from './services';

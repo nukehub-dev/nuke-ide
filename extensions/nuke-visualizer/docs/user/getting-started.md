@@ -50,12 +50,18 @@ The visualizer will automatically:
 Before visualizing anything, verify your environment:
 
 1. Open the **Command Palette** (`Ctrl+Shift+P` or `F1`).
-2. Run **"Visualizer: Run Health Check"** (or go to `Tools → Visualizer → Run Health Check`).
+2. Run **"Visualizer: Run Health Check"** (or go to `Tools → Visualizer → Environment → Run Health Check`).
 3. Check the **"Nuke Visualizer"** output channel for results:
    - ✓ Green checks = ready to go
    - ✗ Red crosses = missing packages (install instructions shown)
 
-![Health Check](images/health-check.png)
+
+### Install Missing Packages from the Menu
+
+If the health check reports missing packages, you can install them directly:
+
+- `Tools → Visualizer → Environment → Install Base Visualizer Dependencies`
+- `Tools → Visualizer → Environment → Install OpenMC Dependencies`
 
 ---
 

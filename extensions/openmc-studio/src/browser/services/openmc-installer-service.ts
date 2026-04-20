@@ -29,6 +29,7 @@ import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { OpenMCEnvironmentService, OPENMC_EXTRA_INDEX_URL } from './openmc-environment-service';
+import { getOpenMCHealthPackages } from './openmc-package-metadata';
 
 export interface InstallOption {
     id: string;
@@ -115,6 +116,7 @@ export class OpenMCInstallerService {
 
     /**
      * Check which packages are missing from the current environment.
+     * Uses shared package metadata so suggestions stay consistent with health checks.
      */
     async checkMissingPackages(packages: string[]): Promise<string[]> {
         const pythonCommand = await this.envService.getPythonCommand();
@@ -122,11 +124,13 @@ export class OpenMCInstallerService {
             return packages;
         }
 
+        const healthPackages = getOpenMCHealthPackages();
+        const toCheck = packages
+            .map(name => healthPackages.find(p => p.name === name) || { name, required: true })
+            .filter((p): p is NonNullable<typeof p> => !!p);
+
         try {
-            const depCheck = await this.nukeCore.checkDependencies(
-                packages.map(p => ({ name: p, required: true })),
-                pythonCommand
-            );
+            const depCheck = await this.nukeCore.checkDependencies(toCheck, pythonCommand);
             return depCheck.missing;
         } catch {
             return packages;

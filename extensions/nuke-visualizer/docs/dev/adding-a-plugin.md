@@ -496,7 +496,7 @@ Use these to invalidate cached data when the environment changes.
 
 ### "Python not found" when opening a file
 
-1. Run **Tools → Visualizer → Run Health Check**
+1. Run **Tools → Visualizer → Environment → Run Health Check**
 2. Install missing packages using the suggested commands
 3. Ensure your plugin's `PackageDependency[]` has correct metadata (`condaOnly`, `extraIndexUrl`, etc.)
 

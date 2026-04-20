@@ -23,10 +23,12 @@ import { VisualizerWidget } from './visualizer-widget';
 import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { VisualizerBackendService, BASE_VISUALIZER_REQUIREMENTS } from '../common/base-visualizer-protocol';
+import { OPENMC_REQUIREMENTS } from '../common/openmc-protocol';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService, NukeCoreService } from 'nuke-core/lib/common';
 import { HealthCheckFramework } from './services/health-check-framework';
 import { MessageService } from '@theia/core/lib/common';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
+import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 
 export const VisualizerCommand = {
     id: VisualizerWidget.ID,
@@ -39,9 +41,24 @@ export const VisualizerHealthCheckCommand = {
     category: 'Visualizer'
 };
 
+export const InstallBaseVisualizerCommand = {
+    id: 'nuke-visualizer.install-base',
+    label: 'Install Base Visualizer Dependencies',
+    category: 'Visualizer'
+};
+
+export const InstallOpenMCCommand = {
+    id: 'nuke-visualizer.install-openmc',
+    label: 'Install OpenMC Dependencies',
+    category: 'Visualizer'
+};
+
 export namespace NukeVisualizerMenus {
     /** Root Visualizer menu under Tools */
     export const VISUALIZER = [...NukeMenus.TOOLS, '2_visualizer'];
+
+    /** Environment submenu under Visualizer */
+    export const ENVIRONMENT = [...VISUALIZER, 'z_environment'];
 
     /** OpenMC plugin submenu under Visualizer */
     export const OPENMC = [...VISUALIZER, '1_openmc'];
@@ -101,6 +118,9 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
     @inject(OutputChannelManager)
     protected readonly outputChannelManager: OutputChannelManager;
 
+    @inject(EnvironmentActionsHelper)
+    protected readonly envActions: EnvironmentActionsHelper;
+
     constructor() {
         super({
             widgetId: VisualizerWidget.ID,
@@ -128,6 +148,12 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
         commands.registerCommand(VisualizerHealthCheckCommand, {
             execute: () => this.runHealthCheck(),
         });
+        commands.registerCommand(InstallBaseVisualizerCommand, {
+            execute: () => this.installBaseVisualizerDeps(),
+        });
+        commands.registerCommand(InstallOpenMCCommand, {
+            execute: () => this.installOpenMCDeps(),
+        });
     }
 
     protected async runHealthCheck(): Promise<void> {
@@ -138,15 +164,12 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
 
         channel.clear();
         channel.appendLine('═'.repeat(50));
-        channel.appendLine(` Health Check — ${envName}`);
+        channel.appendLine(` Nuke Visualizer Health Check — ${envName}`);
         channel.appendLine('═'.repeat(50));
 
-        if (report.healthy) {
-            channel.appendLine('✓ All visualization plugins are healthy!');
-            channel.show({ preserveFocus: true });
-            this.messageService.info('All visualization plugins are healthy!');
-            return;
-        }
+        // Count totals across all plugins
+        let totalErrors = 0;
+        let totalWarnings = 0;
 
         for (const plugin of report.plugins) {
             channel.appendLine('');
@@ -158,6 +181,10 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             for (const check of infraChecks) {
                 const icon = check.passed ? '✓' : check.severity === 'error' ? '✗' : '⚠';
                 channel.appendLine(` ${icon} ${check.name}: ${check.message}`);
+                if (!check.passed) {
+                    if (check.severity === 'error') totalErrors++;
+                    else totalWarnings++;
+                }
             }
 
             // Show package checks (use backend message which includes versions)
@@ -168,15 +195,29 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
                 if (!check.passed && check.suggestion) {
                     channel.appendLine(`   → ${check.suggestion}`);
                 }
+                if (!check.passed) {
+                    if (check.severity === 'error') totalErrors++;
+                    else totalWarnings++;
+                }
             }
         }
 
         channel.appendLine('');
+        if (report.healthy) {
+            channel.appendLine('✓ All visualization plugins are healthy!');
+        } else {
+            channel.appendLine(` Summary: ${totalErrors} errors, ${totalWarnings} warnings`);
+        }
         channel.appendLine('═'.repeat(50));
         channel.show({ preserveFocus: true });
-        this.messageService.warn(
-            `Health check found missing packages in ${envName}. See Nuke Visualizer output.`
-        );
+
+        if (report.healthy) {
+            this.messageService.info('All visualization plugins are healthy!');
+        } else {
+            this.messageService.warn(
+                `Health check found missing packages in ${envName}. See Nuke Visualizer output.`
+            );
+        }
     }
 
     override registerMenus(menus: MenuModelRegistry): void {
@@ -186,10 +227,21 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             label: VisualizerCommand.label,
             order: '0_main'
         });
-        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+        menus.registerSubmenu(NukeVisualizerMenus.ENVIRONMENT, 'Environment');
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
             commandId: VisualizerHealthCheckCommand.id,
             label: VisualizerHealthCheckCommand.label,
-            order: 'z_health'
+            order: 'a'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
+            commandId: InstallBaseVisualizerCommand.id,
+            label: InstallBaseVisualizerCommand.label,
+            order: 'b'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
+            commandId: InstallOpenMCCommand.id,
+            label: InstallOpenMCCommand.label,
+            order: 'c'
         });
     }
 
@@ -213,6 +265,26 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
         const handle = this.visibilityService.requestVisibility('nuke-visualizer');
         widget.disposed.connect(() => handle.dispose());
         return widget;
+    }
+
+    private async installBaseVisualizerDeps(): Promise<void> {
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: BASE_VISUALIZER_REQUIREMENTS,
+            title: 'Install Base Visualizer Dependencies'
+        });
+        if (result.success) {
+            this.messageService.info('Base visualizer dependencies installed.');
+        }
+    }
+
+    private async installOpenMCDeps(): Promise<void> {
+        const result = await this.envActions.ensurePackages({
+            requiredPackages: OPENMC_REQUIREMENTS,
+            title: 'Install OpenMC Dependencies'
+        });
+        if (result.success) {
+            this.messageService.info('OpenMC dependencies installed.');
+        }
     }
 
     async open(uri: URI): Promise<VisualizerWidget> {
