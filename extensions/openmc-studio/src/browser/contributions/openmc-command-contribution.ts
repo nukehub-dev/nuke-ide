@@ -31,6 +31,15 @@ import {
     ViewCommands 
 } from '../commands';
 
+/**
+ * Aggregates all OpenMC command modules and registers them with the Theia command registry.
+ *
+ * Binds to {@link CommandContribution} in the frontend module to activate command registration.
+ * Delegates to specialized command classes for each domain (environment, project, simulation, view).
+ *
+ * @see {@link openmc-command-contribution.ts} for menu bindings
+ * @see {@link OpenMCMenus} for associated menu paths
+ */
 @injectable()
 export class OpenMCCommandContribution implements CommandContribution {
     
@@ -46,6 +55,14 @@ export class OpenMCCommandContribution implements CommandContribution {
     @inject(ViewCommands)
     protected readonly viewCommands: ViewCommands;
 
+    /**
+     * Register all OpenMC commands by delegating to domain-specific command modules.
+     * @param registry - The Theia command registry
+     * @see {@link EnvironmentCommands}
+     * @see {@link ProjectCommands}
+     * @see {@link SimulationCommands}
+     * @see {@link ViewCommands}
+     */
     registerCommands(registry: CommandRegistry): void {
         // Register all command modules
         this.environmentCommands.registerCommands(registry);

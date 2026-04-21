@@ -31,20 +31,24 @@ import { OpenMCHealthService } from '../services/openmc-health-service';
 import { OpenMCInstallerService } from '../services/openmc-installer-service';
 
 export namespace OpenMCEnvironmentCommands {
+    /** Command category for all environment-related commands. */
     export const CATEGORY = 'OpenMC/Environment';
 
+    /** Run a comprehensive health check on the OpenMC environment. */
     export const CHECK_HEALTH: Command = {
         id: 'openmc.environment.checkHealth',
         category: CATEGORY,
         label: 'Run Health Check'
     };
 
+    /** Install OpenMC into the active Python environment. */
     export const INSTALL_OPENMC: Command = {
         id: 'openmc.environment.installOpenMC',
         category: CATEGORY,
         label: 'Install OpenMC'
     };
 
+    /** Install DAGMC geometry tools into the active Python environment. */
     export const INSTALL_DAGMC: Command = {
         id: 'openmc.environment.installDAGMC',
         category: CATEGORY,
@@ -52,24 +56,36 @@ export namespace OpenMCEnvironmentCommands {
     };
 }
 
+/**
+ * Environment command handler for OpenMC Studio.
+ *
+ * Registers and executes commands related to environment health checks,
+ * OpenMC installation, and DAGMC tools installation.
+ *
+ * @see {@link OpenMCEnvironmentCommands} for available command identifiers
+ */
 @injectable()
 export class EnvironmentCommands {
-    
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
     @inject(OpenMCEnvironmentService)
     protected readonly envService: OpenMCEnvironmentService;
-    
+
     @inject(OpenMCHealthService)
     protected readonly healthService: OpenMCHealthService;
-    
+
     @inject(OpenMCInstallerService)
     protected readonly installerService: OpenMCInstallerService;
 
     @inject(OutputChannelManager)
     protected readonly outputChannelManager: OutputChannelManager;
 
+    /**
+     * Register environment commands with the command registry.
+     * @param registry - The Theia command registry
+     */
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(OpenMCEnvironmentCommands.CHECK_HEALTH, {
             execute: () => this.checkHealth()
@@ -84,6 +100,10 @@ export class EnvironmentCommands {
         });
     }
 
+    /**
+     * Execute a health check on the OpenMC environment and display results
+     * in the output channel. Offers auto-fix if environment issues are detected.
+     */
     private async checkHealth(): Promise<void> {
         this.messageService.info('Running health check...');
 
@@ -144,6 +164,10 @@ export class EnvironmentCommands {
         }
     }
 
+    /**
+     * Install OpenMC via the installer service.
+     * Validates that a Python environment is available before proceeding.
+     */
     private async installOpenMC(): Promise<void> {
         const canInstall = await this.installerService.canInstall();
         if (!canInstall) {
@@ -157,6 +181,10 @@ export class EnvironmentCommands {
         }
     }
 
+    /**
+     * Install DAGMC tools via the installer service.
+     * Validates that a Python environment is available before proceeding.
+     */
     private async installDAGMC(): Promise<void> {
         const canInstall = await this.installerService.canInstall();
         if (!canInstall) {

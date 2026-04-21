@@ -23,13 +23,16 @@ from typing import Dict, Any, Optional
 
 
 def set_parameter_by_path(model: openmc.Model, path: str, value: Any) -> None:
-    """
-    Set a parameter by its JSON path (e.g., 'materials.0.density').
+    """Set a model parameter by its dot-separated path.
+    
+    Traverses the OpenMC model hierarchy using dot notation and
+    numeric indices (e.g., 'materials.0.density') to locate the
+    target attribute and overwrite its value.
     
     Args:
-        model: OpenMC model object
-        path: JSON path to the parameter
-        value: Value to set
+        model: OpenMC model object to modify.
+        path: Dot-separated path to the parameter (e.g., 'materials.0.density').
+        value: New value to assign.
     """
     parts = path.split('.')
     obj = model
@@ -44,15 +47,18 @@ def set_parameter_by_path(model: openmc.Model, path: str, value: Any) -> None:
 
 
 def get_parameter_by_path(model: openmc.Model, path: str) -> Any:
-    """
-    Get a parameter value by its JSON path.
+    """Get a model parameter value by its dot-separated path.
+    
+    Traverses the OpenMC model hierarchy using dot notation and
+    numeric indices (e.g., 'settings.batches') to retrieve the
+    target attribute value.
     
     Args:
-        model: OpenMC model object
-        path: JSON path to the parameter
+        model: OpenMC model object to query.
+        path: Dot-separated path to the parameter.
         
     Returns:
-        The parameter value
+        The current value of the specified parameter.
     """
     parts = path.split('.')
     obj = model
@@ -72,17 +78,21 @@ def run_single_iteration(
     output_dir: str,
     iteration: int
 ) -> Dict[str, Any]:
-    """
-    Run a single OpenMC iteration with modified parameters.
+    """Run a single OpenMC iteration with modified parameters.
+    
+    Clones the base model, applies the requested parameter changes,
+    exports XML, runs the simulation, and extracts k-effective and
+    tally results from the generated statepoint.
     
     Args:
-        base_model: Base OpenMC model
-        params: Parameter values to apply
-        output_dir: Output directory
-        iteration: Iteration number
+        base_model: Base OpenMC model to clone.
+        params: Mapping of parameter paths to values to apply.
+        output_dir: Root output directory for all iterations.
+        iteration: Iteration index (used for naming the sub-directory).
         
     Returns:
-        Dictionary with results
+        Dictionary with iteration results including keff, std dev,
+        execution time, success flag, and statepoint path.
     """
     start_time = time.time()
     
@@ -150,15 +160,20 @@ def run_optimization_batch(
     config_path: str,
     output_dir: str
 ) -> Dict[str, Any]:
-    """
-    Run a complete optimization batch.
+    """Run a complete parameter-sweep (optimization) batch.
+    
+    Loads the sweep configuration, builds the base OpenMC model from
+    serialized XML state, generates all parameter combinations, and
+    runs each iteration sequentially. Results are written to
+    'optimization_results.json' in the output directory.
     
     Args:
-        config_path: Path to configuration JSON
-        output_dir: Output directory
+        config_path: Path to the JSON configuration file defining sweeps.
+        output_dir: Directory for iteration sub-folders and summary JSON.
         
     Returns:
-        Dictionary with batch results
+        Dictionary with batch summary including runId, total/completed/failed
+        iteration counts, and per-iteration results.
     """
     # Load configuration
     with open(config_path, 'r') as f:
@@ -214,14 +229,14 @@ def run_optimization_batch(
 
 
 def generate_parameter_combinations(sweeps: list) -> list:
-    """
-    Generate all parameter combinations from sweep definitions.
+    """Generate the Cartesian product of all sweep parameter values.
     
     Args:
-        sweeps: List of sweep configurations
+        sweeps: List of sweep configurations, each with a 'variable' key.
         
     Returns:
-        List of parameter dictionaries
+        List of dictionaries, where each dictionary maps variable names
+        to a specific value for one iteration.
     """
     if not sweeps:
         return [{}]
@@ -244,14 +259,14 @@ def generate_parameter_combinations(sweeps: list) -> list:
 
 
 def compute_sweep_values(sweep: Dict[str, Any]) -> list:
-    """
-    Compute sweep values based on range type.
+    """Compute sweep values based on range type (linear or logarithmic).
     
     Args:
-        sweep: Sweep configuration
-        
+        sweep: Sweep configuration with keys 'rangeType', 'startValue',
+            'endValue', and 'numPoints'.
+            
     Returns:
-        List of values
+        List of computed values spanning from start to end.
     """
     range_type = sweep['rangeType']
     start = sweep['startValue']
@@ -273,7 +288,11 @@ def compute_sweep_values(sweep: Dict[str, Any]) -> list:
 
 
 def main():
-    """Main entry point."""
+    """Main entry point for CLI usage.
+    
+    Validates arguments, loads the sweep configuration, and dispatches
+    to run_optimization_batch.
+    """
     if len(sys.argv) < 3:
         print("Usage: python run_optimization.py <config_path> <output_dir>")
         sys.exit(1)

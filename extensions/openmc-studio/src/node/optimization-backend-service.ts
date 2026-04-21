@@ -14,6 +14,17 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
  *******************************************************************************/
 
+/**
+ * Optimization Backend Service
+ *
+ * Backend service for running parameter sweep optimization studies.
+ * Generates XML files for each parameter combination, runs OpenMC simulations,
+ * and collects results (k-effective, tallies) for analysis.
+ *
+ * @module openmc-studio/node
+ * @see {@link OpenMCStudioBackendService.startOptimization}
+ */
+
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { ProcessManager } from '@theia/process/lib/node/process-manager';
@@ -48,10 +59,10 @@ interface OptimizationRunState {
 
 @injectable()
 export class OptimizationBackendService {
-    
+
     @inject(ILogger)
     protected readonly logger: ILogger;
-    
+
     @inject(ProcessManager)
     protected readonly processManager: ProcessManager;
 
@@ -61,36 +72,42 @@ export class OptimizationBackendService {
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
+    private activeRuns: Map<string, OptimizationRunState> = new Map();
+    private clients: Set<OpenMCStudioClient> = new Set();
+
+    /**
+     * Get the extension root path for locating Python scripts.
+     */
     private getExtensionPath(): string {
         return path.resolve(__dirname, '../..');
     }
 
+    /**
+     * Find the depletion runner Python script with fallback paths.
+     */
     private async getDepletionRunnerPath(): Promise<string> {
         const extensionPath = this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
-        
+
         if (fs.existsSync(scriptPath)) {
             return scriptPath;
         }
-        
+
         const fallbackPaths = [
             path.resolve(__dirname, '../../../../extensions/openmc-studio/python/run_depletion.py'),
             path.resolve(process.cwd(), 'extensions/openmc-studio/python/run_depletion.py'),
             path.resolve(__dirname, '../../python/run_depletion.py'),
             path.resolve(__dirname, '../../../python/run_depletion.py'),
         ];
-        
+
         for (const fp of fallbackPaths) {
             if (fs.existsSync(fp)) {
                 return fp;
             }
         }
-        
+
         return scriptPath;
     }
-
-    private activeRuns: Map<string, OptimizationRunState> = new Map();
-    private clients: Set<OpenMCStudioClient> = new Set();
 
     /**
      * Register a client for receiving events

@@ -50,12 +50,26 @@ import { OptimizationWidget } from '../optimization/optimization-widget';
 import { DepletionTimeline } from './depletion-timeline';
 import { WeightWindowEditor, SourceBiasingEditor } from './vr';
 
-// Tab types for the dashboard
+/**
+ * Active tab identifier for the Simulation Dashboard.
+ */
 export type DashboardTab = 'settings' | 'materials' | 'tallies' | 'depletion' | 'variance-reduction' | 'simulation';
 
+/**
+ * Central dashboard for configuring and running OpenMC simulations.
+ *
+ * Manages simulation settings, materials, tallies, depletion configuration,
+ * variance reduction settings, and simulation execution with live output.
+ *
+ * @see {@link CSGBuilderWidget} for geometry editing
+ * @see {@link OptimizationWidget} for parameter sweep studies
+ * @see {@link SimulationComparisonWidget} for result comparison
+ */
 @injectable()
 export class SimulationDashboardWidget extends ReactWidget {
+    /** Unique widget identifier. */
     static readonly ID = 'openmc-simulation-dashboard';
+    /** Display label for the widget title. */
     static readonly LABEL = 'OpenMC Simulation Dashboard';
 
     @inject(MessageService)
@@ -250,6 +264,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     ];
 
+    /**
+     * Initialize widget id, title, event listeners for simulation progress,
+     * state changes, and console output.
+     */
     @postConstruct()
     protected init(): void {
         this.id = SimulationDashboardWidget.ID;
@@ -412,17 +430,28 @@ export class SimulationDashboardWidget extends ReactWidget {
         super.onBeforeHide(msg);
     }
 
+    /**
+     * Update the widget title with dirty indicator and project name.
+     */
     private updateTitle(): void {
         const state = this.stateManager.getState();
         const dirtyIndicator = this.stateManager.isDirty ? '● ' : '';
         this.title.label = `${dirtyIndicator}${state.metadata.name}`;
     }
 
+    /**
+     * Programmatically switch to a specific dashboard tab.
+     * @param tab - Tab id to activate.
+     */
     public setActiveTab(tab: DashboardTab): void {
         this.activeTab = tab;
         this.update();
     }
 
+    /**
+     * Render the dashboard main layout.
+     * @returns The React element tree for the widget.
+     */
     protected render(): React.ReactNode {
         const state = this.stateManager.getState();
 
@@ -446,6 +475,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     private newProjectName = '';
     private newProjectDescription = '';
 
+    /**
+     * Render the dashboard header with project info and action buttons.
+     * @param state - Current OpenMC simulation state.
+     * @returns Header React node.
+     */
     private renderHeader(state: OpenMCState): React.ReactNode {
         return (
             <div className='dashboard-header'>
@@ -544,6 +578,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tab selector for all dashboard sections.
+     * @returns Tabs React node.
+     */
     private renderTabs(): React.ReactNode {
         const tabs: { id: DashboardTab; label: string; icon: string }[] = [
             { id: 'settings', label: 'Settings', icon: 'codicon-settings' },
@@ -577,6 +615,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Settings Tab
     // ============================================================================
 
+    /**
+     * Render the Settings tab with run configuration and source definitions.
+     * @param state - Current OpenMC simulation state.
+     * @returns Settings tab React node.
+     */
     private renderSettingsTab(state: OpenMCState): React.ReactNode {
         const { settings } = state;
         const runSettings = settings.run;
@@ -831,6 +874,12 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the editor for a single neutron/photon source.
+     * @param source - Source definition to edit.
+     * @param index - Source index in the sources array.
+     * @returns Source editor React node.
+     */
     private renderSourceEditor(source: OpenMCSource, index: number): React.ReactNode {
         const spatial = source.spatial as any;
         const snapActions: Record<string, { label: string; icon: string; action: () => void }[]> = {
@@ -1111,6 +1160,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Materials Tab
     // ============================================================================
 
+    /**
+     * Render the Materials tab with list and creation form.
+     * @param state - Current OpenMC simulation state.
+     * @returns Materials tab React node.
+     */
     private renderMaterialsTab(state: OpenMCState): React.ReactNode {
         // Get DAGMC materials from fileInfo if available
         const dagmcMaterials = state.settings.dagmcFile ? 
@@ -1295,6 +1349,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the material creation/editing form with templates.
+     * @returns Material form React node.
+     */
     private renderMaterialForm(): React.ReactNode {
         return (
             <div className='material-form'>
@@ -1577,6 +1635,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Tallies Tab
     // ============================================================================
 
+    /**
+     * Render the Tallies tab with summary and configurator link.
+     * @param state - Current OpenMC simulation state.
+     * @returns Tallies tab React node.
+     */
     private renderTalliesTab(state: OpenMCState): React.ReactNode {
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
@@ -1626,6 +1689,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Open the Tally Configurator widget.
+     * @see {@link TallyConfiguratorWidget}
+     */
     private async openTallyConfigurator(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(TallyConfiguratorWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
@@ -1636,6 +1703,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Simulation Tab
     // ============================================================================
 
+    /**
+     * Render the Depletion tab with burnup configuration and timeline.
+     * @param state - Current OpenMC simulation state.
+     * @returns Depletion tab React node.
+     */
     private renderDepletionTab(state: OpenMCState): React.ReactNode {
         const depletion = state.depletion || { timeSteps: [], power: 0, enabled: false };
         const hasDepletableMaterials = state.materials.some(m => m.isDepletable);
@@ -1813,6 +1885,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Open a file dialog to select a depletion chain XML file.
+     */
     protected async browseChainFile(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Select OpenMC Depletion Chain File',
@@ -1830,6 +1905,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render the list of depletable materials in the depletion tab.
+     * @param state - Current OpenMC simulation state.
+     * @returns Depletable materials React node.
+     */
     private renderDepletableMaterialsSection(state: OpenMCState): React.ReactNode {
         const depletableMaterials = state.materials.filter(m => m.isDepletable);
 
@@ -1850,6 +1930,12 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Variance Reduction Tab
     // ============================================================================
 
+    /**
+     * Render the Variance Reduction tab with survival biasing, weight windows,
+     * and source biasing controls.
+     * @param state - Current OpenMC simulation state.
+     * @returns Variance reduction tab React node.
+     */
     private renderVarianceReductionTab(state: OpenMCState): React.ReactNode {
         const vr = state.varianceReduction || {};
         const meshes = state.meshes || [];
@@ -2135,6 +2221,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the Simulation tab with setup checklist, controls, and console output.
+     * @param state - Current OpenMC simulation state.
+     * @returns Simulation tab React node.
+     */
     private renderSimulationTab(state: OpenMCState): React.ReactNode {
         return (
             <div className='simulation-tab'>
@@ -2687,6 +2778,9 @@ export class SimulationDashboardWidget extends ReactWidget {
     // WWINP Import/Export Methods
     // ============================================================================
 
+    /**
+     * Import MCNP WWINP weight window file.
+     */
     private async importWWINP(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Import MCNP WWINP File',
@@ -2728,6 +2822,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Export current weight windows to an MCNP WWINP file.
+     */
     private async exportWWINP(): Promise<void> {
         const state = this.stateManager.getState();
         const vr = state.varianceReduction;
@@ -2772,12 +2869,22 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Helper Methods
     // ============================================================================
 
+    /**
+     * Format elapsed seconds as mm:ss.
+     * @param seconds - Time in seconds.
+     * @returns Formatted time string.
+     */
     private formatTime(seconds: number): string {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
+    /**
+     * Append a message to the simulation console output.
+     * @param message - Message text to log.
+     * @param type - Log severity level.
+     */
     private logToConsole(message: string, type: 'info' | 'error' | 'warn' = 'info'): void {
         this.consoleOutput.push({
             type,
@@ -2798,6 +2905,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }, 0);
     }
 
+    /**
+     * Clear all console output and loaded log content.
+     */
     private clearConsole(): void {
         this.consoleOutput = [];
         this.loadedLogContent = '';
@@ -2806,6 +2916,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Toggle the console panel between normal and maximized state.
+     */
     private toggleConsoleMaximize(): void {
         this.consoleMaximized = !this.consoleMaximized;
         this.update();
@@ -2815,6 +2928,9 @@ export class SimulationDashboardWidget extends ReactWidget {
     // File-based Log Polling (similar to optimization widget)
     // ============================================================================
 
+    /**
+     * Start polling the simulation runner for log file updates.
+     */
     private startLogPolling(): void {
         if (this.logPollInterval) {
             window.clearInterval(this.logPollInterval);
@@ -2848,6 +2964,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }, 2000);
     }
 
+    /**
+     * Stop log polling and perform a final log load.
+     */
     private stopLogPolling(): void {
         if (this.logPollInterval) {
             window.clearInterval(this.logPollInterval);
@@ -2859,6 +2978,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Perform one final log load after polling stops.
+     */
     private async loadFinalLog(): Promise<void> {
         if (!this.currentProcessId) return;
         
@@ -2874,6 +2996,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Apply the current filter string to loaded log content.
+     */
     private applyLogFilter(): void {
         if (!this.logFilter) {
             this.filteredLogContent = '';
@@ -2888,12 +3013,19 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.filteredLogContent = filtered;
     }
 
+    /**
+     * Update the log filter and re-apply filtering.
+     * @param filter - Search filter string.
+     */
     private filterLogContent(filter: string): void {
         this.logFilter = filter;
         this.applyLogFilter();
         this.update();
     }
 
+    /**
+     * Reset the new material form fields to defaults.
+     */
     private resetNewMaterialForm(): void {
         this.newMaterialName = '';
         this.newMaterialDensity = 1.0;
@@ -2910,12 +3042,20 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Action Handlers
     // ============================================================================
 
+    /**
+     * Open the CSG Builder widget.
+     * @see {@link CSGBuilderWidget}
+     */
     private async openCSGBuilder(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(CSGBuilderWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }
 
+    /**
+     * Open the DAGMC Editor for the loaded DAGMC file.
+     * @see {@link DAGMCEditorWidget}
+     */
     private async openDagmcEditor(): Promise<void> {
         const state = this.stateManager.getState();
         if (state.settings?.dagmcFile) {
@@ -2925,12 +3065,19 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Open the Optimization Study widget.
+     * @see {@link OptimizationWidget}
+     */
     private async openOptimizationStudy(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(OptimizationWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }
 
+    /**
+     * Create a new blank OpenMC project.
+     */
     private async newProject(): Promise<void> {
         if (this.stateManager.isDirty) {
             // TODO: Show confirmation dialog
@@ -2939,6 +3086,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.messageService.info('Created new OpenMC project');
     }
 
+    /**
+     * Enter project name editing mode.
+     */
     private startEditProjectName(): void {
         this.editingProjectName = true;
         this.newProjectName = this.stateManager.getState().metadata.name;
@@ -2946,6 +3096,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Save the edited project name and description to state.
+     */
     private saveProjectName(): void {
         if (!this.newProjectName.trim()) {
             this.messageService.error('Project name cannot be empty');
@@ -2962,6 +3115,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.messageService.info('Project renamed');
     }
 
+    /**
+     * Open an existing OpenMC project file.
+     */
     private async openProject(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Open OpenMC Project',
@@ -2991,6 +3147,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Save the current project to its existing path, or prompt for one.
+     */
     private async saveProject(): Promise<void> {
         if (this.stateManager.projectPath) {
             await this.doSave(this.stateManager.projectPath);
@@ -2999,6 +3158,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Prompt for a save location and save the project.
+     */
     private async saveProjectAs(): Promise<void> {
         const props: SaveFileDialogProps = {
             title: 'Save OpenMC Project',
@@ -3011,6 +3173,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Perform the project save operation via the backend.
+     * @param path - File path to save to.
+     */
     private async doSave(path: string): Promise<void> {
         try {
             const result = await this.studioService.getBackendService().saveProject({
@@ -3029,6 +3195,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Generate OpenMC XML input files in a selected directory.
+     */
     private async generateXML(): Promise<void> {
         // Use last simulation directory as default (strip 'logs' if present)
         let defaultFolder: FileStat | undefined;
@@ -3084,6 +3253,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Import OpenMC XML files from a directory into the current project.
+     */
     async importXML(): Promise<void> {
         // Use last simulation directory as default (strip 'logs' if present)
         let defaultFolder: FileStat | undefined;
@@ -3146,6 +3318,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Validate the model, generate XML, and start the OpenMC simulation.
+     */
     public async runSimulation(): Promise<void> {
         // First validate
         const validation = await this.validateModel();
@@ -3265,6 +3440,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Stop the currently running simulation.
+     */
     public async stopSimulation(): Promise<void> {
         this.logToConsole('Stopping simulation...');
         const success = await this.simulationRunner.stopSimulation();
@@ -3283,10 +3461,17 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Whether a simulation is currently running.
+     */
     public get isSimulationRunning(): boolean {
         return this.isRunning;
     }
 
+    /**
+     * Validate the current simulation model and display issues.
+     * @returns Validation result with issues list.
+     */
     private async validateModel(): Promise<{ valid: boolean; issues: ValidationIssue[] }> {
         this.logToConsole('Validating model...');
         const result = await this.stateManager.validate();
@@ -3318,6 +3503,10 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Settings Updaters
     // ============================================================================
 
+    /**
+     * Update the simulation run mode and initialize default settings.
+     * @param mode - New run mode (eigenvalue, fixed source, or volume).
+     */
     private updateRunMode(mode: OpenMCRunSettings['mode']): void {
         const current = this.stateManager.getState().settings.run;
         let newRunSettings: OpenMCRunSettings;
@@ -3345,6 +3534,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.updateSetting('run', newRunSettings);
     }
 
+    /**
+     * Update a single setting key in the current state.
+     * @param key - Setting key to update.
+     * @param value - New value for the setting.
+     */
     private updateSetting<K extends keyof OpenMCSettings>(key: K, value: OpenMCSettings[K]): void {
         this.stateManager.updateSettings({
             ...this.stateManager.getState().settings,
@@ -3352,6 +3546,9 @@ export class SimulationDashboardWidget extends ReactWidget {
         });
     }
 
+    /**
+     * Add a new default point source to the simulation.
+     */
     private addSource(): void {
         const newSource: OpenMCSource = {
             spatial: { type: 'point', origin: [0, 0, 0] },
@@ -3366,6 +3563,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         });
     }
 
+    /**
+     * Remove a source by index.
+     * @param index - Index of the source to remove.
+     */
     private removeSource(index: number): void {
         const settings = this.stateManager.getState().settings;
         const newSources = [...settings.sources];
@@ -3376,6 +3577,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         });
     }
 
+    /**
+     * Change the spatial distribution type of a source.
+     * @param index - Source index.
+     * @param type - New spatial distribution type.
+     */
     private updateSourceSpatial(index: number, type: OpenMCSourceSpatial['type']): void {
         const settings = this.stateManager.getState().settings;
         const newSources = [...settings.sources];
@@ -3411,6 +3617,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.stateManager.updateSettings({ ...settings, sources: newSources });
     }
 
+    /**
+     * Change the energy distribution type of a source.
+     * @param index - Source index.
+     * @param type - New energy distribution type.
+     */
     private updateSourceEnergy(index: number, type: OpenMCSourceEnergy['type']): void {
         const settings = this.stateManager.getState().settings;
         const newSources = [...settings.sources];
@@ -3842,6 +4053,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     /**
      * Calculate bounding box from geometry surfaces
      */
+    /**
+     * Calculate axis-aligned bounding box from geometry surfaces or DAGMC info.
+     * @param state - Current OpenMC simulation state.
+     * @returns Bounding box with min/max arrays, or null if no geometry.
+     */
     private calculateGeometryBounds(state: OpenMCState): { min: number[]; max: number[] } | null {
         // First check for DAGMC geometry bounds
         if (state.settings.dagmcInfo?.boundingBox) {
@@ -4011,6 +4227,10 @@ export class SimulationDashboardWidget extends ReactWidget {
     // Material Handlers
     // ============================================================================
 
+    /**
+     * Enter material editing mode with the given material's values.
+     * @param material - Material to edit.
+     */
     private editMaterial(material: OpenMCMaterial): void {
         this.editingMaterial = material;
         this.newMaterialName = material.name;
@@ -4026,6 +4246,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Extract DAGMC material information from the current state.
+     * @param state - Current OpenMC simulation state.
+     * @returns Record of material names to usage stats, or undefined.
+     */
     private getDAGMCMaterialsFromState(state: OpenMCState): Record<string, { volumeCount: number; totalTriangles: number }> | undefined {
         // Get DAGMC info from settings (set by CSGBuilder when importing DAGMC file)
         const dagmcInfo = state.settings.dagmcInfo;
@@ -4035,6 +4260,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         return undefined;
     }
 
+    /**
+     * Duplicate a material and open the creation form pre-filled.
+     * @param material - Material to duplicate.
+     */
     private duplicateMaterial(material: OpenMCMaterial): void {
         this.editingMaterial = undefined;
         this.newMaterialName = `${material.name} (Copy)`;
@@ -4051,11 +4280,18 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.messageService.info('Edit the duplicated material and click Create');
     }
 
+    /**
+     * Delete a material by id.
+     * @param id - Material id to delete.
+     */
     private deleteMaterial(id: number): void {
         this.stateManager.removeMaterial(id);
         this.messageService.info('Material deleted');
     }
 
+    /**
+     * Save the current material form (create new or update existing).
+     */
     private saveMaterial(): void {
         if (!this.newMaterialName.trim()) {
             this.messageService.error('Material name is required');

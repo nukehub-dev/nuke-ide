@@ -10,7 +10,15 @@
 
 /**
  * OpenMC Studio Browser Commands
- * 
+ *
+ * Re-exports all command namespaces and handlers for the OpenMC Studio extension.
+ *
+ * - {@link EnvironmentCommands} – Environment health checks and package installation
+ * - {@link ProjectCommands} – Project lifecycle (new, open, save)
+ * - {@link SimulationCommands} – Simulation run/stop/validate and XML I/O
+ * - {@link ViewCommands} – Opening widgets and dashboard tabs
+ *
+ * @see {@link OpenMCCommandContribution} for the aggregate command contribution
  * @module openmc-studio/browser/commands
  */
 

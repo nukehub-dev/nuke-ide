@@ -17,14 +17,27 @@
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 
+/**
+ * Props for the {@link NuclideSelector} component.
+ */
 interface NuclideSelectorProps {
+    /** Selected nuclide names */
     nuclides: string[];
+    /** Callback when the nuclide list changes */
     onUpdate: (nuclides: string[]) => void;
 }
 
+/**
+ * Component for adding and removing nuclides from a tally.
+ *
+ * Users can type nuclide names (e.g. U235, Pu239) and press Enter to add them.
+ *
+ * @see {@link TallyEditor}
+ */
 export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUpdate }) => {
     const [inputValue, setInputValue] = React.useState('');
 
+    /** Add the current input value as a nuclide if not already present. */
     const addNuclide = () => {
         if (!inputValue) return;
         if (!nuclides.includes(inputValue)) {
@@ -33,10 +46,12 @@ export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUp
         setInputValue('');
     };
 
+    /** Remove a nuclide from the selection. */
     const removeNuclide = (nuclide: string) => {
         onUpdate(nuclides.filter(n => n !== nuclide));
     };
 
+    /** Handle Enter key to add the current nuclide input. */
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
             addNuclide();

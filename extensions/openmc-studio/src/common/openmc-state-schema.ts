@@ -48,6 +48,12 @@ export interface OpenMCProjectMetadata {
 // Geometry - Surfaces
 // ============================================================================
 
+/**
+ * Surface definitions for Constructive Solid Geometry (CSG).
+ * OpenMC supports various quadratic surfaces for defining geometry regions.
+ * @see {@link OpenMCSurface}
+ */
+
 /** Surface types supported by OpenMC CSG */
 export type OpenMCSurfaceType =
     | 'sphere'
@@ -101,6 +107,13 @@ export interface OpenMCSurface {
 // Geometry - Cells and Regions
 // ============================================================================
 
+/**
+ * Cell and region definitions for CSG geometry.
+ * Cells define material-filled regions using boolean combinations of surfaces.
+ * @see {@link OpenMCCell}
+ * @see {@link OpenMCRegionNode}
+ */
+
 /** Boolean operators for region expressions */
 export type OpenMCRegionOperator = 'intersection' | 'union' | 'complement' | 'difference';
 
@@ -147,6 +160,12 @@ export interface OpenMCCell {
 // Geometry - Universes
 // ============================================================================
 
+/**
+ * Universe definitions for hierarchical geometry.
+ * Universes group cells together and can be nested within lattices or other cells.
+ * @see {@link OpenMCUniverse}
+ */
+
 /** Universe definition */
 export interface OpenMCUniverse {
     /** Universe ID (0 is the root/unused universe) */
@@ -162,6 +181,12 @@ export interface OpenMCUniverse {
 // ============================================================================
 // Geometry - Lattices
 // ============================================================================
+
+/**
+ * Lattice definitions for repeated geometry structures.
+ * Supports rectangular and hexagonal lattice arrangements.
+ * @see {@link OpenMCLattice}
+ */
 
 /** Lattice types */
 export type OpenMCLatticeType = 'rect' | 'hex' | 'x-hex' | 'y-hex';
@@ -211,6 +236,13 @@ export type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
 // ============================================================================
 // DAGMC Geometry
 // ============================================================================
+
+/**
+ * DAGMC (Direct Accelerated Geometry Monte Carlo) model information.
+ * Used for direct CAD-based geometry without CSG conversion.
+ * @see {@link DAGMCInfo}
+ * @see {@link OpenMCSettings.dagmcFile}
+ */
 
 /** DAGMC volume information */
 export interface DAGMCVolume {
@@ -268,6 +300,12 @@ export interface OpenMCGeometry {
 // Materials
 // ============================================================================
 
+/**
+ * Material definitions composed of nuclides and optional thermal scattering data.
+ * @see {@link OpenMCMaterial}
+ * @see {@link OpenMCNuclide}
+ */
+
 /** Nuclide fraction type */
 export type OpenMCFractionType = 'ao' | 'wo';
 
@@ -316,6 +354,12 @@ export interface OpenMCMaterial {
 // ============================================================================
 // Settings - Source
 // ============================================================================
+
+/**
+ * External source definitions for fixed-source and eigenvalue simulations.
+ * Supports various spatial, energy, and angular distributions.
+ * @see {@link OpenMCSource}
+ */
 
 /** Source spatial distribution types */
 export type OpenMCSourceSpatialType = 'point' | 'box' | 'sphere' | 'cylinder' | 'cartesian' | 'cylindrical' | 'spherical';
@@ -456,6 +500,12 @@ export interface OpenMCSource {
 // Settings - Run Configuration
 // ============================================================================
 
+/**
+ * Simulation run mode configuration.
+ * Supports eigenvalue, fixed-source, and volume calculation modes.
+ * @see {@link OpenMCRunSettings}
+ */
+
 /** Simulation run modes */
 export type OpenMCRunMode = 'eigenvalue' | 'fixed source' | 'volume' | 'plot' | 'particle restart';
 
@@ -496,6 +546,12 @@ export type OpenMCRunSettings = OpenMCEigenvalueSettings | OpenMCFixedSourceSett
 // ============================================================================
 // Settings - Complete
 // ============================================================================
+
+/**
+ * Complete simulation settings including run parameters, sources, and output options.
+ * This is the main settings interface used to generate settings.xml.
+ * @see {@link OpenMCSettings}
+ */
 
 /** Shannon entropy mesh for convergence monitoring */
 export interface OpenMCEntropyMesh {
@@ -583,6 +639,13 @@ export interface OpenMCSettings {
 // ============================================================================
 // Tallies
 // ============================================================================
+
+/**
+ * Tally definitions for scoring physical quantities during simulation.
+ * Supports various filters, scores, and estimators.
+ * @see {@link OpenMCTally}
+ * @see {@link OpenMCTallyFilter}
+ */
 
 /** Tally filter types */
 export type OpenMCTallyFilterType =
@@ -673,6 +736,12 @@ export interface OpenMCTally {
 // Meshes
 // ============================================================================
 
+/**
+ * Mesh definitions for tally filters and variance reduction.
+ * Supports regular (Cartesian), cylindrical, and spherical meshes.
+ * @see {@link OpenMCMesh}
+ */
+
 /** Mesh types */
 export type OpenMCMeshType = 'regular' | 'cylindrical' | 'spherical';
 
@@ -734,6 +803,12 @@ export type OpenMCMesh = OpenMCRegularMesh | OpenMCCylindricalMesh | OpenMCSpher
 // Variance Reduction
 // ============================================================================
 
+/**
+ * Variance reduction settings for improving simulation efficiency.
+ * Includes weight windows, source biasing, and uniform fission site methods.
+ * @see {@link OpenMCVarianceReduction}
+ */
+
 /** Weight window settings */
 export interface OpenMCWeightWindows {
     /** Mesh ID for weight windows */
@@ -794,6 +869,12 @@ export interface OpenMCVarianceReduction {
 // Depletion
 // ============================================================================
 
+/**
+ * Depletion (burnup) settings for time-dependent material evolution.
+ * Configures chain files, time steps, power levels, and solver methods.
+ * @see {@link OpenMCDepletion}
+ */
+
 /** Depletion chain settings */
 export interface OpenMCDepletion {
     /** Whether depletion analysis is enabled */
@@ -825,6 +906,13 @@ export interface OpenMCDepletion {
 // ============================================================================
 // Optimization - Parameter Sweeps
 // ============================================================================
+
+/**
+ * Parameter sweep definitions for optimization and sensitivity studies.
+ * Supports linear and logarithmic ranges across material, geometry, and settings parameters.
+ * @see {@link OpenMCParameterSweep}
+ * @see {@link OpenMCOptimizationState}
+ */
 
 /** Parameter sweep definition for optimization studies */
 export interface OpenMCParameterSweep {
@@ -919,6 +1007,13 @@ export interface OpenMCOptimizationState {
 // Complete State
 // ============================================================================
 
+/**
+ * The complete OpenMC simulation state.
+ * This is the central data model for the no-code simulation builder,
+ * enabling bi-directional sync between the GUI and XML files.
+ * @see {@link OpenMCState}
+ */
+
 /** Complete OpenMC simulation state */
 export interface OpenMCState {
     /** Project metadata */
@@ -975,6 +1070,12 @@ export interface OpenMCPlotConfig {
 // Project File
 // ============================================================================
 
+/**
+ * Project file structure for saving and loading simulations.
+ * Uses JSON format with schema versioning for migration support.
+ * @see {@link OpenMCProjectFile}
+ */
+
 /** Project file structure (.nuke-openmc JSON) */
 export interface OpenMCProjectFile {
     /** Schema version */
@@ -1002,6 +1103,12 @@ export interface OpenMCProjectFile {
 // ============================================================================
 // Template Types
 // ============================================================================
+
+/**
+ * Project template definitions for common reactor physics scenarios.
+ * Templates provide pre-configured initial states for rapid model development.
+ * @see {@link OpenMCProjectTemplate}
+ */
 
 /** Project template types */
 export type OpenMCProjectTemplateType = 

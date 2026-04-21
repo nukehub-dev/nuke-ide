@@ -18,14 +18,28 @@ import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTally } from '../../../../common/openmc-state-schema';
 
+/**
+ * Props for the {@link TallyList} component.
+ */
 interface TallyListProps {
+    /** List of defined tallies */
     tallies: OpenMCTally[];
+    /** ID of the currently selected tally */
     selectedTallyId?: number;
+    /** Called when a tally is selected */
     onSelectTally: (id: number) => void;
+    /** Called to add a new tally */
     onAddTally: () => void;
+    /** Called to delete a tally by ID */
     onDeleteTally: (id: number) => void;
 }
 
+/**
+ * Panel displaying a list of configured tallies with add/delete actions.
+ *
+ * @see {@link TallyEditor}
+ * @see {@link TallyConfiguratorWidget}
+ */
 export const TallyList: React.FC<TallyListProps> = ({ 
     tallies, 
     selectedTallyId, 

@@ -17,9 +17,11 @@
 /**
  * OpenMC Installer Service
  *
- * Thin wrapper around nuke-core's unified installPackages().
- * Extensions should follow this pattern: define options → show dialog → call installPackages().
+ * Thin wrapper around nuke-core's unified `installPackages()`.
+ * Extensions should follow this pattern: define options → show dialog → call `installPackages()`.
  *
+ * @see {@link OpenMCEnvironmentService} for environment detection and switching
+ * @see {@link OpenMCHealthService} for post-install health verification
  * @module openmc-studio/browser
  */
 
@@ -31,20 +33,33 @@ import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { OpenMCEnvironmentService, OPENMC_EXTRA_INDEX_URL } from './openmc-environment-service';
 import { getOpenMCHealthPackages } from './openmc-package-metadata';
 
+/** Predefined installation option that maps a user-facing label to a set of packages. */
 export interface InstallOption {
+    /** Machine-readable identifier for the option (e.g. 'openmc', 'dagmc'). */
     id: string;
+    /** Human-readable label shown in UI pickers. */
     label: string;
+    /** Longer description explaining what the option provides. */
     description: string;
+    /** Package names to install for this option. */
     packages: string[];
+    /** Whether to use `conda install` instead of `pip install`. */
     useConda?: boolean;
+    /** Conda channels to use when `useConda` is true. */
     channels?: string[];
+    /** Extra pip index URL for packages not on PyPI. */
     extraIndexUrl?: string;
 }
 
+/** Result of an installation attempt. */
 export interface InstallResult {
+    /** Whether the overall operation succeeded. */
     success: boolean;
+    /** Packages that were successfully installed. */
     installed: string[];
+    /** Packages that failed to install. */
     failed: string[];
+    /** Human-readable message describing the outcome. */
     message?: string;
 }
 
@@ -67,7 +82,8 @@ export class OpenMCInstallerService {
     protected readonly messageService: MessageService;
 
     /**
-     * Predefined installation options.
+     * Predefined installation options exposed to users.
+     * Each option bundles packages, install method, and metadata for a common use-case.
      */
     readonly installOptions: InstallOption[] = [
         {
@@ -117,6 +133,8 @@ export class OpenMCInstallerService {
     /**
      * Check which packages are missing from the current environment.
      * Uses shared package metadata so suggestions stay consistent with health checks.
+     * @param packages Package names to verify.
+     * @returns Array of package names that are not installed or not importable.
      */
     async checkMissingPackages(packages: string[]): Promise<string[]> {
         const pythonCommand = await this.envService.getPythonCommand();
@@ -139,7 +157,12 @@ export class OpenMCInstallerService {
 
     /**
      * Install packages into the configured environment using nuke-core's
-     * unified installPackages(). Handles CWD, terminal, and messages.
+     * unified `installPackages()`. Handles CWD, terminal, and messages.
+     * @param packages Package names to install.
+     * @param useConda Whether to use `conda install` instead of `pip install`.
+     * @param channels Conda channels to use when `useConda` is true.
+     * @param extraIndexUrl Extra pip index URL for packages not on PyPI.
+     * @returns An {@link InstallResult} describing the outcome.
      */
     async installPackages(
         packages: string[],
@@ -178,7 +201,9 @@ export class OpenMCInstallerService {
     }
 
     /**
-     * Install a predefined option by ID.
+     * Install a predefined option by its ID.
+     * @param optionId The {@link InstallOption.id} to install (e.g. 'openmc', 'dagmc').
+     * @returns An {@link InstallResult} describing the outcome.
      */
     async installOption(optionId: string): Promise<InstallResult> {
         const option = this.installOptions.find(o => o.id === optionId);
@@ -196,6 +221,7 @@ export class OpenMCInstallerService {
 
     /**
      * Show a QuickPick dialog with predefined install options.
+     * Triggers installation for the option selected by the user.
      */
     async showInstallDialog(): Promise<void> {
         const items = this.installOptions.map(opt => ({
@@ -220,7 +246,8 @@ export class OpenMCInstallerService {
     }
 
     /**
-     * Check if installation is possible (environment available).
+     * Check if installation is possible (i.e. a Python environment is available).
+     * @returns `true` if the active environment has a valid Python command.
      */
     async canInstall(): Promise<boolean> {
         const pythonCommand = await this.envService.getPythonCommand();

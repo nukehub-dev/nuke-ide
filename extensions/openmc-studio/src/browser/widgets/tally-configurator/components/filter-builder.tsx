@@ -18,13 +18,27 @@ import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTallyFilter, OpenMCMesh } from '../../../../common/openmc-state-schema';
 
+/**
+ * Props for the {@link FilterBuilder} component.
+ */
 interface FilterBuilderProps {
+    /** Current list of filters */
     filters: OpenMCTallyFilter[];
+    /** Available meshes for mesh filters */
     meshes: OpenMCMesh[];
+    /** Callback when filters are updated */
     onUpdate: (filters: OpenMCTallyFilter[]) => void;
 }
 
+/**
+ * Interactive builder for OpenMC tally filters.
+ *
+ * Supports spatial, energy, angular, time, and cell-based filters.
+ *
+ * @see {@link TallyEditor}
+ */
 export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, onUpdate }) => {
+    /** Add a new filter of the given type with sensible defaults. */
     const addFilter = (type: string) => {
         let newFilter: OpenMCTallyFilter;
         if (type === 'mesh') {
@@ -47,16 +61,19 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         onUpdate([...filters, newFilter]);
     };
 
+    /** Remove the filter at the given index. */
     const removeFilter = (index: number) => {
         onUpdate(filters.filter((_, i) => i !== index));
     };
 
+    /** Update the filter at the given index with partial changes. */
     const updateFilter = (index: number, updates: Partial<OpenMCTallyFilter>) => {
         const newFilters = [...filters];
         newFilters[index] = { ...newFilters[index], ...updates } as OpenMCTallyFilter;
         onUpdate(newFilters);
     };
 
+    /** Get placeholder / hint text for a filter type's bins input. */
     const getBinHelp = (type: string): string => {
         const helpMap: Record<string, string> = {
             universe: 'e.g. 0 1 2',
@@ -76,6 +93,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         return helpMap[type] || 'e.g. 1 2 3';
     };
 
+    /** Render the editor controls for a specific filter. */
     const renderFilterContent = (filter: OpenMCTallyFilter, index: number) => {
         if (filter.type === 'mesh') {
             return (

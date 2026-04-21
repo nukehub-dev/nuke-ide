@@ -10,7 +10,13 @@
 
 /**
  * OpenMC Studio Browser Services
- * 
+ *
+ * Barrel export for all OpenMC Studio browser-side services.
+ *
+ * @see {@link OpenMCEnvironmentService} for environment management
+ * @see {@link OpenMCHealthService} for health checks
+ * @see {@link OpenMCInstallerService} for package installation
+ * @see {@link getOpenMCHealthPackages} for shared package metadata
  * @module openmc-studio/browser/services
  */
 

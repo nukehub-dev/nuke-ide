@@ -18,14 +18,28 @@ import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCMesh } from '../../../../common/openmc-state-schema';
 
+/**
+ * Props for the {@link MeshPanel} component.
+ */
 interface MeshPanelProps {
+    /** List of defined meshes */
     meshes: OpenMCMesh[];
+    /** ID of the currently selected mesh */
     selectedMeshId?: number;
+    /** Called when a mesh is selected */
     onSelectMesh: (id: number) => void;
+    /** Called to add a new mesh */
     onAddMesh: () => void;
+    /** Called to delete a mesh by ID */
     onDeleteMesh: (id: number) => void;
 }
 
+/**
+ * Panel displaying a list of configured meshes with add/delete actions.
+ *
+ * @see {@link MeshEditor}
+ * @see {@link TallyConfiguratorWidget}
+ */
 export const MeshPanel: React.FC<MeshPanelProps> = ({ 
     meshes, 
     selectedMeshId, 
@@ -97,6 +111,11 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({
     );
 };
 
+/**
+ * Get the codicon class for a mesh type.
+ * @param type - Mesh coordinate system type.
+ * @returns Codicon CSS class string.
+ */
 function getMeshIcon(type: string): string {
     switch (type) {
         case 'regular': return 'codicon-table';
@@ -106,6 +125,11 @@ function getMeshIcon(type: string): string {
     }
 }
 
+/**
+ * Get a short human-readable description of a mesh.
+ * @param mesh - The mesh to describe.
+ * @returns Description string.
+ */
 function getMeshDescription(mesh: OpenMCMesh): string {
     switch (mesh.type) {
         case 'regular':

@@ -17,8 +17,12 @@
 /**
  * OpenMC Health Check Service
  *
- * Provides comprehensive health checks for OpenMC setup.
+ * Provides comprehensive health checks for OpenMC setup by combining
+ * nuke-core infrastructure validation with OpenMC-specific checks such as
+ * cross-sections library paths and depletion chain files.
  *
+ * @see {@link OpenMCEnvironmentService} for environment management
+ * @see {@link getOpenMCHealthPackages} for the package metadata driving checks
  * @module openmc-studio/browser
  */
 
@@ -26,36 +30,62 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { getOpenMCHealthPackages } from './openmc-package-metadata';
 
+/** A single issue discovered during a health check. */
 export interface HealthCheckIssue {
+    /** Severity level of the issue. */
     severity: 'error' | 'warning' | 'info';
+    /** Category the issue belongs to. */
     category: 'environment' | 'openmc' | 'cross-sections' | 'chain-file' | 'mpi' | 'dagmc';
+    /** Human-readable description of the issue. */
     message: string;
+    /** Optional suggestion for how the user can resolve the issue. */
     suggestion?: string;
+    /** Whether the issue can be resolved automatically (e.g. via package install). */
     autoFixable?: boolean;
 }
 
+/** Result of an individual health check item. */
 export interface HealthCheckItem {
+    /** Category the check belongs to. */
     category: HealthCheckIssue['category'];
+    /** Display name of the check. */
     name: string;
+    /** Whether the check passed. */
     passed: boolean;
+    /** Human-readable message describing the check result. */
     message: string;
+    /** Severity if the check did not pass. */
     severity?: 'error' | 'warning' | 'info';
+    /** Optional suggestion for resolving a failed check. */
     suggestion?: string;
 }
 
+/** Aggregated result of a complete health check run. */
 export interface HealthCheckResult {
+    /** `true` if there are no errors and no warnings. */
     healthy: boolean;
+    /** `true` if there are no errors (warnings and info are allowed). */
     ready: boolean;
+    /** Flat list of all issues found across all checks. */
     issues: HealthCheckIssue[];
+    /** Detailed list of every individual check performed. */
     checks: HealthCheckItem[];
+    /** Summary counts by severity. */
     summary: {
+        /** Number of error-level issues. */
         errors: number;
+        /** Number of warning-level issues. */
         warnings: number;
+        /** Number of info-level issues. */
         info: number;
     };
+    /** Information about the active Python environment, if available. */
     environment?: {
+        /** Environment display name. */
         name: string;
+        /** Detected OpenMC version string. */
         version?: string;
+        /** Absolute path to the Python executable. */
         pythonCommand: string;
     };
 }
@@ -67,7 +97,10 @@ export class OpenMCHealthService {
     protected readonly nukeCore: NukeCoreService;
 
     /**
-     * Run comprehensive health check.
+     * Run a comprehensive health check for OpenMC.
+     * Combines nuke-core package health checks with OpenMC-specific validations
+     * (cross-sections library, depletion chain file).
+     * @returns A {@link HealthCheckResult} containing all issues, checks, and summary counts.
      */
     async runHealthCheck(): Promise<HealthCheckResult> {
         const issues: HealthCheckIssue[] = [];
@@ -136,6 +169,8 @@ export class OpenMCHealthService {
 
     /**
      * Quick check if OpenMC is ready to run.
+     * Equivalent to calling {@link runHealthCheck} and checking `ready`.
+     * @returns `true` if no errors were found and a Python environment is available.
      */
     async isReady(): Promise<boolean> {
         const result = await this.runHealthCheck();
@@ -143,7 +178,9 @@ export class OpenMCHealthService {
     }
 
     /**
-     * Get a human-readable status summary.
+     * Get a human-readable status summary from a health check result.
+     * @param result The {@link HealthCheckResult} to summarize.
+     * @returns A short status string, e.g. "OpenMC ready (env 0.14.0)" or the first error message.
      */
     getStatusMessage(result: HealthCheckResult): string {
         if (result.ready) {
@@ -160,6 +197,11 @@ export class OpenMCHealthService {
     // Individual Check Methods
     // -------------------------------------------------------------------------
 
+    /**
+     * Validate the cross-sections library configuration.
+     * Checks whether `OPENMC_CROSS_SECTIONS` is set via nuke-core settings.
+     * @returns Issues and checks arrays for cross-sections validation.
+     */
     private checkCrossSections(): { issues: HealthCheckIssue[]; checks: HealthCheckItem[] } {
         const issues: HealthCheckIssue[] = [];
         const checks: HealthCheckItem[] = [];
@@ -194,6 +236,11 @@ export class OpenMCHealthService {
         return { issues, checks };
     }
 
+    /**
+     * Validate the depletion chain file configuration.
+     * Checks whether `OPENMC_CHAIN_FILE` is set via nuke-core settings.
+     * @returns Issues and checks arrays for chain file validation.
+     */
     private checkChainFile(): { issues: HealthCheckIssue[]; checks: HealthCheckItem[] } {
         const issues: HealthCheckIssue[] = [];
         const checks: HealthCheckItem[] = [];
@@ -231,6 +278,11 @@ export class OpenMCHealthService {
     // Helper Methods
     // -------------------------------------------------------------------------
 
+    /**
+     * Infer the health check category from a nuke-core check name.
+     * @param name The check name produced by nuke-core (e.g. "Package: openmc", "Configured Python Environment").
+     * @returns The inferred {@link HealthCheckItem.category} value.
+     */
     private inferCategory(name: string): HealthCheckItem['category'] {
         if (name.includes('Python') || name === 'Conda/Mamba' || name === 'UV') {
             return 'environment';
@@ -244,6 +296,13 @@ export class OpenMCHealthService {
         return 'openmc';
     }
 
+    /**
+     * Assemble the final {@link HealthCheckResult} from collected issues and checks.
+     * @param issues All issues discovered during the health check.
+     * @param checks All individual check items performed.
+     * @param environment Optional environment metadata if a valid Python env was found.
+     * @returns The fully populated {@link HealthCheckResult}.
+     */
     private createResult(
         issues: HealthCheckIssue[],
         checks: HealthCheckItem[],

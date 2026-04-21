@@ -24,13 +24,27 @@ import {
     OpenMCMeshType 
 } from '../../../../common/openmc-state-schema';
 
+/**
+ * Props for the {@link MeshEditor} component.
+ */
 interface MeshEditorProps {
+    /** Mesh to edit */
     mesh: OpenMCMesh;
+    /** Optional DAGMC geometry bounding box to auto-fill bounds */
     dagmcBoundingBox?: { min: [number, number, number]; max: [number, number, number] };
+    /** Callback when mesh properties change */
     onUpdate: (updates: Partial<OpenMCMesh>) => void;
 }
 
+/**
+ * Editor for configuring an OpenMC mesh.
+ *
+ * Supports regular (Cartesian), cylindrical, and spherical coordinate systems.
+ *
+ * @see {@link MeshPanel}
+ */
 export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, onUpdate }) => {
+    /** Handle switching the mesh coordinate system type. */
     const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newType = e.target.value as OpenMCMeshType;
         if (newType === mesh.type) return;
@@ -126,6 +140,12 @@ export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, 
     );
 };
 
+/**
+ * Render editor controls for a regular (Cartesian) mesh.
+ * @param mesh - The regular mesh to edit.
+ * @param onUpdate - Update callback.
+ * @param dagmcBoundingBox - Optional geometry bounds for auto-fill.
+ */
 function renderRegularMeshEditor(
     mesh: OpenMCRegularMesh, 
     onUpdate: (updates: Partial<OpenMCRegularMesh>) => void,
@@ -204,6 +224,11 @@ function renderRegularMeshEditor(
     );
 }
 
+/**
+ * Render editor controls for a cylindrical mesh.
+ * @param mesh - The cylindrical mesh to edit.
+ * @param onUpdate - Update callback.
+ */
 function renderCylindricalMeshEditor(mesh: OpenMCCylindricalMesh, onUpdate: (updates: Partial<OpenMCCylindricalMesh>) => void) {
     const handleGridChange = (field: 'rGrid' | 'phiGrid' | 'zGrid', value: string) => {
         const parts = value.split(/\s+/).map(p => parseFloat(p)).filter(p => !isNaN(p));
@@ -246,6 +271,11 @@ function renderCylindricalMeshEditor(mesh: OpenMCCylindricalMesh, onUpdate: (upd
     );
 }
 
+/**
+ * Render editor controls for a spherical mesh.
+ * @param mesh - The spherical mesh to edit.
+ * @param onUpdate - Update callback.
+ */
 function renderSphericalMeshEditor(mesh: OpenMCSphericalMesh, onUpdate: (updates: Partial<OpenMCSphericalMesh>) => void) {
     const handleGridChange = (field: 'rGrid' | 'thetaGrid' | 'phiGrid', value: string) => {
         const parts = value.split(/\s+/).map(p => parseFloat(p)).filter(p => !isNaN(p));

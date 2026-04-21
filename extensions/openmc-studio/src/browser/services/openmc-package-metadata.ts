@@ -10,6 +10,9 @@
  * Single source of truth for package requirements used by health checks,
  * installation, and environment validation.
  *
+ * @see {@link OpenMCHealthService} for health check consumption
+ * @see {@link OpenMCInstallerService} for installation consumption
+ * @see {@link OPENMC_EXTRA_INDEX_URL} for the pip extra index URL
  * @module openmc-studio/browser/services
  */
 
@@ -19,6 +22,7 @@ import { OPENMC_EXTRA_INDEX_URL } from './openmc-environment-service';
 /**
  * Get the canonical OpenMC package dependencies for health checks.
  * Nuke-core uses this metadata to generate install suggestions automatically.
+ * @returns Array of {@link PackageDependency} objects describing required and optional packages.
  */
 export function getOpenMCHealthPackages(): PackageDependency[] {
     return [

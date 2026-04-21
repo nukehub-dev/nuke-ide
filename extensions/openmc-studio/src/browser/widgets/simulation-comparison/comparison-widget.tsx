@@ -48,14 +48,21 @@ import {
 // Import Plotly component from nuke-visualizer
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
 
-// Statepoint data structure
-// Extended statepoint info with local state
+/**
+ * Extended statepoint info with local UI state.
+ */
 interface StatepointInfoExtended extends StatepointInfo {
+    /** Local unique identifier for this comparison entry. */
     localId: string;
+    /** Whether the file is currently being loaded. */
     loading?: boolean;
+    /** Whether the file was successfully loaded. */
     loaded?: boolean;
 }
 
+/**
+ * Sparkline bar component for convergence visualization.
+ */
 const ConvergenceSparkBar: React.FC<{ height: number, content: string }> = ({ height, content }) => {
     const { onMouseEnter, onMouseLeave, tooltipElement } = useTooltip(content, 'top');
     return (
@@ -70,11 +77,14 @@ const ConvergenceSparkBar: React.FC<{ height: number, content: string }> = ({ he
     );
 };
 
-const KeffChartBar: React.FC<{ 
-    left: string, 
-    width: string, 
-    isAbove: boolean, 
-    content: string 
+/**
+ * Bar component for k-effective comparison chart.
+ */
+const KeffChartBar: React.FC<{
+    left: string,
+    width: string,
+    isAbove: boolean,
+    content: string
 }> = ({ left, width, isAbove, content }) => {
     const { onMouseEnter, onMouseLeave, tooltipElement } = useTooltip(content, 'top');
     return (
@@ -89,11 +99,21 @@ const KeffChartBar: React.FC<{
     );
 };
 
+/** Active tab in the simulation comparison widget. */
 type ComparisonTab = 'overview' | 'keff' | 'tallies' | 'statistics' | 'convergence' | 'burnup';
 
+/**
+ * Widget for comparing k-effective values and tally results across multiple
+ * OpenMC statepoint files.
+ *
+ * Supports statistical consistency tests, convergence analysis, and burnup
+ * depletion result visualization.
+ */
 @injectable()
 export class SimulationComparisonWidget extends ReactWidget {
+    /** Unique widget identifier. */
     static readonly ID = 'openmc-simulation-comparison';
+    /** Display label for the widget title. */
     static readonly LABEL = 'Simulation Comparison';
 
     @inject(MessageService)
@@ -131,6 +151,9 @@ export class SimulationComparisonWidget extends ReactWidget {
     private burnupXAxis: 'time' | 'burnup' = 'burnup';
     private burnupScale: 'linear' | 'log' = 'log';
 
+    /**
+     * Initialize widget id, title, and default state.
+     */
     @postConstruct()
     protected init(): void {
         this.id = SimulationComparisonWidget.ID;
@@ -141,6 +164,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Render the comparison widget main layout.
+     * @returns The React element tree for the widget.
+     */
     protected render(): React.ReactNode {
         return (
             <div className='simulation-comparison'>
@@ -151,6 +178,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the widget header with loaded file count and action buttons.
+     * @returns Header React node.
+     */
     private renderHeader(): React.ReactNode {
         const loadedCount = this.statepoints.filter(s => s.loaded).length;
         const depletionCount = this.depletionResults.size;
@@ -226,6 +257,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the dynamic tab selector based on available data types.
+     * @returns Tabs React node.
+     */
     private renderTabs(): React.ReactNode {
         const hasEigenvalue = this.statepoints.some(s => s.loaded && s.kEff);
         const hasDepletion = this.depletionResults.size > 0;
@@ -265,6 +300,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the active tab content or empty state.
+     * @returns Content React node.
+     */
     private renderContent(): React.ReactNode {
         if (this.isLoading) {
             return (
@@ -336,6 +375,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the overview tab with summary cards and file lists.
+     * @returns Overview tab React node.
+     */
     private renderOverviewTab(): React.ReactNode {
         const loadedStatepoints = this.statepoints.filter(s => s.loaded && !s.error);
         const depletionCount = this.depletionResults.size;
@@ -437,6 +480,12 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render a single statepoint card in the overview list.
+     * @param sp - Statepoint data to render.
+     * @param index - Display index in the list.
+     * @returns Statepoint card React node.
+     */
     private renderStatepointCard(sp: StatepointInfoExtended, index: number): React.ReactNode {
         return (
             <div key={sp.localId} className={`statepoint-card ${sp.error ? 'error' : ''} ${sp.loading ? 'loading' : ''}`}>
@@ -480,6 +529,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the k-effective comparison tab with statistics and bar chart.
+     * @returns k-effective tab React node.
+     */
     private renderKeffTab(): React.ReactNode {
         const loadedStatepoints = this.statepoints.filter(s => s.loaded && s.kEff && !s.error);
         
@@ -621,6 +674,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tallies comparison tab with selector and detail view.
+     * @returns Tallies tab React node.
+     */
     private renderTalliesTab(): React.ReactNode {
         const loadedStatepoints = this.statepoints.filter(s => s.loaded && !s.error);
         const allTallies = new Map<number, { tally: StatepointTally; statepoints: { sp: StatepointInfoExtended; result: StatepointTally }[] }>();
@@ -686,6 +743,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render detailed comparison for a single tally across statepoints.
+     * @param data - Tally data and associated statepoint results.
+     * @returns Tally comparison React node.
+     */
     private renderTallyComparison(data: { tally: StatepointTally; statepoints: { sp: StatepointInfoExtended; result: StatepointTally }[] }): React.ReactNode {
         const { tally, statepoints } = data;
         
@@ -791,6 +853,10 @@ export class SimulationComparisonWidget extends ReactWidget {
     // Tabs: Statistics, Convergence, Burnup
     // ============================================================================
 
+    /**
+     * Render the statistics tab with chi-square and confidence interval analysis.
+     * @returns Statistics tab React node.
+     */
     private renderStatisticsTab(): React.ReactNode {
         const loadedStatepoints = this.statepoints.filter(s => s.loaded && !s.error);
         const stats = this.statisticalTests;
@@ -1006,6 +1072,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the convergence tab with per-statepoint convergence cards.
+     * @returns Convergence tab React node.
+     */
     private renderConvergenceTab(): React.ReactNode {
         const loadedStatepoints = this.statepoints.filter(s => s.loaded && s.kEff && !s.error);
         
@@ -1143,6 +1213,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Request convergence analysis for a statepoint file from the backend.
+     * @param localId - Local statepoint identifier.
+     * @param filePath - Absolute path to the statepoint file.
+     */
     private async analyzeConvergence(localId: string, filePath: string): Promise<void> {
         if (this.analyzingIds.has(localId)) return;
         
@@ -1163,6 +1238,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render the burnup tab with depletion results and nuclide charts.
+     * @returns Burnup tab React node.
+     */
     private renderBurnupTab(): React.ReactNode {
         if (this.depletionResults.size === 0) {
             return (
@@ -1221,6 +1300,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render detailed depletion data for a selected file.
+     * @param data - Depletion results to visualize.
+     * @returns Depletion details React node.
+     */
     private renderDepletionDetails(data: DepletionResults): React.ReactNode {
         if (!data.materials || Object.keys(data.materials).length === 0) {
             return (
@@ -1408,6 +1492,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render a Plotly chart for nuclide concentration or k-effective over burnup.
+     * @param data - Depletion results to chart.
+     * @returns Depletion chart React node.
+     */
     private renderDepletionChart(data: DepletionResults): React.ReactNode {
         if (this.burnupPlotType === 'keff' && data.keff) {
             return this.renderKeffDepletionChart(data);
@@ -1512,6 +1601,11 @@ export class SimulationComparisonWidget extends ReactWidget {
         return <PlotlyComponent data={traces} layout={layout} config={config} />;
     }
 
+    /**
+     * Render a k-effective over burnup chart from depletion results.
+     * @param data - Depletion results containing k-effective data.
+     * @returns k-effective depletion chart React node.
+     */
     private renderKeffDepletionChart(data: DepletionResults): React.ReactNode {
         if (!data.keff) return null;
 
@@ -1568,12 +1662,21 @@ export class SimulationComparisonWidget extends ReactWidget {
         return <PlotlyComponent data={traces} layout={layout} config={{ displayModeBar: false, responsive: true }} />;
     }
 
+    /**
+     * Read a CSS custom property value from the document.
+     * @param variable - CSS variable name.
+     * @param fallback - Fallback value if variable is not defined.
+     * @returns Resolved color string.
+     */
     private getCssColor(variable: string, fallback: string): string {
         if (typeof window === 'undefined') return fallback;
         const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
         return computed || fallback;
     }
 
+    /**
+     * Open a file dialog to add depletion results files.
+     */
     private async openAddDepletionDialog(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Select Depletion Results Files',
@@ -1630,6 +1733,9 @@ export class SimulationComparisonWidget extends ReactWidget {
     // Actions
     // ============================================================================
 
+    /**
+     * Open a file dialog to add statepoint files for comparison.
+     */
     private async openAddDialog(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Select Statepoint Files to Compare',
@@ -1676,6 +1782,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Load statepoint data from the backend and trigger statistical tests.
+     * @param statepoint - Statepoint entry to load.
+     */
     private async loadStatepointData(statepoint: StatepointInfoExtended): Promise<void> {
         try {
             statepoint.loading = true;
@@ -1708,6 +1818,9 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Fetch statistical comparison tests for all loaded statepoints.
+     */
     private async fetchStatisticalTests(): Promise<void> {
         try {
             const loadedPaths = this.statepoints
@@ -1727,11 +1840,18 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Remove a statepoint from the comparison.
+     * @param localId - Local id of the statepoint to remove.
+     */
     private removeStatepoint(localId: string): void {
         this.statepoints = this.statepoints.filter(s => s.localId !== localId);
         this.update();
     }
 
+    /**
+     * Clear all statepoints and depletion results from the comparison.
+     */
     private clearAll(): void {
         this.statepoints = [];
         this.depletionResults.clear();
@@ -1742,6 +1862,9 @@ export class SimulationComparisonWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Export comparison results to a CSV report file.
+     */
     private async exportResults(): Promise<void> {
         // Generate CSV export
         const lines: string[] = [];

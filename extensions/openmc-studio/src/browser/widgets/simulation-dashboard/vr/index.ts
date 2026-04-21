@@ -14,5 +14,15 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+/**
+ * Barrel file for variance reduction (VR) editor components.
+ *
+ * Re-exports weight-window and source-biasing editors used in the
+ * simulation dashboard for configuring OpenMC variance reduction techniques.
+ *
+ * @see {@link WeightWindowEditor}
+ * @see {@link SourceBiasingEditor}
+ */
+
 export * from './weight-window-editor';
 export * from './source-biasing-editor';

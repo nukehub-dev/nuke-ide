@@ -7,9 +7,12 @@
 /**
  * OpenMC Studio Common Module
  * 
- * Re-exports all types and interfaces from the common module.
+ * Re-exports all types, interfaces, and protocol definitions from the common module.
+ * This is the shared contract between the frontend and backend of OpenMC Studio.
  * 
  * @module openmc-studio/common
+ * @see {@link ./openmc-state-schema} Simulation state schema definitions
+ * @see {@link ./openmc-studio-protocol} RPC protocol and service interfaces
  */
 
 export * from './openmc-state-schema';

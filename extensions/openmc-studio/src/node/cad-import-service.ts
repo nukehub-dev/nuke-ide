@@ -133,9 +133,21 @@ export interface CADImportResult {
     dagmcInfo?: DAGMCInfo;
 }
 
+/**
+ * CAD Import Service for OpenMC
+ *
+ * Backend service for importing CAD files (STEP/IGES) and converting them
+ * to OpenMC-compatible CSG geometry, or importing DAGMC files directly.
+ *
+ * Uses nuke-core's detectPythonWithRequirements for robust Python/CAD detection.
+ *
+ * @module openmc-studio/node
+ * @see {@link OpenMCStudioBackendService.importCAD}
+ * @see {@link OpenMCStudioBackendService.checkCADSupport}
+ */
 @injectable()
 export class OpenMCCADImportService {
-    
+
     @inject(NukeCoreBackendService)
     protected readonly coreService!: NukeCoreBackendServiceInterface;
 
@@ -143,6 +155,11 @@ export class OpenMCCADImportService {
     // CAD Import
     // ============================================================================
 
+    /**
+     * Import a CAD file and convert to OpenMC-compatible geometry.
+     * @param request - CAD import request with file path and options
+     * @returns Import result with surfaces, cells, and metadata
+     */
     async importCAD(request: CADImportRequest): Promise<CADImportResult> {
         try {
             // Detect format if not specified

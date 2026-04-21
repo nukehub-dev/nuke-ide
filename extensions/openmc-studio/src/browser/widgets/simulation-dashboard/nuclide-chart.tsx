@@ -14,9 +14,21 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+/**
+ * @module openmc-studio/browser/widgets
+ */
+
 import * as React from 'react';
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
 
+/**
+ * Placeholder nuclide concentration chart using Plotly.
+ *
+ * Displays sample U-235 and Pu-239 concentration trends over time steps.
+ * This is a temporary visualization pending real depletion data integration.
+ *
+ * @see {@link PlotlyComponent} for the underlying Plotly wrapper
+ */
 export const NuclideChart: React.FC = () => {
     // Placeholder data for the chart
     const data = [

@@ -29,12 +29,34 @@ from pathlib import Path
 
 
 def log_progress(message: str):
-    """Print progress message to stderr for real-time communication."""
+    """Print progress message to stderr for real-time communication.
+    
+    Args:
+        message: Progress message to emit.
+    """
     print(f"{message}", file=sys.stderr, flush=True)
 
 
 def run_depletion(args):
-    """Run OpenMC depletion simulation."""
+    """Run an OpenMC depletion simulation.
+    
+    Loads the model from XML files in the working directory, creates the
+    depletion operator and integrator, and runs the burnup calculation.
+    
+    Args:
+        args: Parsed command-line arguments containing working_directory,
+            chain_file, time_steps, power, power_density, solver, operator,
+            substeps, normalization, and mpi_processes.
+            
+    Returns:
+        Dictionary with simulation summary including time steps, burnup,
+        power, solver, and operator type.
+        
+    Raises:
+        FileNotFoundError: If the depletion chain file is missing.
+        ValueError: If neither power nor power-density is specified.
+        NotImplementedError: If the independent operator is requested.
+    """
     import openmc
     import openmc.deplete
     import numpy as np
@@ -264,6 +286,11 @@ def run_depletion(args):
 
 
 def main():
+    """Main entry point for CLI usage.
+    
+    Parses arguments, runs the depletion simulation, and prints the
+    result as JSON to stdout.
+    """
     parser = argparse.ArgumentParser(
         description='Run OpenMC depletion simulation',
         formatter_class=argparse.RawDescriptionHelpFormatter,

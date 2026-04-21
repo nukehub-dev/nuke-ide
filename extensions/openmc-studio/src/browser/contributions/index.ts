@@ -10,7 +10,13 @@
 
 /**
  * OpenMC Studio Browser Contributions
- * 
+ *
+ * Barrel export for all Theia contribution classes in the OpenMC Studio extension.
+ *
+ * @see {@link OpenMCCommandContribution} for command registration
+ * @see {@link OpenMCMenuContribution} for menu registration
+ * @see {@link OpenMCToolbarContribution} for toolbar registration
+ * @see {@link OpenMCOpenHandlerContribution} for file open handling
  * @module openmc-studio/browser/contributions
  */
 

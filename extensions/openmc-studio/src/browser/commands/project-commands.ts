@@ -30,26 +30,31 @@ import { OpenMCStateManager } from '../openmc-state-manager';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
 
 export namespace OpenMCProjectCommands {
+    /** Command category for all project management commands. */
     export const CATEGORY = 'OpenMC/Project';
 
+    /** Create a new OpenMC project, resetting the current state. */
     export const NEW_PROJECT: Command = {
         id: 'openmc.project.new',
         category: CATEGORY,
         label: 'New Project'
     };
 
+    /** Open an existing OpenMC project from disk. */
     export const OPEN_PROJECT: Command = {
         id: 'openmc.project.open',
         category: CATEGORY,
         label: 'Open Project...'
     };
 
+    /** Save the current OpenMC project. */
     export const SAVE_PROJECT: Command = {
         id: 'openmc.project.save',
         category: CATEGORY,
         label: 'Save Project'
     };
 
+    /** Save the current OpenMC project under a new name or location. */
     export const SAVE_PROJECT_AS: Command = {
         id: 'openmc.project.saveAs',
         category: CATEGORY,
@@ -57,21 +62,34 @@ export namespace OpenMCProjectCommands {
     };
 }
 
+/**
+ * Project command handler for OpenMC Studio.
+ *
+ * Manages project lifecycle operations including creating new projects,
+ * opening existing ones, and saving project state.
+ *
+ * @see {@link OpenMCProjectCommands} for available command identifiers
+ * @see {@link SimulationDashboardWidget} for the widget that handles persistence
+ */
 @injectable()
 export class ProjectCommands {
-    
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
-    
+
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
-    
+
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
-    
+
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
 
+    /**
+     * Register project commands with the command registry.
+     * @param registry - The Theia command registry
+     */
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(OpenMCProjectCommands.NEW_PROJECT, {
             execute: () => this.newProject()
@@ -90,12 +108,18 @@ export class ProjectCommands {
         });
     }
 
+    /**
+     * Reset the application state and open a fresh project in the dashboard.
+     */
     private async newProject(): Promise<void> {
         this.stateManager.reset();
         this.messageService.info('Created new OpenMC project');
         await this.openDashboard();
     }
 
+    /**
+     * Open the dashboard and trigger the project's open file dialog.
+     */
     private async openProject(): Promise<void> {
         await this.openDashboard();
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
@@ -104,6 +128,9 @@ export class ProjectCommands {
         }
     }
 
+    /**
+     * Save the current project through the simulation dashboard widget.
+     */
     private async saveProject(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         if (widget instanceof SimulationDashboardWidget) {
@@ -111,6 +138,9 @@ export class ProjectCommands {
         }
     }
 
+    /**
+     * Save the current project under a new name through the simulation dashboard widget.
+     */
     private async saveProjectAs(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         if (widget instanceof SimulationDashboardWidget) {
@@ -118,6 +148,9 @@ export class ProjectCommands {
         }
     }
 
+    /**
+     * Open or focus the simulation dashboard widget in the main area.
+     */
     private async openDashboard(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });

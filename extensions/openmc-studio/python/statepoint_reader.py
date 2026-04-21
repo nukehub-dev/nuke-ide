@@ -26,7 +26,11 @@ warnings.filterwarnings('ignore')
 
 
 class NumpyEncoder(json.JSONEncoder):
-    """JSON Encoder that handles numpy types."""
+    """JSON Encoder that handles numpy types.
+    
+    Converts numpy integers, floats, and ndarrays to their
+    native Python equivalents for JSON serialization.
+    """
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
@@ -665,6 +669,11 @@ def analyze_keff_convergence(statepoint: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main():
+    """Main entry point for CLI usage.
+    
+    Parses command-line arguments and dispatches to the appropriate
+    reader function (single statepoint, comparison, depletion, or convergence).
+    """
     parser = argparse.ArgumentParser(
         description='Read OpenMC statepoint files for comparison'
     )

@@ -37,14 +37,25 @@ export interface OpenMCValidationResult {
     pythonCommand?: string;
 }
 
+/**
+ * OpenMC Validation Backend Service
+ *
+ * Backend service for validating OpenMC environment setup.
+ * Checks Python environment, OpenMC installation, cross-sections, and chain files.
+ *
+ * @module openmc-studio/node
+ * @see {@link OpenMCRunnerService}
+ */
 @injectable()
 export class OpenMCValidationBackendService {
-    
+
     @inject(NukeCoreBackendService)
     protected readonly nukeCore: NukeCoreBackendServiceInterface;
 
     /**
      * Validate OpenMC setup on the backend.
+     * Checks Python environment, OpenMC availability, cross-sections path, and chain file.
+     * @returns Comprehensive validation result
      */
     async validateOpenMCSetup(): Promise<OpenMCValidationResult> {
         const errors: string[] = [];
@@ -104,9 +115,11 @@ export class OpenMCValidationBackendService {
 
     /**
      * Get Python command with OpenMC, with auto-detection fallback.
+     * @returns Python command and any warnings
+     * @throws Error if OpenMC is not available
      */
-    async getPythonWithOpenMC(): Promise<{ 
-        command: string; 
+    async getPythonWithOpenMC(): Promise<{
+        command: string;
         warning?: string;
         envName?: string;
     }> {
@@ -124,6 +137,7 @@ export class OpenMCValidationBackendService {
 
     /**
      * Quick check if OpenMC is available.
+     * @returns Whether OpenMC can be found in any environment
      */
     async isOpenMCAvailable(): Promise<boolean> {
         try {
@@ -138,6 +152,7 @@ export class OpenMCValidationBackendService {
 
     /**
      * Validate DAGMC setup (pydagmc + pymoab).
+     * @returns DAGMC availability with version information
      */
     async validateDAGMC(): Promise<{
         available: boolean;

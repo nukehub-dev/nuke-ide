@@ -33,9 +33,19 @@ import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibili
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
+/**
+ * Widget for defining parameter sweeps and running automated optimization studies.
+ *
+ * Supports creating parameter sweeps, executing batch runs across parameter
+ * combinations, viewing per-iteration logs, and analyzing k-effective trends.
+ *
+ * @see {@link SimulationDashboardWidget} for individual simulation execution
+ */
 @injectable()
 export class OptimizationWidget extends ReactWidget {
+    /** Unique widget identifier. */
     static readonly ID = 'openmc-optimization-widget';
+    /** Display label for the widget title. */
     static readonly LABEL = 'Optimization Study';
 
     @inject(OpenMCStateManager)
@@ -96,6 +106,9 @@ export class OptimizationWidget extends ReactWidget {
     private elapsedTimeTimer?: number;
     private timedRunId?: string;
 
+    /**
+     * Initialize widget id, title, event listeners, and state.
+     */
     @postConstruct()
     protected init(): void {
         this.id = OptimizationWidget.ID;
@@ -180,6 +193,9 @@ export class OptimizationWidget extends ReactWidget {
         super.onBeforeHide(msg);
     }
 
+    /**
+     * Dispose the widget and stop any running optimization.
+     */
     dispose(): void {
         const activeRun = this.stateManager.getActiveOptimizationRun();
         if (activeRun?.status === 'running') {
@@ -195,7 +211,7 @@ export class OptimizationWidget extends ReactWidget {
     }
 
     /**
-     * Reset widget state to default values for a fresh instance
+     * Reset widget state to default values for a fresh instance.
      */
     private resetWidgetState(): void {
         this.activeTab = 'sweeps';
@@ -241,6 +257,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render the optimization widget main layout.
+     * @returns The React element tree for the widget.
+     */
     protected render(): React.ReactNode {
         try {
             return (
@@ -269,6 +289,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render the widget header with project path info.
+     * @returns Header React node.
+     */
     protected renderHeader(): React.ReactNode {
         const projectPath = this.stateManager.projectPath;
 
@@ -294,6 +318,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the getting started guide cards.
+     * @returns Quick start guide React node.
+     */
     protected renderQuickStartGuide(): React.ReactNode {
         return (
             <div className='quick-start-guide'>
@@ -322,6 +350,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tab selector for Sweeps, Runner, Results, and Analysis.
+     * @returns Tabs React node.
+     */
     protected renderTabs(): React.ReactNode {
         const tabs = [
             { id: 'sweeps', label: 'Parameter Sweeps', icon: 'codicon-list-selection' },
@@ -349,6 +381,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the Parameter Sweeps tab with sweep cards and editor.
+     * @returns Sweeps tab React node.
+     */
     protected renderSweepsTab(): React.ReactNode {
         try {
             const sweeps = this.stateManager.getParameterSweeps();
@@ -413,6 +449,11 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render a single sweep card or its inline editor.
+     * @param sweep - Parameter sweep to render.
+     * @returns Sweep card React node.
+     */
     protected renderSweepCard(sweep: OpenMCParameterSweep): React.ReactNode {
         const values = this.stateManager.computeSweepValues(sweep);
         const isSelected = this.selectedSweepId === sweep.id;
@@ -500,6 +541,11 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the inline editor form for a parameter sweep.
+     * @param sweep - Parameter sweep being edited.
+     * @returns Sweep editor React node.
+     */
     protected renderSweepEditor(sweep: OpenMCParameterSweep): React.ReactNode {
         // Initialize editing data if not set or for different sweep
         if (!this.editingSweepData || this.editingSweepData.id !== sweep.id) {
@@ -834,6 +880,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render quick action buttons for resolving validation errors.
+     * @returns Validation actions React node.
+     */
     protected renderValidationActions(): React.ReactNode {
         const errors = this.runnerValidation.errors;
         
@@ -873,6 +923,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the Batch Runner tab with controls and progress.
+     * @returns Runner tab React node.
+     */
     protected renderRunnerTab(): React.ReactNode {
         const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
         const activeRun = this.stateManager.getActiveOptimizationRun();
@@ -1012,6 +1066,11 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render progress visualization for an active or completed optimization run.
+     * @param run - The optimization run to display.
+     * @returns Run progress React node.
+     */
     protected renderRunProgress(run: OpenMCOptimizationRun): React.ReactNode {
         // Manage elapsed time timer
         this.manageElapsedTimeTimer(run);
@@ -1279,6 +1338,11 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Select an iteration to view its log output.
+     * @param runId - Id of the parent optimization run.
+     * @param iteration - Iteration number to select.
+     */
     private selectIteration(runId: string, iteration: number): void {
         // Find if this iteration has a log
         const iterInfo = this.iterationLogsIndex.find(i => i.iteration === iteration);
@@ -1292,6 +1356,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Start or stop the elapsed time timer based on run status.
+     * @param run - The optimization run to track.
+     */
     private manageElapsedTimeTimer(run: OpenMCOptimizationRun): void {
         const shouldRun = run.status === 'running' && !!run.startTime;
         const isDifferentRun = this.timedRunId !== run.id;
@@ -1315,6 +1383,9 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Stop the elapsed time refresh timer.
+     */
     private stopElapsedTimeTimer(): void {
         if (this.elapsedTimeTimer) {
             window.clearInterval(this.elapsedTimeTimer);
@@ -1323,6 +1394,11 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Open the iteration log file in the code editor.
+     * @param runId - Id of the optimization run.
+     * @param iteration - Iteration number whose log to open.
+     */
     private async openLogInEditor(runId: string, iteration: number): Promise<void> {
         try {
             // Get the run to construct the iteration log path
@@ -1364,6 +1440,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Load the index of available iteration logs from the backend.
+     * @param runId - Id of the optimization run.
+     */
     private async loadIterationLogsIndex(runId: string): Promise<void> {
         try {
             // Get the run to resolve output directory
@@ -1389,6 +1469,11 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Resolve the absolute output directory for a run.
+     * @param runId - Id of the optimization run.
+     * @returns Absolute output directory path, or undefined if not resolvable.
+     */
     private getRunOutputDirectory(runId: string): string | undefined {
         const run = this.stateManager.getOptimizationRun(runId);
         if (!run?.outputDirectory) return undefined;
@@ -1401,6 +1486,12 @@ export class OptimizationWidget extends ReactWidget {
         return `${projectDir}/${run.outputDirectory}`;
     }
 
+    /**
+     * Toggle expansion of an iteration log view.
+     * @param runId - Id of the optimization run.
+     * @param iteration - Iteration number.
+     * @param hasLog - Whether a log file exists for this iteration.
+     */
     private async toggleIteration(runId: string, iteration: number, hasLog: boolean): Promise<void> {
         if (!hasLog) return;
         
@@ -1439,6 +1530,11 @@ export class OptimizationWidget extends ReactWidget {
 
     private autoScroll = true;
 
+    /**
+     * Load the log content for a specific iteration.
+     * @param runId - Id of the optimization run.
+     * @param iteration - Iteration number to load.
+     */
     private async loadIterationLog(runId: string, iteration: number): Promise<void> {
         if (!this.expandedIterations.has(iteration)) return;
         
@@ -1465,6 +1561,11 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Filter the loaded log content by a search string.
+     * @param iteration - Current iteration number.
+     * @param filter - Search filter string.
+     */
     private filterLogContent(iteration: number, filter: string): void {
         if (!filter) {
             this.filteredLogContent = '';
@@ -1483,6 +1584,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Render the Results tab with run history and result tables.
+     * @returns Results tab React node.
+     */
     protected renderResultsTab(): React.ReactNode {
         const runs = this.stateManager.getOptimizationRuns();
         const selectedRun = this.selectedRunId
@@ -1593,6 +1698,11 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the detailed results table for a single run.
+     * @param run - Optimization run to display.
+     * @returns Results table React node.
+     */
     protected renderResultsTable(run: OpenMCOptimizationRun): React.ReactNode {
         if (run.results.length === 0) {
             return (
@@ -1664,6 +1774,10 @@ export class OptimizationWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the Analysis tab with k-effective plots and statistics.
+     * @returns Analysis tab React node.
+     */
     protected renderAnalysisTab(): React.ReactNode {
         const runs = this.stateManager.getOptimizationRuns().filter(r => r.results.length > 0);
 
@@ -1886,6 +2000,9 @@ export class OptimizationWidget extends ReactWidget {
     // Actions
     // ============================================================================
 
+    /**
+     * Add a new disabled parameter sweep and enter edit mode.
+     */
     private addNewSweep(): void {
         const id = this.stateManager.getNextParameterSweepId();
         const newSweep: OpenMCParameterSweep = {
@@ -1909,6 +2026,9 @@ export class OptimizationWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Open an existing OpenMC project file.
+     */
     private async openProject(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Open OpenMC Project',
@@ -1939,6 +2059,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Toggle the enabled state of a parameter sweep.
+     * @param id - Id of the sweep to toggle.
+     */
     private toggleSweepEnabled(id: number): void {
         const sweeps = this.stateManager.getParameterSweeps();
         const sweep = sweeps.find(s => s.id === id);
@@ -1949,17 +2073,31 @@ export class OptimizationWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Read a CSS custom property value from the document.
+     * @param variable - CSS variable name.
+     * @param fallback - Fallback value if variable is not defined.
+     * @returns Resolved color string.
+     */
     private getCssColor(variable: string, fallback: string): string {
         if (typeof window === 'undefined') return fallback;
         const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
         return computed || fallback;
     }
 
+    /**
+     * Enter edit mode for a parameter sweep.
+     * @param id - Id of the sweep to edit.
+     */
     private editSweep(id: number): void {
         this.editingSweepId = id;
         this.update();
     }
 
+    /**
+     * Duplicate an existing parameter sweep.
+     * @param id - Id of the sweep to duplicate.
+     */
     private duplicateSweep(id: number): void {
         const sweeps = this.stateManager.getParameterSweeps();
         const sweep = sweeps.find(s => s.id === id);
@@ -1976,6 +2114,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Delete a parameter sweep.
+     * @param id - Id of the sweep to delete.
+     */
     private deleteSweep(id: number): void {
         this.stateManager.removeParameterSweep(id);
         if (this.selectedSweepId === id) {
@@ -1985,15 +2127,25 @@ export class OptimizationWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Open the Simulation Dashboard widget.
+     * @see {@link SimulationDashboardWidget}
+     */
     private async openSimulationDashboard(): Promise<void> {
         await this.commandService.executeCommand('openmc.openSimulationDashboard');
     }
 
+    /**
+     * Toggle visibility of validation error/warning details.
+     */
     private toggleValidationDetails(): void {
         this.runnerValidation.showDetails = !this.runnerValidation.showDetails;
         this.update();
     }
 
+    /**
+     * Validate sweeps and start a new batch optimization run.
+     */
     private async startBatchRun(): Promise<void> {
         const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
         if (sweeps.length === 0) {
@@ -2130,6 +2282,10 @@ export class OptimizationWidget extends ReactWidget {
 
     private progressInterval?: number;
 
+    /**
+     * Start polling for optimization run progress.
+     * @param runId - Id of the run to poll.
+     */
     private startProgressPolling(runId: string): void {
         // Clear any existing interval
         if (this.progressInterval) {
@@ -2181,6 +2337,9 @@ export class OptimizationWidget extends ReactWidget {
         }, 1000);
     }
 
+    /**
+     * Stop the active optimization run.
+     */
     private async stopBatchRun(): Promise<void> {
         const activeRun = this.stateManager.getActiveOptimizationRun();
         if (activeRun) {
@@ -2214,6 +2373,7 @@ export class OptimizationWidget extends ReactWidget {
 
     /**
      * Prompt user to save project if not saved. Returns true if saved or already has path.
+     * @returns True if project is saved or already had a path.
      */
     private async saveProjectWithPrompt(): Promise<boolean> {
         if (this.stateManager.projectPath) {
@@ -2238,7 +2398,8 @@ export class OptimizationWidget extends ReactWidget {
     }
 
     /**
-     * Save project to the given path
+     * Save project to the given path.
+     * @param path - File path to save the project to.
      */
     private async doSave(path: string): Promise<void> {
         try {
@@ -2259,7 +2420,7 @@ export class OptimizationWidget extends ReactWidget {
     }
 
     /**
-     * Auto-save project if path exists
+     * Auto-save project if a save path exists.
      */
     private async autoSave(): Promise<void> {
         if (this.stateManager.projectPath) {
@@ -2275,6 +2436,10 @@ export class OptimizationWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Export optimization run results to a CSV file.
+     * @param runId - Id of the run to export.
+     */
     private async exportRunResults(runId: string): Promise<void> {
         const run = this.stateManager.getOptimizationRun(runId);
         if (!run || run.results.length === 0) {

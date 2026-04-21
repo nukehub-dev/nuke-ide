@@ -45,13 +45,24 @@ import {
 import { OpenMCService } from 'nuke-visualizer/lib/browser/plugins/openmc/openmc-service';
 import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
 
+/**
+ * Active tab identifier for the CSG Builder widget.
+ */
 export type CSGBuilderTab = 'surfaces' | 'cells' | 'universes';
 
+/**
+ * Template definition for a creatable surface type.
+ */
 interface SurfaceTemplate {
+    /** OpenMC surface type identifier. */
     type: OpenMCSurfaceType;
+    /** Human-readable display name. */
     name: string;
+    /** Codicon icon class name. */
     icon: string;
+    /** Tooltip description shown on hover. */
     description: string;
+    /** Default coefficient values for the surface type. */
     defaultCoeffs: Partial<OpenMCSurfaceCoefficients[OpenMCSurfaceType]>;
 }
 
@@ -143,9 +154,20 @@ const BOUNDARY_CONDITIONS: { value: OpenMCBoundaryCondition; label: string }[] =
     { value: 'white', label: 'White' }
 ];
 
+/**
+ * Widget for constructing and editing OpenMC Constructive Solid Geometry (CSG).
+ *
+ * Provides a visual interface for creating surfaces, defining cells with region
+ * expressions, managing universes and lattices, and importing CAD/DAGMC files.
+ *
+ * @see {@link SimulationDashboardWidget} for simulation settings and material management
+ * @see {@link OpenMCGeometry3DWidget} for 3D geometry preview
+ */
 @injectable()
 export class CSGBuilderWidget extends ReactWidget {
+    /** Unique widget identifier. */
     static readonly ID = 'openmc-csg-builder';
+    /** Display label for the widget title. */
     static readonly LABEL = 'CSG Geometry Builder';
 
     @inject(MessageService)
@@ -213,6 +235,9 @@ export class CSGBuilderWidget extends ReactWidget {
 
 
 
+    /**
+     * Initialize widget id, title, and state change listeners.
+     */
     @postConstruct()
     protected init(): void {
         this.id = CSGBuilderWidget.ID;
@@ -250,6 +275,10 @@ export class CSGBuilderWidget extends ReactWidget {
         super.onBeforeHide(msg);
     }
 
+    /**
+     * Render the CSG builder main layout.
+     * @returns The React element tree for the widget.
+     */
     protected render(): React.ReactNode {
         const state = this.stateManager.getState();
         const isDagmcMode = !!state.settings.dagmcFile;
@@ -267,6 +296,11 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the widget header with stats and action buttons.
+     * @param isDagmcMode - Whether DAGMC geometry mode is active.
+     * @returns Header React node.
+     */
     private renderHeader(isDagmcMode: boolean): React.ReactNode {
         return (
             <div className='csg-builder-header'>
@@ -340,6 +374,10 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tab selector for Surfaces, Cells, and Universes.
+     * @returns Tabs React node.
+     */
     private renderTabs(): React.ReactNode {
         const state = this.stateManager.getState();
         const isDagmcMode = !!state.settings.dagmcFile;
@@ -374,6 +412,11 @@ export class CSGBuilderWidget extends ReactWidget {
     // Surfaces Tab
     // ============================================================================
 
+    /**
+     * Render the Surfaces tab with gallery and surface list.
+     * @param state - Current OpenMC simulation state.
+     * @returns Surfaces tab React node.
+     */
     private renderSurfacesTab(state: OpenMCState): React.ReactNode {
         const dagmcFile = state.settings.dagmcFile;
         
@@ -471,6 +514,12 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render DAGMC-specific surface information when a DAGMC file is loaded.
+     * @param state - Current OpenMC simulation state.
+     * @param dagmcFile - Path to the loaded DAGMC file.
+     * @returns DAGMC surfaces tab React node.
+     */
     private renderDAGMCSurfacesTab(state: OpenMCState, dagmcFile: string): React.ReactNode {
         const info = this.dagmcInfo;
         const fileName = info?.fileName || dagmcFile.split('/').pop() || dagmcFile;
@@ -577,6 +626,9 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Remove the loaded DAGMC file and switch back to CSG mode.
+     */
     private clearDagmcFile(): void {
         const state = this.stateManager.getState();
         delete state.settings.dagmcFile;
@@ -587,6 +639,11 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Render coefficient preview tags for a surface.
+     * @param surface - The surface to preview.
+     * @returns Coefficient tag elements.
+     */
     private renderSurfaceCoeffsPreview(surface: OpenMCSurface): React.ReactNode {
         const coeffs = surface.coefficients;
         const items: string[] = [];
@@ -625,6 +682,10 @@ export class CSGBuilderWidget extends ReactWidget {
         ));
     }
 
+    /**
+     * Render the surface creation/editing form panel.
+     * @returns Surface editor React node.
+     */
     private renderSurfaceEditorPanel(): React.ReactNode {
         const template = SURFACE_TEMPLATES.find(t => t.type === this.surfaceFormType);
         if (!template) return null;
@@ -726,6 +787,11 @@ export class CSGBuilderWidget extends ReactWidget {
     // Cells Tab
     // ============================================================================
 
+    /**
+     * Render the Cells tab with list and creation form.
+     * @param state - Current OpenMC simulation state.
+     * @returns Cells tab React node.
+     */
     private renderCellsTab(state: OpenMCState): React.ReactNode {
         const dagmcFile = state.settings.dagmcFile;
         
@@ -816,6 +882,11 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render DAGMC volume list in place of CSG cells.
+     * @param state - Current OpenMC simulation state.
+     * @returns DAGMC cells tab React node.
+     */
     private renderDAGMCCellsTab(state: OpenMCState): React.ReactNode {
         // Use dagmcInfo from state if available, otherwise fall back to local
         const info = state.settings.dagmcInfo || this.dagmcInfo;
@@ -918,6 +989,11 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the cell creation/editing form.
+     * @param state - Current OpenMC simulation state.
+     * @returns Cell form React node.
+     */
     private renderCellForm(state: OpenMCState): React.ReactNode {
         return (
             <div className='cell-form-container'>
@@ -1075,6 +1151,11 @@ export class CSGBuilderWidget extends ReactWidget {
     // Visual Region Builder
     // ============================================================================
 
+    /**
+     * Render the interactive visual region builder for cell definitions.
+     * @param state - Current OpenMC simulation state.
+     * @returns Region builder React node.
+     */
     private renderVisualRegionBuilder(state: OpenMCState): React.ReactNode {
         return (
             <div className='form-group region-builder'>
@@ -1242,6 +1323,11 @@ export class CSGBuilderWidget extends ReactWidget {
     // Universes Tab
     // ============================================================================
 
+    /**
+     * Render the Universes tab with universe and lattice management.
+     * @param state - Current OpenMC simulation state.
+     * @returns Universes tab React node.
+     */
     private renderUniversesTab(state: OpenMCState): React.ReactNode {
         // Check DAGMC mode
         const dagmcFile = state.settings.dagmcFile;
@@ -1467,6 +1553,12 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Get a human-readable description of a cell's fill.
+     * @param cell - The cell to describe.
+     * @param state - Current OpenMC simulation state.
+     * @returns Human-readable fill description.
+     */
     private getFillDescription(cell: OpenMCCell, state: OpenMCState): string {
         switch (cell.fillType) {
             case 'void':
@@ -1486,6 +1578,11 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Get the Codicon icon name for a fill type.
+     * @param fillType - The fill type to map.
+     * @returns Codicon icon class name.
+     */
     private getFillIcon(fillType: OpenMCFillType): string {
         switch (fillType) {
             case 'void': return 'circle-outline';
@@ -1500,6 +1597,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Lattice Actions
     // ============================================================================
 
+    /**
+     * Create a new rectangular lattice with default parameters.
+     */
     private createRectLattice(): void {
         const id = this.stateManager.getNextLatticeId();
         const lattice: OpenMCLattice = {
@@ -1518,6 +1618,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.messageService.info(`Created rectangular lattice #${id}`);
     }
 
+    /**
+     * Delete a lattice by id if it is not referenced by any cell.
+     * @param id - Lattice id to delete.
+     */
     private deleteLattice(id: number): void {
         // Check if lattice is used in any cells
         const state = this.stateManager.getState();
@@ -1534,6 +1638,11 @@ export class CSGBuilderWidget extends ReactWidget {
         this.messageService.info(`Deleted lattice #${id}`);
     }
 
+    /**
+     * Render a lattice card with properties and grid preview.
+     * @param lattice - The lattice to render.
+     * @returns Lattice card React node.
+     */
     private renderLatticeCard(lattice: OpenMCLattice): React.ReactNode {
         const isRect = lattice.type === 'rect' || !lattice.type;
         const isHex = lattice.type && lattice.type.startsWith('hex');
@@ -1593,6 +1702,11 @@ export class CSGBuilderWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render a visual grid preview of a rectangular lattice.
+     * @param lattice - The lattice to preview.
+     * @returns Grid preview React node.
+     */
     private renderUniverseGridPreview(lattice: OpenMCLattice): React.ReactNode {
         // Simple visual preview of the lattice structure
         const universes = lattice.universes;
@@ -1635,6 +1749,10 @@ export class CSGBuilderWidget extends ReactWidget {
     // Surface Actions
     // ============================================================================
 
+    /**
+     * Start creating a new surface from a template.
+     * @param template - Surface template to use.
+     */
     private startCreateSurface(template: SurfaceTemplate): void {
         this.editingSurface = { 
             id: 0, 
@@ -1651,6 +1769,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Start editing an existing surface.
+     * @param surface - Surface to edit.
+     */
     private startEditSurface(surface: OpenMCSurface): void {
         this.editingSurface = { ...surface };
         this.surfaceFormType = surface.type;
@@ -1661,6 +1783,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Change the surface type being created/edited.
+     * @param type - New surface type.
+     */
     private changeSurfaceType(type: OpenMCSurfaceType): void {
         const template = SURFACE_TEMPLATES.find(t => t.type === type);
         if (!template) return;
@@ -1675,6 +1801,9 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Save the current surface (create new or update existing).
+     */
     private async saveSurface(): Promise<void> {
         if (!this.editingSurface) return;
 
@@ -1697,6 +1826,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.cancelForm();
     }
 
+    /**
+     * Delete a surface if it is not used in any cell region.
+     * @param id - Surface id to delete.
+     */
     private deleteSurface(id: number): void {
         // Check if surface is used in any cell regions
         const state = this.stateManager.getState();
@@ -1717,6 +1850,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Cell Actions
     // ============================================================================
 
+    /**
+     * Start creating a new cell with default values.
+     */
     private startCreateCell(): void {
         this.editingCell = { id: 0, fillType: 'void' };
         this.cellFormName = '';
@@ -1728,6 +1864,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Start editing an existing cell.
+     * @param cell - Cell to edit.
+     */
     private startEditCell(cell: OpenMCCell): void {
         this.editingCell = { ...cell };
         this.cellFormName = cell.name || '';
@@ -1740,6 +1880,11 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Parse a region string into visual builder tokens.
+     * @param regionString - Raw region expression string.
+     * @returns Array of parsed tokens.
+     */
     private parseRegionToTokens(regionString: string): { type: 'surface' | 'operator'; value: string; id?: number; side?: 'positive' | 'negative' | 'complement' }[] {
         if (!regionString) return [];
         
@@ -1768,6 +1913,11 @@ export class CSGBuilderWidget extends ReactWidget {
         return tokens;
     }
 
+    /**
+     * Add a surface reference to the region being built.
+     * @param surfaceId - Id of the surface to add.
+     * @param side - Side of the surface (positive or negative).
+     */
     private addSurfaceToRegion(surfaceId: number, side: 'positive' | 'negative'): void {
         const prefix = side === 'positive' ? '+' : '-';
         this.regionBuilderTokens.push({ type: 'surface', value: `${prefix}${surfaceId}`, id: surfaceId, side });
@@ -1856,6 +2006,9 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Save the current cell (create new or update existing).
+     */
     private saveCell(): void {
         if (!this.editingCell) return;
 
@@ -1909,6 +2062,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.cancelForm();
     }
 
+    /**
+     * Delete a cell and remove it from all universes.
+     * @param id - Cell id to delete.
+     */
     private deleteCell(id: number): void {
         this.stateManager.removeCell(id);
         // Remove from universes
@@ -1922,6 +2079,11 @@ export class CSGBuilderWidget extends ReactWidget {
         this.messageService.info(`Deleted cell #${id}`);
     }
 
+    /**
+     * Validate a region expression string for basic syntax correctness.
+     * @param region - Region expression to validate.
+     * @returns True if the region string is valid.
+     */
     private validateRegionString(region: string): boolean {
         // Basic validation: check for surface IDs with +/-
         // Remove parentheses and operators
@@ -1938,6 +2100,11 @@ export class CSGBuilderWidget extends ReactWidget {
         return true;
     }
     
+    /**
+     * Check if a region expression uses the same surface with both positive and negative sides.
+     * @param region - Region expression to check.
+     * @returns True if a contradiction is found.
+     */
     private hasContradictoryRegion(region: string): boolean {
         // Check if same surface appears with both + and -
         const surfaceSides = new Map<number, Set<string>>();
@@ -1975,6 +2142,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // CAD Import
     // ============================================================================
 
+    /**
+     * Import a CAD file (STEP/IGES/BREP/STL) and convert to OpenMC geometry.
+     */
     private async importCADFile(): Promise<void> {
         const support = await this.backendService.checkCADSupport();
         
@@ -2028,6 +2198,11 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Process the result of a CAD import operation.
+     * @param result - Import result from the backend.
+     * @param filePath - Optional original file path.
+     */
     private async handleCADImportResult(result: CADImportResult, filePath?: string): Promise<void> {
         if (!result.success) {
             return;
@@ -2127,6 +2302,11 @@ export class CSGBuilderWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Add imported surfaces and cells to the current state with remapped ids.
+     * @param surfaces - Imported surface definitions.
+     * @param cells - Imported cell definitions.
+     */
     private addImportedGeometry(
         surfaces: { type: string; coefficients: number[]; name?: string }[],
         cells: { id: number; name?: string; region: string; material?: string; universe?: number }[]
@@ -2199,6 +2379,11 @@ export class CSGBuilderWidget extends ReactWidget {
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Map an imported CAD surface type to an OpenMC surface type.
+     * @param cadType - CAD surface type string.
+     * @returns Corresponding OpenMC surface type.
+     */
     private mapCADSurfaceType(cadType: string): OpenMCSurfaceType {
         const typeMap: Record<string, OpenMCSurfaceType> = {
             'plane': 'plane',
@@ -2221,6 +2406,12 @@ export class CSGBuilderWidget extends ReactWidget {
         return typeMap[cadType] || 'plane';
     }
 
+    /**
+     * Convert flat array coefficients to named object coefficients based on surface type.
+     * @param type - OpenMC surface type.
+     * @param coeffs - Flat coefficient array.
+     * @returns Named coefficient record.
+     */
     private convertCoefficients(type: OpenMCSurfaceType, coeffs: number[]): Record<string, number> {
         // Convert array coefficients to object format based on surface type
         switch (type) {
@@ -2270,6 +2461,12 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Remap surface ids within a region expression using an id mapping.
+     * @param region - Region expression string.
+     * @param idMap - Mapping from old surface ids to new surface ids.
+     * @returns Region expression with remapped ids.
+     */
     private remapRegionSurfaceIds(region: string, idMap: Map<number, number>): string {
         // Replace surface IDs in region expression
         // Handles patterns like "-1", "+1", "-1 & +2", etc.
@@ -2287,6 +2484,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Material Import
     // ============================================================================
 
+    /**
+     * Import materials from a materials.xml file.
+     */
     private async importMaterialsFromXML(): Promise<void> {
         const uri = await this.fileDialogService.showOpenDialog({
             title: 'Select materials.xml File',
@@ -2346,6 +2546,9 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Import geometry, materials, and settings from XML files in a directory.
+     */
     private async importGeometryFromXML(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Select Directory with XML Files',
@@ -2397,6 +2600,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Universe Actions
     // ============================================================================
 
+    /**
+     * Create a new universe with the next available id.
+     */
     private createUniverse(): void {
         const id = this.stateManager.getNextUniverseId();
         const universe: OpenMCUniverse = {
@@ -2409,6 +2615,10 @@ export class CSGBuilderWidget extends ReactWidget {
         this.messageService.info(`Created universe #${id}`);
     }
 
+    /**
+     * Delete a universe if it is not referenced by any cell.
+     * @param id - Universe id to delete.
+     */
     private deleteUniverse(id: number): void {
         // Check if universe is used in any cells
         const state = this.stateManager.getState();
@@ -2429,6 +2639,11 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Assign a cell to a universe.
+     * @param cellId - Id of the cell to assign.
+     * @param universeId - Id of the target universe.
+     */
     private assignCellToUniverse(cellId: number, universeId: number): void {
         try {
             this.stateManager.assignCellToUniverse(cellId, universeId);
@@ -2438,6 +2653,11 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Remove a cell from a universe.
+     * @param cellId - Id of the cell to remove.
+     * @param universeId - Id of the universe to remove from.
+     */
     private removeCellFromUniverse(cellId: number, universeId: number): void {
         this.stateManager.removeCellFromUniverse(cellId, universeId);
         this.messageService.info(`Removed cell #${cellId} from universe #${universeId}`);
@@ -2447,6 +2667,10 @@ export class CSGBuilderWidget extends ReactWidget {
     // Save / Save As
     // ============================================================================
 
+    /**
+     * Render save action buttons based on current save location state.
+     * @returns Save buttons React node.
+     */
     private renderSaveButtons(): React.ReactNode {
         if (this.saveOutputPath) {
             // Have a save location - show Save and Save As
@@ -2488,6 +2712,9 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Save geometry XML to the current output path.
+     */
     private async saveXML(): Promise<void> {
         if (!this.saveOutputPath) {
             return this.saveXMLAs();
@@ -2495,6 +2722,9 @@ export class CSGBuilderWidget extends ReactWidget {
         await this.performSave(this.saveOutputPath, true);
     }
 
+    /**
+     * Prompt user for an output directory and save geometry XML there.
+     */
     private async saveXMLAs(): Promise<void> {
         const uri = await this.fileDialogService.showOpenDialog({
             title: 'Select Output Directory for geometry.xml',
@@ -2517,6 +2747,9 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Debounced auto-save to the current output path when geometry changes.
+     */
     private autoSaveToCurrentPath(): void {
         if (!this.saveOutputPath) {
             return;
@@ -2533,6 +2766,12 @@ export class CSGBuilderWidget extends ReactWidget {
         }, 1000);
     }
 
+    /**
+     * Perform the actual XML generation and save operation.
+     * @param outputPath - Directory path to save XML files into.
+     * @param showMessages - Whether to show toast messages on success/failure.
+     * @returns True if save succeeded.
+     */
     private async performSave(outputPath: string, showMessages: boolean): Promise<boolean> {
         const state = this.stateManager.getState();
         if (state.geometry.cells.length === 0) {
@@ -2581,6 +2820,10 @@ export class CSGBuilderWidget extends ReactWidget {
     // 3D Preview
     // ============================================================================
 
+    /**
+     * Open a 3D preview of the current CSG geometry.
+     * @see {@link OpenMCGeometry3DWidget}
+     */
     private async previewGeometry(): Promise<void> {
         const state = this.stateManager.getState();
         
@@ -2643,6 +2886,10 @@ export class CSGBuilderWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Open the DAGMC Editor widget for the loaded DAGMC file.
+     * @see {@link DAGMCEditorWidget}
+     */
     private async openDagmcEditor(): Promise<void> {
         const state = this.stateManager.getState();
         if (state.settings?.dagmcFile) {
@@ -2656,6 +2903,9 @@ export class CSGBuilderWidget extends ReactWidget {
     // Form Utilities
     // ============================================================================
 
+    /**
+     * Reset all form editing state and close any open editors.
+     */
     private cancelForm(): void {
         this.editingSurface = undefined;
         this.creatingSurfaceType = undefined;
@@ -2680,9 +2930,15 @@ export class CSGBuilderWidget extends ReactWidget {
 // Lattice Grid Cell Component (for performance with useTooltip)
 // ============================================================================
 
+/**
+ * Props for the lattice grid cell component.
+ */
 interface LatticeGridCellProps {
+    /** Universe id displayed in the cell. */
     univId: number;
+    /** Column index in the lattice grid. */
     col: number;
+    /** Row index in the lattice grid. */
     row: number;
 }
 

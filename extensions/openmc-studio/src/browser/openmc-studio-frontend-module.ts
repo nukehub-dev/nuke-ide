@@ -16,9 +16,11 @@
 
 /**
  * OpenMC Studio Frontend Module
- * 
+ *
  * Entry point for the OpenMC Studio Theia extension on the frontend.
- * 
+ * Registers services, commands, menus, widget factories, and preference
+ * bindings within the Inversify container.
+ *
  * @module openmc-studio/browser
  */
 
@@ -89,6 +91,13 @@ import './widgets/tally-configurator/tally-configurator.css';
 import './widgets/simulation-comparison/comparison.css';
 import './widgets/optimization/optimization.css';
 
+/**
+ * The OpenMC Studio frontend {@link ContainerModule}.
+ *
+ * Binds all services, contributions, and widget factories required by the
+ * OpenMC Studio extension. This module is loaded automatically by Theia
+ * when the extension is present.
+ */
 export default new ContainerModule((bind: interfaces.Bind) => {
     console.log('[OpenMC Studio] Initializing frontend module...');
 
@@ -102,7 +111,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // ============================================================================
     bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
         const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        
+
         const client: OpenMCStudioClient = {
             log: (message: string) => {
                 window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stdout', data: message } }));
@@ -125,7 +134,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
                 window.dispatchEvent(new CustomEvent('openmc-optimization-iteration', { detail: { runId, result } }));
             }
         };
-        
+
         return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
     }).inSingletonScope();
 
@@ -158,13 +167,13 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // ============================================================================
     bind(OpenMCCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(OpenMCCommandContribution);
-    
+
     bind(OpenMCMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(OpenMCMenuContribution);
-    
+
     bind(OpenMCToolbarContribution).toSelf().inSingletonScope();
     bind(TabBarToolbarContribution).toService(OpenMCToolbarContribution);
-    
+
     // OpenHandler for .nuke-openmc files
     bind(OpenMCOpenHandlerContribution).toSelf().inSingletonScope();
     bind(OpenHandler).toService(OpenMCOpenHandlerContribution);
@@ -178,19 +187,19 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         id: SimulationDashboardWidget.ID,
         createWidget: () => container.get(SimulationDashboardWidget)
     })).inSingletonScope();
-    
+
     bind(CSGBuilderWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: CSGBuilderWidget.ID,
         createWidget: () => container.get(CSGBuilderWidget)
     })).inSingletonScope();
-    
+
     bind(DAGMCEditorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: DAGMCEditorWidget.ID,
         createWidget: () => container.get(DAGMCEditorWidget)
     })).inSingletonScope();
-    
+
     bind(TallyConfiguratorWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: TallyConfiguratorWidget.ID,
@@ -212,9 +221,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     console.log('[OpenMC Studio] Frontend module initialized');
 });
 
-// Re-exports
+// Re-exports for consumers of the frontend module.
+/** @see {@link OpenMCStudioService} */
 export { OpenMCStudioService } from './openmc-studio-service';
+/** @see {@link OpenMCStateManager} */
 export { OpenMCStateManager } from './openmc-state-manager';
+/** @see {@link OpenMCEnvironmentService} */
 export { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from './services';
+/** @see {@link OpenMCHealthService} */
 export { OpenMCHealthService, HealthCheckResult, HealthCheckIssue, HealthCheckItem } from './services';
+/** @see {@link OpenMCInstallerService} */
 export { OpenMCInstallerService, InstallOption, InstallResult } from './services';

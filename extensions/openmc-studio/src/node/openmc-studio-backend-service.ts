@@ -58,27 +58,38 @@ import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
 import { OptimizationBackendService } from './optimization-backend-service';
 
+/**
+ * OpenMC Studio Backend Service Implementation
+ *
+ * Main backend service implementing the {@link OpenMCStudioBackendService} interface.
+ * Coordinates between specialized services (runner, XML generation, CAD import, etc.)
+ * and exposes functionality via JSON-RPC to the frontend.
+ *
+ * @implements {OpenMCStudioBackendService}
+ * @implements {BackendApplicationContribution}
+ */
 @injectable()
-export class OpenMCStudioBackendServiceImpl 
+export class OpenMCStudioBackendServiceImpl
     implements OpenMCStudioBackendService, BackendApplicationContribution {
-    
+
     @inject(OpenMCRunnerService)
     protected readonly runnerService: OpenMCRunnerService;
-    
+
     @inject(XMLGenerationService)
     protected readonly xmlService: XMLGenerationService;
-    
+
     @inject(OpenMCCADImportService)
     protected readonly cadService: OpenMCCADImportService;
-    
+
     @inject(DAGMCEditorService)
     protected readonly dagmcEditorService: DAGMCEditorService;
-    
+
     @inject(OptimizationBackendService)
     protected readonly optimizationService: OptimizationBackendService;
 
     /**
-     * Set the client for receiving log messages.
+     * Set the client for receiving log messages and events.
+     * @param client - The frontend client interface
      */
     setClient(client: OpenMCStudioClient): void {
         // Forward client to runner service for simulation output streaming
@@ -89,6 +100,7 @@ export class OpenMCStudioBackendServiceImpl
 
     /**
      * Set Python configuration (called from nuke-visualizer preferences).
+     * @param config - Python path and/or conda environment
      */
     async setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void> {
         await this.runnerService.setPythonConfig(config);
@@ -96,6 +108,7 @@ export class OpenMCStudioBackendServiceImpl
 
     /**
      * Log a message to the console (client logging disabled to prevent disconnect errors).
+     * @param message - Message to log
      */
     protected log(message: string): void {
         console.log(`[OpenMC Studio] ${message}`);
@@ -103,6 +116,7 @@ export class OpenMCStudioBackendServiceImpl
 
     /**
      * Log an error to the console (client logging disabled to prevent disconnect errors).
+     * @param message - Error message to log
      */
     protected error(message: string): void {
         console.error(`[OpenMC Studio] ${message}`);
@@ -112,6 +126,9 @@ export class OpenMCStudioBackendServiceImpl
     // Lifecycle
     // ============================================================================
 
+    /**
+     * Cleanup on application shutdown. Terminates any running simulations.
+     */
     onStop(): void {
         console.log('[OpenMC Studio] Shutting down backend service');
         // Cleanup any running simulations
@@ -122,11 +139,21 @@ export class OpenMCStudioBackendServiceImpl
     // XML Generation
     // ============================================================================
 
+    /**
+     * Generate OpenMC XML files from simulation state.
+     * @param request - Generation request with state and output configuration
+     * @returns Result with generated file paths
+     */
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         this.log(`Generating XML files in ${request.outputDirectory}`);
         return this.xmlService.generateXML(request);
     }
 
+    /**
+     * Import OpenMC XML files into simulation state.
+     * @param request - Import request with directory and file options
+     * @returns Result with imported state, errors, and warnings
+     */
     async importXML(request: XMLImportRequest): Promise<XMLImportResult> {
         this.log(`Importing XML from ${request.directory}`);
         
@@ -643,6 +670,11 @@ export class OpenMCStudioBackendServiceImpl
         return { settings, warnings };
     }
 
+    /**
+     * Validate OpenMC XML files without importing.
+     * @param directory - Directory containing XML files
+     * @returns Validation result
+     */
     async validateXML(directory: string): Promise<XMLValidationResult> {
         this.log(`Validating XML in ${directory}`);
         // TODO: Implement XML validation in Phase 1
@@ -657,29 +689,57 @@ export class OpenMCStudioBackendServiceImpl
     // Simulation Runner
     // ============================================================================
 
+    /**
+     * Run OpenMC simulation (blocking - returns when complete).
+     * @param request - Simulation run configuration
+     * @returns Simulation result with output and timing
+     */
     async runSimulation(request: SimulationRunRequest): Promise<SimulationRunResult> {
         this.log(`Running simulation in ${request.workingDirectory}`);
         return this.runnerService.runSimulation(request);
     }
 
+    /**
+     * Start OpenMC simulation (non-blocking - returns immediately with processId).
+     * @param request - Simulation run configuration
+     * @returns Response with process ID for tracking
+     */
     async startSimulation(request: SimulationRunRequest): Promise<StartSimulationResponse> {
         this.log(`Starting simulation in ${request.workingDirectory}`);
         return this.runnerService.startSimulation(request);
     }
 
+    /**
+     * Cancel a running simulation.
+     * @param processId - Process ID from startSimulation
+     * @returns Whether cancellation was successful
+     */
     async cancelSimulation(processId: string): Promise<boolean> {
         this.log(`Cancelling simulation ${processId}`);
         return this.runnerService.cancelSimulation(processId);
     }
 
+    /**
+     * Get simulation log file content.
+     * @param processId - Process ID from startSimulation
+     * @returns Log content and status
+     */
     async getSimulationLog(processId: string): Promise<SimulationLogResult> {
         return this.runnerService.getSimulationLog(processId);
     }
 
+    /**
+     * Check if OpenMC is available in the configured environment.
+     * @returns Availability status, version, and path information
+     */
     async checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }> {
         return this.runnerService.checkOpenMC();
     }
 
+    /**
+     * Check if MPI is available for parallel simulations.
+     * @returns MPI availability and process count
+     */
     async checkMPI(): Promise<{ available: boolean; version?: string; processes?: number; error?: string }> {
         return this.runnerService.checkMPI();
     }
@@ -688,6 +748,11 @@ export class OpenMCStudioBackendServiceImpl
     // Validation
     // ============================================================================
 
+    /**
+     * Validate simulation state for geometry, materials, settings, and tallies.
+     * @param request - Validation request with state and level
+     * @returns Validation result with issues and summary
+     */
     async validateState(request: ValidationRequest): Promise<ValidationResult> {
         this.log('Validating simulation state');
         
@@ -943,6 +1008,11 @@ export class OpenMCStudioBackendServiceImpl
         };
     }
 
+    /**
+     * Check for geometry overlaps using sampling.
+     * @param request - Overlap check request with geometry
+     * @returns Overlap detection results
+     */
     async checkOverlaps(request: OverlapCheckRequest): Promise<OverlapCheckResult> {
         this.log('Checking for geometry overlaps');
         // TODO: Implement overlap checking in Phase 2
@@ -954,6 +1024,12 @@ export class OpenMCStudioBackendServiceImpl
         };
     }
 
+    /**
+     * Validate a region expression string.
+     * @param region - Region expression (e.g., "-1 2 -3")
+     * @param surfaces - Available surfaces for reference checking
+     * @returns Validation result
+     */
     async validateRegion(region: string, surfaces: any[]): Promise<{ valid: boolean; error?: string }> {
         this.log(`Validating region expression: ${region}`);
         // TODO: Implement region validation in Phase 2
@@ -964,6 +1040,11 @@ export class OpenMCStudioBackendServiceImpl
     // Project Management
     // ============================================================================
 
+    /**
+     * Create a new project with initial state.
+     * @param request - Project creation parameters
+     * @returns Creation result with project file path and initial state
+     */
     async createProject(request: ProjectCreateRequest): Promise<ProjectCreateResult> {
         this.log(`Creating new project: ${request.name}`);
         
@@ -1037,6 +1118,11 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Load a project file from disk.
+     * @param projectPath - Path to .nuke-openmc file
+     * @returns Load result with project data
+     */
     async loadProject(projectPath: string): Promise<ProjectLoadResult> {
         this.log(`Loading project: ${projectPath}`);
         
@@ -1059,6 +1145,11 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Save project file to disk, optionally generating XML.
+     * @param request - Save request with project path and state
+     * @returns Save result
+     */
     async saveProject(request: ProjectSaveRequest): Promise<{ success: boolean; error?: string }> {
         this.log(`Saving project: ${request.projectPath}`);
         
@@ -1101,6 +1192,10 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Get available project templates.
+     * @returns List of templates with metadata
+     */
     async getTemplates(): Promise<TemplatesResponse> {
         this.log('Getting available templates');
         
@@ -1145,6 +1240,11 @@ export class OpenMCStudioBackendServiceImpl
         };
     }
 
+    /**
+     * Apply a template to create or modify state.
+     * @param request - Template application request
+     * @returns Result with modified state
+     */
     async applyTemplate(request: ApplyTemplateRequest): Promise<{ success: boolean; state?: OpenMCState; error?: string }> {
         this.log(`Applying template: ${request.templateId}`);
         // TODO: Implement template application with specific configurations
@@ -1158,6 +1258,10 @@ export class OpenMCStudioBackendServiceImpl
     // Utility Methods
     // ============================================================================
 
+    /**
+     * Get cross-sections path from environment.
+     * @returns Path and existence status
+     */
     async getCrossSectionsPath(): Promise<{ path?: string; found: boolean }> {
         const crossSectionsEnv = process.env.OPENMC_CROSS_SECTIONS;
         
@@ -1173,26 +1277,51 @@ export class OpenMCStudioBackendServiceImpl
         return { found: false };
     }
 
+    /**
+     * Suggest the next available material ID.
+     * @param state - Current simulation state
+     * @returns Suggested material ID
+     */
     async suggestMaterialId(state: OpenMCState): Promise<number> {
         const ids = state.materials.map(m => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Suggest the next available cell ID.
+     * @param state - Current simulation state
+     * @returns Suggested cell ID
+     */
     async suggestCellId(state: OpenMCState): Promise<number> {
         const ids = state.geometry.cells.map(c => c.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Suggest the next available surface ID.
+     * @param state - Current simulation state
+     * @returns Suggested surface ID
+     */
     async suggestSurfaceId(state: OpenMCState): Promise<number> {
         const ids = state.geometry.surfaces.map(s => s.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Suggest the next available tally ID.
+     * @param state - Current simulation state
+     * @returns Suggested tally ID
+     */
     async suggestTallyId(state: OpenMCState): Promise<number> {
         const ids = state.tallies.map(t => t.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
+    /**
+     * Suggest the next available mesh ID.
+     * @param state - Current simulation state
+     * @returns Suggested mesh ID
+     */
     async suggestMeshId(state: OpenMCState): Promise<number> {
         const ids = state.meshes.map(m => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
@@ -1202,6 +1331,10 @@ export class OpenMCStudioBackendServiceImpl
     // CAD Import
     // ============================================================================
 
+    /**
+     * Check if CAD import dependencies are available.
+     * @returns CAD library availability and Python path
+     */
     async checkCADSupport(): Promise<{
         available: boolean;
         libraries: {
@@ -1214,10 +1347,20 @@ export class OpenMCStudioBackendServiceImpl
         return this.cadService.checkCADSupport();
     }
 
+    /**
+     * Import a CAD file and convert to OpenMC-compatible CSG.
+     * @param request - CAD import request with file path and options
+     * @returns Import result with surfaces, cells, and metadata
+     */
     async importCAD(request: import('../common/openmc-studio-protocol').CADImportRequest): Promise<import('../common/openmc-studio-protocol').CADImportResult> {
         return this.cadService.importCAD(request);
     }
 
+    /**
+     * Preview CAD file info without full import.
+     * @param filePath - Path to CAD file
+     * @returns Basic file information
+     */
     async previewCAD(filePath: string): Promise<{
         format: string;
         solidCount: number;
@@ -1231,6 +1374,11 @@ export class OpenMCStudioBackendServiceImpl
     // DAGMC Editor
     // ============================================================================
 
+    /**
+     * Load DAGMC file and return model information.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Model data with volumes, materials, and groups
+     */
     async dagmcLoad(filePath: string): Promise<{
         success: boolean;
         data?: {
@@ -1261,6 +1409,13 @@ export class OpenMCStudioBackendServiceImpl
         return this.dagmcEditorService.loadModel(filePath);
     }
 
+    /**
+     * Assign material to a volume in DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param volumeId - Volume ID to modify
+     * @param materialName - Material name to assign
+     * @returns Operation result
+     */
     async dagmcAssignMaterial(filePath: string, volumeId: number, materialName: string): Promise<{
         success: boolean;
         message?: string;
@@ -1270,6 +1425,13 @@ export class OpenMCStudioBackendServiceImpl
         return this.dagmcEditorService.assignMaterial(filePath, volumeId, materialName);
     }
 
+    /**
+     * Create a new group in DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param groupName - Name for the new group
+     * @param volumeIds - Optional volume IDs to include
+     * @returns Operation result
+     */
     async dagmcCreateGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<{
         success: boolean;
         message?: string;
@@ -1279,6 +1441,12 @@ export class OpenMCStudioBackendServiceImpl
         return this.dagmcEditorService.createGroup(filePath, groupName, volumeIds);
     }
 
+    /**
+     * Delete a group from DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param groupName - Name of group to delete
+     * @returns Operation result
+     */
     async dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
         success: boolean;
         message?: string;
@@ -1292,6 +1460,11 @@ export class OpenMCStudioBackendServiceImpl
     // WWINP Import/Export
     // ============================================================================
 
+    /**
+     * Import MCNP WWINP weight window file.
+     * @param request - Import request with file path
+     * @returns Imported weight windows data
+     */
     async importWWINP(request: { filePath: string }): Promise<{
         success: boolean;
         weightWindows?: {
@@ -1325,10 +1498,15 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
-    async exportWWINP(request: { 
-        filePath: string; 
-        weightWindows: any; 
-        meshes: any[] 
+    /**
+     * Export to MCNP WWINP weight window file.
+     * @param request - Export request with weight windows and mesh data
+     * @returns Export result
+     */
+    async exportWWINP(request: {
+        filePath: string;
+        weightWindows: any;
+        meshes: any[]
     }): Promise<{
         success: boolean;
         error?: string;
@@ -1396,6 +1574,11 @@ export class OpenMCStudioBackendServiceImpl
     // Statepoint Comparison
     // ============================================================================
 
+    /**
+     * Read a single statepoint file and extract data.
+     * @param request - Read request with file path
+     * @returns Statepoint information and data
+     */
     async readStatepoint(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').ReadStatepointResult> {
         this.log(`Reading statepoint file: ${request.filePath}`);
         
@@ -1526,6 +1709,11 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Compare multiple statepoint files.
+     * @param request - Comparison request with file paths
+     * @returns Comparison statistics and results
+     */
     async compareStatepoints(request: { filePaths: string[] }): Promise<import('../common/openmc-studio-protocol').CompareStatepointsResult> {
         this.log(`Comparing ${request.filePaths.length} statepoint files`);
         
@@ -1605,6 +1793,11 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Read depletion results file.
+     * @param request - Read request with file path
+     * @returns Depletion analysis data
+     */
     async readDepletionResults(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').DepletionResults> {
         this.log(`Reading depletion results: ${request.filePath}`);
         
@@ -1681,6 +1874,11 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
+    /**
+     * Analyze k-effective convergence from statepoint.
+     * @param request - Analysis request with file path
+     * @returns Convergence statistics and recommendations
+     */
     async analyzeConvergence(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').KeffConvergenceAnalysis> {
         this.log(`Analyzing k-effective convergence: ${request.filePath}`);
         
@@ -1757,18 +1955,33 @@ export class OpenMCStudioBackendServiceImpl
     // Optimization Framework Methods
     // ============================================================================
 
-    async startOptimization(request: import('../common/openmc-studio-protocol').StartOptimizationRequest): 
+    /**
+     * Start an optimization run with parameter sweeps.
+     * @param request - Optimization request with sweeps and base state
+     * @returns Start result with total iterations
+     */
+    async startOptimization(request: import('../common/openmc-studio-protocol').StartOptimizationRequest):
         Promise<import('../common/openmc-studio-protocol').StartOptimizationResult> {
         this.log(`Starting optimization run: ${request.runId}`);
         return this.optimizationService.startOptimization(request);
     }
 
-    async stopOptimization(request: import('../common/openmc-studio-protocol').StopOptimizationRequest): 
+    /**
+     * Stop/cancel a running optimization.
+     * @param request - Stop request with run ID
+     * @returns Stop result
+     */
+    async stopOptimization(request: import('../common/openmc-studio-protocol').StopOptimizationRequest):
         Promise<import('../common/openmc-studio-protocol').StopOptimizationResult> {
         this.log(`Stopping optimization run: ${request.runId}`);
         return this.optimizationService.stopOptimization(request);
     }
 
+    /**
+     * Get status of an optimization run.
+     * @param runId - Optimization run ID
+     * @returns Current status and iteration counts
+     */
     async getOptimizationStatus(runId: string): Promise<{
         running: boolean;
         currentIteration: number;
@@ -1778,6 +1991,11 @@ export class OpenMCStudioBackendServiceImpl
         return this.optimizationService.getOptimizationStatus(runId);
     }
 
+    /**
+     * Get iteration logs index for an optimization run.
+     * @param runId - Optimization run ID
+     * @returns Index of available iteration logs
+     */
     async getIterationLogsIndex(runId: string): Promise<{
         iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
         outputDirectory: string;
@@ -1785,6 +2003,12 @@ export class OpenMCStudioBackendServiceImpl
         return this.optimizationService.getIterationLogsIndex(runId);
     }
 
+    /**
+     * Get log content for a specific iteration.
+     * @param runId - Optimization run ID
+     * @param iteration - Iteration number
+     * @returns Log content
+     */
     async getIterationLog(runId: string, iteration: number): Promise<{
         success: boolean;
         logContent?: string;

@@ -30,19 +30,46 @@ import { OpenMCSimulationCommands } from '../commands/simulation-commands';
 import { OpenMCViewCommands } from '../commands/view-commands';
 import { OpenMCEnvironmentCommands } from '../commands/environment-commands';
 
+/** Menu path constants for the OpenMC Studio menu hierarchy under Tools. */
 export namespace OpenMCMenus {
+    /** Root OpenMC Studio menu under Tools. */
     export const OPENMC = [...NukeMenus.TOOLS, '1_openmc'];
+    /** Project submenu under OpenMC Studio. */
     export const OPENMC_PROJECT = [...OPENMC, '1_project'];
+    /** Simulation submenu under OpenMC Studio. */
     export const OPENMC_SIMULATION = [...OPENMC, '2_simulation'];
+    /** Geometry submenu under OpenMC Studio. */
     export const OPENMC_GEOMETRY = [...OPENMC, '3_geometry'];
+    /** XML Configuration submenu under OpenMC Studio. */
     export const OPENMC_XML = [...OPENMC, '4_xml'];
+    /** Advanced submenu under OpenMC Studio. */
     export const OPENMC_ADVANCED = [...OPENMC, '6_advanced'];
+    /** Environment submenu under OpenMC Studio. */
     export const OPENMC_ENVIRONMENT = [...OPENMC, 'z_environment'];
 }
 
+/**
+ * Registers the OpenMC Studio menu hierarchy and all menu actions with the Theia menu registry.
+ *
+ * Binds to {@link MenuContribution} in the frontend module to activate menu registration.
+ * Creates submenus for Project, Simulation, Geometry, XML Configuration, Environment, and Advanced.
+ *
+ * @see {@link openmc-command-contribution.ts} for command definitions
+ * @see {@link OpenMCMenus} for menu path constants
+ */
 @injectable()
 export class OpenMCMenuContribution implements MenuContribution {
 
+    /**
+     * Register the full OpenMC Studio menu structure and populate each submenu with actions.
+     * @param menus - The Theia menu model registry
+     * @see {@link registerProjectMenus}
+     * @see {@link registerSimulationMenus}
+     * @see {@link registerGeometryMenus}
+     * @see {@link registerXMLMenus}
+     * @see {@link registerEnvironmentMenus}
+     * @see {@link registerAdvancedMenus}
+     */
     registerMenus(menus: MenuModelRegistry): void {
         // Main OpenMC menu
         menus.registerSubmenu(OpenMCMenus.OPENMC, 'OpenMC Studio');
@@ -74,6 +101,11 @@ export class OpenMCMenuContribution implements MenuContribution {
         this.registerAdvancedMenus(menus);
     }
 
+    /**
+     * Register Project submenu actions (New, Open, Save, Save As).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCProjectCommands}
+     */
     private registerProjectMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_PROJECT, {
             commandId: OpenMCProjectCommands.NEW_PROJECT.id,
@@ -97,6 +129,12 @@ export class OpenMCMenuContribution implements MenuContribution {
         });
     }
 
+    /**
+     * Register Simulation submenu actions (Dashboard, Run, Stop, Validate, Compare).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCSimulationCommands}
+     * @see {@link OpenMCViewCommands}
+     */
     private registerSimulationMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_SIMULATION, {
             commandId: OpenMCViewCommands.OPEN_SIMULATION_DASHBOARD.id,
@@ -125,6 +163,11 @@ export class OpenMCMenuContribution implements MenuContribution {
         });
     }
 
+    /**
+     * Register Geometry submenu actions (CSG Builder, DAGMC Editor).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCViewCommands}
+     */
     private registerGeometryMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_GEOMETRY, {
             commandId: OpenMCViewCommands.OPEN_CSG_BUILDER.id,
@@ -138,6 +181,11 @@ export class OpenMCMenuContribution implements MenuContribution {
         });
     }
 
+    /**
+     * Register XML Configuration submenu actions (Generate, Import).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCSimulationCommands}
+     */
     private registerXMLMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_XML, {
             commandId: OpenMCSimulationCommands.GENERATE_XML.id,
@@ -151,6 +199,11 @@ export class OpenMCMenuContribution implements MenuContribution {
         });
     }
 
+    /**
+     * Register Environment submenu actions (Health Check, Install OpenMC, Install DAGMC).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCEnvironmentCommands}
+     */
     private registerEnvironmentMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_ENVIRONMENT, {
             commandId: OpenMCEnvironmentCommands.CHECK_HEALTH.id,
@@ -169,6 +222,11 @@ export class OpenMCMenuContribution implements MenuContribution {
         });
     }
 
+    /**
+     * Register Advanced submenu actions (Tally, Depletion, Variance Reduction, Script, Optimization).
+     * @param menus - The Theia menu model registry
+     * @see {@link OpenMCViewCommands}
+     */
     private registerAdvancedMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(OpenMCMenus.OPENMC_ADVANCED, {
             commandId: OpenMCViewCommands.OPEN_TALLY_CONFIGURATOR.id,

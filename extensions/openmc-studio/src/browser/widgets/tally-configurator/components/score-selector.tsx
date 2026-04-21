@@ -17,11 +17,19 @@
 import * as React from 'react';
 import { OpenMCTallyScore } from '../../../../common/openmc-state-schema';
 
+/**
+ * Props for the {@link ScoreSelector} component.
+ */
 interface ScoreSelectorProps {
+    /** Currently selected scores */
     scores: OpenMCTallyScore[];
+    /** Callback when the score selection changes */
     onUpdate: (scores: OpenMCTallyScore[]) => void;
 }
 
+/**
+ * Categorized list of available OpenMC tally scores.
+ */
 const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, label: string }[] }[] = [
     {
         category: 'Basic',
@@ -70,7 +78,15 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
     }
 ];
 
+/**
+ * Component for selecting physical quantities (scores) to tally.
+ *
+ * Scores are organized into categories: Basic, Reaction Rates, Legendre Moments, and Advanced.
+ *
+ * @see {@link TallyEditor}
+ */
 export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }) => {
+    /** Toggle a score in or out of the current selection. */
     const toggleScore = (score: OpenMCTallyScore) => {
         if (scores.includes(score)) {
             onUpdate(scores.filter(s => s !== score));

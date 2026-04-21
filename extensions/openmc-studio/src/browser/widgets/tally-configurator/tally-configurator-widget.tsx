@@ -25,14 +25,33 @@ import { MeshEditor } from './components/mesh-editor';
 import { TallyList } from './components/tally-list';
 import { TallyEditor } from './components/tally-editor';
 
+/**
+ * Internal state for the tally configurator widget.
+ */
 interface TallyConfiguratorState {
+    /** ID of the currently selected tally */
     selectedTallyId?: number;
+    /** ID of the currently selected mesh */
     selectedMeshId?: number;
+    /** Active tab: tallies or meshes */
     activeTab: 'tallies' | 'meshes';
+    /** Tally currently being edited (if any) */
     editingTally?: OpenMCTally;
+    /** Mesh currently being edited (if any) */
     editingMesh?: OpenMCMesh;
 }
 
+/**
+ * Widget for configuring OpenMC tallies and meshes.
+ *
+ * Provides a two-tab interface for defining simulation outputs (tallies)
+ * and spatial grids (meshes) used in radiation transport simulations.
+ *
+ * @see {@link TallyList}
+ * @see {@link TallyEditor}
+ * @see {@link MeshPanel}
+ * @see {@link MeshEditor}
+ */
 @injectable()
 export class TallyConfiguratorWidget extends ReactWidget {
     static readonly ID = 'openmc-tally-configurator';
@@ -50,6 +69,9 @@ export class TallyConfiguratorWidget extends ReactWidget {
 
     private visibilityHandle?: { dispose: () => void };
 
+    /**
+     * Initialize widget id, title, and subscribe to state changes.
+     */
     @postConstruct()
     protected init(): void {
         this.id = TallyConfiguratorWidget.ID;
@@ -81,6 +103,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         super.onBeforeHide(msg);
     }
 
+    /**
+     * Render the main widget content.
+     * @returns The React node tree.
+     */
     protected render(): React.ReactNode {
         return (
             <div className='tally-configurator tally-configurator-container'>
@@ -93,6 +119,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the widget header with summary statistics.
+     * @returns Header React node.
+     */
     private renderHeader(): React.ReactNode {
         const state = this.stateManager.getState();
         const tallies = state.tallies || [];
@@ -128,6 +158,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tab selector for tallies / meshes.
+     * @returns Tabs React node.
+     */
     private renderTabs(): React.ReactNode {
         const tabs = [
             { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
@@ -150,6 +184,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tallies tab content.
+     * @returns Tallies tab React node.
+     */
     protected renderTalliesTab(): React.ReactNode {
         const state = this.stateManager.getState();
         const tallies = state.tallies || [];
@@ -194,6 +232,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the meshes tab content.
+     * @returns Meshes tab React node.
+     */
     protected renderMeshesTab(): React.ReactNode {
         const meshes = this.stateManager.getState().meshes || [];
         const selectedMesh = meshes.find(m => m.id === this.state.selectedMeshId);
@@ -227,11 +269,18 @@ export class TallyConfiguratorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Merge partial state updates and trigger a re-render.
+     * @param newState - Partial state to merge.
+     */
     protected setState(newState: Partial<TallyConfiguratorState>): void {
         this.state = { ...this.state, ...newState };
         this.update();
     }
 
+    /**
+     * Create a new tally with default values and select it.
+     */
     protected addNewTally(): void {
         const nextId = this.stateManager.getNextTallyId();
         const newTally: OpenMCTally = {
@@ -245,6 +294,9 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.setState({ selectedTallyId: nextId, editingTally: newTally });
     }
 
+    /**
+     * Create a new regular mesh with default bounds and select it.
+     */
     protected addNewMesh(): void {
         const nextId = this.stateManager.getNextMeshId();
         const newMesh: OpenMCMesh = {
@@ -259,6 +311,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.setState({ selectedMeshId: nextId, editingMesh: newMesh });
     }
 
+    /**
+     * Add a pre-configured tally from a named template.
+     * @param template - The template type to instantiate.
+     */
     protected addTemplateTally(template: 'meshFlux' | 'cellFission' | 'surfaceCurrent' | 'activation' | 'heating'): void {
         const nextId = this.stateManager.getNextTallyId();
         const meshes = this.stateManager.getState().meshes || [];

@@ -47,15 +47,24 @@ interface RunningSimulation {
     logStream?: fs.WriteStream;
 }
 
+/**
+ * OpenMC Runner Service
+ *
+ * Backend service for executing OpenMC simulations and depletion calculations.
+ * Handles Python environment detection, process spawning, progress streaming,
+ * and simulation lifecycle management.
+ *
+ * @module openmc-studio/node
+ */
 @injectable()
 export class OpenMCRunnerService {
-    
+
     @inject(ProcessManager)
     protected readonly processManager: ProcessManager;
 
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
-    
+
     @inject(OpenMCValidationBackendService)
     protected readonly validationService: OpenMCValidationBackendService;
 
@@ -170,7 +179,8 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Set the client for progress notifications.
+     * Set the client for progress notifications and log streaming.
+     * @param client - Frontend client interface
      */
     setClient(client: OpenMCStudioClient): void {
         this.client = client;
@@ -216,7 +226,8 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Set Python configuration.
+     * Set Python configuration for environment detection.
+     * @param config - Python path and/or conda environment
      */
     async setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void> {
         console.log(`[OpenMC Runner] Python config: ${JSON.stringify(config)}`);
@@ -231,12 +242,13 @@ export class OpenMCRunnerService {
     }
 
     // ============================================================================
-    // Python Environment Detection (aligned with nuke-visualizer)
+    // Python Environment Detection
     // ============================================================================
 
     /**
-     * Detect Python command to use based on configuration.
-     * Uses OpenMCValidationBackendService for consistent validation.
+     * Detect Python command with OpenMC available.
+     * @returns Python command, version, and any warnings
+     * @throws Error if no environment with OpenMC is found
      */
     protected async detectPythonCommand(): Promise<{ command: string; warning?: string; version?: string }> {
         const validation = await this.validationService.validateOpenMCSetup();
@@ -271,7 +283,8 @@ export class OpenMCRunnerService {
 
     /**
      * Find the OpenMC executable corresponding to the given Python.
-     * The openmc executable should be in the same bin directory as Python.
+     * @param pythonPath - Path to Python executable
+     * @returns Path to openmc executable
      */
     protected async findOpenMCExecutable(pythonPath: string): Promise<string> {
         const path = await import('path');
@@ -312,7 +325,8 @@ export class OpenMCRunnerService {
     // ============================================================================
 
     /**
-     * Check if OpenMC is available.
+     * Check if OpenMC is available in the configured environment.
+     * @returns Availability status with version and path
      */
     async checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }> {
         // Get Python command
@@ -355,6 +369,10 @@ export class OpenMCRunnerService {
         }
     }
 
+    /**
+     * Check if MPI is available for parallel simulations.
+     * @returns MPI availability with version and default process count
+     */
     async checkMPI(): Promise<{ available: boolean; version?: string; processes?: number; error?: string }> {
         try {
             const { execSync } = await import('child_process');
@@ -385,6 +403,11 @@ export class OpenMCRunnerService {
     // Simulation Runner
     // ============================================================================
 
+    /**
+     * Run OpenMC simulation (blocking - returns when complete).
+     * @param request - Simulation run configuration
+     * @returns Simulation result with output and timing
+     */
     async runSimulation(request: SimulationRunRequest): Promise<SimulationRunResult> {
         const processId = `sim-${Date.now()}`;
         
@@ -555,8 +578,9 @@ export class OpenMCRunnerService {
 
     /**
      * Start simulation non-blocking - returns immediately with processId.
-     * Status updates are sent via the client interface.
-     * If depletion is enabled in settings.xml, runs depletion via Python API instead.
+     * If depletion is enabled, runs depletion via Python API instead.
+     * @param request - Simulation run configuration
+     * @returns Response with process ID for tracking
      */
     async startSimulation(request: SimulationRunRequest): Promise<{ processId: string; success: boolean; error?: string }> {
         const processId = `sim-${Date.now()}`;
@@ -983,6 +1007,11 @@ export class OpenMCRunnerService {
         }
     }
 
+    /**
+     * Cancel a running simulation.
+     * @param processId - Process ID from startSimulation
+     * @returns Whether cancellation was successful
+     */
     async cancelSimulation(processId: string): Promise<boolean> {
         const simulation = this.runningSimulations.get(processId);
         
@@ -1018,6 +1047,8 @@ export class OpenMCRunnerService {
 
     /**
      * Get simulation log file content.
+     * @param processId - Process ID from startSimulation
+     * @returns Log content and status
      */
     async getSimulationLog(processId: string): Promise<SimulationLogResult> {
         const simulation = this.runningSimulations.get(processId);
@@ -1086,7 +1117,8 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Parse progress information from OpenMC output.
+     * Parse progress information from OpenMC stdout output.
+     * @param output - Output chunk from OpenMC process
      */
     private parseProgress(output: string): void {
         // Look for batch progress patterns
@@ -1118,6 +1150,8 @@ export class OpenMCRunnerService {
 
     /**
      * Detect output files in the working directory.
+     * @param workingDirectory - Directory to scan
+     * @returns List of output file paths
      */
     private detectOutputFiles(workingDirectory: string): string[] {
         const fs = require('fs');
@@ -1165,7 +1199,8 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Cleanup on shutdown.
+     * Cleanup running simulations on shutdown.
+     * Sends SIGTERM to all active processes.
      */
     cleanup(): void {
         this.log('Cleaning up running simulations');

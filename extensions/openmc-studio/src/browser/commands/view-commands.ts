@@ -34,56 +34,66 @@ import { OptimizationWidget } from '../widgets/optimization/optimization-widget'
 import { OpenMCPythonExporter } from '../script-generator/python-exporter';
 
 export namespace OpenMCViewCommands {
+    /** Command category for all view-opening commands. */
     export const CATEGORY = 'OpenMC/View';
 
+    /** Open the main simulation dashboard widget. */
     export const OPEN_SIMULATION_DASHBOARD: Command = {
         id: 'openmc.openSimulationDashboard',
         category: CATEGORY,
         label: 'Open Simulation Dashboard'
     };
 
+    /** Open the Constructive Solid Geometry (CSG) builder widget. */
     export const OPEN_CSG_BUILDER: Command = {
         id: 'openmc.openCSGBuilder',
         category: CATEGORY,
         label: 'Open CSG Builder'
     };
 
+    /** Open the DAGMC geometry editor widget. */
     export const OPEN_DAGMC_EDITOR: Command = {
         id: 'openmc.openDAGMCEditor',
         category: CATEGORY,
         label: 'Open DAGMC Editor'
     };
 
+    /** Open the tally configurator widget. */
     export const OPEN_TALLY_CONFIGURATOR: Command = {
         id: 'openmc.openTallyConfigurator',
         category: CATEGORY,
         label: 'Open Tally Configurator'
     };
 
+    /** Open the depletion analysis dashboard tab. */
     export const OPEN_DEPLETION: Command = {
         id: 'openmc.openDepletion',
         category: CATEGORY,
         label: 'Open Depletion Dashboard'
     };
 
+    /** Open the variance reduction dashboard tab. */
     export const OPEN_VARIANCE_REDUCTION: Command = {
         id: 'openmc.openVarianceReduction',
         category: CATEGORY,
         label: 'Open Variance Reduction'
     };
 
+    /** Generate and open a Python script for the current model. */
     export const OPEN_SCRIPT_GENERATOR: Command = {
         id: 'openmc.openScriptGenerator',
         category: CATEGORY,
         label: 'Generate Python Script'
     };
 
+    /** Open the simulation comparison widget. */
     export const OPEN_SIMULATION_COMPARISON: Command = {
         id: 'openmc.openSimulationComparison',
         category: CATEGORY,
         label: 'Compare Simulations'
     };
 
+    /** Open the optimization study widget. */
     export const OPEN_OPTIMIZATION: Command = {
         id: 'openmc.openOptimization',
         category: CATEGORY,
@@ -91,18 +101,30 @@ export namespace OpenMCViewCommands {
     };
 }
 
+/**
+ * View command handler for OpenMC Studio.
+ *
+ * Registers and executes commands that open various widgets and dashboards,
+ * including the simulation dashboard, geometry editors, and specialized tools.
+ *
+ * @see {@link OpenMCViewCommands} for available command identifiers
+ */
 @injectable()
 export class ViewCommands {
-    
+
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
-    
+
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
-    
+
     @inject(OpenMCPythonExporter)
     protected readonly pythonExporter: OpenMCPythonExporter;
 
+    /**
+     * Register view commands with the command registry.
+     * @param registry - The Theia command registry
+     */
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(OpenMCViewCommands.OPEN_SIMULATION_DASHBOARD, {
             execute: () => this.openWidget(SimulationDashboardWidget.ID)
@@ -141,12 +163,20 @@ export class ViewCommands {
         });
     }
 
+    /**
+     * Open a widget by its identifier in the main area and focus it.
+     * @param widgetId - The unique widget identifier
+     */
     private async openWidget(widgetId: string): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(widgetId);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
     }
 
+    /**
+     * Open the DAGMC editor, optionally loading a file immediately.
+     * @param filePath - Optional path to a DAGMC file to load
+     */
     private async openDAGMCEditor(filePath?: string): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget<DAGMCEditorWidget>(DAGMCEditorWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
@@ -157,6 +187,10 @@ export class ViewCommands {
         }
     }
 
+    /**
+     * Open the simulation dashboard and switch to a specific tab.
+     * @param tabId - The dashboard tab identifier to activate
+     */
     private async openDashboardTab(tabId: DashboardTab): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
         widget.setActiveTab(tabId);

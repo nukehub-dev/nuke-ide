@@ -46,40 +46,80 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 
 // Internal types for DAGMC editor
+
+/**
+ * Extended DAGMC volume with optional computed properties.
+ */
 interface DAGMCVolumeExtended extends Omit<DAGMCVolume, 'material'> {
+    /** Assigned material name. */
     material?: string;
+    /** Number of triangles in the volume mesh. */
     numTriangles: number;
+    /** Surface area in cm². */
     surfaceArea?: number;
+    /** Volume in cm³. */
     volume?: number;
 }
 
+/**
+ * DAGMC group definition for material or boundary grouping.
+ */
 interface DAGMCGroup {
+    /** Group name. */
     name: string;
+    /** Group classification type. */
     type: 'material' | 'boundary' | 'other';
+    /** Number of volumes in the group. */
     volumeCount: number;
+    /** Volume ids belonging to the group. */
     volumes: number[];
 }
 
+/**
+ * Complete DAGMC model data loaded from a file.
+ */
 interface DAGMCModelData {
+    /** Absolute file path. */
     filePath: string;
+    /** File name without path. */
     fileName: string;
+    /** Total volume count. */
     volumeCount: number;
+    /** Total surface count. */
     surfaceCount: number;
+    /** Total vertex/triangle count. */
     vertices: number;
+    /** Materials mapped to their volume usage. */
     materials: Record<string, { volumeCount: number; volumes: number[] }>;
+    /** Extended volume data. */
     volumes: DAGMCVolumeExtended[];
+    /** Defined groups. */
     groups: DAGMCGroup[];
+    /** Axis-aligned bounding box. */
     boundingBox: {
+        /** Minimum corner coordinates. */
         min: [number, number, number];
+        /** Maximum corner coordinates. */
         max: [number, number, number];
     };
 }
 
+/** Active tab in the DAGMC editor. */
 type EditorTab = 'volumes' | 'materials' | 'groups' | 'properties';
 
+/**
+ * Visual editor for DAGMC faceted geometry files.
+ *
+ * Supports viewing volumes, reassigning materials, managing groups,
+ * and launching 3D previews of the mesh geometry.
+ *
+ * @see {@link CSGBuilderWidget} for CSG geometry editing
+ */
 @injectable()
 export class DAGMCEditorWidget extends ReactWidget {
+    /** Unique widget identifier. */
     static readonly ID = 'openmc-dagmc-editor';
+    /** Display label for the widget title. */
     static readonly LABEL = 'DAGMC Editor';
 
     @inject(MessageService)
@@ -123,6 +163,9 @@ export class DAGMCEditorWidget extends ReactWidget {
     private newGroupName = '';
     private showCreateGroup = false;
 
+    /**
+     * Initialize widget id, title, and state change listeners.
+     */
     @postConstruct()
     protected init(): void {
         this.id = DAGMCEditorWidget.ID;
@@ -164,6 +207,9 @@ export class DAGMCEditorWidget extends ReactWidget {
         super.onBeforeHide(msg);
     }
 
+    /**
+     * Check the current state for a DAGMC file and build model data.
+     */
     private checkForDagmcFile(): void {
         const state = this.stateManager.getState();
         if (state.settings.dagmcFile && state.settings.dagmcInfo) {
@@ -186,6 +232,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Build a materials map from volume assignments.
+     * @param info - Object containing volume data.
+     * @returns Record mapping material names to volume usage stats.
+     */
     private buildMaterialsMap(info: { volumes: Array<{ id: number; material?: string; numTriangles?: number }> }): Record<string, { volumeCount: number; volumes: number[] }> {
         const map: Record<string, { volumeCount: number; volumes: number[] }> = {};
         
@@ -207,6 +258,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         return map;
     }
 
+    /**
+     * Extract material groups from DAGMC info.
+     * @param info - Parsed DAGMC file information.
+     * @returns Array of DAGMC groups.
+     */
     private extractGroups(info: DAGMCInfo): DAGMCGroup[] {
         const groups: DAGMCGroup[] = [];
         
@@ -223,6 +279,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         return groups;
     }
 
+    /**
+     * Render the DAGMC editor main layout.
+     * @returns The React element tree for the widget.
+     */
     protected render(): React.ReactNode {
         return (
             <div className='dagmc-editor'>
@@ -233,6 +293,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the header with file info and action buttons.
+     * @returns Header React node.
+     */
     private renderHeader(): React.ReactNode {
         const volumeCount = this.modelData?.volumeCount || 0;
         const surfaceCount = this.modelData?.surfaceCount || 0;
@@ -296,6 +360,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the tab selector for Volumes, Materials, Groups, and Properties.
+     * @returns Tabs React node.
+     */
     private renderTabs(): React.ReactNode {
         const tabs: { id: EditorTab; label: string; icon: string; count?: number }[] = [
             { id: 'volumes', label: 'Volumes', icon: 'package', count: this.modelData?.volumeCount },
@@ -323,6 +391,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the active tab content based on editor state.
+     * @returns Content React node.
+     */
     private renderContent(): React.ReactNode {
         if (this.isLoading) {
             return (
@@ -374,6 +446,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the volumes tab with search, filters, and detail panel.
+     * @returns Volumes tab React node.
+     */
     private renderVolumesTab(): React.ReactNode {
         if (!this.modelData) return null;
 
@@ -464,6 +540,12 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render a single volume card in the volumes grid.
+     * @param volume - Volume data to render.
+     * @param maxTriangles - Maximum triangle count for relative bar sizing.
+     * @returns Volume card React node.
+     */
     private renderVolumeCard(volume: DAGMCVolumeExtended, maxTriangles: number): React.ReactNode {
         const isSelected = this.selectedVolumeId === volume.id;
         const trianglePercent = (volume.numTriangles / maxTriangles) * 100;
@@ -526,6 +608,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the details panel for a selected volume.
+     * @param volume - Selected volume data.
+     * @returns Volume details React node.
+     */
     private renderVolumeDetails(volume: DAGMCVolumeExtended): React.ReactNode {
         return (
             <div className='volume-details-panel'>
@@ -644,6 +731,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the materials tab with coverage indicators.
+     * @returns Materials tab React node.
+     */
     private renderMaterialsTab(): React.ReactNode {
         if (!this.modelData) return null;
 
@@ -735,6 +826,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the groups tab with creation and deletion controls.
+     * @returns Groups tab React node.
+     */
     private renderGroupsTab(): React.ReactNode {
         if (!this.modelData) return null;
 
@@ -853,6 +948,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Render the properties tab with model overview and stats.
+     * @returns Properties tab React node.
+     */
     private renderPropertiesTab(): React.ReactNode {
         if (!this.modelData) return null;
 
@@ -997,6 +1096,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Format a large number with compact suffix (k, M).
+     * @param num - Number to format.
+     * @returns Formatted string.
+     */
     private formatNumberCompact(num: number): string {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
@@ -1007,6 +1111,9 @@ export class DAGMCEditorWidget extends ReactWidget {
     // Actions
     // ============================================================================
 
+    /**
+     * Open a file dialog to select a DAGMC file to load.
+     */
     private async openFile(): Promise<void> {
         const props: OpenFileDialogProps = {
             title: 'Open DAGMC File',
@@ -1024,10 +1131,18 @@ export class DAGMCEditorWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Load a DAGMC file by path.
+     * @param filePath - Absolute path to the DAGMC file.
+     */
     async loadFile(filePath: string): Promise<void> {
         await this.loadDagmcFile(filePath);
     }
 
+    /**
+     * Load and parse a DAGMC file via the backend service.
+     * @param filePath - Absolute path to the DAGMC file.
+     */
     private async loadDagmcFile(filePath: string): Promise<void> {
         this.isLoading = true;
         this.error = undefined;
@@ -1078,6 +1193,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Assign a material name to a volume via the backend.
+     * @param volumeId - Id of the volume to update.
+     * @param materialName - New material name (empty to clear).
+     */
     private async assignMaterial(volumeId: number, materialName: string): Promise<void> {
         if (!this.modelData) return;
 
@@ -1113,6 +1233,9 @@ export class DAGMCEditorWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Create a new group in the DAGMC file via the backend.
+     */
     private async createGroup(): Promise<void> {
         if (!this.modelData || !this.newGroupName.trim()) return;
 
@@ -1150,6 +1273,10 @@ export class DAGMCEditorWidget extends ReactWidget {
         this.messageService.info(`Created group "${name}"`);
     }
 
+    /**
+     * Delete a group from the DAGMC file after user confirmation.
+     * @param groupName - Name of the group to delete.
+     */
     private async deleteGroup(groupName: string): Promise<void> {
         if (!this.modelData) return;
 
@@ -1179,6 +1306,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         this.messageService.info(`Deleted group "${groupName}"`);
     }
 
+    /**
+     * Open a 3D preview of the DAGMC geometry.
+     * @param highlightVolumeId - Optional volume id to highlight.
+     * @see {@link VisualizerWidget}
+     */
     private async preview3D(highlightVolumeId?: number): Promise<void> {
         if (!this.modelData) return;
 

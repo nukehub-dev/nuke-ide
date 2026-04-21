@@ -63,6 +63,15 @@ export interface DAGMCEditorOperationResult {
     error?: string;
 }
 
+/**
+ * DAGMC Editor Backend Service
+ *
+ * Provides backend operations for the DAGMC Editor using pydagmc.
+ * Supports loading models, assigning materials, and managing groups.
+ *
+ * @module openmc-studio/node
+ * @see {@link OpenMCStudioBackendService.dagmcLoad}
+ */
 @injectable()
 export class DAGMCEditorService {
 
@@ -73,7 +82,8 @@ export class DAGMCEditorService {
     private scriptPath?: string;
 
     /**
-     * Initialize the service by finding Python and the script.
+     * Initialize the service by finding Python and the dagmc_editor_service.py script.
+     * @returns Whether initialization succeeded
      */
     async initialize(): Promise<boolean> {
         try {
@@ -111,6 +121,8 @@ export class DAGMCEditorService {
 
     /**
      * Load a DAGMC file and return model information.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Model data with volumes, materials, and groups
      */
     async loadModel(filePath: string): Promise<DAGMCEditorLoadResult> {
         if (!this.pythonPath || !this.scriptPath) {
@@ -182,6 +194,10 @@ export class DAGMCEditorService {
 
     /**
      * Assign a material to a volume.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param volumeId - Volume ID to modify
+     * @param materialName - Material name to assign
+     * @returns Operation result
      */
     async assignMaterial(filePath: string, volumeId: number, materialName: string): Promise<DAGMCEditorOperationResult> {
         if (!this.pythonPath || !this.scriptPath) {
@@ -237,7 +253,11 @@ export class DAGMCEditorService {
     }
 
     /**
-     * Create a new group.
+     * Create a new group in the DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param groupName - Name for the new group
+     * @param volumeIds - Optional volume IDs to include
+     * @returns Operation result
      */
     async createGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<DAGMCEditorOperationResult> {
         if (!this.pythonPath || !this.scriptPath) {
@@ -291,7 +311,10 @@ export class DAGMCEditorService {
     }
 
     /**
-     * Delete a group.
+     * Delete a group from the DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param groupName - Name of group to delete
+     * @returns Operation result
      */
     async deleteGroup(filePath: string, groupName: string): Promise<DAGMCEditorOperationResult> {
         if (!this.pythonPath || !this.scriptPath) {

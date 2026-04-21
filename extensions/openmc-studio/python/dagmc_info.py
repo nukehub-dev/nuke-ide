@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-DAGMC file info extractor for OpenMC Studio using pydagmc.
+"""DAGMC file info extractor for OpenMC Studio.
 
 Extracts detailed information from DAGMC .h5m files for display in the UI.
 Uses pydagmc (built on PyMOAB) for high-level DAGMC model access.
@@ -13,7 +12,15 @@ from pathlib import Path
 
 
 def get_dagmc_info(h5m_path: str):
-    """Extract detailed information from a DAGMC file using pydagmc."""
+    """Extract detailed information from a DAGMC file using pydagmc.
+
+    Args:
+        h5m_path: Path to the DAGMC .h5m file.
+
+    Returns:
+        Dictionary with success flag and model metadata including
+        volumes, surfaces, materials, groups, bounding box, and file info.
+    """
     try:
         import pydagmc
     except ImportError:
@@ -21,18 +28,18 @@ def get_dagmc_info(h5m_path: str):
             'success': False,
             'error': 'pydagmc not available. Install with: pip install pydagmc'
         }
-    
+
     h5m_path = Path(h5m_path)
     if not h5m_path.exists():
         return {'success': False, 'error': f'File not found: {h5m_path}'}
-    
+
     try:
         # Load the model
         model = pydagmc.Model(str(h5m_path))
-        
+
         # Get file info
         file_stat = h5m_path.stat()
-        
+
         # Collect volume information
         volumes = []
         for vol in model.volumes:
@@ -46,14 +53,14 @@ def get_dagmc_info(h5m_path: str):
                 }
             except:
                 bbox = None
-            
+
             volumes.append({
                 'id': int(vol.id),
                 'material': vol.material or 'void',
                 'numTriangles': int(vol.num_triangles),
                 'boundingBox': bbox
             })
-        
+
         # Collect surface information
         surfaces = []
         total_area = 0.0
@@ -63,13 +70,13 @@ def get_dagmc_info(h5m_path: str):
                 total_area += area
             except:
                 area = 0.0
-            
+
             surfaces.append({
                 'id': int(surf.id),
                 'area': round(area, 2),
                 'numTriangles': int(surf.num_triangles)
             })
-        
+
         # Get materials
         materials = {}
         for mat_name, vols in model.volumes_by_material.items():
@@ -77,10 +84,10 @@ def get_dagmc_info(h5m_path: str):
                 'volumeCount': len(vols),
                 'totalTriangles': sum(v.num_triangles for v in vols)
             }
-        
+
         # Get groups
         groups = list(model.group_names)
-        
+
         # Calculate overall bounding box
         if model.volumes:
             all_bounds = [v.bounds for v in model.volumes if v.bounds is not None]
@@ -97,10 +104,10 @@ def get_dagmc_info(h5m_path: str):
                 overall_bbox = {'min': [0, 0, 0], 'max': [0, 0, 0]}
         else:
             overall_bbox = {'min': [0, 0, 0], 'max': [0, 0, 0]}
-        
+
         # Count total triangles
         total_triangles = sum(v.num_triangles for v in model.volumes)
-        
+
         return {
             'success': True,
             'fileName': h5m_path.name,
@@ -116,7 +123,7 @@ def get_dagmc_info(h5m_path: str):
             'groups': groups,
             'boundingBox': overall_bbox
         }
-        
+
     except Exception as e:
         import traceback
         return {
@@ -127,14 +134,19 @@ def get_dagmc_info(h5m_path: str):
 
 
 def main():
+    """Main entry point for CLI usage.
+
+    Parses arguments, calls get_dagmc_info, and prints results as
+    JSON or a human-readable summary.
+    """
     parser = argparse.ArgumentParser(description='Get DAGMC file info using pydagmc')
     parser.add_argument('input_file', help='Input DAGMC .h5m file')
     parser.add_argument('--output-json', action='store_true', help='Output as JSON')
-    
+
     args = parser.parse_args()
-    
+
     result = get_dagmc_info(args.input_file)
-    
+
     if args.output_json:
         # Output compact JSON on a single line for easy parsing
         print(json.dumps(result))
@@ -145,7 +157,7 @@ def main():
             print(f"  Volumes: {result['volumeCount']}")
             print(f"  Surfaces: {result['surfaceCount']}")
             print(f"  Total Triangles: {result['totalTriangles']:,}")
-            print(f"  Total Surface Area: {result['totalSurfaceArea']:.2f} cm²")
+            print(f"  Total Surface Area: {result['totalSurfaceArea']:.2f} cm\u00b2")
             print(f"\n  Materials:")
             for mat, info in result['materials'].items():
                 print(f"    {mat}: {info['volumeCount']} volumes, {info['totalTriangles']:,} triangles")

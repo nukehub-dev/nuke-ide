@@ -14,21 +14,33 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+/**
+ * @module openmc-studio/browser/widgets
+ */
+
 import * as React from 'react';
 import { OpenMCDepletion } from '../../../common/openmc-state-schema';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
+/** Props for the {@link DepletionTimeline} component. */
 interface DepletionTimelineProps {
+    /** The depletion configuration to display and edit. */
     depletion: OpenMCDepletion;
+    /** Callback invoked when the depletion configuration changes. */
     onChange: (updates: Partial<OpenMCDepletion>) => void;
+    /** Callback invoked to toggle decay-only mode for a specific step. */
     onToggleDecayOnly: (index: number) => void;
 }
 
+/** A parsed depletion time step with numeric value and unit. */
 interface ParsedStep {
+    /** Numeric value of the step. */
     value: number;
+    /** Unit of the step (e.g., `s`, `d`, `MWd/kg`). */
     unit: string;
 }
 
+/** Mapping of supported time units to their labels and conversion factors. */
 const TIME_UNITS: { [key: string]: { label: string; seconds: number } } = {
     's': { label: 'seconds', seconds: 1 },
     'min': { label: 'minutes', seconds: 60 },
@@ -38,12 +50,26 @@ const TIME_UNITS: { [key: string]: { label: string; seconds: number } } = {
     'MWd/kg': { label: 'MWd/kg', seconds: 0 }
 };
 
+/**
+ * Interactive timeline editor for OpenMC depletion schedules.
+ *
+ * Allows users to add, remove, duplicate, and configure time steps
+ * for burnup calculations, including toggling decay-only steps.
+ *
+ * @see {@link OpenMCDepletion} for the underlying data model
+ */
 export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion, onChange, onToggleDecayOnly }) => {
     const [selectedStepIndex, setSelectedStepIndex] = React.useState<number>(-1);
 
     const timeSteps = depletion.timeSteps || [];
     const decayOnlySteps = depletion.decayOnlySteps || [];
 
+    /**
+     * Parse a time step string into a numeric value and unit.
+     *
+     * @param step - The raw step value (string or number).
+     * @returns The parsed step with value and unit.
+     */
     const parseStep = (step: string | number): ParsedStep => {
         if (typeof step === 'number') {
             return { value: step, unit: 's' };
@@ -55,11 +81,24 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
         return { value: parseFloat(step) || 0, unit: 's' };
     };
 
+    /**
+     * Format a time value with its unit for display.
+     *
+     * @param value - The numeric value.
+     * @param unit - The unit string.
+     * @returns A formatted time string.
+     */
     const formatTime = (value: number, unit: string): string => {
         if (unit === 'MWd/kg') return `${value.toFixed(2)} MWd/kg`;
         return `${value} ${unit}`;
     };
 
+    /**
+     * Calculate the accumulated time in seconds up to a given step index.
+     *
+     * @param index - The step index to accumulate up to.
+     * @returns Total elapsed seconds.
+     */
     const calculateAccumulatedTime = (index: number): number => {
         let total = 0;
         for (let i = 0; i <= index && i < timeSteps.length; i++) {
@@ -72,6 +111,12 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
         return total;
     };
 
+    /**
+     * Format an accumulated time in seconds into a human-readable string.
+     *
+     * @param seconds - Total elapsed seconds.
+     * @returns A human-readable duration string.
+     */
     const formatAccumulatedTime = (seconds: number): string => {
         if (seconds < 60) return `${seconds.toFixed(0)}s`;
         if (seconds < 3600) return `${(seconds / 60).toFixed(1)}min`;
@@ -80,6 +125,7 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
         return `${(seconds / 31536000).toFixed(2)}y`;
     };
 
+    /** Append a new default time step to the schedule. */
     const handleAddStep = () => {
         const currentSteps = [...timeSteps].map(s => String(s));
         const newSteps = [...currentSteps, '30.0 d'];
@@ -87,6 +133,11 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
         setSelectedStepIndex(newSteps.length - 1);
     };
 
+    /**
+     * Remove a time step at the specified index.
+     *
+     * @param index - The index of the step to remove.
+     */
     const handleRemoveStep = (index: number) => {
         const newSteps = [...timeSteps].map(s => String(s));
         newSteps.splice(index, 1);
@@ -96,12 +147,24 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
         }
     };
 
+    /**
+     * Update the value and unit of a time step.
+     *
+     * @param index - The step index to update.
+     * @param value - The new numeric value.
+     * @param unit - The new unit.
+     */
     const handleUpdateStep = (index: number, value: number, unit: string) => {
         const newSteps = [...timeSteps].map(s => String(s));
         newSteps[index] = `${value} ${unit}`;
         onChange({ timeSteps: newSteps });
     };
 
+    /**
+     * Duplicate a time step immediately after the specified index.
+     *
+     * @param index - The step index to duplicate.
+     */
     const handleDuplicateStep = (index: number) => {
         const newSteps = [...timeSteps].map(s => String(s));
         newSteps.splice(index + 1, 0, String(timeSteps[index]));

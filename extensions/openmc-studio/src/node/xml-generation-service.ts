@@ -46,12 +46,22 @@ import {
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
+/**
+ * XML Generation Service
+ *
+ * Backend service for generating OpenMC XML input files (geometry.xml, materials.xml,
+ * settings.xml, tallies.xml, plots.xml) from the simulation state.
+ *
+ * @module openmc-studio/node
+ * @see {@link OpenMCStudioBackendService.generateXML}
+ */
 @injectable()
 export class XMLGenerationService {
 
     /**
      * Set the client for log messages.
      * Note: Currently unused - client notifications disabled to prevent disconnect errors.
+     * @param _client - Frontend client interface
      */
     setClient(_client: OpenMCStudioClient): void {
         // Client logging disabled - see log() method
@@ -68,6 +78,11 @@ export class XMLGenerationService {
     // XML Generation
     // ============================================================================
 
+    /**
+     * Generate OpenMC XML files from simulation state.
+     * @param request - Generation request with state, output directory, and file flags
+     * @returns Generation result with file paths and any warnings
+     */
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         const generatedFiles: string[] = [];
         const warnings: string[] = [];
@@ -172,6 +187,12 @@ export class XMLGenerationService {
     // Materials XML
     // ============================================================================
 
+    /**
+     * Generate materials.xml from state materials.
+     * @param state - Simulation state
+     * @returns materials.xml content
+     */
+
     private generateMaterialsXML(state: OpenMCState): string {
         const lines: string[] = [
             '<?xml version="1.0"?>',
@@ -249,6 +270,12 @@ export class XMLGenerationService {
     // ============================================================================
     // Geometry XML
     // ============================================================================
+
+    /**
+     * Generate geometry.xml from state geometry.
+     * @param state - Simulation state
+     * @returns geometry.xml content
+     */
 
     private generateGeometryXML(state: OpenMCState): string {
         const lines: string[] = [
@@ -440,6 +467,12 @@ export class XMLGenerationService {
     // ============================================================================
     // Settings XML
     // ============================================================================
+
+    /**
+     * Generate settings.xml from state settings.
+     * @param state - Simulation state
+     * @returns settings.xml content
+     */
 
     private generateSettingsXML(state: OpenMCState): string {
         const lines: string[] = [
@@ -848,6 +881,12 @@ export class XMLGenerationService {
     // Tallies XML
     // ============================================================================
 
+    /**
+     * Generate tallies.xml from state tallies and meshes.
+     * @param state - Simulation state
+     * @returns tallies.xml content
+     */
+
     private generateTalliesXML(state: OpenMCState): string {
         const lines: string[] = [
             '<?xml version="1.0"?>',
@@ -1004,6 +1043,12 @@ export class XMLGenerationService {
     // Plots XML
     // ============================================================================
 
+    /**
+     * Generate plots.xml from state plot configurations.
+     * @param state - Simulation state
+     * @returns plots.xml content
+     */
+
     private generatePlotsXML(state: OpenMCState): string {
         const lines: string[] = [
             '<?xml version="1.0"?>',
@@ -1045,6 +1090,12 @@ export class XMLGenerationService {
     // ============================================================================
     // Utilities
     // ============================================================================
+
+    /**
+     * Escape special XML characters in text content.
+     * @param text - Raw text to escape
+     * @returns Escaped XML-safe text
+     */
 
     private escapeXml(text: string): string {
         return text

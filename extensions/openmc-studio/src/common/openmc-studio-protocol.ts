@@ -39,12 +39,19 @@ export { OPENMC_STATE_SCHEMA_VERSION };
 // Service Symbols
 // ============================================================================
 
+/** Service identifier for dependency injection */
 export const OpenMCStudioBackendService = Symbol('OpenMCStudioBackendService');
+/** JSON-RPC endpoint path for the OpenMC Studio backend service */
 export const OPENMC_STUDIO_BACKEND_PATH = '/services/openmc-studio';
 
 // ============================================================================
 // XML Generation
 // ============================================================================
+
+/**
+ * Request/response types for generating OpenMC XML files from simulation state.
+ * @see {@link XMLGenerationService}
+ */
 
 /** Request to generate XML files from state */
 export interface XMLGenerationRequest {
@@ -94,6 +101,11 @@ export interface XMLValidationResult {
 // XML Import
 // ============================================================================
 
+/**
+ * Request/response types for importing existing OpenMC XML files into state.
+ * @see {@link OpenMCStudioBackendService.importXML}
+ */
+
 /** Request to import XML files into state */
 export interface XMLImportRequest {
     /** Directory containing XML files */
@@ -130,6 +142,12 @@ export interface XMLImportResult {
 // ============================================================================
 // Simulation Runner
 // ============================================================================
+
+/**
+ * Request/response types for running OpenMC simulations.
+ * Supports both blocking and non-blocking execution modes.
+ * @see {@link OpenMCRunnerService}
+ */
 
 /** Simulation run request */
 export interface SimulationRunRequest {
@@ -224,6 +242,12 @@ export interface SimulationLogResult {
 // Validation
 // ============================================================================
 
+/**
+ * Request/response types for validating simulation state.
+ * Performs geometry, materials, settings, and tally checks.
+ * @see {@link OpenMCStudioBackendService.validateState}
+ */
+
 /** Validation request */
 export interface ValidationRequest {
     /** State to validate */
@@ -277,6 +301,11 @@ export interface ValidationResult {
 // Geometry Validation
 // ============================================================================
 
+/**
+ * Request/response types for geometry overlap detection.
+ * @see {@link OpenMCStudioBackendService.checkOverlaps}
+ */
+
 /** Overlap check request */
 export interface OverlapCheckRequest {
     /** Geometry to check */
@@ -314,6 +343,13 @@ export interface OverlapCheckResult {
 // ============================================================================
 // Project Management
 // ============================================================================
+
+/**
+ * Request/response types for project lifecycle operations.
+ * @see {@link OpenMCStudioBackendService.createProject}
+ * @see {@link OpenMCStudioBackendService.loadProject}
+ * @see {@link OpenMCStudioBackendService.saveProject}
+ */
 
 /** Project creation request */
 export interface ProjectCreateRequest {
@@ -365,6 +401,12 @@ export interface ProjectLoadResult {
 // Template Management
 // ============================================================================
 
+/**
+ * Request/response types for project template operations.
+ * @see {@link OpenMCStudioBackendService.getTemplates}
+ * @see {@link OpenMCStudioBackendService.applyTemplate}
+ */
+
 /** Available templates response */
 export interface TemplatesResponse {
     /** List of available templates */
@@ -384,6 +426,12 @@ export interface ApplyTemplateRequest {
 // ============================================================================
 // WWINP Import/Export
 // ============================================================================
+
+/**
+ * Request/response types for MCNP WWINP weight window file operations.
+ * @see {@link OpenMCStudioBackendService.importWWINP}
+ * @see {@link OpenMCStudioBackendService.exportWWINP}
+ */
 
 /** Request to import MCNP WWINP file */
 export interface WWINPImportRequest {
@@ -435,6 +483,13 @@ export interface WWINPExportResult {
 // ============================================================================
 // Backend Service Interface
 // ============================================================================
+
+/**
+ * Main backend service interface for OpenMC Studio.
+ * Defines the JSON-RPC contract between frontend and backend.
+ * Implemented by {@link OpenMCStudioBackendServiceImpl}.
+ * @see {@link OpenMCStudioBackendService}
+ */
 
 /** Backend service interface for OpenMC Studio */
 export interface OpenMCStudioBackendService {
@@ -662,6 +717,11 @@ export interface OpenMCStudioBackendService {
 // CAD Import Types
 // ============================================================================
 
+/**
+ * CAD import request/response types for geometry import operations.
+ * @see {@link OpenMCCADImportService}
+ */
+
 /** Supported CAD file formats */
 export type CADFileFormat = 'step' | 'iges' | 'stp' | 'igs' | 'brep' | 'stl' | 'h5m' | 'dagmc';
 
@@ -755,6 +815,12 @@ export interface CADImportResult {
 // ============================================================================
 // Statepoint Comparison
 // ============================================================================
+
+/**
+ * Data structures for reading and comparing OpenMC statepoint files.
+ * @see {@link OpenMCStudioBackendService.readStatepoint}
+ * @see {@link OpenMCStudioBackendService.compareStatepoints}
+ */
 
 /** k-effective data from statepoint */
 export interface StatepointKeff {
@@ -861,6 +927,10 @@ export interface CompareStatepointsResult {
 // Statistical Tests
 // ============================================================================
 
+/**
+ * Statistical test results for statepoint comparison and convergence analysis.
+ */
+
 /** k-effective statistical test results */
 export interface KeffStatisticalTests {
     weightedMean: number;
@@ -921,6 +991,11 @@ export interface KeffConvergenceAnalysis {
 // Depletion / Burnup Comparison
 // ============================================================================
 
+/**
+ * Data structures for depletion (burnup) result analysis.
+ * @see {@link OpenMCStudioBackendService.readDepletionResults}
+ */
+
 /** Nuclide concentration data over time */
 export interface NuclideData {
     initial: number;
@@ -971,6 +1046,11 @@ export interface AnalyzeConvergenceRequest {
 // Frontend Events
 // ============================================================================
 
+/**
+ * Event types for frontend-backend communication.
+ * Sent via the {@link OpenMCStudioClient} interface.
+ */
+
 /** Simulation status change event */
 export interface SimulationStatusEvent {
     /** Process ID */
@@ -998,6 +1078,11 @@ export interface StateChangeEvent {
 // ============================================================================
 // Optimization Framework
 // ============================================================================
+
+/**
+ * Request/response types for parameter sweep optimization runs.
+ * @see {@link OptimizationBackendService}
+ */
 
 /** Request to start an optimization run */
 export interface StartOptimizationRequest {

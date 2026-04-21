@@ -14,19 +14,39 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+/**
+ * @module openmc-studio/browser/widgets/vr
+ */
+
 import * as React from '@theia/core/shared/react';
 import { OpenMCWeightWindows, OpenMCMesh } from '../../../../common/openmc-state-schema';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 
+/** Props for the {@link WeightWindowEditor} component. */
 export interface WeightWindowEditorProps {
+    /** Current weight windows configuration, if any. */
     weightWindows?: OpenMCWeightWindows;
+    /** Available meshes that can be used for weight window definition. */
     meshes: OpenMCMesh[];
+    /** Callback invoked when the weight windows configuration changes. */
     onChange: (updates: Partial<OpenMCWeightWindows>) => void;
+    /** Callback invoked to enable or disable weight windows entirely. */
     onToggle: (enabled: boolean) => void;
+    /** Optional callback to import weight windows from an MCNP WWINP file. */
     onWWINPImport?: () => void;
+    /** Optional callback to export weight windows to an MCNP WWINP file. */
     onWWINPExport?: () => void;
 }
 
+/**
+ * Editor for configuring OpenMC weight window parameters.
+ *
+ * Provides controls for mesh selection, weight bounds, particle type,
+ * and energy bounds. Supports MCNP WWINP import/export when callbacks are provided.
+ *
+ * @see {@link OpenMCWeightWindows} for the data model
+ * @see {@link OpenMCMesh} for mesh definitions
+ */
 export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
     weightWindows,
     meshes,

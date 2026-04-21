@@ -16,9 +16,13 @@
 
 /**
  * OpenMC Environment Management Service
- * 
+ *
  * Manages Python environment detection, switching, and monitoring for OpenMC.
- * 
+ * Provides status tracking, environment selection, and ensures required packages
+ * (OpenMC core, DAGMC tools) are available in the active environment.
+ *
+ * @see {@link OpenMCHealthService} for comprehensive health checks
+ * @see {@link OpenMCInstallerService} for package installation workflows
  * @module openmc-studio/browser
  */
 
@@ -28,12 +32,19 @@ import { NukeCoreService, NukeEnvironment } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { MessageService } from '@theia/core/lib/common/message-service';
 
+/** Status snapshot of the OpenMC environment at a given point in time. */
 export interface OpenMCEnvironmentStatus {
+    /** Whether the environment is ready to run OpenMC. */
     ready: boolean;
+    /** The currently selected Python environment, if any. */
     environment?: NukeEnvironment;
+    /** Absolute path to the Python executable in the active environment. */
     pythonCommand?: string;
+    /** Detected OpenMC package version string, e.g. "0.14.0". */
     openmcVersion?: string;
+    /** Critical error message preventing OpenMC from running. */
     error?: string;
+    /** Non-critical warning message (e.g. missing optional packages). */
     warning?: string;
 }
 
@@ -42,43 +53,49 @@ export const OPENMC_EXTRA_INDEX_URL = 'https://shimwell.github.io/wheels';
 
 @injectable()
 export class OpenMCEnvironmentService {
-    
+
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
-    
+
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
 
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
+    /** Emitter fired whenever the environment status changes. */
     private readonly _onEnvironmentChanged = new Emitter<OpenMCEnvironmentStatus>();
+    /** Event subscribers can listen to for environment status updates. */
     readonly onEnvironmentChanged: Event<OpenMCEnvironmentStatus> = this._onEnvironmentChanged.event;
 
+    /** Cached current environment status. */
     private currentStatus: OpenMCEnvironmentStatus = { ready: false };
 
     /**
      * Initialize the service and set up listeners.
+     * Wires up nuke-core environment change events and performs an initial status check.
      */
     async initialize(): Promise<void> {
         // Listen for nuke-core environment changes
         this.nukeCore.onEnvironmentChanged(async () => {
             await this.refreshStatus();
         });
-        
+
         // Initial status check
         await this.refreshStatus();
     }
 
     /**
-     * Get current environment status.
+     * Get the current environment status.
+     * @returns The cached {@link OpenMCEnvironmentStatus} snapshot.
      */
     getStatus(): OpenMCEnvironmentStatus {
         return this.currentStatus;
     }
 
     /**
-     * Check if OpenMC environment is ready.
+     * Check if the OpenMC environment is ready to use.
+     * @returns `true` if a Python environment is configured and OpenMC is installed.
      */
     isReady(): boolean {
         return this.currentStatus.ready;
@@ -87,6 +104,8 @@ export class OpenMCEnvironmentService {
     /**
      * Refresh the environment status.
      * Checks ONLY the configured environment — never falls back to a different one.
+     * Fires {@link onEnvironmentChanged} if the status changes.
+     * @returns The updated {@link OpenMCEnvironmentStatus}.
      */
     async refreshStatus(): Promise<OpenMCEnvironmentStatus> {
         const env = await this.nukeCore.getSelectedEnvironment();
@@ -134,7 +153,9 @@ export class OpenMCEnvironmentService {
     }
 
     /**
-     * List all available environments that have OpenMC.
+     * List all available environments that have OpenMC installed.
+     * Iterates over every environment known to nuke-core and checks for the `openmc` package.
+     * @returns Array of environments augmented with their `openmcVersion`, if detected.
      */
     async listOpenMCEnvironments(): Promise<Array<NukeEnvironment & { openmcVersion?: string }>> {
         const allEnvs = await this.nukeCore.listEnvironments(true);
@@ -161,7 +182,9 @@ export class OpenMCEnvironmentService {
     }
 
     /**
-     * Switch to a specific environment.
+     * Switch to a specific Python environment.
+     * @param environment The {@link NukeEnvironment} to activate.
+     * @returns `true` if the switch succeeded.
      */
     async switchToEnvironment(environment: NukeEnvironment): Promise<boolean> {
         try {
@@ -175,7 +198,9 @@ export class OpenMCEnvironmentService {
     }
 
     /**
-     * Show environment picker dialog.
+     * Show an environment picker dialog.
+     * Returns the first available OpenMC environment as a placeholder until UI is implemented.
+     * @returns The selected {@link NukeEnvironment}, or `undefined` if none are available.
      */
     async showEnvironmentPicker(): Promise<NukeEnvironment | undefined> {
         // This will be implemented with a UI component
@@ -185,7 +210,9 @@ export class OpenMCEnvironmentService {
     }
 
     /**
-     * Get Python command for running OpenMC.
+     * Get the Python command for running OpenMC in the active environment.
+     * Triggers a status refresh if the current status is not ready.
+     * @returns Absolute path to the Python executable, or `undefined` if no environment is ready.
      */
     async getPythonCommand(): Promise<string | undefined> {
         if (!this.currentStatus.ready) {
@@ -198,6 +225,8 @@ export class OpenMCEnvironmentService {
      * Ensure OpenMC is installed in the configured environment.
      * Detects first; if missing, prompts the user with a notification
      * to install via a live terminal. Re-detects after installation.
+     * @returns Result object indicating success, whether packages were installed,
+     *          and the active environment details.
      */
     async ensureOpenMC(): Promise<{
         success: boolean;
@@ -231,6 +260,8 @@ export class OpenMCEnvironmentService {
 
     /**
      * Ensure DAGMC tools (moab, pydagmc) are installed in the configured environment.
+     * These packages are conda-only and pulled from the `conda-forge` channel.
+     * @returns Result object indicating success and installation state.
      */
     async ensureDAGMC(): Promise<{
         success: boolean;
@@ -263,7 +294,9 @@ export class OpenMCEnvironmentService {
     }
 
     /**
-     * Check for DAGMC support in current environment.
+     * Check for DAGMC support in the current environment.
+     * Verifies that both `pydagmc` and `pymoab` are importable.
+     * @returns `true` if DAGMC libraries are available.
      */
     async hasDAGMCSupport(): Promise<boolean> {
         const pythonCommand = await this.getPythonCommand();

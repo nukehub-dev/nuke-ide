@@ -21,12 +21,29 @@ import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
 
+/**
+ * Props for the {@link TallyEditor} component.
+ */
 interface TallyEditorProps {
+    /** Tally to edit */
     tally: OpenMCTally;
+    /** Available meshes for mesh filter selection */
     meshes: OpenMCMesh[];
+    /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
 
+/**
+ * Editor for configuring an individual OpenMC tally.
+ *
+ * Provides sections for basic settings (name, estimator), scores, filters, and nuclides.
+ * Also displays validation warnings for incompatible estimator / score combinations.
+ *
+ * @see {@link TallyList}
+ * @see {@link ScoreSelector}
+ * @see {@link FilterBuilder}
+ * @see {@link NuclideSelector}
+ */
 export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, onUpdate }) => {
     const hasMeshFilter = tally.filters.some(f => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';

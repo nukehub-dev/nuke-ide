@@ -29,6 +29,15 @@ import { Emitter, Event } from '@theia/core/lib/common';
 import { OpenMCSimulationCommands } from '../commands/simulation-commands';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
 
+/**
+ * Registers toolbar items for the OpenMC simulation dashboard.
+ *
+ * Binds to {@link TabBarToolbarContribution} in the frontend module to activate toolbar registration.
+ * Items are visible only when a {@link SimulationDashboardWidget} is active and refresh every second.
+ *
+ * @see {@link OpenMCSimulationCommands} for the underlying command definitions
+ * @see {@link SimulationDashboardWidget} for the target widget
+ */
 @injectable()
 export class OpenMCToolbarContribution implements TabBarToolbarContribution {
     
@@ -36,8 +45,14 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
     protected readonly widgetManager: WidgetManager;
 
     private readonly _onDidChange = new Emitter<void>();
+    /** Event fired when toolbar item visibility or state may have changed. */
     readonly onDidChange: Event<void> = this._onDidChange.event;
 
+    /**
+     * Register Run, Stop, and Validate toolbar items scoped to the simulation dashboard.
+     * @param registry - The Theia tab-bar toolbar registry
+     * @see {@link OpenMCSimulationCommands}
+     */
     registerToolbarItems(registry: TabBarToolbarRegistry): void {
         const isVisible = (widget?: any) => widget instanceof SimulationDashboardWidget;
         

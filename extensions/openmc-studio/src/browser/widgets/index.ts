@@ -10,7 +10,9 @@
 
 /**
  * OpenMC Studio Browser Widgets
- * 
+ *
+ * Re-exports all widget modules for the OpenMC Studio browser extension.
+ *
  * @module openmc-studio/browser/widgets
  */
 

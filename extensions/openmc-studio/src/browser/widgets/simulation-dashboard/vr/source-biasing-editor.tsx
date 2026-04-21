@@ -14,16 +14,32 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
+/**
+ * @module openmc-studio/browser/widgets/vr
+ */
+
 import * as React from '@theia/core/shared/react';
 import { OpenMCSourceBiasing, OpenMCSourceEnergy, OpenMCSourceSpatial } from '../../../../common/openmc-state-schema';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 
+/** Props for the {@link SourceBiasingEditor} component. */
 export interface SourceBiasingEditorProps {
+    /** Current source biasing configuration, if any. */
     sourceBiasing?: OpenMCSourceBiasing;
+    /** Callback invoked when the source biasing configuration changes. */
     onChange: (updates: Partial<OpenMCSourceBiasing>) => void;
+    /** Callback invoked to enable or disable source biasing entirely. */
     onToggle: (enabled: boolean) => void;
 }
 
+/**
+ * Editor for configuring OpenMC source biasing parameters.
+ *
+ * Provides controls for strength, energy, and spatial biasing,
+ * allowing users to bias source particle distributions toward important regions.
+ *
+ * @see {@link OpenMCSourceBiasing} for the data model
+ */
 export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
     sourceBiasing,
     onChange,

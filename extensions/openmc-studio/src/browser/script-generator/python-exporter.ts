@@ -16,10 +16,14 @@
 
 /**
  * Python Script Generator
- * 
- * Generates OpenMC Python scripts from the simulation state.
- * Supports exporting as single model.py or separate files.
- * 
+ *
+ * Generates OpenMC Python scripts from the simulation state managed by
+ * {@link OpenMCStateManager}. Supports exporting as a single `model.py` file
+ * or as separate files (`materials.py`, `geometry.py`, `settings.py`, etc.).
+ *
+ * The generated scripts use the OpenMC Python API and are ready to run
+ * with `python model.py` or `openmc` after XML export.
+ *
  * @module openmc-studio/browser
  */
 
@@ -48,35 +52,40 @@ import {
     OpenMCFixedSourceSettings
 } from '../../common/openmc-state-schema';
 
+/** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
-    /** Export as single file or separate files */
+    /** Export as single file or separate files. */
     mode: 'single' | 'separate';
-    /** Output directory for separate files mode */
+    /** Output directory for separate files mode. */
     outputDirectory?: string;
-    /** Include comments in generated code */
+    /** Include comments in generated code. */
     includeComments?: boolean;
-    /** Include shebang line (#!/usr/bin/env python3) */
+    /** Include shebang line (`#!/usr/bin/env python3`). */
     includeShebang?: boolean;
 }
 
+/** Result of a Python export operation. */
 export interface PythonExportResult {
+    /** Whether the export completed successfully. */
     success: boolean;
+    /** List of file URIs that were written. */
     files: string[];
+    /** Error message if `success` is `false`. */
     error?: string;
 }
 
 @injectable()
 export class OpenMCPythonExporter {
-    
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
-    
+
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
-    
+
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
-    
+
     @inject(WorkspaceService)
     protected readonly workspaceService: WorkspaceService;
 
@@ -84,7 +93,13 @@ export class OpenMCPythonExporter {
     protected readonly fileService: FileService;
 
     /**
-     * Export current state to Python script(s).
+     * Export the current simulation state to Python script(s).
+     *
+     * Prompts the user for a save location, then generates and writes the
+     * script(s) according to the provided options.
+     *
+     * @param options - Partial export options merged with defaults.
+     * @returns A promise resolving to the {@link PythonExportResult}.
      */
     async exportToPython(options?: Partial<PythonExportOptions>): Promise<PythonExportResult> {
         const state = this.stateManager.getState();
@@ -109,7 +124,11 @@ export class OpenMCPythonExporter {
     }
 
     /**
-     * Export as a single model.py file.
+     * Export the simulation as a single `model.py` file.
+     *
+     * @param state - The current {@link OpenMCState} to export.
+     * @param options - Fully resolved export options.
+     * @returns A promise resolving to the {@link PythonExportResult}.
      */
     private async exportSingleFile(state: OpenMCState, options: PythonExportOptions): Promise<PythonExportResult> {
         const props: SaveFileDialogProps = {
@@ -127,16 +146,21 @@ export class OpenMCPythonExporter {
         }
 
         const pythonCode = this.generateModelScript(state, options);
-        
+
         // Use the backend to write the file
         await this.writeFile(uri, pythonCode);
-        
+
         this.messageService.info(`Exported Python script: ${uri.path.name}`);
         return { success: true, files: [uri.toString()] };
     }
 
     /**
-     * Export as separate files (materials.py, geometry.py, settings.py, tallies.py, plots.py).
+     * Export the simulation as separate files (`materials.py`, `geometry.py`,
+     * `settings.py`, `tallies.py`, `plots.py`, and `model.py`).
+     *
+     * @param state - The current {@link OpenMCState} to export.
+     * @param options - Fully resolved export options.
+     * @returns A promise resolving to the {@link PythonExportResult}.
      */
     private async exportSeparateFiles(state: OpenMCState, options: PythonExportOptions): Promise<PythonExportResult> {
         const props: SaveFileDialogProps = {
@@ -154,7 +178,7 @@ export class OpenMCPythonExporter {
 
         const files: string[] = [];
         const baseUri = uri.parent;
-        
+
         if (!baseUri) {
             return { success: false, files: [], error: 'Invalid directory' };
         }
@@ -188,11 +212,16 @@ export class OpenMCPythonExporter {
 
     /**
      * Write content to a file using the file service.
+     *
+     * Falls back to {@link FileService.createFile} if writing fails.
+     *
+     * @param uri - The target file URI.
+     * @param content - The text content to write.
      */
     private async writeFile(uri: URI, content: string): Promise<void> {
         const encoder = new TextEncoder();
         const data = BinaryBuffer.wrap(encoder.encode(content));
-        
+
         try {
             await this.fileService.writeFile(uri, data);
         } catch (e) {
@@ -207,16 +236,20 @@ export class OpenMCPythonExporter {
     // ============================================================================
 
     /**
-     * Generate complete model.py script.
+     * Generate a complete single-file `model.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options controlling comments and shebang.
+     * @returns The generated Python code as a single string.
      */
     private generateModelScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push(`# OpenMC Model Script`);
             lines.push(`# Generated by OpenMC Studio`);
@@ -224,50 +257,50 @@ export class OpenMCPythonExporter {
             lines.push(`# Date: ${new Date().toISOString()}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         if (state.depletion?.enabled) {
             lines.push('import openmc.deplete');
         }
         lines.push('');
-        
+
         // Materials
         if (state.materials.length > 0) {
             lines.push(...this.generateMaterialsCode(state, options));
             lines.push('');
         }
-        
+
         // Geometry
         lines.push(...this.generateGeometryCode(state, options));
         lines.push('');
-        
+
         // Tallies & Meshes (needed before settings for VR)
         if (state.tallies.length > 0 || state.meshes.length > 0) {
             lines.push(...this.generateTallyMeshCode(state, options));
             lines.push('');
         }
-        
+
         // Settings
         lines.push(...this.generateSettingsCode(state, options));
         lines.push('');
-        
+
         // Plots
         if (state.plots && state.plots.length > 0) {
             lines.push(...this.generatePlotsCode(state, options));
             lines.push('');
         }
-        
+
         // Model object
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Model');
             lines.push('#==============================================================================');
         }
-        
+
         const materialsArg = state.materials.length > 0 ? 'materials=materials' : '';
         const talliesArg = state.tallies.length > 0 ? ', tallies=tallies' : '';
         const plotsArg = (state.plots && state.plots.length > 0) ? ', plots=plots' : '';
-        
+
         lines.push(`model = openmc.Model(geometry=geometry, ${materialsArg}${talliesArg}${plotsArg}, settings=settings)`);
         lines.push('');
 
@@ -276,14 +309,14 @@ export class OpenMCPythonExporter {
             lines.push(...this.generateDepletionCode(state));
             lines.push('');
         }
-        
+
         // Export section
         if (options.includeComments) {
             lines.push('# Export to XML files');
         }
-        
+
         lines.push('model.export_to_xml()');
-        
+
         lines.push('');
         if (state.depletion?.enabled) {
             lines.push('print("OpenMC depletion model exported successfully!")');
@@ -292,186 +325,210 @@ export class OpenMCPythonExporter {
             lines.push('print("OpenMC model exported successfully!")');
             lines.push('print("Run with: openmc")');
         }
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate materials.py script.
+     * Generate a standalone `materials.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generateMaterialsScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Materials definition for OpenMC');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         lines.push('');
-        
+
         lines.push(...this.generateMaterialsCode(state, options));
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate geometry.py script.
+     * Generate a standalone `geometry.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generateGeometryScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Geometry definition for OpenMC');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         lines.push('');
-        
+
         lines.push(...this.generateGeometryCode(state, options));
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate settings.py script.
+     * Generate a standalone `settings.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generateSettingsScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Settings definition for OpenMC');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         lines.push('');
-        
+
         lines.push(...this.generateSettingsCode(state, options));
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate tallies.py script.
+     * Generate a standalone `tallies.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generateTallyMeshScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Tallies definition for OpenMC');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         lines.push('');
-        
+
         lines.push(...this.generateTallyMeshCode(state, options));
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate plots.py script.
+     * Generate a standalone `plots.py` script.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generatePlotsScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Plots definition for OpenMC');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('');
         }
-        
+
         lines.push('import openmc');
         lines.push('');
-        
+
         lines.push(...this.generatePlotsCode(state, options));
-        
+
         return lines.join('\n');
     }
 
     /**
-     * Generate main model.py that imports all modules.
+     * Generate a main `model.py` that imports all separate module files.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns The generated Python code.
      */
     private generateMainModelScript(state: OpenMCState, options: PythonExportOptions): string {
         const lines: string[] = [];
-        
+
         if (options.includeShebang) {
             lines.push('#!/usr/bin/env python3');
             lines.push('');
         }
-        
+
         if (options.includeComments) {
             lines.push('# Main OpenMC Model Script');
             lines.push(`# Project: ${state.metadata.name}`);
             lines.push('# This script imports and exports all model components');
             lines.push('');
         }
-        
+
         lines.push('import materials');
         lines.push('import geometry');
         lines.push('import settings');
-        
+
         if (state.tallies.length > 0) {
             lines.push('import tallies');
         }
-        
+
         if (state.plots && state.plots.length > 0) {
             lines.push('import plots');
         }
-        
+
         lines.push('');
-        
+
         if (options.includeComments) {
             lines.push('# Export all to XML');
         }
-        
+
         lines.push('materials.materials.export_to_xml()');
         lines.push('geometry.geometry.export_to_xml()');
         lines.push('settings.settings.export_to_xml()');
-        
+
         if (state.tallies.length > 0) {
             lines.push('tallies.tallies.export_to_xml()');
         }
-        
+
         if (state.plots && state.plots.length > 0) {
             lines.push('plots.plots.export_to_xml()');
         }
-        
+
         lines.push('');
         lines.push('print("OpenMC model exported successfully!")');
-        
+
         return lines.join('\n');
     }
 
@@ -479,31 +536,44 @@ export class OpenMCPythonExporter {
     // Code Generators
     // ============================================================================
 
+    /**
+     * Generate the Python code block for all materials.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
     private generateMaterialsCode(state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
-        
+
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Materials');
             lines.push('#==============================================================================');
         }
-        
+
         for (const material of state.materials) {
             lines.push(...this.generateMaterialCode(material));
         }
-        
+
         lines.push('');
         lines.push(`materials = openmc.Materials([${state.materials.map(m => this.sanitizeVariableName(m.name)).join(', ')}])`);
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single material.
+     *
+     * @param material - The {@link OpenMCMaterial} to convert.
+     * @returns An array of code lines.
+     */
     private generateMaterialCode(material: OpenMCMaterial): string[] {
         const lines: string[] = [];
         const varName = this.sanitizeVariableName(material.name);
-        
+
         lines.push(`${varName} = openmc.Material(name="${this.escapePythonString(material.name)}", material_id=${material.id})`);
-        
+
         // Add nuclides and elements
         for (const nuclide of material.nuclides) {
             const percentType = nuclide.fractionType === 'wo' ? 'wo' : 'ao';
@@ -515,17 +585,17 @@ export class OpenMCPythonExporter {
                 lines.push(`${varName}.add_element("${nuclide.name}", ${nuclide.fraction}, percent_type="${percentType}")`);
             }
         }
-        
+
         // Set density
         if (material.densityUnit !== 'sum') {
             lines.push(`${varName}.set_density("${material.densityUnit}", ${material.density})`);
         }
-        
+
         // Add S(alpha, beta) if present
         for (const sab of material.thermalScattering) {
             lines.push(`${varName}.add_s_alpha_beta("${sab.name}")`);
         }
-        
+
         // Set depletable and volume if specified
         if (material.isDepletable) {
             lines.push(`${varName}.depletable = True`);
@@ -536,20 +606,27 @@ export class OpenMCPythonExporter {
         if (material.temperature) {
             lines.push(`${varName}.temperature = ${material.temperature}`);
         }
-        
+
         lines.push('');
         return lines;
     }
 
+    /**
+     * Generate the Python code block for geometry (surfaces, cells, and root object).
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
     private generateGeometryCode(state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
-        
+
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Geometry');
             lines.push('#==============================================================================');
         }
-        
+
         // Generate surfaces
         if (state.geometry.surfaces.length > 0) {
             if (options.includeComments) {
@@ -560,7 +637,7 @@ export class OpenMCPythonExporter {
             }
             lines.push('');
         }
-        
+
         // Generate cells
         if (state.geometry.cells.length > 0) {
             if (options.includeComments) {
@@ -571,7 +648,7 @@ export class OpenMCPythonExporter {
             }
             lines.push('');
         }
-        
+
         // Create geometry object
         if (state.geometry.cells.length > 0) {
             const cellVars = state.geometry.cells.map(c => `cell_${c.id}`).join(', ');
@@ -587,14 +664,20 @@ export class OpenMCPythonExporter {
             lines.push('root_univ = openmc.Universe(universe_id=0, name="root universe")');
             lines.push('geometry = openmc.Geometry(root_univ)');
         }
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single surface.
+     *
+     * @param surface - The {@link OpenMCSurface} to convert.
+     * @returns An array of code lines.
+     */
     private generateSurfaceCode(surface: OpenMCSurface): string[] {
         const lines: string[] = [];
         const coeffs = surface.coefficients as any;
-        
+
         let constructor = '';
         switch (surface.type) {
             case 'sphere':
@@ -626,21 +709,28 @@ export class OpenMCPythonExporter {
                 lines.push(`surface_${surface.id} = ${constructor}`);
                 return lines;
         }
-        
+
         // Add boundary condition
         if (surface.boundary && surface.boundary !== 'transmission') {
             constructor += `, boundary_type="${surface.boundary}"`;
         }
-        
+
         constructor += ')';
         lines.push(`surface_${surface.id} = ${constructor}`);
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single cell.
+     *
+     * @param cell - The {@link OpenMCCell} to convert.
+     * @param state - The current {@link OpenMCState} for material lookups.
+     * @returns An array of code lines.
+     */
     private generateCellCode(cell: OpenMCCell, state: OpenMCState): string[] {
         const lines: string[] = [];
-        
+
         let region = '';
         if (cell.regionString) {
             // Parse region string and convert to Python
@@ -648,7 +738,7 @@ export class OpenMCPythonExporter {
         } else if (cell.region) {
             region = this.convertRegionNodeToPython(cell.region);
         }
-        
+
         let fill = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
             const material = state.materials.find(m => m.id === cell.fillId);
@@ -658,33 +748,40 @@ export class OpenMCPythonExporter {
         } else if (cell.fillType === 'void') {
             fill = 'fill=None';
         }
-        
+
         const regionArg = region ? `, region=${region}` : '';
         const fillArg = fill ? `, ${fill}` : '';
         const nameArg = cell.name ? `, name="${this.escapePythonString(cell.name)}"` : '';
-        
+
         lines.push(`cell_${cell.id} = openmc.Cell(cell_id=${cell.id}${nameArg}${regionArg}${fillArg})`);
-        
+
         if (cell.temperature) {
             lines.push(`cell_${cell.id}.temperature = ${cell.temperature}`);
         }
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code block for simulation settings.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
     private generateSettingsCode(state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
         const settings = state.settings;
-        
+
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Settings');
             lines.push('#==============================================================================');
         }
-        
+
         lines.push('settings = openmc.Settings()');
         lines.push(`settings.run_mode = "${settings.run.mode}"`);
-        
+
         // Run mode specific settings
         if (settings.run.mode === 'eigenvalue') {
             const eigenRun = settings.run as OpenMCEigenvalueSettings;
@@ -696,32 +793,32 @@ export class OpenMCPythonExporter {
             lines.push(`settings.batches = ${fixedRun.batches}`);
             lines.push(`settings.particles = ${fixedRun.particles}`);
         }
-        
+
         // Sources
         for (let i = 0; i < settings.sources.length; i++) {
             lines.push(...this.generateSourceCode(settings.sources[i], i));
         }
-        
+
         if (settings.sources.length > 0) {
             const sourceVars = settings.sources.map((_, i) => `source_${i}`).join(', ');
             lines.push(`settings.source = [${sourceVars}]`);
         }
-        
+
         // Seed
         if (settings.seed) {
             lines.push(`settings.seed = ${settings.seed}`);
         }
-        
+
         // Threads
         if (settings.threads) {
             lines.push(`settings.threads = ${settings.threads}`);
         }
-        
+
         // Photon transport
         if (settings.photonTransport) {
             lines.push('settings.photon_transport = True');
         }
-        
+
         // Temperature
         if (settings.temperature) {
             if (settings.temperature.default) {
@@ -734,7 +831,7 @@ export class OpenMCPythonExporter {
                 lines.push('settings.temperature["multipole"] = True');
             }
         }
-        
+
         // Cutoff
         if (settings.cutoff) {
             if (settings.cutoff.weight !== undefined) {
@@ -744,15 +841,15 @@ export class OpenMCPythonExporter {
                 lines.push(`settings.cutoff['weight_avg'] = ${settings.cutoff.weightAvg}`);
             }
         }
-        
+
         // Variance reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
-            
+
             if (vr.survivalBiasing) {
                 lines.push('settings.survival_biasing = True');
             }
-            
+
             if (vr.weightWindowGenerator) {
                 const meshId = vr.weightWindows?.meshId || (vr.ufs?.enabled ? vr.ufs.meshId : undefined);
                 if (meshId !== undefined) {
@@ -771,7 +868,7 @@ export class OpenMCPythonExporter {
                 }
             }
         }
-        
+
         // Uniform Fission Site (UFS)
         if (state.varianceReduction?.ufs?.enabled) {
             const ufsMeshId = state.varianceReduction.ufs.meshId || state.varianceReduction.weightWindows?.meshId;
@@ -779,10 +876,16 @@ export class OpenMCPythonExporter {
                 lines.push(`settings.ufs_mesh = mesh_${ufsMeshId}`);
             }
         }
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code block for depletion settings.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @returns An array of code lines, empty if depletion is disabled.
+     */
     private generateDepletionCode(state: OpenMCState): string[] {
         if (!state.depletion || !state.depletion.enabled) return [];
         const depletion = state.depletion;
@@ -797,7 +900,7 @@ export class OpenMCPythonExporter {
 
         // Setup operator
         lines.push('op = openmc.deplete.CoupledOperator(model, chain)');
-        
+
         // Power/PowerDensity handling
         let powerVal = depletion.power;
         if (powerVal === undefined && depletion.powerDensity !== undefined) {
@@ -844,18 +947,25 @@ export class OpenMCPythonExporter {
         };
         const solver = solverMap[depletion.solver || 'predictor'] || 'PredictorIntegrator';
         lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
-        
+
         // Run integration (commented out by default to allow XML export first)
         lines.push('# integrator.integrate()');
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single source definition.
+     *
+     * @param source - The {@link OpenMCSource} to convert.
+     * @param index - The zero-based source index for variable naming.
+     * @returns An array of code lines.
+     */
     private generateSourceCode(source: OpenMCSource, index: number): string[] {
         const lines: string[] = [];
-        
+
         lines.push(`source_${index} = openmc.IndependentSource()`);
-        
+
         // Spatial distribution
         const spatial = source.spatial;
         switch (spatial.type) {
@@ -881,7 +991,7 @@ export class OpenMCPythonExporter {
                 lines.push(')');
                 break;
         }
-        
+
         // Energy distribution
         const energy = source.energy;
         if (energy) {
@@ -906,29 +1016,36 @@ export class OpenMCPythonExporter {
                     break;
             }
         }
-        
+
         // Particle type
         if (source.particle) {
             lines.push(`source_${index}.particle = "${source.particle}"`);
         }
-        
+
         // Strength
         if (source.strength !== undefined && source.strength !== 1) {
             lines.push(`source_${index}.strength = ${source.strength}`);
         }
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code block for tallies and meshes.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
     private generateTallyMeshCode(state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
-        
+
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Tallies');
             lines.push('#==============================================================================');
         }
-        
+
         // Meshes
         if (state.meshes.length > 0) {
             if (options.includeComments) {
@@ -939,7 +1056,7 @@ export class OpenMCPythonExporter {
             }
             lines.push('');
         }
-        
+
         // Tallies
         if (state.tallies.length > 0) {
             if (options.includeComments) {
@@ -950,21 +1067,27 @@ export class OpenMCPythonExporter {
             }
             lines.push('');
         }
-        
+
         const tallyVars = state.tallies.map(t => `tally_${t.id}`).join(', ');
-        
+
         if (state.meshes.length > 0 && state.tallies.length > 0) {
             lines.push(`tallies = openmc.Tallies([${tallyVars}])`);
         } else if (state.tallies.length > 0) {
             lines.push(`tallies = openmc.Tallies([${tallyVars}])`);
         }
-        
+
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single mesh.
+     *
+     * @param mesh - The {@link OpenMCMesh} to convert.
+     * @returns An array of code lines.
+     */
     private generateMeshCode(mesh: OpenMCMesh): string[] {
         const lines: string[] = [];
-        
+
         if (mesh.type === 'regular') {
             const regularMesh = mesh as OpenMCRegularMesh;
             lines.push(`mesh_${mesh.id} = openmc.RegularMesh(mesh_id=${mesh.id})`);
@@ -990,26 +1113,33 @@ export class OpenMCPythonExporter {
             lines.push(`mesh_${mesh.id}.theta_grid = [${sphMesh.thetaGrid.join(', ')}]`);
             lines.push(`mesh_${mesh.id}.phi_grid = [${sphMesh.phiGrid.join(', ')}]`);
         }
-        
+
         lines.push('');
         return lines;
     }
 
+    /**
+     * Generate the Python code for a single tally.
+     *
+     * @param tally - The {@link OpenMCTally} to convert.
+     * @param state - The current {@link OpenMCState} for mesh lookups.
+     * @returns An array of code lines.
+     */
     private generateTallyCode(tally: OpenMCTally, state: OpenMCState): string[] {
         const lines: string[] = [];
-        
+
         lines.push(`tally_${tally.id} = openmc.Tally(name="${this.escapePythonString(tally.name || '')}", tally_id=${tally.id})`);
-        
+
         // Scores
         if (tally.scores.length > 0) {
             lines.push(`tally_${tally.id}.scores = [${tally.scores.map(s => `"${s}"`).join(', ')}]`);
         }
-        
+
         // Nuclides
         if (tally.nuclides.length > 0) {
             lines.push(`tally_${tally.id}.nuclides = [${tally.nuclides.map(n => `"${n}"`).join(', ')}]`);
         }
-        
+
         // Filters
         if (tally.filters.length > 0) {
             const filterVars: string[] = [];
@@ -1017,7 +1147,7 @@ export class OpenMCPythonExporter {
                 const filter = tally.filters[i];
                 const filterVar = `filter_${tally.id}_${i}`;
                 filterVars.push(filterVar);
-                
+
                 switch (filter.type) {
                     case 'energy':
                         lines.push(`${filterVar} = openmc.EnergyFilter([${filter.bins.join(', ')}])`);
@@ -1060,52 +1190,59 @@ export class OpenMCPythonExporter {
             }
             lines.push(`tally_${tally.id}.filters = [${filterVars.join(', ')}]`);
         }
-        
+
         // Estimator
         if (tally.estimator) {
             lines.push(`tally_${tally.id}.estimator = "${tally.estimator}"`);
         }
-        
+
         lines.push('');
         return lines;
     }
 
+    /**
+     * Generate the Python code block for plot definitions.
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
     private generatePlotsCode(state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
-        
+
         if (options.includeComments) {
             lines.push('#==============================================================================');
             lines.push('# Plots');
             lines.push('#==============================================================================');
         }
-        
+
         for (const plot of state.plots || []) {
             lines.push(`plot_${plot.id} = openmc.Plot()`);
             lines.push(`plot_${plot.id}.id = ${plot.id}`);
             lines.push(`plot_${plot.id}.type = "${plot.type}"`);
             lines.push(`plot_${plot.id}.basis = "${plot.basis}"`);
             lines.push(`plot_${plot.id}.origin = [${plot.origin.join(', ')}]`);
-            
+
             if (plot.type === 'slice') {
                 if (plot.width) lines.push(`plot_${plot.id}.width = ${plot.width}`);
                 if (plot.height) lines.push(`plot_${plot.id}.height = ${plot.height}`);
                 if (plot.pixels) lines.push(`plot_${plot.id}.pixels = [${plot.pixels.join(', ')}]`);
             }
-            
+
             lines.push(`plot_${plot.id}.color_by = "${plot.colorBy}"`);
-            
+
             if (plot.meshlines) {
                 lines.push(`plot_${plot.id}.meshlines = True`);
             }
-            
+
             lines.push('');
         }
-        
+
         if (state.plots && state.plots.length > 0) {
             const plotVars = state.plots.map(p => `plot_${p.id}`).join(', ');
             lines.push(`plots = openmc.Plots([${plotVars}])`);
         }
-        
+
         return lines;
     }
 
@@ -1113,6 +1250,15 @@ export class OpenMCPythonExporter {
     // Utility Methods
     // ============================================================================
 
+    /**
+     * Sanitize a name so it becomes a valid Python identifier.
+     *
+     * Replaces invalid characters with underscores, prefixes leading digits,
+     * and appends `_` to Python reserved words.
+     *
+     * @param name - The raw name to sanitize.
+     * @returns A valid Python identifier.
+     */
     private sanitizeVariableName(name: string): string {
         // Remove invalid characters and ensure valid Python identifier
         let sanitized = name.replace(/[^a-zA-Z0-9_]/g, '_');
@@ -1121,8 +1267,8 @@ export class OpenMCPythonExporter {
             sanitized = 'mat_' + sanitized;
         }
         // Avoid reserved words
-        const reserved = ['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 
-            'except', 'False', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 
+        const reserved = ['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else',
+            'except', 'False', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda',
             'None', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield'];
         if (reserved.includes(sanitized)) {
             sanitized = sanitized + '_';
@@ -1130,33 +1276,57 @@ export class OpenMCPythonExporter {
         return sanitized;
     }
 
+    /**
+     * Escape special characters in a string for safe embedding in Python double-quoted strings.
+     *
+     * @param text - The raw text to escape.
+     * @returns The escaped string.
+     */
     private escapePythonString(text: string): string {
         // Escape quotes and backslashes
         return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
     }
 
+    /**
+     * Convert an OpenMC region string to a Python expression.
+     *
+     * Replaces surface IDs with `surface_` variable references and converts
+     * whitespace separators to `&` (intersection) operators.
+     *
+     * @param region - The raw region string (e.g. `"1 -2 3"`).
+     * @returns The Python expression string.
+     */
     private convertRegionStringToPython(region: string): string {
         // Convert OpenMC region string to Python expression
         // Replace surface IDs with surface_ variables
         // Example: "1 -2 3" -> "+surface_1 & -surface_2 & +surface_3"
-        
+
         return region.replace(/([+-]?)(\d+)/g, (match, sign, id) => {
             const surfaceSign = sign === '-' ? '-' : '+';
             return `${surfaceSign}surface_${id}`;
         }).replace(/\s+/g, ' & ').replace(/\|/g, ' | ').replace(/~/g, ' ~');
     }
 
+    /**
+     * Convert a region AST node to a Python expression.
+     *
+     * Recursively traverses operator and surface nodes to build the equivalent
+     * OpenMC Python region expression.
+     *
+     * @param node - The region AST node.
+     * @returns The Python expression string.
+     */
     private convertRegionNodeToPython(node: any): string {
         if (!node) return '';
-        
+
         if (node.type === 'surface') {
             const sign = node.surfaceId > 0 ? '+' : '-';
             return `${sign}surface_${Math.abs(node.surfaceId)}`;
         }
-        
+
         if (node.type === 'operator') {
             const children = node.children?.map((c: any) => this.convertRegionNodeToPython(c)).filter(Boolean) || [];
-            
+
             if (node.operator === 'intersection') {
                 return children.join(' & ');
             } else if (node.operator === 'union') {
@@ -1165,7 +1335,7 @@ export class OpenMCPythonExporter {
                 return `~(${children[0] || ''})`;
             }
         }
-        
+
         return '';
     }
 }

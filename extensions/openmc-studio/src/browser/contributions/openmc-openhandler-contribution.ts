@@ -39,6 +39,16 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
 
+/**
+ * Handles opening `.nuke-openmc` project files and tracks the active simulation dashboard widget.
+ *
+ * Implements both {@link OpenHandler} (for file-opening priority and logic) and
+ * {@link FrontendApplicationContribution} (for lifecycle initialization).
+ * Binds to both interfaces in the frontend module to activate file handling and widget tracking.
+ *
+ * @see {@link openmc-command-contribution.ts} for project commands
+ * @see {@link SimulationDashboardWidget} for the target widget
+ */
 @injectable()
 export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendApplicationContribution {
     readonly id = 'openmc-studio';
@@ -60,12 +70,17 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
     @inject(FileService)
     protected readonly fileService: FileService;
 
+    /** Currently active simulation dashboard widget, if any. */
     private currentWidget?: SimulationDashboardWidget;
     private _onDidChangeCurrentWidget = new Emitter<void>();
     readonly onDidChangeCurrentWidget = this._onDidChangeCurrentWidget.event;
 
     /**
-     * Check if this handler can open the given URI.
+     * Determine whether this handler can open the given URI.
+     * Returns a high priority (200) for `.nuke-openmc` project files, otherwise 0.
+     * @param uri - The URI to evaluate
+     * @param options - Optional widget opener options
+     * @returns Priority score; higher values take precedence over other handlers
      */
     canHandle(uri: URI, options?: WidgetOpenerOptions): number {
         if (uri.path.ext === '.nuke-openmc') {
@@ -75,7 +90,11 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
     }
     
     /**
-     * Open a .nuke-openmc project file.
+     * Open a `.nuke-openmc` project file, restore its state, and reveal the simulation dashboard.
+     * @param uri - URI of the project file to open
+     * @param options - Optional widget opener options
+     * @returns The activated {@link SimulationDashboardWidget}
+     * @throws When the file is unreadable or has an invalid format
      */
     async open(uri: URI, options?: WidgetOpenerOptions): Promise<Widget> {
         console.log('[OpenMC Studio] Opening project file:', uri.toString());
@@ -112,7 +131,8 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
     }
     
     /**
-     * Initialize widget tracking.
+     * Initialize widget tracking to monitor when the simulation dashboard becomes active or inactive.
+     * Fires {@link onDidChangeCurrentWidget} on focus changes.
      */
     initialize(): void {
         // Track when the dashboard widget is activated
@@ -128,7 +148,8 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
     }
 
     /**
-     * Get the current dashboard widget (if active).
+     * Get the currently active simulation dashboard widget, if any.
+     * @returns The active dashboard widget, or `undefined` if none is focused
      */
     getCurrentWidget(): SimulationDashboardWidget | undefined {
         return this.currentWidget;
