@@ -156,7 +156,6 @@ button.theia-button:active {
 .lm-TabBar-tab {
   transition: background-color var(--nuke-transition-fast),
               color var(--nuke-transition-fast);
-  border-radius: var(--nuke-radius-sm) var(--nuke-radius-sm) 0 0;
 }
 
 .lm-TabBar-tab:hover {
