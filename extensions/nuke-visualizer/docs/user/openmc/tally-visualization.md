@@ -136,7 +136,7 @@ Visualizes the source bank (starting particle positions/energies).
 
 1. Double-click `source.h5` in the Explorer.
 
-Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source`
+Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution...`
 
 ### What You See
 

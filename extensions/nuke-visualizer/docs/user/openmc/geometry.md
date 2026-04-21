@@ -87,7 +87,7 @@ Detect overlapping cells — a common source of simulation errors.
 
 1. Open `geometry.xml`.
 2. Click **"Check Overlaps"** in the Geometry Tree toolbar.
-3. Or use: `Tools → Visualizer → OpenMC → Geometry → Check Overlaps`
+3. Or use: `Tools → Visualizer → OpenMC → Geometry → Check Geometry Overlaps...`
 
 ### Settings
 

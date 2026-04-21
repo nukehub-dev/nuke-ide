@@ -10,11 +10,11 @@ The Statepoint Viewer is the main dashboard for inspecting OpenMC simulation res
 In the Explorer, Click any file matching `statepoint*.h5`.
 
 ### Method 2: Menu
-1. Go to `Tools → Visualizer → OpenMC → Statepoint → Load Statepoint`.
+1. Go to `Tools → Visualizer → OpenMC → Statepoint → View Statepoint...`.
 2. Choose a file from the workspace or browse.
 
 ### Method 3: Command Palette
-Press `Ctrl+Shift+P`, type **"Load Statepoint"**, and select a file.
+Press `Ctrl+Shift+P`, type **"View Statepoint"**, and select a file.
 
 ---
 
@@ -109,7 +109,7 @@ This helps you judge whether the simulation reached convergence.
 
 ## Tally Tree Sidebar
 
-Click **"View Tally Tree"** in the Statepoint Viewer (or use `Tools → Visualizer → OpenMC → Tally → Show Tally Tree`) to open a dedicated sidebar widget.
+Click **"Show Tally Information"** in the Statepoint Viewer (or use `Tools → Visualizer → OpenMC → Tally → Show Tally Information`) to open a dedicated sidebar widget.
 
 The Tally Tree shows:
 - Hierarchical view of tallies

@@ -44,10 +44,10 @@ All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 
 | Submenu | Commands |
 |---------|----------|
-| **Statepoint** | Load Statepoint |
+| **Statepoint** | View Statepoint... |
 | **Tally** | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Show Tally Info |
-| **Depletion** | Open Depletion Viewer, Compare Depletion |
-| **Geometry** | View Geometry Hierarchy, Check Overlaps |
+| **Depletion** | View Depletion Results..., Compare Depletion Results... |
+| **Geometry** | View Geometry Hierarchy..., Check Geometry Overlaps... |
 | **Materials** | View Materials |
 | **Plotting** | Plot Cross-Sections |
 

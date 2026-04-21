@@ -10,10 +10,10 @@ The Depletion Viewer analyzes `depletion_results.h5` files produced by OpenMC's 
 Double-click `depletion_results.h5` in the Explorer.
 
 ### Method 2: Menu
-`Tools → Visualizer → OpenMC → Depletion → Open Depletion Viewer`
+`Tools → Visualizer → OpenMC → Depletion → View Depletion Results...`
 
 ### Method 3: Command Palette
-`Ctrl+Shift+P` → **"Open Depletion Viewer"**
+`Ctrl+Shift+P` → **"View Depletion Results"**
 
 ---
 
@@ -93,7 +93,7 @@ Compare results from two different simulations (e.g., different enrichments, dif
 
 1. Select **two** `depletion_results.h5` files in the Explorer (hold `Ctrl` and click).
 2. Right-click → **"Compare Depletion"**.
-3. Or use `Tools → Visualizer → OpenMC → Depletion → Compare Depletion`.
+3. Or use `Tools → Visualizer → OpenMC → Depletion → Compare Depletion Results...`.
 
 The **Depletion Comparison** viewer opens:
 
