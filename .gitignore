@@ -11,6 +11,7 @@ __pycache__/
 **/tsconfig.tsbuildinfo
 *.log
 .crush
+**/.electron-cache
 
 # Generated files
 resources/preload.html

@@ -21,15 +21,28 @@ export class DocsServerContribution implements BackendApplicationContribution {
   protected searchIndex: SearchResult[] = [];
 
   configure(app: express.Application): void {
-    const repoRoot = process.env.THEIA_APP_PROJECT_PATH
-      ? path.resolve(process.env.THEIA_APP_PROJECT_PATH, '..', '..')
-      : process.cwd();
+    const appProjectPath = process.env.THEIA_APP_PROJECT_PATH || process.cwd();
+    const devRoot = path.resolve(appProjectPath, '..', '..');
+
+    const findDocsDir = (name: string): string | undefined => {
+      const candidates = [
+        path.resolve(appProjectPath, 'extensions', name, 'docs'),
+        path.resolve(appProjectPath, 'node_modules', name, 'docs'),
+        path.resolve(devRoot, 'extensions', name, 'docs'),
+      ];
+      return candidates.find(c => fs.existsSync(c));
+    };
+
+    const productDocs = [
+      path.resolve(appProjectPath, 'docs'),
+      path.resolve(devRoot, 'docs'),
+    ].find(c => fs.existsSync(c)) || path.resolve(devRoot, 'docs');
 
     const rawPaths: Record<string, string> = {
-      '/product': path.resolve(repoRoot, 'docs'),
-      '/nuke-core': path.resolve(repoRoot, 'extensions', 'nuke-core', 'docs'),
-      '/nuke-visualizer': path.resolve(repoRoot, 'extensions', 'nuke-visualizer', 'docs'),
-      '/openmc-studio': path.resolve(repoRoot, 'extensions', 'openmc-studio', 'docs'),
+      '/product': productDocs,
+      '/nuke-core': findDocsDir('nuke-core') || path.resolve(devRoot, 'extensions', 'nuke-core', 'docs'),
+      '/nuke-visualizer': findDocsDir('nuke-visualizer') || path.resolve(devRoot, 'extensions', 'nuke-visualizer', 'docs'),
+      '/openmc-studio': findDocsDir('openmc-studio') || path.resolve(devRoot, 'extensions', 'openmc-studio', 'docs'),
     };
 
     // Build search index at startup

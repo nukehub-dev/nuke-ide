@@ -1,0 +1,212 @@
+name: Build NukeIDE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            applications/*/node_modules
+            extensions/*/node_modules
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock', 'applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Cache plugins
+        uses: actions/cache@v4
+        with:
+          path: plugins
+          key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-plugins-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Electron app
+        run: yarn build:electron:prod
+
+      - name: Package Electron app
+        run: yarn --cwd applications/electron dist
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NukeIDE-Linux
+          path: |
+            applications/electron/dist/*.AppImage
+            applications/electron/dist/*.deb
+            applications/electron/dist/*.rpm
+          if-no-files-found: warn
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $env:GITHUB_OUTPUT
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            applications/*/node_modules
+            extensions/*/node_modules
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock', 'applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Cache plugins
+        uses: actions/cache@v4
+        with:
+          path: plugins
+          key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-plugins-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Electron app
+        run: yarn build:electron:prod
+
+      - name: Package Electron app
+        run: yarn --cwd applications/electron dist
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NukeIDE-Windows
+          path: |
+            applications/electron/dist/*.exe
+          if-no-files-found: warn
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            applications/*/node_modules
+            extensions/*/node_modules
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock', 'applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('applications/electron/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Cache plugins
+        uses: actions/cache@v4
+        with:
+          path: plugins
+          key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-plugins-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Electron app
+        run: yarn build:electron:prod
+
+      - name: Package Electron app
+        run: yarn --cwd applications/electron dist
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NukeIDE-macOS
+          path: |
+            applications/electron/dist/*.dmg
+            applications/electron/dist/*.zip
+          if-no-files-found: warn

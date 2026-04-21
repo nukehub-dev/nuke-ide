@@ -107,18 +107,25 @@
   },
   "devDependencies": {
     "@theia/cli": "1.70.2",
-    "electron": "39.8.7"
+    "electron": "39.8.7",
+    "electron-builder": "^26.9.0"
   },
   "peerDependencies": {
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "markdown-it": "^8.4.1"
   },
+  "main": "src-gen/backend/electron-main.js",
   "scripts": {
-    "bundle": "yarn rebuild && theia build --mode development",
+    "bundle": "yarn rebuild && theia build --mode development && node ../../scripts/patch-electron-main.js",
+    "bundle:prod": "yarn rebuild && theia build --mode production && node ../../scripts/patch-electron-main.js",
     "rebuild": "theia rebuild:electron --cacheRoot ..",
     "start": "theia start --plugins=local-dir:../../plugins",
-    "watch": "yarn rebuild && theia build --watch --mode development"
+    "watch": "yarn rebuild && theia build --watch --mode development",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir",
+    "package": "yarn bundle:prod && electron-builder",
+    "package:all": "yarn bundle:prod && electron-builder -mwl"
   },
   "theia": {
     "target": "electron",

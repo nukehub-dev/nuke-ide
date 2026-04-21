@@ -1,0 +1,111 @@
+appId: org.nukehub.nukeide
+productName: NukeIDE
+copyright: Copyright © 2025 NukeHub Team
+
+# Performance
+electronDownload:
+  cache: .electron-cache
+npmRebuild: false
+buildDependenciesFromSource: false
+
+# Directories
+directories:
+  output: dist
+  buildResources: ../../resources
+
+# Files to include in the app bundle
+# (node_modules is handled automatically by electron-builder from dependencies)
+files:
+  - lib/**/*
+  - src-gen/**/*
+  - package.json
+  # Include docs and extension resources at the app root for runtime access
+  - from: ../../docs
+    to: docs
+    filter:
+      - "**/*"
+      - "!.vitepress/**"
+      - "!public/**"
+  - from: ../../extensions
+    to: extensions
+    filter:
+      - "*/docs/**/*"
+      - "*/python/**/*"
+      - "*/resources/**/*"
+      - "!**/*.ts"
+      - "!**/src/**"
+      - "!**/lib/**"
+      - "!**/node_modules/**"
+      - "!**/.git/**"
+  - from: ../../plugins
+    to: plugins
+    filter:
+      - "**/*.vsix"
+      - "**/*.theia"
+
+# ASAR packaging (keep true, but unpack native modules)
+asar: true
+asarUnpack:
+  - "node_modules/node-pty/**/*"
+  - "node_modules/cpu-features/**/*"
+  - "node_modules/ssh2/**/*"
+  - "node_modules/@theia/*/prebuilds/**/*"
+  - "extensions/**/python/**/*"
+
+# Linux targets
+linux:
+  icon: logo.png
+  category: Development
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: rpm
+      arch:
+        - x64
+  maintainer: NukeHub Team <info@nukehub.org>
+  vendor: NukeHub
+  synopsis: IDE for nuclear simulation and engineering
+  description: NukeIDE is an open-source IDE specifically designed for nuclear simulation and engineering.
+
+# Windows targets
+win:
+  icon: icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+# macOS targets
+mac:
+  icon: icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+# NSIS installer options (Windows)
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: NukeIDE
+
+# Publish configuration (optional - for auto-updates)
+# publish:
+#   provider: github
+#   owner: nukehub-dev
+#   repo: nuke-ide
