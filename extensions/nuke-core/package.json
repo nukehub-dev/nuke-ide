@@ -1,8 +1,8 @@
 {
   "private": true,
   "name": "nuke-core",
-  "version": "1.0.0",
-  "description": "Core infrastructure for NukeIDE - Python environment, configuration, and shared utilities",
+  "version": "0.1.2",
+  "description": "Core infrastructure for NukeIDE - environment, configuration, and shared utilities",
   "license": "BSD-2-Clause",
   "keywords": [
     "theia-extension",
@@ -35,7 +35,7 @@
   },
   "scripts": {
     "prepare": "yarn clean && yarn build",
-    "clean": "rimraf lib *.tsbuildinfo",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
     "build": "tsc",
     "watch": "tsc -w"
   },

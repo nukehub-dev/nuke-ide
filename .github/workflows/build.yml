@@ -71,6 +71,8 @@ jobs:
 
       - name: Package Electron app
         run: yarn --cwd applications/electron dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -140,6 +142,8 @@ jobs:
 
       - name: Package Electron app
         run: yarn --cwd applications/electron dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -204,9 +208,13 @@ jobs:
 
       - name: Build Electron app
         run: yarn build:electron:prod
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Package Electron app
         run: yarn --cwd applications/electron dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4

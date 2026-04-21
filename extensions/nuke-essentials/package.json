@@ -45,7 +45,7 @@
   },
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
-    "clean": "rimraf lib *.tsbuildinfo",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
     "build": "tsc && yarn run copy-css",
     "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\;",
     "watch": "tsc -w"

@@ -15,6 +15,7 @@
     "generate:preload": "node scripts/generate-preload.js",
     "build:browser": "yarn generate:preload && yarn --cwd applications/browser bundle",
     "build:electron": "yarn --cwd applications/electron bundle",
+    "bump-version": "node scripts/bump-version.js",
     "build:electron:prod": "yarn download:plugins && yarn --cwd applications/electron bundle:prod",
     "prepare": "lerna run prepare",
     "postinstall": "theia check:theia-version",

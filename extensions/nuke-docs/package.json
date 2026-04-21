@@ -1,6 +1,6 @@
 {
   "name": "nuke-docs",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Offline documentation server for NukeIDE.",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -23,7 +23,7 @@
   },
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
-    "clean": "rimraf lib *.tsbuildinfo",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
     "build": "tsc && yarn run copy-css",
     "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\;",
     "watch": "tsc -w"

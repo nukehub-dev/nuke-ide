@@ -2,6 +2,9 @@ appId: org.nukehub.nukeide
 productName: NukeIDE
 copyright: Copyright © 2025 NukeHub Team
 
+# Publishing is handled by the GitHub Actions release job
+publish: null
+
 # Performance
 electronDownload:
   cache: .electron-cache

@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "openmc-studio",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "OpenMC No-Code Simulation Builder for NukeIDE - Graphical interface for Monte Carlo neutron transport simulations",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -34,7 +34,7 @@
     "@theia/navigator": "1.70.2",
     "@theia/process": "1.70.2",
     "@theia/workspace": "1.70.2",
-    "nuke-core": "1.0.0",
+    "nuke-core": "0.1.2",
     "nuke-essentials": "0.1.2",
     "nuke-visualizer": "0.1.2",
     "xml2js": "^0.6.2"
@@ -49,7 +49,7 @@
   },
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
-    "clean": "rimraf lib *.tsbuildinfo",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
     "build": "tsc && yarn run copy-css",
     "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\; 2>/dev/null || true",
     "watch": "tsc -w"
