@@ -6,7 +6,12 @@
 
 /**
  * Nuke Core Browser Services
- * 
+ *
+ * Barrel module that re-exports all browser-side services for the Nuke Core extension:
+ * - {@link NukeCoreService} – core environment/configuration service
+ * - {@link NukeCoreVisibilityService} – status bar visibility coordination
+ * - {@link EnvironmentActionsHelper} – shared UI action helpers
+ *
  * @module nuke-core/browser/services
  */
 

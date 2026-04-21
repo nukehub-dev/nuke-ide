@@ -13,12 +13,22 @@
  * @module nuke-core/node
  */
 
+/**
+ * Discovers the `uv` executable on the system.
+ *
+ * UV is an extremely fast Python package installer and resolver.
+ * Searches PATH and common installation directories, caching the result.
+ *
+ * @see {@link CondaResolver} for conda/mamba discovery.
+ */
 export class UvResolver {
 
     private cachedUvPath?: string;
 
     /**
      * Find the uv executable from PATH or common locations.
+     *
+     * @returns Absolute path to the uv executable, or `undefined` if not found.
      */
     async findUvExe(): Promise<string | undefined> {
         if (this.cachedUvPath) {
@@ -61,6 +71,9 @@ export class UvResolver {
 
     /**
      * Check if uv is available.
+     *
+     * @returns `true` if the uv executable was discovered.
+     * @see {@link findUvExe}
      */
     async isAvailable(): Promise<boolean> {
         const uv = await this.findUvExe();
@@ -69,6 +82,9 @@ export class UvResolver {
 
     /**
      * Get the uv version.
+     *
+     * @returns Version string reported by `uv --version`, or `undefined` if not available.
+     * @see {@link findUvExe}
      */
     async getVersion(): Promise<string | undefined> {
         const uv = await this.findUvExe();
@@ -84,6 +100,12 @@ export class UvResolver {
         }
     }
 
+    /**
+     * Find a command in PATH (`which` / `where` equivalent).
+     *
+     * @param command - Command name to search for.
+     * @returns Absolute path to the command, or `undefined` if not found in PATH.
+     */
     private async which(command: string): Promise<string | undefined> {
         try {
             const { execSync } = await import('child_process');
@@ -100,6 +122,12 @@ export class UvResolver {
         return undefined;
     }
 
+    /**
+     * Check if a file exists.
+     *
+     * @param filePath - Path to the file.
+     * @returns `true` if the file exists and is accessible.
+     */
     private async fileExists(filePath: string): Promise<boolean> {
         const fs = await import('fs');
         try {

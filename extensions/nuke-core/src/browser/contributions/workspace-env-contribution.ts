@@ -25,12 +25,36 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import URI from '@theia/core/lib/common/uri';
 import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 
+/**
+ * Describes a discovered environment definition file in the workspace.
+ */
 export interface EnvFileInfo {
     type: 'conda-yml' | 'requirements-txt';
     uri: URI;
     name: string;
 }
 
+/**
+ * Contributes automatic detection of environment files (`environment.yml`, `requirements.txt`)
+ * in the workspace and offers to set up the Python environment accordingly.
+ *
+ * Binds to Theia's {@link FrontendApplicationContribution} lifecycle and rescans whenever
+ * the workspace roots change.  Previously-dismissed prompts are persisted in `localStorage`
+ * so the user is not spammed on reload.
+ *
+ * ### DI Bindings
+ * - `WorkspaceService` – workspace root access and change events.
+ * - `FileService` – file existence checks and content reads.
+ * - `MessageService` – confirmation / warning toasts.
+ * - `NukeCoreService` – environment detection, configuration and switching.
+ * - `CommandService` – opens settings when no Python is configured.
+ * - `WindowService` – opens external URLs (e.g. Miniforge download page).
+ * - `EnvVariablesServer` – resolves `$HOME` for default install prefix.
+ * - `EnvironmentActionsHelper` – runs conda / pip commands in a terminal.
+ *
+ * @see {@link NukeCoreService}
+ * @see {@link EnvironmentActionsHelper}
+ */
 @injectable()
 export class WorkspaceEnvContribution implements FrontendApplicationContribution {
 
@@ -62,6 +86,11 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
     private notifiedFiles = new Set<string>();
     private readonly STORAGE_KEY = 'nuke-core:notified-env-files';
 
+    /**
+     * Lifecycle hook invoked when the frontend application starts.
+     * Restores dismissed-prompt state, schedules an initial scan and listens
+     * for future workspace changes.
+     */
     async onStart(): Promise<void> {
         // Restore previously-dismissed prompts from localStorage
         this.loadNotifiedFiles();
@@ -75,6 +104,9 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         });
     }
 
+    /**
+     * Restores the set of previously-notified environment files from `localStorage`.
+     */
     private loadNotifiedFiles(): void {
         try {
             const raw = localStorage.getItem(this.STORAGE_KEY);
@@ -89,6 +121,9 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         }
     }
 
+    /**
+     * Persists the set of dismissed environment files to `localStorage`.
+     */
     private saveNotifiedFiles(): void {
         try {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify([...this.notifiedFiles]));
@@ -97,6 +132,18 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         }
     }
 
+    /**
+     * Scans workspace roots for known environment files and prompts the user
+     * when new ones are found.  Handles three scenarios:
+     * 1. Both `environment.yml` and `requirements.txt` present.
+     * 2. Only `environment.yml` present.
+     * 3. Only `requirements.txt` present (skipped when no working Python is available).
+     *
+     * @returns A promise that resolves once scanning and any prompts complete.
+     * @see {@link findEnvFiles}
+     * @see {@link setupFromCondaYml}
+     * @see {@link setupFromRequirementsTxt}
+     */
     private async scanWorkspace(): Promise<void> {
         try {
             const envFiles = await this.findEnvFiles();
@@ -168,6 +215,12 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         }
     }
 
+    /**
+     * Looks for `environment.yml`, `environment.yaml` and `requirements.txt`
+     * at the root of every workspace folder.
+     *
+     * @returns A promise resolving to the list of discovered files.
+     */
     private async findEnvFiles(): Promise<EnvFileInfo[]> {
         const files: EnvFileInfo[] = [];
         const roots = await this.workspaceService.roots;
@@ -195,6 +248,16 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         return files;
     }
 
+    /**
+     * Creates or updates a conda environment from the given YAML file.
+     * The environment is installed under `~/.nuke-ide/envs/<envName>`.
+     * On success the user is offered an immediate switch to the new environment.
+     *
+     * @param file - The `environment.yml` (or `.yaml`) file to process.
+     * @returns A promise that resolves once the operation finishes.
+     * @see {@link parseEnvNameFromYml}
+     * @see {@link EnvironmentActionsHelper.runCondaEnvFromFile}
+     */
     private async setupFromCondaYml(file: EnvFileInfo): Promise<void> {
         try {
             const condaCmd = await this.nukeCore.getCondaCommand();
@@ -263,6 +326,13 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         }
     }
 
+    /**
+     * Extracts the `name:` field from a conda environment YAML file.
+     * Falls back to the parent directory name or `nuke-env`.
+     *
+     * @param uri - Absolute URI of the YAML file.
+     * @returns The resolved environment name.
+     */
     private async parseEnvNameFromYml(uri: URI): Promise<string> {
         try {
             const content = await this.fileService.read(uri);
@@ -280,6 +350,15 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         return dirs[dirs.length - 1] || 'nuke-env';
     }
 
+    /**
+     * Installs dependencies from a `requirements.txt` file into the currently
+     * configured Python environment using pip.  If no Python is configured the
+     * user is directed to settings.
+     *
+     * @param file - The `requirements.txt` file to process.
+     * @returns A promise that resolves once the operation finishes.
+     * @see {@link EnvironmentActionsHelper.runPipInstallFromFile}
+     */
     private async setupFromRequirementsTxt(file: EnvFileInfo): Promise<void> {
         try {
             const python = await this.nukeCore.detectPython();

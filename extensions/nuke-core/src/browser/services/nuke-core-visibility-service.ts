@@ -16,10 +16,10 @@
 
 /**
  * Status Bar Visibility Service
- * 
+ *
  * Allows dependent extensions to request status bar visibility when their tools are active.
  * Uses reference counting - status bar shows when any extension requests visibility.
- * 
+ *
  * @module nuke-core/browser
  */
 
@@ -27,28 +27,41 @@ import { injectable } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common';
 import { NukeCoreStatusBarVisibilityService } from '../../common/nuke-core-protocol';
 
+/**
+ * Reference-counted visibility service for the Nuke Core status bar.
+ *
+ * Multiple extensions can simultaneously request visibility; the status bar
+ * remains visible until all requesters have released their claim.
+ *
+ * DI token: {@link NukeCoreStatusBarVisibility}
+ *
+ * @see {@link NukeCoreService}
+ */
 @injectable()
 export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilityService {
-    
+
     private requesters = new Set<string>();
+
+    /** Emitted whenever the aggregated visibility state changes. */
     private readonly _onVisibilityChanged = new Emitter<boolean>();
     readonly onVisibilityChanged: Event<boolean> = this._onVisibilityChanged.event;
 
     /**
      * Request the status bar to be visible.
-     * @param source Identifier for the extension requesting visibility
-     * @returns A disposable handle. Call dispose() when visibility is no longer needed.
+     *
+     * @param source - Identifier for the extension requesting visibility.
+     * @returns A disposable handle. Call `dispose()` when visibility is no longer needed.
      */
     requestVisibility(source: string): { dispose: () => void } {
         const wasRequested = this.requesters.size > 0;
         this.requesters.add(source);
         console.log(`[NukeCore] Visibility requested by: ${source} (total: ${this.requesters.size})`);
-        
+
         // Notify if this is the first request
         if (!wasRequested) {
             this._onVisibilityChanged.fire(true);
         }
-        
+
         // Return disposable handle
         return {
             dispose: () => {
@@ -59,12 +72,14 @@ export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilitySer
 
     /**
      * Release a visibility request.
+     *
+     * @param source - Identifier previously passed to {@link requestVisibility}.
      */
     private releaseVisibility(source: string): void {
         if (this.requesters.has(source)) {
             this.requesters.delete(source);
             console.log(`[NukeCore] Visibility released by: ${source} (remaining: ${this.requesters.size})`);
-            
+
             // Notify if no more requests
             if (this.requesters.size === 0) {
                 this._onVisibilityChanged.fire(false);
@@ -74,6 +89,8 @@ export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilitySer
 
     /**
      * Check if any extension is currently requesting visibility.
+     *
+     * @returns `true` when at least one requester is registered.
      */
     isVisibilityRequested(): boolean {
         return this.requesters.size > 0;
@@ -81,6 +98,8 @@ export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilitySer
 
     /**
      * Get list of current requesters (for debugging).
+     *
+     * @returns Array of source identifiers.
      */
     getRequesters(): string[] {
         return Array.from(this.requesters);

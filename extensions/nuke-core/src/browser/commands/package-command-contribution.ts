@@ -7,7 +7,17 @@
 /**
  * Package Command Contribution
  *
- * Commands: Install Package
+ * Registers the Install Package command and menu item, allowing users
+ * to install Python packages into the active environment via pip/uv or conda.
+ *
+ * DI bindings:
+ * - {@link NukeCoreService} – backend package queries
+ * - {@link MessageService} – user-facing toast notifications
+ * - {@link QuickPickService} – quick-pick UI for package manager selection
+ * - {@link QuickInputService} – text input prompt for package name(s)
+ * - {@link EnvironmentActionsHelper} – shared package installation utilities
+ *
+ * @see {@link NukeCoreCommands}
  *
  * @module nuke-core/browser/commands
  */
@@ -38,12 +48,22 @@ export class NukePackageCommandContribution implements CommandContribution, Menu
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
 
+    /**
+     * Registers the Install Package command with the application command registry.
+     *
+     * @param commands - Theia command registry to register against.
+     */
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCoreCommands.INSTALL_PACKAGE, {
             execute: () => this.installPackage()
         });
     }
 
+    /**
+     * Adds the Install Package command to the Nuke Tools menu.
+     *
+     * @param menus - Theia menu model registry.
+     */
     registerMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(NukeMenus.TOOLS, {
             commandId: NukeCoreCommands.INSTALL_PACKAGE.id,
@@ -52,6 +72,13 @@ export class NukePackageCommandContribution implements CommandContribution, Menu
         });
     }
 
+    /**
+     * Interactive workflow to install Python packages.
+     * Prompts for package name(s), then asks whether to use pip/uv or conda/mamba.
+     *
+     * @returns Resolves when installation finishes or the user cancels.
+     * @see {@link EnvironmentActionsHelper.installPackages}
+     */
     protected async installPackage(): Promise<void> {
         const packageName = await this.quickInput.input({
             prompt: 'Enter package name(s) to install',

@@ -24,6 +24,12 @@ export interface CondaInstallation {
     type: 'anaconda' | 'miniconda' | 'miniforge' | 'mambaforge' | 'unknown';
 }
 
+/**
+ * Discovers conda and mamba installations across the system.
+ *
+ * Searches environment variables, PATH, and well-known installation
+ * directories to locate conda/mamba executables.
+ */
 export class CondaResolver {
 
     private static readonly UNIX_PATHS = [
@@ -65,6 +71,8 @@ export class CondaResolver {
 
     /**
      * Find the conda executable from env vars, PATH, or common locations.
+     *
+     * @returns Absolute path to the conda executable, or `undefined` if not found.
      */
     async findCondaExe(): Promise<string | undefined> {
         // 1. Check CONDA_EXE environment variable
@@ -91,6 +99,8 @@ export class CondaResolver {
 
     /**
      * Find the mamba executable from env vars, PATH, or common locations.
+     *
+     * @returns Absolute path to the mamba executable, or `undefined` if not found.
      */
     async findMambaExe(): Promise<string | undefined> {
         // 1. Check MAMBA_EXE environment variable
@@ -117,6 +127,10 @@ export class CondaResolver {
 
     /**
      * Get the best available command (prefers mamba over conda).
+     *
+     * @returns Object containing the executable path and its type, or `undefined` if neither is found.
+     * @see {@link findMambaExe}
+     * @see {@link findCondaExe}
      */
     async getBestCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
         const mamba = await this.findMambaExe();
@@ -132,6 +146,9 @@ export class CondaResolver {
 
     /**
      * Discover all conda/mamba installations on the system.
+     *
+     * @returns Array of detected installations; may be empty.
+     * @see {@link inspectInstallation}
      */
     async findInstallations(): Promise<CondaInstallation[]> {
         const installations: CondaInstallation[] = [];
@@ -173,6 +190,9 @@ export class CondaResolver {
 
     /**
      * Inspect a directory to see if it's a valid conda installation.
+     *
+     * @param rootPath - Root directory to inspect.
+     * @returns Installation metadata, or `undefined` if not a valid installation.
      */
     private async inspectInstallation(rootPath: string): Promise<CondaInstallation | undefined> {
         const path = await import('path');
@@ -210,6 +230,9 @@ export class CondaResolver {
 
     /**
      * Detect the distribution type from the installation path name.
+     *
+     * @param rootPath - Root directory of the installation.
+     * @returns Detected distribution type.
      */
     private detectType(rootPath: string): CondaInstallation['type'] {
         const lower = rootPath.toLowerCase();
@@ -230,6 +253,9 @@ export class CondaResolver {
 
     /**
      * Expand ~ and environment variables in a path.
+     *
+     * @param rawPath - Path potentially containing `~` or `%VAR%` placeholders.
+     * @returns Expanded absolute path, or `undefined` if expansion yields an empty string.
      */
     private expandPath(rawPath: string): string | undefined {
         const os = require('os');
@@ -253,6 +279,9 @@ export class CondaResolver {
 
     /**
      * Check if a file exists.
+     *
+     * @param filePath - Path to the file.
+     * @returns `true` if the file exists and is accessible.
      */
     private async fileExists(filePath: string): Promise<boolean> {
         const fs = await import('fs');
@@ -266,6 +295,9 @@ export class CondaResolver {
 
     /**
      * Find a command in PATH (`which` / `where` equivalent).
+     *
+     * @param command - Command name to search for.
+     * @returns Absolute path to the command, or `undefined` if not found in PATH.
      */
     private async which(command: string): Promise<string | undefined> {
         try {

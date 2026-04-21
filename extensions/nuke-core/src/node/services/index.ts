@@ -5,7 +5,19 @@
 // *****************************************************************************
 
 /**
- * Nuke Core Node Services
+ * Nuke Core Node Services – Barrel Module
+ *
+ * Re-exports all backend domain services so that consumers can import them
+ * from a single entry point:
+ *
+ * ```ts
+ * import { EnvironmentService, PackageService, HealthService } from './services';
+ * ```
+ *
+ * Available services:
+ * - {@link EnvironmentService} – Python environment detection, creation, and management
+ * - {@link PackageService}     – Package installation command preparation
+ * - {@link HealthService}      – Health checks, config validation, and diagnostics
  *
  * @module nuke-core/node/services
  */

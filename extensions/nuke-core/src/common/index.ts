@@ -4,7 +4,14 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0
 // *****************************************************************************
 
-// Common protocol exports
+/**
+ * Barrel module for nuke-core common exports.
+ *
+ * Re-exports all protocol types, symbols, and interfaces from the core protocol,
+ * along with backward-compatible service references.
+ *
+ * @module nuke-core/common
+ */
 export * from './nuke-core-protocol';
 
 // Re-export backend service interface

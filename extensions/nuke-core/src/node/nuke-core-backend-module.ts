@@ -16,8 +16,26 @@
 
 /**
  * Nuke Core Backend Module
- * 
+ *
+ * Inversify {@link ContainerModule} that wires the Nuke Core backend services
+ * and exposes them to the frontend through a JSON-RPC connection handler.
+ *
+ * DI bindings registered by this module:
+ * | Symbol / Class                | Bound To                        | Scope     |
+ * |-------------------------------|----------------------------------|-----------|
+ * | {@link EnvironmentService}    | `toSelf()`                       | Singleton |
+ * | {@link PackageService}        | `toSelf()`                       | Singleton |
+ * | {@link HealthService}         | `toSelf()`                       | Singleton |
+ * | {@link NukeCoreBackendServiceImpl} | `toSelf()`                  | Singleton |
+ * | {@link NukeCoreBackendService} | `toService(NukeCoreBackendServiceImpl)` | Singleton |
+ * | {@link ConnectionHandler}     | Dynamic {@link JsonRpcConnectionHandler} | Singleton |
+ *
+ * The JSON-RPC handler is mounted at {@link NUKE_CORE_BACKEND_PATH} so that
+ * the frontend can call {@link NukeCoreBackendServiceInterface} methods.
+ *
  * @module nuke-core/node
+ * @see {@link NukeCoreBackendServiceImpl}
+ * @see {@link NukeCoreBackendServiceInterface}
  */
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';

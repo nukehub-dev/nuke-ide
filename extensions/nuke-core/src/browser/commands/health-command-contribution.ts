@@ -7,7 +7,15 @@
 /**
  * Health Command Contribution
  *
- * Commands: Health Check, Show Diagnostics, Validate Configuration
+ * Registers commands and menu items for monitoring Nuke Core health,
+ * viewing runtime diagnostics, and validating configuration.
+ *
+ * DI bindings:
+ * - {@link NukeCoreService} – backend health, diagnostics, and validation APIs
+ * - {@link MessageService} – user-facing toast notifications
+ * - {@link OutputChannelManager} – output channel for structured results
+ *
+ * @see {@link NukeCoreCommands}
  *
  * @module nuke-core/browser/commands
  */
@@ -34,6 +42,11 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
 
     private outputChannel?: OutputChannel;
 
+    /**
+     * Registers health-related commands with the application command registry.
+     *
+     * @param commands - Theia command registry to register against.
+     */
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCoreCommands.HEALTH_CHECK, {
             execute: () => this.runHealthCheck()
@@ -48,6 +61,11 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
         });
     }
 
+    /**
+     * Adds health commands to the Nuke Tools menu.
+     *
+     * @param menus - Theia menu model registry.
+     */
     registerMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(NukeMenus.TOOLS, {
             commandId: NukeCoreCommands.HEALTH_CHECK.id,
@@ -68,6 +86,11 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
         });
     }
 
+    /**
+     * Runs a full health check and renders the results to the Nuke Core output channel.
+     *
+     * @returns Resolves when results have been displayed.
+     */
     protected async runHealthCheck(): Promise<void> {
         this.messageService.info('Running health check...', { timeout: 2000 });
 
@@ -99,6 +122,12 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
         }
     }
 
+    /**
+     * Fetches runtime diagnostics from the backend and displays them as formatted JSON
+     * in the Nuke Core output channel.
+     *
+     * @returns Resolves when diagnostics have been displayed.
+     */
     protected async showDiagnostics(): Promise<void> {
         try {
             const diagnostics = await this.nukeCore.getDiagnostics();
@@ -110,6 +139,12 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
         }
     }
 
+    /**
+     * Validates the current Nuke Core configuration and renders any errors or warnings
+     * to the Nuke Core output channel.
+     *
+     * @returns Resolves when validation results have been displayed.
+     */
     protected async validateConfig(): Promise<void> {
         try {
             const result = await this.nukeCore.validateConfig();
@@ -146,6 +181,12 @@ export class NukeHealthCommandContribution implements CommandContribution, MenuC
         }
     }
 
+    /**
+     * Appends content to the shared Nuke Core output channel and reveals it.
+     *
+     * @param title - Logical title of the output section (used for channel retrieval on first call).
+     * @param content - Text to append to the channel.
+     */
     protected showOutput(title: string, content: string): void {
         if (!this.outputChannel) {
             this.outputChannel = this.outputManager.getChannel('Nuke Core');

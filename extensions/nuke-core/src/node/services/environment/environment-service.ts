@@ -28,6 +28,19 @@ import {
 import { CondaProvider, VenvProvider, SystemProvider, PoetryProvider, PyenvProvider } from './providers';
 import { getPythonInfo } from './utils/python-info';
 
+/**
+ * Orchestrates Python environment detection, creation, and management across
+ * multiple providers (conda/mamba, venv, poetry, pyenv, system).
+ *
+ * Manages caching, configuration resolution, package checking, and install
+ * command suggestions. This is the primary service consumers should use for
+ * all Python environment operations.
+ *
+ * @see {@link EnvironmentProvider}
+ * @see {@link CondaProvider}
+ * @see {@link VenvProvider}
+ * @see {@link SystemProvider}
+ */
 @injectable()
 export class EnvironmentService {
 
@@ -51,15 +64,27 @@ export class EnvironmentService {
         this.pyenvProvider = new PyenvProvider();
     }
 
+    /**
+     * Update the Python configuration and invalidate caches.
+     * @param config - The new Python configuration object
+     */
     setConfig(config: PythonConfig): void {
         this.config = { ...config };
         this.clearCache();
     }
 
+    /**
+     * Get a shallow copy of the current Python configuration.
+     * @returns The current {@link PythonConfig}
+     */
     getConfig(): PythonConfig {
         return { ...this.config };
     }
 
+    /**
+     * Clear all internal caches, including the cached Python command,
+     * environment list, and provider-specific caches.
+     */
     clearCache(): void {
         this.cachedPythonCommand = undefined;
         this.environmentsCache = undefined;
@@ -67,10 +92,20 @@ export class EnvironmentService {
         this.condaProvider.clearCache();
     }
 
+    /**
+     * Detect a usable Python interpreter using the configured strategy.
+     * @returns Promise resolving to a {@link PythonDetectionResult}
+     * @see {@link doDetectPython}
+     */
     async detectPython(): Promise<PythonDetectionResult> {
         return this.doDetectPython();
     }
 
+    /**
+     * Get the cached or freshly detected Python command string.
+     * @returns Promise resolving to the Python command/path, or undefined if none found
+     * @see {@link doDetectPython}
+     */
     async getPythonCommand(): Promise<string | undefined> {
         if (this.cachedPythonCommand) {
             return this.cachedPythonCommand;
@@ -81,8 +116,9 @@ export class EnvironmentService {
 
     /**
      * Get the Python command for the explicitly configured environment only.
-     * Unlike getPythonCommand(), this does NOT fall back to auto-detected environments.
+     * Unlike {@link getPythonCommand}, this does NOT fall back to auto-detected environments.
      * Returns undefined if no Python is configured or the configured one is invalid.
+     * @returns Promise resolving to the configured Python path, or undefined
      */
     async getConfiguredPythonCommand(): Promise<string | undefined> {
         if (this.config.pythonPath) {
@@ -100,6 +136,16 @@ export class EnvironmentService {
         return undefined;
     }
 
+    /**
+     * Core Python detection logic.
+     *
+     * Resolution order:
+     * 1. Explicitly configured `pythonPath`
+     * 2. Explicitly configured `condaEnv`
+     * 3. System Python
+     *
+     * @returns Promise resolving to a {@link PythonDetectionResult}
+     */
     private async doDetectPython(): Promise<PythonDetectionResult> {
         // 1. Try configured path first
         if (this.config.pythonPath) {
@@ -141,6 +187,24 @@ export class EnvironmentService {
         return { success: false, error: 'No Python environment found' };
     }
 
+    /**
+     * Detect a Python interpreter that satisfies the given package requirements.
+     *
+     * Resolution order:
+     * 1. Configured `pythonPath`
+     * 2. Configured `condaEnv`
+     * 3. Environments already containing all required packages
+     * 4. Auto-detected conda environments by name
+     * 5. Workspace venvs
+     * 6. Poetry environments
+     * 7. Pyenv environments
+     * 8. System Python
+     *
+     * @param options - Detection options including required packages and auto-detect preferences
+     * @returns Promise resolving to a {@link PythonDetectionResult} with optional `missingPackages`
+     * @see {@link checkPackages}
+     * @see {@link buildInstallSuggestion}
+     */
     async detectPythonWithRequirements(
         options: PythonDetectionOptions
     ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
@@ -349,6 +413,15 @@ export class EnvironmentService {
         };
     }
 
+    /**
+     * Search all discoverable environments for ones that contain the required packages.
+     * Results are scored by package coverage and preferred name matches.
+     * @param requiredPackages - Packages that must be present
+     * @param preferredEnvNames - Environment names that receive a score bonus
+     * @param searchWorkspaceVenvs - Whether to include workspace venvs in the search
+     * @returns Promise resolving to scored, sorted matching environments
+     * @see {@link checkPackages}
+     */
     private async findEnvironmentsWithPackages(
         requiredPackages: PackageDependency[],
         preferredEnvNames: string[],
@@ -392,6 +465,18 @@ export class EnvironmentService {
         });
     }
 
+    /**
+     * Check whether the specified packages are importable from a given Python executable.
+     *
+     * Tries three resolution strategies per package:
+     * 1. `__version__` attribute
+     * 2. `importlib.metadata.version`
+     * 3. Confirm importable (version unknown)
+     *
+     * @param packages - Array of package dependencies to verify
+     * @param pythonPath - Absolute path to the Python executable to test
+     * @returns Promise resolving to availability, missing packages, version mismatches, and detected versions
+     */
     async checkPackages(packages: PackageDependency[], pythonPath: string): Promise<{
         available: boolean;
         missing: string[];
@@ -463,8 +548,13 @@ export class EnvironmentService {
 
     /**
      * Build an install command suggestion based on package metadata.
+     *
      * Separates conda-only packages (e.g. paraview) from pip-installable ones.
      * Respects per-package channels and global conda channel preferences.
+     *
+     * @param packages - Full list of package dependencies
+     * @param missingNames - Names of the subset of packages that are missing
+     * @returns An install command string (conda, pip, or combined)
      */
     private buildInstallSuggestion(packages: PackageDependency[], missingNames: string[]): string {
         const missing = packages.filter(p => missingNames.includes(p.name));
@@ -519,6 +609,13 @@ export class EnvironmentService {
         return parts.join(' and ');
     }
 
+    /**
+     * List all discoverable Python environments across all providers.
+     *
+     * @param searchWorkspace - Whether to include workspace venvs in the results
+     * @returns Promise resolving to a filtered, sorted, and deduplicated list of environments
+     * @see {@link filterAndSortEnvironments}
+     */
     async listEnvironments(searchWorkspace = false): Promise<ListEnvironmentsResult> {
         if (this.environmentsCache && this.environmentsCacheTime &&
             Date.now() - this.environmentsCacheTime < this.CACHE_TTL && !searchWorkspace) {
@@ -612,6 +709,12 @@ export class EnvironmentService {
         return this.filterAndSortEnvironments(environments);
     }
 
+    /**
+     * Deduplicate, mark deletable status, sort by active state, and select the
+     * currently active environment.
+     * @param environments - Raw array of environments to process
+     * @returns A {@link ListEnvironmentsResult} with sorted environments and a selected entry
+     */
     private filterAndSortEnvironments(environments: NukeEnvironment[]): ListEnvironmentsResult {
         const uniqueEnvs = environments.filter((env, index, self) =>
             index === self.findIndex(e => e.pythonPath === env.pythonPath)
@@ -633,10 +736,25 @@ export class EnvironmentService {
         return { environments: sortedEnvs, selected };
     }
 
+    /**
+     * Cache the resolved Python command for fast subsequent lookups.
+     * @param command - The resolved Python command or path
+     * @param _env - The associated environment metadata (currently unused for caching)
+     */
     private cachePythonResult(command: string, _env: NukeEnvironment): void {
         this.cachedPythonCommand = command;
     }
 
+    /**
+     * Build a creation command and working directory for a new environment.
+     *
+     * Supports `conda` (creates under `~/.nuke-ide/envs/`) and `venv`
+     * (creates in the workspace).
+     *
+     * @param options - Options describing the desired environment type, name, and Python version
+     * @returns Promise resolving to a {@link CreateEnvironmentCommand}
+     * @throws Error if the requested environment already exists or the type is unsupported
+     */
     async prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand> {
         const { type, name, pythonSpecifier, cwd: explicitCwd, channels, packages: extraPackages } = options;
         const os = await import('os');
@@ -706,10 +824,22 @@ export class EnvironmentService {
         throw new Error(`Unknown environment type: ${type}`);
     }
 
+    /**
+     * Resolve the best available conda or mamba command on the system.
+     * @returns Promise resolving to the command path and type, or undefined if none found
+     * @see {@link CondaResolver.getBestCommand}
+     */
     async getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined> {
         return this.condaProvider.getResolver().getBestCommand();
     }
 
+    /**
+     * Delete a user-created environment (conda prefix or venv directory).
+     * System and provider-managed environments cannot be deleted.
+     * @param env - The environment to delete
+     * @returns Promise resolving to success status and optional error message
+     * @see {@link isUserCreatedEnv}
+     */
     async deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }> {
         if (!this.isUserCreatedEnv(env)) {
             return { success: false, error: 'Only user-created environments can be deleted.' };
@@ -743,6 +873,14 @@ export class EnvironmentService {
         }
     }
 
+    /**
+     * Determine whether an environment is considered user-managed and therefore deletable.
+     *
+     * NukeIDE-created conda envs under `~/.nuke-ide/envs/` and all venvs/virtualenvs
+     * are treated as user-created.
+     * @param env - The environment to evaluate
+     * @returns True if the environment can be deleted by the user
+     */
     private isUserCreatedEnv(env: NukeEnvironment): boolean {
         if (!env.envPath) {
             return false;
@@ -764,6 +902,15 @@ export class EnvironmentService {
         return false;
     }
 
+    /**
+     * Create a new Python environment of the specified type.
+     *
+     * Supports `conda` (creates under `~/.nuke-ide/envs/`) and `venv`
+     * (creates in the workspace).
+     *
+     * @param options - Options describing the desired environment type, name, and Python version
+     * @returns Promise resolving to a {@link CreateEnvironmentResult}
+     */
     async createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult> {
         const { type, name, pythonSpecifier, cwd: explicitCwd } = options;
         let output = '';
@@ -845,6 +992,12 @@ export class EnvironmentService {
         return { success: false, error: `Unknown environment type: ${type}` };
     }
 
+    /**
+     * Compare two semantic version strings numerically.
+     * @param v1 - First version string
+     * @param v2 - Second version string
+     * @returns Negative if v1 < v2, positive if v1 > v2, zero if equal
+     */
     private compareVersions(v1: string, v2: string): number {
         const parts1 = v1.split('.').map(Number);
         const parts2 = v2.split('.').map(Number);

@@ -25,6 +25,7 @@
 
 import type { Event } from '@theia/core/lib/common/event';
 
+/** Backend service path for the Nuke Core JSON-RPC connection. */
 export const NUKE_CORE_BACKEND_PATH = '/services/nuke-core';
 
 /** Symbol for the backend service */
@@ -74,7 +75,11 @@ export interface PythonDetectionResult {
     environment?: NukeEnvironment;
 }
 
-/** Result of listing environments */
+/**
+ * Result of listing environments.
+ *
+ * @see NukeEnvironment
+ */
 export interface ListEnvironmentsResult {
     /** Available environments */
     environments: NukeEnvironment[];
@@ -102,7 +107,11 @@ export interface PackageDependency {
     installCommand?: string;
 }
 
-/** Result of dependency check */
+/**
+ * Result of dependency check.
+ *
+ * @see PackageDependency
+ */
 export interface DependencyCheckResult {
     /** Whether all required packages are available */
     available: boolean;
@@ -118,7 +127,11 @@ export interface DependencyCheckResult {
     versions: Record<string, string>;
 }
 
-/** Extended Python detection with required packages */
+/**
+ * Extended Python detection with required packages.
+ *
+ * @see PackageDependency
+ */
 export interface PythonDetectionOptions {
     /** Required packages that must be present */
     requiredPackages?: PackageDependency[];
@@ -144,7 +157,11 @@ export interface CreateEnvironmentOptions {
     packages?: string[];
 }
 
-/** Result of environment creation */
+/**
+ * Result of environment creation.
+ *
+ * @see NukeEnvironment
+ */
 export interface CreateEnvironmentResult {
     /** Whether creation was successful */
     success: boolean;
@@ -198,7 +215,11 @@ export interface PackageInstallResult {
     error?: string;
 }
 
-/** Health check result */
+/**
+ * Health check result.
+ *
+ * @see HealthCheckItem
+ */
 export interface HealthCheckResult {
     /** Overall health status */
     healthy: boolean;
@@ -220,7 +241,12 @@ export interface HealthCheckItem {
     suggestion?: string;
 }
 
-/** Configuration validation result */
+/**
+ * Configuration validation result.
+ *
+ * @see ConfigValidationError
+ * @see ConfigValidationWarning
+ */
 export interface ConfigValidationResult {
     /** Whether configuration is valid */
     valid: boolean;
@@ -250,83 +276,132 @@ export interface ConfigValidationWarning {
     value?: string;
 }
 
-/** Backend service interface */
+/**
+ * Backend service interface for Nuke Core operations.
+ *
+ * Provides methods for Python environment detection, configuration management,
+ * dependency checking, environment creation, and health monitoring.
+ *
+ * @see PythonConfig
+ * @see NukeEnvironment
+ * @see HealthCheckResult
+ */
 export interface NukeCoreBackendServiceInterface {
-    /** Set Python configuration */
+    /**
+     * Set Python configuration.
+     * @param config The Python configuration to apply.
+     * @returns A promise that resolves when the configuration is set.
+     */
     setConfig(config: PythonConfig): Promise<void>;
     
-    /** Get current configuration */
+    /**
+     * Get current configuration.
+     * @returns A promise resolving to the current Python configuration.
+     */
     getConfig(): Promise<PythonConfig>;
     
-    /** Detect Python command based on current config */
+    /**
+     * Detect Python command based on current config.
+     * @returns A promise resolving to the detection result.
+     */
     detectPython(): Promise<PythonDetectionResult>;
     
     /**
      * Detect Python with specific package requirements.
      * This will find a Python environment that has all required packages.
+     * @param options Detection options including required packages.
+     * @returns A promise resolving to the detection result, including any missing packages.
      */
     detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }>;
     
-    /** 
+    /**
      * Check if specific packages are available in a Python environment.
      * If pythonPath is not provided, uses the currently configured/detected Python.
+     * @param packages The package dependencies to check.
+     * @param pythonPath Optional path to the Python executable to check against.
+     * @returns A promise resolving to the dependency check result.
      */
     checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult>;
     
-    /** List available Python environments */
+    /**
+     * List available Python environments.
+     * @param searchWorkspace Whether to search for virtual environments in the workspace.
+     * @returns A promise resolving to the list of environments.
+     */
     listEnvironments(searchWorkspace?: boolean): Promise<ListEnvironmentsResult>;
     
-    /** Get the Python command to use (cached detection result) */
+    /**
+     * Get the Python command to use (cached detection result).
+     * @returns A promise resolving to the Python command string, or undefined if not detected.
+     */
     getPythonCommand(): Promise<string | undefined>;
 
     /**
      * Validate configuration settings.
      * Checks if paths exist and are valid.
+     * @returns A promise resolving to the validation result.
      */
     validateConfig(): Promise<ConfigValidationResult>;
 
     /**
      * Run health checks on the Nuke Core setup.
      * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'paraview', condaOnly: true}])
+     * @returns A promise resolving to the health check result.
      */
     healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult>;
 
     /**
      * Get detailed diagnostics information for troubleshooting.
+     * @returns A promise resolving to a record of diagnostic information.
      */
     getDiagnostics(): Promise<Record<string, unknown>>;
 
     /**
      * Create a new Python environment (conda or venv).
+     * @param options Options specifying the type and name of the environment to create.
+     * @returns A promise resolving to the creation result.
      */
     createEnvironment(options: CreateEnvironmentOptions): Promise<CreateEnvironmentResult>;
 
     /**
      * Prepare a shell command for creating an environment.
      * Used by the frontend to run the command in a terminal widget for live output.
+     * @param options Options specifying the environment to create.
+     * @returns A promise resolving to the prepared command details.
      */
     prepareCreateEnvironmentCommand(options: CreateEnvironmentOptions): Promise<CreateEnvironmentCommand>;
 
     /**
      * Prepare a shell command for installing packages.
      * Used by the frontend to run the command in a terminal widget for live output.
+     * @param options Options specifying the packages to install.
+     * @returns A promise resolving to the command string and working directory.
      */
     prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }>;
 
     /**
      * Get the best available conda/mamba command.
      * Returns undefined if neither is installed.
+     * @returns A promise resolving to the conda command details, or undefined if neither is installed.
      */
     getCondaCommand(): Promise<{ cmd: string; type: 'conda' | 'mamba' } | undefined>;
 
     /**
      * Delete a user-created environment.
      * Only conda envs in ~/.nuke-ide/envs/ and venvs are deletable.
+     * @param env The environment to delete.
+     * @returns A promise resolving to the deletion result.
      */
     deleteEnvironment(env: NukeEnvironment): Promise<{ success: boolean; error?: string }>;
 }
 
-/** Frontend event types */
+/**
+ * Frontend event types.
+ * Emitted when the active Python environment changes.
+ *
+ * @see PythonConfig
+ * @see NukeEnvironment
+ */
 export interface NukeEnvironmentChangedEvent {
     /** Previous environment */
     previous?: PythonConfig;
@@ -338,7 +413,11 @@ export interface NukeEnvironmentChangedEvent {
     currentEnv?: NukeEnvironment;
 }
 
-/** Event fired when Python environment detection falls back to a different environment */
+/**
+ * Event fired when Python environment detection falls back to a different environment.
+ *
+ * @see NukeEnvironment
+ */
 export interface EnvironmentFallbackEvent {
     /** The configured environment that was requested (if any) */
     requestedEnv?: string;
@@ -350,7 +429,11 @@ export interface EnvironmentFallbackEvent {
     requiredPackages: string[];
 }
 
-/** Status bar state */
+/**
+ * Status bar state.
+ *
+ * @see NukeEnvironment
+ */
 export interface EnvironmentStatus {
     /** Whether environment is configured */
     configured: boolean;
@@ -398,11 +481,13 @@ export interface NukeCoreStatusBarVisibilityService {
     
     /**
      * Check if any extension is currently requesting visibility.
+     * @returns Whether visibility has been requested.
      */
     isVisibilityRequested(): boolean;
     
     /**
      * Event fired when visibility requests change.
+     * @returns An event that emits the new visibility state.
      */
     onVisibilityChanged: Event<boolean>;
 }

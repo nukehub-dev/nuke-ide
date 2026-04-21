@@ -7,10 +7,29 @@
 /**
  * Package Service
  *
- * Handles package installation and management.
- * Prefers mamba over conda when available for faster installs.
+ * Handles package installation command preparation for the Nuke Core backend.
+ * Given a set of packages and installation preferences, constructs the optimal
+ * shell command without executing it.
+ *
+ * Installer priority:
+ * 1. **Conda / Mamba** – used when `useConda: true` and a conda/mamba executable is found
+ * 2. **UV** – used when `uv` is installed on the system
+ * 3. **pip** – fallback using the target Python interpreter
+ *
+ * The service resolves the target Python interpreter from (in order):
+ * - Explicit `pythonPath` in the options
+ * - Configured conda environment → its Python binary
+ * - Configured `pythonPath` in global settings
+ * - Auto-detected Python (possibly a fallback)
+ *
+ * This service is intended to be consumed by {@link NukeCoreBackendServiceImpl}
+ * and is bound as a singleton in the Inversify container.
  *
  * @module nuke-core/node
+ * @see {@link NukeCoreBackendServiceImpl}
+ * @see {@link EnvironmentService}
+ * @see {@link CondaResolver}
+ * @see {@link UvResolver}
  */
 
 import * as path from 'path';
@@ -30,6 +49,24 @@ export class PackageService {
     private readonly condaResolver = new CondaResolver();
     private readonly uvResolver = new UvResolver();
 
+    /**
+     * Build a package installation command for the given set of packages and preferences.
+     *
+     * The method performs the following resolution steps:
+     * 1. Determine the target Python interpreter (explicit → configured conda → configured path → auto-detected)
+     * 2. Determine the working directory (explicit `cwd` → `process.cwd()`)
+     * 3. Resolve conda channels and pip extra index URL
+     * 4. Select the best available installer (conda/mamba → uv → pip) and format the command
+     *
+     * @param options - {@link PackageInstallOptions} controlling packages, channels, conda vs pip, extra args, etc.
+     * @returns A promise resolving to an object with:
+     *   - `command`: The fully-formed shell command string ready to execute
+     *   - `cwd`: The working directory in which the command should run
+     * @throws Never throws; missing inputs fall back to sensible defaults
+     * @see {@link CondaResolver.getBestCommand}
+     * @see {@link UvResolver.findUvExe}
+     * @see {@link CondaProvider.findEnvPath}
+     */
     async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
         const {
             packages, pythonPath: explicitPythonPath, useConda = false,

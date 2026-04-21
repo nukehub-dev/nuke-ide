@@ -7,8 +7,10 @@
 /**
  * Pyenv Provider
  *
- * Discovers pyenv Python installations.
+ * Discovers Python installations managed by `pyenv`.
  *
+ * @implements {EnvironmentProvider}
+ * @see {@link EnvironmentProvider}
  * @module nuke-core/node
  */
 
@@ -17,8 +19,13 @@ import { EnvironmentProvider } from './base';
 import { getPythonInfo } from '../utils/python-info';
 
 export class PyenvProvider implements EnvironmentProvider {
+    /** Human-readable provider name */
     readonly name = 'pyenv';
 
+    /**
+     * Check whether `pyenv` is available on the system.
+     * @returns Promise resolving to true if pyenv is installed and executable
+     */
     async isAvailable(): Promise<boolean> {
         try {
             const { execSync } = await import('child_process');
@@ -29,6 +36,10 @@ export class PyenvProvider implements EnvironmentProvider {
         }
     }
 
+    /**
+     * List all Python versions managed by pyenv via `pyenv versions --bare`.
+     * @returns Promise resolving to an array of detected pyenv environments
+     */
     async listEnvironments(): Promise<NukeEnvironment[]> {
         const environments: NukeEnvironment[] = [];
         const path = await import('path');
@@ -81,6 +92,11 @@ export class PyenvProvider implements EnvironmentProvider {
         return environments;
     }
 
+    /**
+     * Resolve the Python executable for a named pyenv version.
+     * @param envName - Pyenv version name (defaults to 'system')
+     * @returns Promise resolving to the absolute path to the Python executable, or undefined
+     */
     async findPython(envName?: string): Promise<string | undefined> {
         const path = await import('path');
         const isWindows = process.platform === 'win32';

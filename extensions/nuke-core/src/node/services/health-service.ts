@@ -7,9 +7,17 @@
 /**
  * Health Service
  *
- * Handles health checks and diagnostics.
+ * Provides health checks, configuration validation, and system diagnostics
+ * for the Nuke Core backend. Evaluates the availability and correctness of
+ * Python interpreters, package managers (conda/mamba, uv), and installed
+ * Python packages.
+ *
+ * This service is intended to be consumed by {@link NukeCoreBackendServiceImpl}
+ * and is bound as a singleton in the Inversify container.
  *
  * @module nuke-core/node
+ * @see {@link NukeCoreBackendServiceImpl}
+ * @see {@link EnvironmentService}
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
@@ -51,6 +59,22 @@ export class HealthService {
         return `pip install ${pkg.name}`;
     }
 
+    /**
+     * Perform a comprehensive health check of the Nuke Core Python ecosystem.
+     *
+     * Checks the following components:
+     * - Configured Python environment (exact match from settings)
+     * - Active Python environment (may be a fallback)
+     * - Conda / Mamba availability
+     * - UV availability
+     * - Presence and version of requested packages (if provided)
+     *
+     * @param packages - Optional array of {@link PackageDependency} to verify in the configured environment
+     * @returns A promise resolving to a {@link HealthCheckResult} with an overall `healthy` flag and per-item checks
+     * @throws Never throws; individual check failures are captured as non-passing {@link HealthCheckItem} entries
+     * @see {@link EnvironmentService.getConfiguredPythonCommand}
+     * @see {@link EnvironmentService.checkPackages}
+     */
     async healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult> {
         const checks: HealthCheckItem[] = [];
 
@@ -215,6 +239,18 @@ export class HealthService {
         return { healthy, checks };
     }
 
+    /**
+     * Validate a Python configuration object for structural and runtime correctness.
+     *
+     * Performs the following validations:
+     * - `pythonPath`: checks that the file exists and is a valid Python executable
+     * - `condaEnv`: checks that a conda/mamba installation is present and functional
+     *
+     * @param config - The {@link PythonConfig} to validate
+     * @returns A promise resolving to a {@link ConfigValidationResult} with `valid` flag, errors, and warnings
+     * @throws Never throws; filesystem and process errors are reported as validation errors/warnings
+     * @see {@link CondaResolver.getBestCommand}
+     */
     async validateConfig(config: PythonConfig): Promise<ConfigValidationResult> {
         const errors: ConfigValidationError[] = [];
         const warnings: ConfigValidationWarning[] = [];
@@ -270,6 +306,24 @@ export class HealthService {
         return { valid: errors.length === 0, errors, warnings };
     }
 
+    /**
+     * Gather system and environment diagnostics for troubleshooting and bug reports.
+     *
+     * The returned record contains:
+     * - `platform`: OS, architecture, and Node.js version
+     * - `environment`: Detected Python interpreter info
+     * - `environments`: Summary of discovered environments
+     * - `conda`: Conda/mamba installation details
+     * - `uv`: UV availability and version
+     * - `envVars`: Relevant environment variables (PATH, CONDA_PREFIX, etc.)
+     *
+     * @returns A promise resolving to a record of diagnostic key/value pairs
+     * @throws Never throws; individual diagnostic sections are omitted on error
+     * @see {@link EnvironmentService.detectPython}
+     * @see {@link EnvironmentService.listEnvironments}
+     * @see {@link CondaResolver.findInstallations}
+     * @see {@link UvResolver.findUvExe}
+     */
     async getDiagnostics(): Promise<Record<string, unknown>> {
         const diagnostics: Record<string, unknown> = {};
 

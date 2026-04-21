@@ -16,8 +16,25 @@
 
 /**
  * Nuke Core Frontend Module
- * 
+ *
+ * Theia {@link @theia/core/shared/inversify#ContainerModule | ContainerModule} that wires up all
+ * Nuke Core frontend contributions, services, preferences, and menu bindings.
+ *
+ * DI bindings registered by this module:
+ * - {@link NukeCoreMenuContribution} → {@link @theia/core/lib/common#MenuContribution}
+ * - {@link NukeHealthCommandContribution}, {@link NukeEnvironmentCommandContribution},
+ *   {@link NukePackageCommandContribution} → {@link @theia/core/lib/common#CommandContribution}
+ * - {@link NukeCoreStatusBarContribution}, {@link WorkspaceEnvContribution} →
+ *   {@link @theia/core/lib/browser#FrontendApplicationContribution}
+ * - {@link NukePreferenceLayoutProvider} → rebinding of {@link @theia/preferences/lib/browser/util/preference-layout#PreferenceLayoutProvider}
+ * - {@link NukeCoreBackendServiceInterface} proxy via {@link @theia/core/lib/browser#WebSocketConnectionProvider}
+ * - {@link NukeCoreService}, {@link EnvironmentActionsHelper}, {@link NukeCoreVisibilityService}
+ *   as local singletons
+ *
  * @module nuke-core/browser
+ * @see {@link ./nuke-core-menus | Nuke Core Menus}
+ * @see {@link ./nuke-core-preferences | Nuke Core Preferences}
+ * @see {@link ./nuke-core-preference-layout | Nuke Preference Layout}
  */
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
@@ -91,9 +108,15 @@ export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Un
     console.log('[NukeCore] Frontend module initialized');
 });
 
+/** Re-export of the core frontend service for convenience. @see {@link ./services/nuke-core-service | NukeCoreService} */
 export { NukeCoreService } from './services';
+/** Re-export of menu contributions. @see {@link ./nuke-core-menus | NukeCoreMenuContribution} */
 export * from './nuke-core-menus';
+/** Re-export of the preference binding helper. @see {@link ./nuke-core-preferences | bindNukeCorePreferences} */
 export { bindNukeCorePreferences } from './nuke-core-preferences';
+/** Re-export of the status bar contribution. @see {@link ./contributions/status-bar-contribution | NukeCoreStatusBarContribution} */
 export { NukeCoreStatusBarContribution } from './contributions/status-bar-contribution';
+/** Re-export of the visibility service. @see {@link ./services/nuke-core-visibility-service | NukeCoreVisibilityService} */
 export { NukeCoreVisibilityService } from './services/nuke-core-visibility-service';
+/** Re-export of protocol symbols and interfaces. @see {@link ../common/nuke-core-protocol | nuke-core-protocol} */
 export { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from '../common/nuke-core-protocol';

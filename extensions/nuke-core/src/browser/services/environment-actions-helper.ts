@@ -25,6 +25,26 @@ import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget
 import { NukeCoreService } from './nuke-core-service';
 import { NukeEnvironment, PackageDependency } from '../../common/nuke-core-protocol';
 
+/**
+ * Helper class that encapsulates user-facing environment actions.
+ *
+ * Bridges Theia UI services (quick-pick, messages, terminal) with
+ * {@link NukeCoreService} to provide a consistent experience for:
+ * - Opening environment-specific terminals
+ * - Installing packages via pip/conda
+ * - Updating environments from `environment.yml` or `requirements.txt`
+ * - Ensuring required packages are present
+ *
+ * DI bindings:
+ * - `TerminalService` – Theia terminal management
+ * - `QuickPickService` / `QuickInputService` – user input
+ * - `MessageService` – notifications
+ * - `WorkspaceService` – workspace root resolution
+ * - `FileService` – file existence checks
+ * - `NukeCoreService` – core backend coordination
+ *
+ * @see {@link NukeCoreService}
+ */
 @injectable()
 export class EnvironmentActionsHelper {
 
@@ -51,6 +71,12 @@ export class EnvironmentActionsHelper {
 
     /**
      * Show a quick-pick menu of actions for a given environment.
+     *
+     * Presents choices such as "Open Terminal", "Install Packages",
+     * "Update from environment.yml", "Copy Python Path", and "Delete Environment".
+     *
+     * @param env - The environment to act upon.
+     * @returns Resolves when the user dismisses the menu or an action completes.
      */
     async showEnvActions(env: NukeEnvironment): Promise<void> {
         const isConda = env.type === 'conda';
@@ -209,7 +235,12 @@ export class EnvironmentActionsHelper {
 
     /**
      * Run a conda/mamba env create/update from a YAML file in a live terminal.
-     * Returns true on success.
+     *
+     * @param subCommand - Either `'create'` or `'update'`.
+     * @param filePath - Absolute path to the `environment.yml` file.
+     * @param prefix - Environment prefix path (e.g. `/home/user/miniconda3/envs/myenv`).
+     * @param title - Terminal tab title.
+     * @returns `true` when the terminal exits with code 0.
      */
     async runCondaEnvFromFile(
         subCommand: 'create' | 'update',
@@ -244,8 +275,12 @@ export class EnvironmentActionsHelper {
     }
 
     /**
-     * Run pip install -r from a requirements file in a live terminal.
-     * Returns true on success.
+     * Run `pip install -r` from a requirements file in a live terminal.
+     *
+     * @param pythonPath - Absolute path to the Python executable.
+     * @param filePath - Absolute path to `requirements.txt`.
+     * @param title - Terminal tab title.
+     * @returns `true` when the terminal exits with code 0.
      */
     async runPipInstallFromFile(
         pythonPath: string,
@@ -274,7 +309,12 @@ export class EnvironmentActionsHelper {
 
     /**
      * Run an arbitrary command in a live terminal.
-     * Returns true on success (exit code 0).
+     *
+     * @param options - Command configuration.
+     * @param options.title - Terminal tab title.
+     * @param options.cwd - Working directory for the terminal.
+     * @param options.args - Command and arguments to execute.
+     * @returns `true` when the terminal exits with code 0.
      */
     async runCommandInTerminal(options: {
         title: string;
@@ -301,6 +341,9 @@ export class EnvironmentActionsHelper {
 
     /**
      * Open a terminal with the environment activated (conda/mamba run).
+     *
+     * @param env - The environment to activate in the new terminal.
+     * @returns Resolves when the terminal has been opened.
      */
     async openEnvTerminal(env: NukeEnvironment): Promise<void> {
         try {
@@ -329,9 +372,20 @@ export class EnvironmentActionsHelper {
 
     /**
      * Unified package install into the configured (or explicit) environment.
+     *
      * Resolves workspace CWD, prepares the command, runs in a live terminal,
      * and returns success/failure. Extensions should prefer this over
-     * calling prepareInstallPackagesCommand + runCommandInTerminal manually.
+     * calling `prepareInstallPackagesCommand` + `runCommandInTerminal` manually.
+     *
+     * @param options - Install options.
+     * @param options.packages - Package names to install.
+     * @param options.title - Optional terminal title; defaults to package list.
+     * @param options.useConda - Use conda/mamba instead of pip.
+     * @param options.channels - Extra conda channels.
+     * @param options.extraIndexUrl - Extra pip index URL.
+     * @param options.pythonPath - Override the target Python path.
+     * @param options.cwd - Override the working directory.
+     * @returns Result indicating success and a message.
      */
     async installPackages(options: {
         packages: string[];
@@ -408,6 +462,12 @@ export class EnvironmentActionsHelper {
 
     /**
      * Install packages in the specified environment via live terminal.
+     *
+     * Prompts the user for package names and package manager (pip vs conda),
+     * then delegates to {@link installPackages}.
+     *
+     * @param env - The target environment.
+     * @returns Resolves when installation finishes or is cancelled.
      */
     async installPackageForEnv(env: NukeEnvironment): Promise<void> {
         const packageName = await this.quickInput.input({
@@ -450,6 +510,9 @@ export class EnvironmentActionsHelper {
 
     /**
      * Very simple parser: split on spaces, respecting double quotes.
+     *
+     * @param command - Raw command string.
+     * @returns Array of parsed arguments.
      */
     parseCommandString(command: string): string[] {
         const args: string[] = [];
@@ -477,12 +540,18 @@ export class EnvironmentActionsHelper {
 
     /**
      * Check the configured environment for required packages.
+     *
      * If packages are missing, show a notification asking the user
      * whether to install them into the configured environment via a live terminal.
      * Re-checks after installation to verify.
      *
-     * Unlike detectPythonWithRequirements(), this checks ONLY the configured
+     * Unlike `detectPythonWithRequirements()`, this checks ONLY the configured
      * environment and never falls back to a different one.
+     *
+     * @param options - Ensure options.
+     * @param options.requiredPackages - Packages that must be present.
+     * @param options.title - Optional notification/terminal title.
+     * @returns Result indicating success, environment, and any remaining missing packages.
      */
     async ensurePackages(options: {
         requiredPackages: PackageDependency[];
@@ -578,6 +647,9 @@ export class EnvironmentActionsHelper {
 
     /**
      * Poll until the terminal process exits (or 10-minute timeout).
+     *
+     * @param terminal - The terminal widget to monitor.
+     * @returns Resolves when the terminal exits or the timeout is reached.
      */
     async waitForTerminal(terminal: TerminalWidget): Promise<void> {
         return new Promise(resolve => {

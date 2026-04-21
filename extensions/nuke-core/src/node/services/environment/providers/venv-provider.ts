@@ -7,8 +7,12 @@
 /**
  * Venv Provider
  *
- * Discovers virtualenv / venv environments in the workspace.
+ * Discovers virtualenv / venv environments located in the current workspace.
+ * Searches for common directory names such as `venv`, `.venv`, `env`, `.env`,
+ * and `virtualenv`.
  *
+ * @implements {EnvironmentProvider}
+ * @see {@link EnvironmentProvider}
  * @module nuke-core/node
  */
 
@@ -17,23 +21,41 @@ import { EnvironmentProvider } from './base';
 import { getPythonInfo } from '../utils/python-info';
 
 export class VenvProvider implements EnvironmentProvider {
+    /** Human-readable provider name */
     readonly name = 'venv';
 
+    /**
+     * Check whether any workspace virtual environments exist.
+     * @returns Promise resolving to true if at least one workspace venv is found
+     */
     async isAvailable(): Promise<boolean> {
         const venvs = await this.findWorkspaceVenvs();
         return venvs.length > 0;
     }
 
+    /**
+     * List all virtual environments found in the current workspace.
+     * @returns Promise resolving to an array of detected workspace venv environments
+     */
     async listEnvironments(): Promise<NukeEnvironment[]> {
         return this.findWorkspaceVenvs();
     }
 
+    /**
+     * Resolve the Python executable for a named workspace venv.
+     * @param envName - Name of the virtual environment directory
+     * @returns Promise resolving to the absolute path to the Python executable, or undefined
+     */
     async findPython(envName?: string): Promise<string | undefined> {
         const venvs = await this.findWorkspaceVenvs();
         const match = venvs.find(v => v.name === envName || v.name === `${envName} (workspace)`);
         return match?.pythonPath;
     }
 
+    /**
+     * Search the current working directory for common virtual environment folders.
+     * @returns Promise resolving to an array of detected workspace venv environments
+     */
     private async findWorkspaceVenvs(): Promise<NukeEnvironment[]> {
         const environments: NukeEnvironment[] = [];
         const path = await import('path');

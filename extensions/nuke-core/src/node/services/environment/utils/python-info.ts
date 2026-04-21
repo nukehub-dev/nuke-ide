@@ -17,9 +17,11 @@ import { NukeEnvironment } from '../../../../common/nuke-core-protocol';
 /**
  * Get environment information from a Python executable path.
  *
- * @param pythonPath - Absolute or relative path to a Python executable
- * @param type - Environment type label
- * @returns NukeEnvironment object or undefined if the executable is invalid
+ * @param pythonPath - Absolute or relative path to a Python executable.
+ * @param type - Environment type label (e.g., `conda`, `system`, `venv`).
+ * @returns `NukeEnvironment` object, or `undefined` if the executable is invalid.
+ * @see {@link CondaResolver} for conda environment discovery.
+ * @see {@link UvResolver} for uv-based environment discovery.
  */
 export async function getPythonInfo(
     pythonPath: string,

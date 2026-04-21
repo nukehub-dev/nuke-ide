@@ -12,6 +12,8 @@
  *
  * Prefers mamba over conda when available for faster operations.
  *
+ * @implements {EnvironmentProvider}
+ * @see {@link EnvironmentProvider}
  * @module nuke-core/node
  */
 
@@ -21,6 +23,7 @@ import { CondaResolver, CondaInstallation } from '../utils/conda-resolver';
 import { getPythonInfo } from '../utils/python-info';
 
 export class CondaProvider implements EnvironmentProvider {
+    /** Human-readable provider name */
     readonly name = 'conda';
     private readonly resolver: CondaResolver;
     private cachedInstallations?: CondaInstallation[];
@@ -29,11 +32,19 @@ export class CondaProvider implements EnvironmentProvider {
         this.resolver = new CondaResolver();
     }
 
+    /**
+     * Check whether conda or mamba is available on the system.
+     * @returns Promise resolving to true if a conda/mamba executable is found
+     */
     async isAvailable(): Promise<boolean> {
         const best = await this.resolver.getBestCommand();
         return best !== undefined;
     }
 
+    /**
+     * List all conda environments discoverable via the resolved conda/mamba executable.
+     * @returns Promise resolving to an array of detected conda environments
+     */
     async listEnvironments(): Promise<NukeEnvironment[]> {
         const environments: NukeEnvironment[] = [];
         const best = await this.resolver.getBestCommand();
@@ -75,6 +86,13 @@ export class CondaProvider implements EnvironmentProvider {
         return environments;
     }
 
+    /**
+     * Resolve the Python executable path for a named conda environment.
+     * Attempts resolution via `conda run`, `conda env list --json`, and
+     * finally falls back to direct path lookup against discovered installations.
+     * @param envName - Name of the conda environment (defaults to 'base')
+     * @returns Promise resolving to the absolute path to the Python executable, or undefined
+     */
     async findPython(envName: string = 'base'): Promise<string | undefined> {
         const best = await this.resolver.getBestCommand();
         if (!best) {
@@ -151,7 +169,9 @@ export class CondaProvider implements EnvironmentProvider {
 
     /**
      * Find the prefix path for a named conda environment.
-     * Uses conda env list --json for reliable resolution across install locations.
+     * Uses `conda env list --json` for reliable resolution across install locations.
+     * @param envName - Name of the conda environment (defaults to 'base')
+     * @returns Promise resolving to the environment prefix path, or undefined
      */
     async findEnvPath(envName: string = 'base'): Promise<string | undefined> {
         const best = await this.resolver.getBestCommand();
@@ -179,7 +199,9 @@ export class CondaProvider implements EnvironmentProvider {
     }
 
     /**
-     * Get cached installations or discover them.
+     * Get cached installations or discover them via the resolver.
+     * Results are cached for the lifetime of the provider instance.
+     * @returns Promise resolving to an array of discovered conda installations
      */
     async getInstallations(): Promise<CondaInstallation[]> {
         if (!this.cachedInstallations) {
@@ -189,7 +211,7 @@ export class CondaProvider implements EnvironmentProvider {
     }
 
     /**
-     * Clear the cached installation list.
+     * Clear the cached installation list, forcing rediscovery on next access.
      */
     clearCache(): void {
         this.cachedInstallations = undefined;
@@ -197,6 +219,7 @@ export class CondaProvider implements EnvironmentProvider {
 
     /**
      * Expose the underlying resolver so other services can query conda/mamba.
+     * @returns The {@link CondaResolver} instance used by this provider
      */
     getResolver(): CondaResolver {
         return this.resolver;

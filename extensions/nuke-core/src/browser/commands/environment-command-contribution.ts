@@ -7,7 +7,20 @@
 /**
  * Environment Command Contribution
  *
- * Commands: Switch Environment, Create Environment, Delete Environment, Environment Actions
+ * Registers commands and menu items for managing Python environments within Nuke.
+ * Supports switching, creating, deleting, and running per-environment actions.
+ *
+ * DI bindings:
+ * - {@link NukeCoreService} – backend environment queries and mutations
+ * - {@link MessageService} – user-facing toast notifications
+ * - {@link QuickPickService} – quick-pick UI for environment selection
+ * - {@link QuickInputService} – text input prompts (env name, confirmation)
+ * - {@link TerminalService} – terminal creation for environment setup scripts
+ * - {@link WorkspaceService} – workspace root resolution
+ * - {@link WindowService} – external link handling
+ * - {@link EnvironmentActionsHelper} – shared environment action utilities
+ *
+ * @see {@link NukeCoreCommands}
  *
  * @module nuke-core/browser/commands
  */
@@ -52,6 +65,11 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
     @inject(EnvironmentActionsHelper)
     protected readonly envActions: EnvironmentActionsHelper;
 
+    /**
+     * Registers environment-related commands with the application command registry.
+     *
+     * @param commands - Theia command registry to register against.
+     */
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCoreCommands.SWITCH_ENVIRONMENT, {
             execute: () => this.switchEnvironment()
@@ -70,6 +88,11 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         });
     }
 
+    /**
+     * Adds environment commands to the Nuke Tools menu.
+     *
+     * @param menus - Theia menu model registry.
+     */
     registerMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(NukeMenus.TOOLS, {
             commandId: NukeCoreCommands.SWITCH_ENVIRONMENT.id,
@@ -96,6 +119,12 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         });
     }
 
+    /**
+     * Presents a quick-pick to switch the active Nuke Python environment.
+     * Offers creation or refresh if no environments exist.
+     *
+     * @returns Resolves when the switch (or creation) flow completes.
+     */
     protected async switchEnvironment(): Promise<void> {
         try {
             const environments = await this.nukeCore.listEnvironments(true);
@@ -137,6 +166,12 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         }
     }
 
+    /**
+     * Presents a quick-pick to select an environment and then opens its action menu.
+     *
+     * @returns Resolves when the action flow completes.
+     * @see {@link EnvironmentActionsHelper.showEnvActions}
+     */
     protected async environmentActions(): Promise<void> {
         try {
             const environments = await this.nukeCore.listEnvironments(true);
@@ -179,6 +214,13 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         }
     }
 
+    /**
+     * Interactive workflow to create a new conda or venv environment.
+     * Prompts for type, name, and optional Python specifier, then runs
+     * the creation command in a new terminal.
+     *
+     * @returns Resolves when creation finishes or the user cancels.
+     */
     protected async createEnvironment(): Promise<void> {
         try {
             // Step 1: Choose environment type
@@ -302,6 +344,12 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         }
     }
 
+    /**
+     * Interactive workflow to delete an existing environment.
+     * Requires typing the exact environment name as confirmation.
+     *
+     * @returns Resolves when deletion finishes or the user cancels.
+     */
     protected async deleteEnvironment(): Promise<void> {
         try {
             const environments = await this.nukeCore.listEnvironments(true);
@@ -352,6 +400,14 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         }
     }
 
+    /**
+     * Builds grouped quick-pick items for environment selection.
+     *
+     * @param environments - List of available environments.
+     * @param current - Currently active environment (receives a checkmark).
+     * @param includeActions - Whether to append "Create" and "Refresh" action items.
+     * @returns Array of quick-pick items and separators ready for display.
+     */
     protected buildEnvironmentPickerItems(
         environments: NukeEnvironment[],
         current?: NukeEnvironment,

@@ -27,10 +27,32 @@ import { EnvironmentActionsHelper, NukeCoreService } from '../services';
 import { NukeEnvironment, NukeCoreStatusBarVisibility } from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from '../services/nuke-core-visibility-service';
 
+/**
+ * Quick pick item extension carrying an environment or action value.
+ */
 interface EnvironmentQuickPickItem extends QuickPickItem {
     value?: NukeEnvironment | 'settings' | 'refresh' | '__create__';
 }
 
+/**
+ * Contributes a status-bar entry that displays and controls the active Nuke Python environment.
+ *
+ * Binds to Theia's {@link FrontendApplicationContribution} lifecycle and reacts to
+ * environment changes, preference updates and visibility requests from dependent extensions.
+ *
+ * ### DI Bindings
+ * - `StatusBar` – entry point to Theia's status bar API.
+ * - `NukeCoreService` – source of truth for the current environment & configuration.
+ * - `QuickPickService` – displays the environment selector.
+ * - `MessageService` – user-facing notifications.
+ * - `CommandService` – opens settings and triggers environment creation commands.
+ * - `EnvironmentActionsHelper` – executes post-selection actions (e.g. environment management).
+ * - `PreferenceService` – reads `nuke.*` preferences.
+ * - `NukeCoreStatusBarVisibility` – allows other extensions to force the status bar to show.
+ *
+ * @see {@link NukeCoreService}
+ * @see {@link NukeCoreVisibilityService}
+ */
 @injectable()
 export class NukeCoreStatusBarContribution implements FrontendApplicationContribution {
     
@@ -60,6 +82,10 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
 
     private readonly STATUS_BAR_ID = 'nuke-core.environment';
 
+    /**
+     * Lifecycle hook invoked when the frontend application starts.
+     * Registers listeners and performs the initial status-bar render.
+     */
     onStart(): void {
         // Initial update
         this.updateStatusBar();
@@ -101,6 +127,11 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     private lastUserPythonPath?: string;
     private lastUserCondaEnv?: string;
     
+    /**
+     * Polls user-scope preferences every 5 seconds to catch edits that do not
+     * fire {@link PreferenceService.onPreferenceChanged} (e.g. manual settings.json edits).
+     * Triggers a status-bar refresh when a drift is detected.
+     */
     private async checkUserPreferences(): Promise<void> {
         // Check if user preferences have changed
         const inspectPath = this.preferences.inspect<string>('nuke.pythonPath');
@@ -120,6 +151,17 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
     }
 
+    /**
+     * Renders or updates the status-bar element based on the current configuration,
+     * environment state and visibility preferences.
+     *
+     * Behaviour matrix:
+     * - `never`  → removes the element.
+     * - `auto`   → shows only when un-configured or when an extension requests visibility.
+     * - `always` → always shows (spinner while detecting, then resolved env info).
+     *
+     * @returns A promise that resolves once the status bar has been updated.
+     */
     protected async updateStatusBar(): Promise<void> {
         const showStatusBar = this.preferences.get('nuke.showStatusBar') as 'auto' | 'always' | 'never';
         
@@ -205,6 +247,12 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
     }
 
+    /**
+     * Returns an emoji icon representing the given environment type.
+     *
+     * @param type - The environment type (conda, venv, poetry, etc.).
+     * @returns A single-character emoji string.
+     */
     private getEnvironmentIcon(type: NukeEnvironment['type']): string {
         switch (type) {
             case 'conda': return '🐍';
@@ -218,8 +266,13 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     }
 
     /**
-     * Show picker when Python is not configured - allows selecting from available environments
-     * or opening settings for manual configuration
+     * Displays the environment quick-pick when no Python interpreter is configured yet.
+     * Allows the user to select a discovered environment, open settings, refresh the list
+     * or create a new environment.
+     *
+     * @returns A promise that resolves once the picker is dismissed and the status bar updated.
+     * @see {@link showEnvironmentPicker}
+     * @see {@link buildPickerItems}
      */
     protected async showEnvironmentPickerForUnconfigured(): Promise<void> {
         this.statusBar.setElement(this.STATUS_BAR_ID, {
@@ -257,7 +310,11 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
     }
 
     /**
-     * Select environment for the first time - configures nuke-core with the selected environment
+     * Configures nuke-core with the selected environment for the first time.
+     *
+     * @param env - The environment to activate.
+     * @returns A promise that resolves once the switch attempt finishes.
+     * @see {@link NukeCoreService.switchToEnvironment}
      */
     protected async selectEnvironmentForFirstTime(env: NukeEnvironment): Promise<void> {
         try {
@@ -269,6 +326,15 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
     }
 
+    /**
+     * Displays the environment quick-pick for an already-configured workspace.
+     * If the user clicks the currently active entry, {@link EnvironmentActionsHelper.showEnvActions}
+     * is presented instead of re-switching.
+     *
+     * @returns A promise that resolves once the picker is dismissed and the status bar updated.
+     * @see {@link showEnvironmentPickerForUnconfigured}
+     * @see {@link switchToEnvironment}
+     */
     protected async showEnvironmentPicker(): Promise<void> {
         // Show loading indicator
         this.statusBar.setElement(this.STATUS_BAR_ID, {
@@ -326,6 +392,13 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
     }
 
+    /**
+     * Delegates to {@link NukeCoreService.switchToEnvironment} and surfaces the result
+     * via {@link MessageService}.
+     *
+     * @param env - The target environment.
+     * @returns A promise that resolves once the switch attempt finishes.
+     */
     protected async switchToEnvironment(env: NukeEnvironment): Promise<void> {
         try {
             await this.nukeCore.switchToEnvironment(env);
@@ -335,11 +408,21 @@ export class NukeCoreStatusBarContribution implements FrontendApplicationContrib
         }
     }
 
+    /**
+     * Opens the Theia preferences view filtered to `nuke.` settings.
+     */
     protected openSettings(): void {
         // Open settings and filter for Nuke Utils (search for 'nuke' which will show all nuke.* preferences)
         this.commandService.executeCommand(CommonCommands.OPEN_PREFERENCES.id, 'nuke.');
     }
 
+    /**
+     * Builds grouped quick-pick items for the environment selector.
+     *
+     * @param environments - All discovered environments.
+     * @param current - The currently active environment (used to render a check-mark).
+     * @returns A list of quick-pick items and separators ready for {@link QuickPickService.show}.
+     */
     private buildPickerItems(
         environments: NukeEnvironment[],
         current?: NukeEnvironment

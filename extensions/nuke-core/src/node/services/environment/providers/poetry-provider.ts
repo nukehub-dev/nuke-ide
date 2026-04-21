@@ -7,8 +7,10 @@
 /**
  * Poetry Provider
  *
- * Discovers Poetry virtual environments.
+ * Discovers Poetry-managed virtual environments via the `poetry` CLI.
  *
+ * @implements {EnvironmentProvider}
+ * @see {@link EnvironmentProvider}
  * @module nuke-core/node
  */
 
@@ -17,8 +19,13 @@ import { EnvironmentProvider } from './base';
 import { getPythonInfo } from '../utils/python-info';
 
 export class PoetryProvider implements EnvironmentProvider {
+    /** Human-readable provider name */
     readonly name = 'poetry';
 
+    /**
+     * Check whether the `poetry` CLI is available on the system.
+     * @returns Promise resolving to true if poetry is installed and executable
+     */
     async isAvailable(): Promise<boolean> {
         try {
             const { execSync } = await import('child_process');
@@ -29,6 +36,10 @@ export class PoetryProvider implements EnvironmentProvider {
         }
     }
 
+    /**
+     * List all Poetry virtual environments by querying `poetry env list --full-path`.
+     * @returns Promise resolving to an array of detected poetry environments
+     */
     async listEnvironments(): Promise<NukeEnvironment[]> {
         const environments: NukeEnvironment[] = [];
         const path = await import('path');
@@ -74,6 +85,11 @@ export class PoetryProvider implements EnvironmentProvider {
         return environments;
     }
 
+    /**
+     * Resolve the Python executable for the currently active Poetry environment.
+     * @param _envName - Unused; poetry resolves the active project environment
+     * @returns Promise resolving to the absolute path to the Python executable, or undefined
+     */
     async findPython(_envName?: string): Promise<string | undefined> {
         const path = await import('path');
         const isWindows = process.platform === 'win32';
