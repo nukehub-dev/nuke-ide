@@ -154,7 +154,10 @@ export class MyExtension {
 
 ## Documentation
 
-See [docs/USAGE.md](docs/USAGE.md) for detailed API documentation and examples.
+- [Documentation Overview](docs/README.md) — Landing page with user and developer paths
+- [User Guides](docs/user/) — End-user documentation for environment management, package installation, and configuration
+- [Developer Guides](docs/dev/) — API documentation, architecture, and integration guides for extension authors
+
 
 ## License
 
