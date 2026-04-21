@@ -1,0 +1,37 @@
+{
+  "name": "nuke-docs",
+  "version": "0.1.0",
+  "description": "Offline documentation server for NukeIDE.",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nukeide",
+    "documentation"
+  ],
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.69.0",
+    "nuke-essentials": "0.1.2",
+    "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib *.tsbuildinfo",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "cd src && find . -name '*.css' -exec cp --parents {} ../lib \\;",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/docs-frontend-module",
+      "backend": "lib/node/docs-server-backend-module"
+    }
+  ]
+}

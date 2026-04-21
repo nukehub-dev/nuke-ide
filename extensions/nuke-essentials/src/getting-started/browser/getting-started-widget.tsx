@@ -92,7 +92,6 @@ export class GettingStartedWidget extends ReactWidget {
     /**
      * Collection of useful links to display for end users.
      */
-    protected readonly documentationUrl = 'https://github.com/nukehub-dev/nuke-ide';
     protected readonly neutronicsWorkshopUrl = 'https://github.com/fusion-energy/neutronics-workshop';
 
     protected selectedQuote: Quote | undefined;
@@ -368,7 +367,7 @@ export class GettingStartedWidget extends ReactWidget {
                 {nls.localizeByDefault('Help')}
             </h3>
             <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={() => this.doOpenExternalLink(this.documentationUrl)} onKeyDown={(e: React.KeyboardEvent) => this.doOpenExternalLinkEnter(e, this.documentationUrl)}>
+                <a role={'button'} tabIndex={0} className='gs-link' onClick={() => this.openDocsWidget()} onKeyDown={(e: React.KeyboardEvent) => this.openDocsWidgetEnter(e)}>
                     <span className={`${codicon('book')} gs-link-icon`} />
                     {nls.localizeByDefault('NukeIDE Documentation')}
                 </a>
@@ -517,6 +516,12 @@ export class GettingStartedWidget extends ReactWidget {
     protected doOpenExternalLinkEnter = (e: React.KeyboardEvent, url: string) => {
         if (this.isEnterKey(e)) {
             this.doOpenExternalLink(url);
+        }
+    };
+    protected openDocsWidget = () => this.commandRegistry.executeCommand('nuke.docs.open');
+    protected openDocsWidgetEnter = (e: React.KeyboardEvent) => {
+        if (this.isEnterKey(e)) {
+            this.openDocsWidget();
         }
     };
 

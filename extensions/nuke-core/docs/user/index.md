@@ -1,4 +1,4 @@
-# Nuke Core — User Documentation
+# User Documentation
 
 End-user guides for the Nuke Core extension, the foundational Python environment manager for NukeIDE.
 

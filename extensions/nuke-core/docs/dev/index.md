@@ -1,4 +1,4 @@
-# Nuke Core Developer Documentation
+# Developer Documentation
 
 This section is for developers building extensions that depend on **nuke-core**, or contributing to nuke-core itself.
 
