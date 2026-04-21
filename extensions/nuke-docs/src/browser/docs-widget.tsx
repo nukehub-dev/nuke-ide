@@ -165,7 +165,7 @@ export class DocsWidget extends ReactWidget {
     }
   }
 
-  protected async loadContent(path: string): Promise<void> {
+  protected async loadContent(path: string): Promise<boolean> {
     this.state.loading = true;
     this.state.error = null;
     this.update();
@@ -185,10 +185,12 @@ export class DocsWidget extends ReactWidget {
       this.state.tocItems = this.tocItemsBuffer;
       this.state.activeTocId = this.state.tocItems.length > 0 ? this.state.tocItems[0].id : null;
       this.tocItemsBuffer = [];
+      return true;
     } catch (e) {
       this.state.error = `Failed to load ${path}: ${e}`;
       this.state.tocItems = [];
       this.state.activeTocId = null;
+      return false;
     } finally {
       this.state.loading = false;
       this.update();
@@ -272,13 +274,21 @@ export class DocsWidget extends ReactWidget {
     }
 
     if (resolved.endsWith('/README.md')) {
-      resolved = resolved.slice(0, -10) + 'index.md';
+      resolved = resolved.replace(/\/README\.md$/, '/index.md');
+    }
+
+    if (!resolved.endsWith('.md')) {
+      if (resolved.endsWith('/')) {
+        resolved += 'index.md';
+      } else {
+        resolved += '.md';
+      }
     }
 
     return resolved;
   }
 
-  protected onClickLink = (e: React.MouseEvent): void => {
+  protected onClickLink = async (e: React.MouseEvent): Promise<void> => {
     const target = e.target as HTMLElement;
     const anchor = target.closest('a[data-doc-link]') as HTMLAnchorElement | null;
     if (anchor) {
@@ -287,7 +297,13 @@ export class DocsWidget extends ReactWidget {
       if (!href) return;
       const resolved = this.resolveDocLink(href);
       if (resolved.endsWith('.md')) {
-        this.loadContent(resolved);
+        const success = await this.loadContent(resolved);
+        if (!success) {
+          // If the .md file doesn't exist, try the bare path as a fallback
+          // (for non-markdown files linked from docs)
+          const barePath = resolved.replace(/\.md$/, '');
+          window.open(this.getApiUrlWithQuery('docs-api/file', { path: barePath }), '_blank');
+        }
       } else {
         window.open(this.getApiUrlWithQuery('docs-api/file', { path: resolved }), '_blank');
       }

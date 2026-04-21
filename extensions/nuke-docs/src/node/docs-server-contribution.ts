@@ -107,7 +107,25 @@ export class DocsServerContribution implements BackendApplicationContribution {
     for (const [prefix, dir] of Object.entries(rawPaths)) {
       if (normalized.startsWith(prefix + '/')) {
         const relative = normalized.slice(prefix.length + 1);
-        return path.join(dir, relative);
+        const filePath = path.join(dir, relative);
+        if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+          return filePath;
+        }
+        // Fallback: index.md → README.md
+        if (relative.endsWith('index.md')) {
+          const readmePath = path.join(dir, relative.replace(/index\.md$/, 'README.md'));
+          if (fs.existsSync(readmePath)) {
+            return readmePath;
+          }
+        }
+        // Fallback: README.md → index.md
+        if (relative.endsWith('README.md')) {
+          const indexPath = path.join(dir, relative.replace(/README\.md$/, 'index.md'));
+          if (fs.existsSync(indexPath)) {
+            return indexPath;
+          }
+        }
+        return filePath;
       }
     }
     return undefined;

@@ -7,7 +7,8 @@
   "resolutions": {
     "node-abi": "4.28.0",
     "@electron/rebuild": "4.0.3",
-    "@theia/monaco-editor-core": "1.96.302"
+    "nan": "2.26.2",
+    "@theia/monaco-editor-core": "1.108.201"
   },
   "scripts": {
     "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",
