@@ -16,7 +16,7 @@ To set up and run NukeIDE locally, follow these steps:
 
 ### Prerequisites
 
-- Node.js (>=18)
+- Node.js (>=22)
 - Yarn (>=1.7.0 <2)
 
 ### Installation

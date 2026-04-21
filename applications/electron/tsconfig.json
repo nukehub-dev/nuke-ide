@@ -1,0 +1,31 @@
+{
+  "extends": "../../configs/base.tsconfig",
+  "include": [],
+  "compilerOptions": {
+    "composite": true,
+    "allowJs": true
+  },
+  "references": [
+    {
+      "path": "../../extensions/nuke-essentials"
+    },
+    {
+      "path": "../../extensions/nuke-core"
+    },
+    {
+      "path": "../../extensions/nuke-sysmon"
+    },
+    {
+      "path": "../../extensions/nuke-visualizer"
+    },
+    {
+      "path": "../../extensions/openmc-studio"
+    },
+    {
+      "path": "../../extensions/nukelab-menu"
+    },
+    {
+      "path": "../../extensions/nukelab-pwa"
+    }
+  ]
+}

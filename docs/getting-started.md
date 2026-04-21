@@ -4,7 +4,7 @@ Welcome to NukeIDE! This guide will help you get up and running quickly.
 
 ## What You'll Need
 
-- **Node.js** >= 18
+- **Node.js** >= 22
 - **Yarn** >= 1.7.0 and < 2
 - **Python** >= 3.12 (for extensions that use Python backends)
 

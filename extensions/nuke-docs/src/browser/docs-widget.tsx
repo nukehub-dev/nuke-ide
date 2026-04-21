@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, codicon } from '@theia/core/lib/browser';
+import { Endpoint } from '@theia/core/lib/browser/endpoint';
 import * as MarkdownIt from 'markdown-it';
 import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { DocsSidebar } from './docs-sidebar';
@@ -100,9 +101,9 @@ export class DocsWidget extends ReactWidget {
       let src = token.attrGet('src') || '';
       const alt = token.content || '';
       if (!src.startsWith('http') && !src.startsWith('/')) {
-        src = `/docs-api/file?path=${encodeURIComponent(this.resolveDocLink(src))}`;
+        src = this.getApiUrlWithQuery('docs-api/file', { path: this.resolveDocLink(src) });
       } else if (!src.startsWith('http')) {
-        src = `/docs-api/file?path=${encodeURIComponent(src)}`;
+        src = this.getApiUrlWithQuery('docs-api/file', { path: src });
       }
       return `<img src="${src}" alt="${alt}" class="nuke-doc-image" loading="lazy" />`;
     };
@@ -142,9 +143,19 @@ export class DocsWidget extends ReactWidget {
     await this.loadContent(this.state.currentPath);
   }
 
+  protected getApiUrl(path: string): string {
+    return new Endpoint({ path }).getRestUrl().toString();
+  }
+
+  protected getApiUrlWithQuery(path: string, query: Record<string, string>): string {
+    const base = this.getApiUrl(path);
+    const params = new URLSearchParams(query);
+    return base + '?' + params.toString();
+  }
+
   protected async loadNav(): Promise<void> {
     try {
-      const res = await fetch('/docs-api/nav');
+      const res = await fetch(this.getApiUrl('docs-api/nav'));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.state.nav = await res.json();
       this.update();
@@ -159,7 +170,8 @@ export class DocsWidget extends ReactWidget {
     this.state.error = null;
     this.update();
     try {
-      const res = await fetch(`/docs-api/content?path=${encodeURIComponent(path)}`);
+      const url = this.getApiUrlWithQuery('docs-api/content', { path });
+      const res = await fetch(url);
       if (!res.ok) {
         if (res.status === 404) {
           throw new Error(`Page not found: ${path}`);
@@ -204,7 +216,7 @@ export class DocsWidget extends ReactWidget {
     this.update();
     this.searchDebounce = setTimeout(async () => {
       try {
-        const res = await fetch(`/docs-api/search?q=${encodeURIComponent(query)}`);
+        const res = await fetch(this.getApiUrl(`docs-api/search?q=${encodeURIComponent(query)}`));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this.state.searchResults = await res.json();
       } catch {
@@ -277,7 +289,7 @@ export class DocsWidget extends ReactWidget {
       if (resolved.endsWith('.md')) {
         this.loadContent(resolved);
       } else {
-        window.open(`/docs-api/file?path=${encodeURIComponent(resolved)}`, '_blank');
+        window.open(this.getApiUrlWithQuery('docs-api/file', { path: resolved }), '_blank');
       }
     }
   };

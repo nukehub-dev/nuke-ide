@@ -6,7 +6,7 @@ This page covers how to install NukeIDE from source.
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Node.js | >= 18 | Theia frontend and build tooling |
+| Node.js | >= 22 | Theia frontend and build tooling |
 | Yarn | >= 1.7.0 < 2 | Package manager (monorepo hoisting) |
 | Python | >= 3.12 | Backend services for extensions |
 | Git | any | Cloning the repository |
@@ -81,7 +81,7 @@ lerna run build
 ## Troubleshooting
 
 **`yarn` fails with engine errors**
-> Make sure you're using Yarn classic (`1.x`) and Node.js >= 18.
+> Make sure you're using Yarn classic (`1.x`) and Node.js >= 22.
 
 **Plugins fail to download**
 > Run `yarn download:plugins` again with a stable internet connection. Some Open VSX requests may time out.

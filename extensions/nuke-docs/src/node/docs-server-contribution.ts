@@ -35,6 +35,9 @@ export class DocsServerContribution implements BackendApplicationContribution {
     // Build search index at startup
     this.searchIndex = this.buildSearchIndex(rawPaths);
 
+    // Build search index at startup
+    this.searchIndex = this.buildSearchIndex(rawPaths);
+
     app.get('/docs-api/nav', (_req, res) => {
       try {
         res.json(this.buildNav(rawPaths));

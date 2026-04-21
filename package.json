@@ -2,10 +2,11 @@
   "private": true,
   "engines": {
     "yarn": ">=1.7.0 <2",
-    "node": ">=18"
+    "node": ">=22"
   },
   "resolutions": {
-    "node-abi": "3.74.0",
+    "node-abi": "4.28.0",
+    "@electron/rebuild": "4.0.3",
     "@theia/monaco-editor-core": "1.96.302"
   },
   "scripts": {
