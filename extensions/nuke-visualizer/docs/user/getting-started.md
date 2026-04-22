@@ -16,6 +16,7 @@ Nuke Visualizer requires a Python environment with scientific computing packages
 | `paraview` | Yes | Usually installed via conda |
 | `pydagmc` | No | For advanced DAGMC features |
 | `moab` / `pymoab` | No | For DAGMC .h5m file conversion |
+| `gmsh` | No | For STEP/STP/BREP CAD file conversion |
 
 ### OpenMC Plugin
 
@@ -70,7 +71,8 @@ If the health check reports missing packages, you can install them directly:
 ### 3D Mesh / DAGMC
 
 1. In the Explorer sidebar, **click** any of these file types:
-   - `.h5m` — DAGMC geometry (highest priority)
+   - `.h5m` — DAGMC geometry
+   - `.step`, `.stp`, `.brep` — CAD geometry
    - `.vtk`, `.vtu`, `.vtp` — VTK data
    - `.stl`, `.ply`, `.obj` — Surface meshes
 2. The **Visualizer** panel opens with an interactive 3D view.

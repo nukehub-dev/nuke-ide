@@ -108,8 +108,7 @@ Python scripts that do the actual scientific visualization.
 - `server.py` — Unified entry point with auto-discovery and plugin routing
 - `nuke_viz/` — Shared framework (`@command` decorator, registry, server)
 - `plugins/openmc/` — OpenMC plugin (commands + lib modules)
-- `plugins/base/` — Base visualizer plugin (Trame server)
-- `dagmc_converter.py` — H5M → VTK conversion using MOAB
+- `plugins/base/` — Base visualizer plugin (Trame server, file converters, shared libraries)
 
 Plugins register commands via the `@command` decorator. Importing a command module triggers registration automatically — no manual routing needed.
 
@@ -198,16 +197,18 @@ extensions/nuke-visualizer/
 │   │   ├── plugin.py                    # @command + @arg decorators
 │   │   ├── registry.py                  # Auto-discovery
 │   │   └── server.py                    # CLI routing
-│   ├── plugins/                         # Plugin packages
-│   │   ├── openmc/                      # OpenMC plugin
-│   │   │   ├── commands/                # @command-decorated modules
-│   │   │   └── lib/                     # Helper modules
-│   │   └── base/                        # Base visualizer plugin
-│   │       ├── commands/serve.py
-│   │       └── lib/
-│   ├── dagmc_converter.py               # H5M → VTK converter
-│   ├── openmc_server.py                 # Backward-compat shim
-│   └── visualizer_app.py                # Backward-compat shim
+│   └── plugins/                         # Plugin packages
+│       ├── openmc/                      # OpenMC plugin
+│       │   ├── commands/                # @command-decorated modules
+│       │   └── lib/                     # Helper modules
+│       └── base/                        # Base visualizer plugin
+│           ├── commands/
+│           │   ├── serve.py             # Trame visualization server
+│           │   └── convert.py           # File format converters (DAGMC, STEP)
+│           └── lib/
+│               ├── common.py
+│               ├── dagmc.py             # DAGMC → VTK library
+│               └── step.py              # STEP → VTK library
 └── docs/                                # This documentation
 ```
 

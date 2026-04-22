@@ -30,6 +30,8 @@ This resolves to:
 2. `src/python/server.py` (development)
 3. Fallback relative to `__dirname`
 
+All operations — visualization servers, file converters, data queries — go through the unified `server.py` entry point.
+
 ---
 
 ## Writing a Command
@@ -185,16 +187,6 @@ python server.py base.serve --file /path/to/mesh.vtk --port 8080
 
 `server.py` auto-discovers plugins, builds argparse from registered commands, and routes to the handler.
 
-### Backward-Compatible Shims
-
-Old entry points (`openmc_server.py`, `visualizer_app.py`) are thin shims that translate legacy arguments to namespaced commands and delegate to `server.py`:
-
-```bash
-# These still work
-python openmc_server.py info /path/to/statepoint.h5
-python visualizer_app.py --file /path/to/mesh.vtk --port 8080
-```
-
 ---
 
 ## Logging & Warnings
@@ -313,17 +305,25 @@ python/
 │   ├── registry.py
 │   └── server.py
 └── plugins/
-    └── openmc/
+    ├── openmc/
+    │   ├── plugin.py
+    │   ├── commands/
+    │   │   ├── basic.py
+    │   │   ├── statepoint.py
+    │   │   ├── geometry.py
+    │   │   └── xs_plot.py
+    │   └── lib/
+    │       ├── reader.py
+    │       ├── geometry_parser.py
+    │       └── materials_parser.py
+    └── base/
         ├── plugin.py
         ├── commands/
-        │   ├── basic.py
-        │   ├── statepoint.py
-        │   ├── geometry.py
-        │   └── xs_plot.py
+        │   └── serve.py
         └── lib/
-            ├── reader.py
-            ├── geometry_parser.py
-            └── materials_parser.py
+            ├── common.py
+            ├── dagmc.py           # DAGMC → VTK library
+            └── step.py            # STEP → VTK library
 ```
 
 Import helpers using absolute imports:
@@ -331,6 +331,8 @@ Import helpers using absolute imports:
 ```python
 from plugins.openmc.lib.reader import OpenMCReader
 from plugins.base.lib.common import find_free_port, COLOR_MAPS
+from plugins.base.lib.dagmc import convert_h5m_to_vtk_cached
+from plugins.base.lib.step import convert_step_to_vtk_cached
 ```
 
 ---
@@ -346,6 +348,41 @@ python server.py base.serve --file /path/to/mesh.vtk --port 8080
 ```
 
 This is useful for debugging without starting the full Theia application.
+
+---
+
+## File Converters
+
+Format conversion (e.g., DAGMC → VTK, STEP → VTK) is implemented as ordinary `@command` handlers in `plugins/base/commands/convert.py`:
+
+```python
+# python/plugins/base/commands/convert.py
+from nuke_viz.plugin import command, arg
+import json
+
+@command('base.convert-step', help='Convert STEP to VTK')
+@arg('--file', required=True, help='Input file path')
+def cmd_convert_step(args):
+    from plugins.base.lib.step import convert_step_to_vtk_cached
+    result = convert_step_to_vtk_cached(args.file)
+    print(json.dumps(result))
+    return 0
+```
+
+The Node backend invokes them via `server.py` and parses JSON:
+
+```typescript
+const scriptPath = this.pythonHelper.findScript('server.py');
+const result = await this.pythonHelper.executeScriptJson<{
+    vtk_path: string;
+    from_cache: boolean;
+}>(scriptPath, ['base.convert-step', '--file', filePath]);
+```
+
+**Rule of thumb:**
+- Library code → `python/plugins/<plugin>/lib/`
+- CLI commands → `python/plugins/<plugin>/commands/`
+- Unified entry point → `python/server.py`
 
 ---
 

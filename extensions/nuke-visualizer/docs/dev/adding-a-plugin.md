@@ -56,7 +56,7 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 │          │                 │                  │                             │
 │          └─────────────────┴──────────────────┘                             │
 │                            │                                                │
-│                    python/your_server.py                                    │
+│                    python/server.py (unified entry)                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +70,7 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 |----------------|-------------|---------------------|
 | **Python detection** | Finds a Python with your required packages via `nuke-core` | Define `PackageDependency[]` |
 | **Health checks** | Verifies packages in the configured env, suggests install commands | Register requirements with `HealthCheckFramework` |
-| **Process spawning** | Finds free ports, starts your Python server, waits for readiness | Provide `your_server.py` entry point |
+| **Process spawning** | Finds free ports, starts your Python server, waits for readiness | Provide `@command` handlers under `python/plugins/<name>/` |
 | **Widget lifecycle** | Creates iframe widgets, handles open/close, theme propagation | Create widgets or reuse `VisualizerWidget` |
 | **File open handling** | Routes file types to your plugin via Theia `OpenHandler` | Implement `canHandle()` and `open()` |
 | **Menu/command registration** | Registers commands under `Tools → Visualizer` | Define command IDs and labels |
@@ -112,31 +112,64 @@ export const MOOSE_REQUIREMENTS = [
 
 ### Step 2: Create the Python Backend
 
-Create `python/moose_server.py`:
+All Python code lives under `python/plugins/<name>/`. The unified `server.py` auto-discovers plugins and routes commands.
+
+#### 2a. Create the plugin package
+
+```
+python/plugins/moose/
+├── plugin.py          # Imports commands, triggers @command registration
+├── commands/
+│   ├── __init__.py
+│   ├── info.py        # @command('moose.info')
+│   └── serve.py       # @command('moose.serve') — optional Trame server
+└── lib/
+    ├── __init__.py
+    └── reader.py      # Reusable helpers
+```
+
+#### 2b. Register commands
+
+`python/plugins/moose/plugin.py`:
 
 ```python
-#!/usr/bin/env python
-"""MOOSE visualization server."""
-import argparse
-import json
+"""MOOSE visualization plugin for NukeIDE."""
 import sys
 
+_COMMAND_MODULES = ['info', 'serve']
+
+for mod_name in _COMMAND_MODULES:
+    try:
+        __import__(f'plugins.moose.commands.{mod_name}')
+    except Exception as e:
+        print(f"[MOOSE Plugin] '{mod_name}' not loaded: {e}", file=sys.stderr)
+
+PLUGIN_NAME = "moose"
+PLUGIN_DISPLAY_NAME = "MOOSE"
+REQUIREMENTS = ["moose", "vtk"]
+```
+
+#### 2c. Write a command handler
+
+`python/plugins/moose/commands/info.py`:
+
+```python
+from nuke_viz.plugin import command, arg
+import json
+
+@command('moose.info', help='Get MOOSE mesh info')
+@arg('--file', required=True, help='Path to Exodus or input file')
 def cmd_info(args):
     # Your logic to read MOOSE output/exodus files
     result = {"numElements": 1000, "numNodes": 500, "variables": ["temp", "disp"]}
     print(json.dumps(result))
+    return 0
+```
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("command")
-    parser.add_argument("--file", required=True)
-    args = parser.parse_args()
+Test standalone:
 
-    if args.command == "info":
-        cmd_info(args)
-
-if __name__ == "__main__":
-    main()
+```bash
+python server.py moose.info --file /path/to/moose.i
 ```
 
 ### Step 3: Implement the Backend Service
@@ -170,10 +203,12 @@ export class MooseBackendServiceImpl implements MooseBackendService {
         // 2. Find a free port
         const port = await this.findFreePort();
 
-        // 3. Spawn your server
+        // 3. Spawn your server via the unified entry point
+        const serverScript = this.pythonHelper.findScript('server.py');
         const { spawn } = await import('child_process');
         const proc = spawn(pythonResult.command, [
-            '/path/to/moose_server.py',
+            serverScript,
+            'moose.serve',
             '--port', String(port),
             '--file', inputFile
         ]);
@@ -185,11 +220,22 @@ export class MooseBackendServiceImpl implements MooseBackendService {
     }
 
     async getMeshInfo(filePath: string): Promise<MooseMeshInfo> {
-        return this.pythonHelper.executeScriptJson<{ result: MooseMeshInfo }>(
-            'moose_server.py',
-            ['info', '--file', filePath],
-            MOOSE_REQUIREMENTS
-        ).then(r => r.result);
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const execResult = await this.pythonHelper.executeScript(
+            serverScript,
+            ['moose.info', '--file', filePath],
+            { requirements: MOOSE_REQUIREMENTS }
+        );
+        if (execResult.status !== 0) {
+            throw new Error(execResult.stderr || `moose.info failed`);
+        }
+        // Extract JSON from mixed stdout (logs + JSON)
+        const lines = execResult.stdout.split('\n');
+        const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
+        if (!jsonLine) {
+            throw new Error(`No JSON in output: ${execResult.stdout.substring(0, 200)}`);
+        }
+        return JSON.parse(jsonLine) as MooseMeshInfo;
     }
 
     // ... helpers: findFreePort, waitForServer, stopServer
@@ -426,19 +472,27 @@ menus.registerMenuAction(NukeMenus.TOOLS_VISUALIZER, {
 
 ### 5. Python Script Execution
 
-Use `PythonCommandHelper` for all Python calls:
+Use `PythonCommandHelper` for all Python calls. **All commands go through `server.py`**:
 
 ```typescript
-// Simple script with JSON output
-const result = await helper.executeScriptJson(
-    'your_script.py',
-    ['arg1', 'arg2'],
-    YOUR_REQUIREMENTS  // PackageDependency[]
+const serverScript = this.pythonHelper.findScript('server.py');
+
+// Simple data query — JSON output
+const execResult = await helper.executeScript(
+    serverScript,
+    ['moose.info', '--file', filePath],
+    { requirements: MOOSE_REQUIREMENTS }
 );
+// Extract JSON line from mixed stdout (library logs may precede it)
+const lines = execResult.stdout.split('\n');
+const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
+const result = JSON.parse(jsonLine);
 
 // Custom server spawning
 const python = await helper.detectPython(YOUR_REQUIREMENTS);
-// spawn your server process...
+const proc = spawn(python.command, [
+    serverScript, 'moose.serve', '--port', String(port), '--file', inputFile
+]);
 ```
 
 ---

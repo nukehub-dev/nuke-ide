@@ -34,7 +34,8 @@ export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = [
     { name: 'trame', submodule: 'app', required: true },
     { name: 'paraview', submodule: 'simple', required: true, condaOnly: true },
     { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
-    { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' }
+    { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' },
+    { name: 'gmsh', required: false }
 ];
 
 export interface PythonConfig {
@@ -170,13 +171,22 @@ export interface VisualizerBackendService {
 
     /**
      * Convert a DAGMC H5M file to VTK format for visualization.
-     * Runs `python/dagmc_converter.py` via MOAB/PyDAGMC.
+     * Runs `python server.py base.convert-dagmc` via MOAB/PyDAGMC.
      *
      * @param filePath Path to the H5M file
      * @param volumeId Optional volume ID to extract only that volume
      * @returns Path to the generated VTK file
      */
     convertDagmc(filePath: string, volumeId?: number): Promise<string>;
+
+    /**
+     * Convert a STEP/STP/BREP CAD file to VTK format for visualization.
+     * Runs `python server.py base.convert-step` via gmsh.
+     *
+     * @param filePath Path to the STEP/STP/BREP file
+     * @returns Path to the generated VTK file
+     */
+    convertStep(filePath: string): Promise<string>;
 
     /**
      * Check the configured Python environment for base visualizer dependencies.

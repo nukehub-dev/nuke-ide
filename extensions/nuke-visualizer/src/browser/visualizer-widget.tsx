@@ -406,6 +406,7 @@ export class VisualizerWidget extends ReactWidget {
                                 <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats:</div>
                                 <div>VTK, VTU, VTP, VTS, VTR, PVTU, PFTP</div>
                                 <div>H5M (DAGMC)</div>
+                                <div>STEP, STP, BREP (CAD)</div>
                                 <div>STL, PLY, OBJ (meshes)</div>
                             </div>
                         </div>
@@ -569,9 +570,11 @@ export class VisualizerWidget extends ReactWidget {
         this.ensureClosable();
         this.update();
         
-        // Check if file is .h5m and needs conversion
+        // Check if file needs conversion before visualization
         if (filePath.endsWith('.h5m')) {
             await this.convertAndLoadDAGMC(filePath, loadId);
+        } else if (/\.(step|stp|brep)$/i.test(filePath)) {
+            await this.convertAndLoadSTEP(filePath, loadId);
         } else {
             await this.startVisualizerServer(filePath, loadId);
         }
@@ -644,6 +647,7 @@ export class VisualizerWidget extends ReactWidget {
             filters: {
                 'VTK Files': ['vtk', 'vtu', 'vtp', 'vts', 'vtr', 'pvtu', 'pvtp'],
                 'DAGMC Files': ['h5m'],
+                'CAD Files': ['step', 'stp', 'brep'],
                 'Mesh Files': ['stl', 'ply', 'obj'],
                 'All Files': ['*']
             }
@@ -679,6 +683,35 @@ export class VisualizerWidget extends ReactWidget {
             console.error('[Visualizer] DAGMC conversion failed:', error);
             const errorMsg = error instanceof Error ? error.message : String(error);
             this.statusMessage = errorMsg;
+            this.update();
+            this.ensureClosable();
+            // Still try to start server with default visualization
+            await this.startVisualizerServer(undefined, loadId);
+        }
+    }
+
+    private async convertAndLoadSTEP(stepPath: string, loadId: number): Promise<void> {
+        if (loadId !== this.currentLoadId) return;
+
+        this.statusMessage = `Converting CAD file: ${stepPath}...`;
+        this.update();
+        
+        try {
+            // Use backend service to convert STEP to VTK
+            const vtkPath = await this.visualizerBackend.convertStep(stepPath);
+            
+            // Check if still the active load
+            if (loadId !== this.currentLoadId) return;
+            
+            this.statusMessage = `Conversion successful. Loading visualization...`;
+            this.update();
+            
+            // Start visualizer server with the converted VTK file
+            await this.startVisualizerServer(vtkPath, loadId);
+        } catch (error) {
+            console.error('[Visualizer] STEP conversion failed:', error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.statusMessage = `CAD conversion failed: ${errorMsg}`;
             this.update();
             this.ensureClosable();
             // Still try to start server with default visualization

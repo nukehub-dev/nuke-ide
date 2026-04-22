@@ -11,11 +11,15 @@ The Base Visualizer renders 3D geometry and scientific datasets using **ParaView
 | VTK legacy | `.vtk` | Structured and unstructured grids |
 | VTK XML | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.pvtu`, `.pvtp` | Parallel and serial XML formats |
 | DAGMC | `.h5m` | Nuclear CAD geometry; auto-converted to VTK |
+| STEP | `.step`, `.stp` | CAD exchange format; auto-converted to VTK |
+| BREP | `.brep` | OpenCASCADE native; auto-converted to VTK |
 | STL | `.stl` | Stereolithography meshes |
 | PLY | `.ply` | Polygon file format |
 | OBJ | `.obj` | Wavefront OBJ |
 
 > **Priority:** `.h5m` files open with the highest priority. If a statepoint exists in the same folder, NukeIDE may offer to overlay tally results instead.
+>
+> **Note:** `.step`, `.stp`, and `.brep` files take precedence over the text editor and open directly in the Visualizer.
 
 ---
 
@@ -85,13 +89,36 @@ The image is saved to a timestamped file in your workspace or copied to the clip
 
 ---
 
+## CAD Specifics (STEP / BREP)
+
+### Auto-Conversion
+
+When you open a `.step`, `.stp`, or `.brep` file:
+1. The backend detects the format.
+2. It runs `python server.py base.convert-step` (using **gmsh** + OpenCASCADE) to mesh the geometry into VTK.
+3. The VTK file is passed to the Trame server for visualization.
+
+> Conversion time depends on model complexity and mesh density. A loading spinner is shown while gmsh generates the surface mesh. The result is cached, so re-opening the same file is instant.
+
+### Requirements
+
+CAD conversion requires **gmsh** in your Python environment:
+
+```bash
+pip install gmsh
+# or
+conda install -c conda-forge gmsh
+```
+
+---
+
 ## DAGMC Specifics
 
 ### Auto-Conversion
 
 When you open a `.h5m` file:
 1. The backend detects the format.
-2. It runs `dagmc_converter.py` (using MOAB/PyDAGMC) to extract geometry into VTK.
+2. It runs `python server.py base.convert-dagmc` (using MOAB/PyDAGMC) to extract geometry into VTK.
 3. The VTK file is passed to the Trame server for visualization.
 
 > Conversion may take a few seconds for large models. A loading spinner is shown.

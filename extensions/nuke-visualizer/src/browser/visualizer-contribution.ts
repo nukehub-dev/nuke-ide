@@ -266,7 +266,10 @@ export class VisualizerContribution extends AbstractViewContribution<VisualizerW
             return 500; // Medium priority for VTK files
         }
         if (['.stl', '.ply', '.obj'].includes(ext)) {
-            return 100; // Low priority for mesh files
+            return 200; // Mesh files — above editor's default 100
+        }
+        if (['.step', '.stp', '.brep'].includes(ext)) {
+            return 200; // CAD files — convert via gmsh then visualize
         }
         return 0;
     }

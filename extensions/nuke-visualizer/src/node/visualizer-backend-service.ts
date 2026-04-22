@@ -214,54 +214,110 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
+    private parseJsonFromMixedOutput(stdout: string): any {
+        // Library code may print log lines before the JSON output.
+        // Find the first line that starts with '{' and parse it as JSON.
+        const lines = stdout.split('\n');
+        const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
+        if (!jsonLine) {
+            throw new Error(`No JSON found in output: ${stdout.substring(0, 200)}`);
+        }
+        try {
+            return JSON.parse(jsonLine);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            throw new Error(`Failed to parse JSON: ${msg}. Output: ${stdout.substring(0, 500)}`);
+        }
+    }
+
     async convertDagmc(filePath: string, volumeId?: number): Promise<string> {
         this.log(`Starting DAGMC conversion: ${filePath}${volumeId !== undefined ? ` (volume ${volumeId})` : ''}`);
-        
-        const converterScript = this.pythonHelper.findScript('dagmc_converter.py');
+
+        const serverScript = this.pythonHelper.findScript('server.py');
         const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
         this.log(`[Converter] Using Python: ${pythonInfo.command}`);
 
-        const args = [converterScript, filePath];
+        const args = ['base.convert-dagmc', '--file', filePath];
         if (volumeId !== undefined) {
             args.push('--volume', String(volumeId));
         }
 
-        this.log(`[Converter] Command: "${pythonInfo.command}" "${args.join('" "')}"`);
+        this.log(`[Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
 
-        const result = await this.pythonHelper.executeScript(converterScript, args.slice(1));
-
-        if (result.status !== 0) {
-            const errorOutput = (result.stdout || '') + (result.stderr || '');
-            this.errorLog(`[Converter] FAILED with status ${result.status}. Output: ${errorOutput}`);
-            throw new Error(errorOutput || `Conversion failed with status ${result.status}`);
+        const execResult = await this.pythonHelper.executeScript(serverScript, args);
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Conversion failed with status ${execResult.status}`);
         }
 
-        this.log(`[Converter] Output: ${result.stdout}`);
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtk_path: string;
+            from_cache: boolean;
+            original_cells?: number;
+            filtered_cells?: number;
+            error?: string;
+        };
 
-        // Parse output to find converted file path
-        const match = result.stdout.match(/Output: (.+)/);
-        if (match) {
-            const vtkPath = match[1].trim();
-            if (fs.existsSync(vtkPath)) {
-                this.log(`[Converter] Success: ${vtkPath}`);
-                return vtkPath;
-            }
+        if (result.error) {
+            this.errorLog(`[Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
         }
 
-        // Fallback: try to infer VTK path
-        let vtkPath: string;
-        if (volumeId !== undefined) {
-            vtkPath = filePath.replace(/\.h5m$/i, `_${volumeId}.vtk`);
-        } else {
-            vtkPath = filePath.replace(/\.h5m$/i, '.vtk');
-        }
-
-        if (fs.existsSync(vtkPath)) {
-            this.log(`[Converter] Success (inferred): ${vtkPath}`);
+        const vtkPath = result.vtk_path;
+        if (vtkPath && fs.existsSync(vtkPath)) {
+            this.log(`[Converter] Success: ${vtkPath}`);
             return vtkPath;
         }
 
-        throw new Error(`Conversion completed but could not find output VTK file. Output: ${result.stdout}`);
+        throw new Error(`Conversion completed but could not find output VTK file: ${vtkPath}`);
+    }
+
+    async convertStep(filePath: string): Promise<string> {
+        this.log(`Starting STEP conversion: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+
+        // STEP conversion requires gmsh — detect Python with gmsh available
+        const pythonInfo = await this.pythonHelper.detectPython([
+            { name: 'gmsh', required: true }
+        ]);
+        this.log(`[STEP Converter] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.convert-step', '--file', filePath];
+
+        this.log(`[STEP Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(
+            serverScript, args,
+            { requirements: [{ name: 'gmsh', required: true }] }
+        );
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[STEP Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `STEP conversion failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtk_path: string;
+            from_cache: boolean;
+            num_nodes?: number;
+            num_elements?: number;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[STEP Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        const vtkPath = result.vtk_path;
+        if (vtkPath && fs.existsSync(vtkPath)) {
+            this.log(`[STEP Converter] Success: ${vtkPath}`);
+            return vtkPath;
+        }
+
+        throw new Error(`STEP conversion completed but could not find output VTK file: ${vtkPath}`);
     }
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {

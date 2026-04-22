@@ -52,7 +52,8 @@ This guide covers the most common issues and how to fix them.
 **Fixes:**
 
 1. Increase `nukeVisualizer.serverTimeout` (default 30s) to 60s or 120s.
-2. For large DAGMC files, conversion can take >30s. Be patient or try a smaller file.
+2. For large DAGMC or CAD files, conversion can take >30s. Be patient or try a smaller file.
+   For STEP/STP/BREP files, ensure **gmsh** is installed in the active Python environment.
 3. Check if another process is using the port (8080–9080 range).
 4. Restart NukeIDE to clean up orphaned Python processes.
 
@@ -104,6 +105,28 @@ Health checks verify the **currently configured** environment, not fallback envi
    cd extensions/nuke-visualizer
    yarn build
    ```
+
+---
+
+## CAD File Conversion Issues
+
+### "CAD conversion failed" for .step / .stp / .brep
+
+**Symptoms:**
+- Error message when opening a STEP file
+- Status shows "CAD conversion failed: gmsh is required..."
+
+**Fixes:**
+
+1. Install **gmsh** in your active Python environment:
+   ```bash
+   pip install gmsh
+   # or via conda
+   conda install -c conda-forge gmsh
+   ```
+2. Re-run the health check to verify gmsh is detected.
+3. Check the **Nuke Visualizer** output channel for the exact Python path being used — it may differ from your shell environment.
+4. For very large or complex assemblies, try reducing mesh density by editing the converter options (advanced).
 
 ---
 

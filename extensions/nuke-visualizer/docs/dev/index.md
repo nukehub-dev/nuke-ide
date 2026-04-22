@@ -52,11 +52,10 @@ python/                        # Python scripts
 │   │   └── lib/               # Helper modules (reader, geometry, etc.)
 │   └── base/                  # Base visualizer plugin
 │       ├── plugin.py
-│       ├── commands/serve.py  # Trame server command
-│       └── lib/               # common.py, dagmc.py
-├── dagmc_converter.py         # H5M → VTK converter
-├── openmc_server.py           # Backward-compat shim
-└── visualizer_app.py          # Backward-compat shim
+│       ├── commands/
+│       │   ├── serve.py       # Trame server command
+│       │   └── convert.py     # File format converters
+│       └── lib/               # common.py, dagmc.py, step.py
 ```
 
 ## API Reference
