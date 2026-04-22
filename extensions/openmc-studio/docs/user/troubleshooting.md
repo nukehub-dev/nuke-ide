@@ -163,6 +163,61 @@ This guide covers the most common issues encountered when building, running, and
 
 ---
 
+## "Some DAGMC volumes failed to load"
+
+**Symptoms:**
+- Warning toast: "Skipped N volumes"
+- Some volumes are missing from the DAGMC Editor grid
+- Error in output channel: `MB_INDEX_OUT_OF_RANGE` or similar
+
+**Fixes:**
+
+1. **Understand the warning:** The DAGMC Editor skips individual volumes that have corrupt or unreadable triangle data, then loads all remaining valid volumes. This is intentional — the file itself may be partially invalid.
+
+2. **Re-facet from source CAD:** If you have the original CAD file:
+   - Use **CAD Import** to re-convert to DAGMC with current settings.
+   - The native writer handles edge cases (empty elements, invalid topology) better than older pipelines.
+
+3. **Check with `pydagmc` directly:**
+   ```python
+   from pydagmc import Model
+   m = Model("model.h5m")
+   for v in m.volumes:
+       try:
+           print(f"Vol {v.id}: {v.num_triangles} triangles")
+       except Exception as e:
+           print(f"Vol {v.id}: FAILED - {e}")
+   ```
+
+4. **For N volumes skipped on first load only:** If the warning appears immediately after import but the editor still shows all volumes, this is a benign timing message. No action needed.
+
+---
+
+## "CAD import mesh is too dense / too coarse"
+
+**Symptoms:**
+- DAGMC file is unexpectedly large (hundreds of MB) or tiny (few triangles)
+- Visual inspection shows jagged or oversimplified surfaces
+- Import takes much longer than expected
+
+**Fixes:**
+
+1. **Adjust the default faceting tolerance:**
+   - Open `Settings → Extensions → OpenMC Studio → Default Faceting Tolerance`
+   - Lower values = finer mesh, larger file; higher values = coarser mesh, smaller file
+   - Default is `0.001` cm. Try `0.01` for faster draft conversions, `0.0001` for high-fidelity final meshes.
+
+2. **Disable auto-adjustment for precise control:**
+   - Uncheck `Settings → Extensions → OpenMC Studio → Auto-Adjust Faceting Tolerance`
+   - This prevents the importer from raising the tolerance for large models.
+   - Useful when you need consistent mesh density regardless of model size.
+
+3. **For very large models (tokamaks, vessels):**
+   - Keep auto-adjustment **enabled** (default). The importer automatically scales tolerance to `bbox_diagonal / 500`.
+   - If the mesh is still too dense, manually set tolerance to `0.1` or higher.
+
+---
+
 ## "Statepoint comparison shows no data"
 
 **Symptoms:**

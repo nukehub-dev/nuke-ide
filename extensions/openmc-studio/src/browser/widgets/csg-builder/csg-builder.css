@@ -15,6 +15,7 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: builder-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
 }
 
 @keyframes builder-fade-in {
@@ -2060,4 +2061,19 @@
 
 .csg-builder .tab-button.dagmc-mode.active::after {
     background: var(--theia-inputValidation-infoBorder);
+}
+
+/* ============================================================================
+   CAD Import Loading Overlay
+   ============================================================================ */
+.csg-builder-importing-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+    animation: builder-fade-in 0.2s ease-out;
 }

@@ -40,33 +40,39 @@ def load_model(file_path: str) -> dict:
         # Build volumes list
         volumes = []
         total_triangles = 0
+        skipped_volumes = 0
 
         for vol in model.volumes:
-            # Get bounding box (simplified - use first surface's coords)
-            bbox_min = [0, 0, 0]
-            bbox_max = [0, 0, 0]
-            if vol.surfaces:
-                try:
-                    # Just get bbox from first surface for speed
-                    surf = vol.surfaces[0]
-                    conn, coords = surf.get_triangle_conn_and_coords()
-                    if coords:
-                        coords_array = np.array(coords)
-                        bbox_min = coords_array.min(axis=0).tolist()
-                        bbox_max = coords_array.max(axis=0).tolist()
-                except:
-                    pass
+            try:
+                # Get bounding box (simplified - use first surface's coords)
+                bbox_min = [0, 0, 0]
+                bbox_max = [0, 0, 0]
+                if vol.surfaces:
+                    try:
+                        # Just get bbox from first surface for speed
+                        surf = vol.surfaces[0]
+                        conn, coords = surf.get_triangle_conn_and_coords()
+                        if coords:
+                            coords_array = np.array(coords)
+                            bbox_min = coords_array.min(axis=0).tolist()
+                            bbox_max = coords_array.max(axis=0).tolist()
+                    except Exception:
+                        pass
 
-            volumes.append({
-                'id': int(vol.id),
-                'material': vol.material,
-                'numTriangles': int(vol.num_triangles),
-                'boundingBox': {
-                    'min': [float(x) for x in bbox_min],
-                    'max': [float(x) for x in bbox_max]
-                }
-            })
-            total_triangles += vol.num_triangles
+                volumes.append({
+                    'id': int(vol.id),
+                    'material': vol.material,
+                    'numTriangles': int(vol.num_triangles),
+                    'boundingBox': {
+                        'min': [float(x) for x in bbox_min],
+                        'max': [float(x) for x in bbox_max]
+                    }
+                })
+                total_triangles += vol.num_triangles
+            except Exception as e:
+                # Skip volumes that can't be read (e.g. MB_INDEX_OUT_OF_RANGE)
+                skipped_volumes += 1
+                print(f"[DAGMC Editor] Warning: skipped volume {vol.id}: {e}", file=sys.stderr)
 
         # Build materials map
         materials = {}

@@ -715,6 +715,30 @@ export class OpenMCPythonExporter {
             case 'plane':
                 constructor = `openmc.Plane(surface_id=${surface.id}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}, d=${coeffs.d}`;
                 break;
+            case 'x-cone':
+                constructor = `openmc.XCone(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, r2=${coeffs.r2}`;
+                break;
+            case 'y-cone':
+                constructor = `openmc.YCone(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, r2=${coeffs.r2}`;
+                break;
+            case 'z-cone':
+                constructor = `openmc.ZCone(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, r2=${coeffs.r2}`;
+                break;
+            case 'x-torus':
+                constructor = `openmc.XTorus(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}`;
+                break;
+            case 'y-torus':
+                constructor = `openmc.YTorus(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}`;
+                break;
+            case 'z-torus':
+                constructor = `openmc.ZTorus(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}`;
+                break;
+            case 'cylinder':
+                constructor = `openmc.Cylinder(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, r=${coeffs.r}, vx=${coeffs.vx}, vy=${coeffs.vy}, vz=${coeffs.vz}`;
+                break;
+            case 'quadric':
+                constructor = `openmc.Quadric(surface_id=${surface.id}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}, d=${coeffs.d}, e=${coeffs.e}, f=${coeffs.f}, g=${coeffs.g}, h=${coeffs.h}, j=${coeffs.j}, k=${coeffs.k}`;
+                break;
             default:
                 constructor = `# Surface type ${surface.type} not implemented`;
                 lines.push(`surface_${surface.id} = ${constructor}`);

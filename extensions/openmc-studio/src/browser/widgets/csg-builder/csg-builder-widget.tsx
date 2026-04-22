@@ -30,6 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandRegistry } from '@theia/core/lib/common/command';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
@@ -37,6 +38,7 @@ import { OpenMCStateManager } from '../../openmc-state-manager';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { OpenMCStudioBackendService, CADImportResult } from '../../../common/openmc-studio-protocol';
 import {
     OpenMCState,
@@ -149,6 +151,41 @@ const SURFACE_TEMPLATES: SurfaceTemplate[] = [
         defaultCoeffs: { x0: 0, y0: 0, z0: 0, r2: 1 }
     },
     {
+        type: 'cylinder',
+        name: 'General Cylinder',
+        icon: 'circle-filled',
+        description: 'Cylinder with arbitrary axis direction',
+        defaultCoeffs: { x0: 0, y0: 0, z0: 0, r: 1, vx: 0, vy: 0, vz: 1 }
+    },
+    {
+        type: 'x-torus',
+        name: 'X-Torus',
+        icon: 'circle-outline',
+        description: 'Torus parallel to x-axis',
+        defaultCoeffs: { x0: 0, y0: 0, z0: 0, a: 5, b: 1, c: 0 }
+    },
+    {
+        type: 'y-torus',
+        name: 'Y-Torus',
+        icon: 'circle-outline',
+        description: 'Torus parallel to y-axis',
+        defaultCoeffs: { x0: 0, y0: 0, z0: 0, a: 5, b: 1, c: 0 }
+    },
+    {
+        type: 'z-torus',
+        name: 'Z-Torus',
+        icon: 'circle-outline',
+        description: 'Torus parallel to z-axis',
+        defaultCoeffs: { x0: 0, y0: 0, z0: 0, a: 5, b: 1, c: 0 }
+    },
+    {
+        type: 'quadric',
+        name: 'Quadric',
+        icon: 'symbol-misc',
+        description: 'General quadric surface (10 coefficients)',
+        defaultCoeffs: { a: 1, b: 1, c: 1, d: 0, e: 0, f: 0, g: 0, h: 0, j: 0, k: -1 }
+    },
+    {
         type: 'plane',
         name: 'General Plane',
         icon: 'blank',
@@ -208,6 +245,9 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCStudioBackendService)
     protected readonly backendService!: OpenMCStudioBackendService;
 
+    @inject(PreferenceService)
+    protected readonly preferences!: PreferenceService;
+
     @inject(NukeCoreStatusBarVisibility)
     protected readonly statusBarVisibility!: NukeCoreStatusBarVisibilityService;
 
@@ -232,6 +272,9 @@ export class CSGBuilderWidget extends ReactWidget {
     
     // DAGMC info from imported file
     private dagmcInfo?: DAGMCInfo;
+
+    // CAD import loading state
+    private isImportingCAD = false;
 
     // Cell form state
     private editingCell?: OpenMCCell;
@@ -296,6 +339,7 @@ export class CSGBuilderWidget extends ReactWidget {
 
         return (
             <div className={`csg-builder ${isDagmcMode ? 'dagmc' : ''}`}>
+                <LoadingAnimations />
                 {this.renderHeader(isDagmcMode)}
                 {this.renderTabs()}
                 <div className='csg-builder-content'>
@@ -303,6 +347,14 @@ export class CSGBuilderWidget extends ReactWidget {
                     {this.activeTab === 'cells' && this.renderCellsTab(state)}
                     {this.activeTab === 'universes' && this.renderUniversesTab(state)}
                 </div>
+                {this.isImportingCAD && (
+                    <div className='csg-builder-importing-overlay'>
+                        <FancyLoadingSpinner
+                            message='Importing CAD file...'
+                            subMessage='This may take a moment for large models'
+                        />
+                    </div>
+                )}
             </div>
         );
     }
@@ -2185,27 +2237,37 @@ export class CSGBuilderWidget extends ReactWidget {
             return;
         }
 
-        this.messageService.info('Importing CAD file...');
-
         const filePath = uri.path.toString();
-        
+
+        // Read user preferences for faceting tolerance
+        const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
+        const autoAdjust = this.preferences.get('openmcStudio.autoAdjustFacetingTolerance', true);
+
+        this.isImportingCAD = true;
+        this.update();
+
         try {
             const result = await this.backendService.importCAD({
                 filePath: filePath,
                 options: {
-                    tolerance: 0.001,
+                    tolerance: tolerance,
                     units: 'cm',
-                    scale: 1.0
+                    scale: 1.0,
+                    autoAdjustTolerance: autoAdjust
                 }
             });
 
             if (result.success) {
+                this.messageService.info('CAD import complete');
                 await this.handleCADImportResult(result, filePath);
             } else {
                 this.messageService.error(`CAD import failed: ${result.error}`);
             }
         } catch (error) {
             this.messageService.error(`Error importing CAD: ${error}`);
+        } finally {
+            this.isImportingCAD = false;
+            this.update();
         }
     }
 

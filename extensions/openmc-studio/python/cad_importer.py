@@ -2,7 +2,8 @@
 """CAD to OpenMC CSG Geometry Converter.
 
 Converts CAD files (STEP/IGES/BREP/STL) to OpenMC-compatible CSG surfaces.
-Uses gmsh for CAD processing and geometry analysis.
+Uses the cad_conversion package for robust surface recognition and
+automatically falls back to DAGMC for NURBS / free-form surfaces.
 
 Usage:
     python cad_importer.py <input_file> [options]
@@ -14,6 +15,10 @@ Options:
     --material-id ID        Material ID for imported cells (default: None)
     --universe-id ID        Universe ID for imported cells (default: 0)
     --output-json           Output result as JSON to stdout
+    --force-dagmc           Force DAGMC conversion even for analytic models
+    --force-csg             Force CSG conversion even if NURBS detected
+    --dagmc-output PATH     Output path for DAGMC .h5m (default: auto)
+    --faceting-tol TOL      Faceting tolerance for DAGMC fallback (default: 0.001)
 """
 
 import sys
@@ -22,451 +27,79 @@ import math
 import argparse
 from pathlib import Path
 
+# Ensure our package is importable
+_SCRIPT_DIR = Path(__file__).parent.resolve()
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from cad_conversion import (
+    gmsh_utils,
+    surface_extractor,
+    nurbs_handler,
+    topology,
+    SurfaceFitResult,
+)
+
 # Optional imports - handled gracefully if not available
 try:
     import numpy as np
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
-    print("Warning: numpy not available, using basic math", file=sys.stderr)
-
-try:
-    import gmsh
-    HAS_GMSH = True
-except ImportError:
-    HAS_GMSH = False
 
 
-def normalize_vector(v):
-    """Normalize a 3D vector to unit length.
+def _map_surface_type_to_openmc(surf_type: str, coeffs: list) -> tuple:
+    """Map internal surface type to OpenMC surface type and coefficients.
 
-    Args:
-        v: Iterable of three components [x, y, z].
-
-    Returns:
-        List of three normalized components. Falls back to [0, 0, 1]
-        for near-zero vectors.
+    Returns (openmc_type, openmc_coefficients).
     """
-    length = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
-    if length < 1e-10:
-        return [0, 0, 1]
-    return [v[0]/length, v[1]/length, v[2]/length]
-
-
-def fit_plane(points):
-    """Fit a plane to a set of 3D points using PCA.
-
-    Args:
-        points: List of [x, y, z] points on the surface.
-
-    Returns:
-        Dictionary with plane coefficients, centroid, max deviation,
-        and type label, or None if fewer than 3 points are provided.
-    """
-    if len(points) < 3:
-        return None
-
-    if HAS_NUMPY:
-        # Compute centroid
-        points_arr = np.array(points)
-        centroid = np.mean(points_arr, axis=0)
-
-        # Compute covariance matrix
-        centered = points_arr - centroid
-        cov = np.dot(centered.T, centered) / len(points)
-
-        # Get normal from smallest eigenvalue eigenvector
-        eigenvalues, eigenvectors = np.linalg.eigh(cov)
-        normal = eigenvectors[:, 0]  # Smallest eigenvalue
-        normal = normalize_vector(normal.tolist())
-
-        # Ensure consistent orientation
-        if normal[2] < 0:
-            normal = [-n for n in normal]
-
-        # Plane equation: ax + by + cz = d
-        d = np.dot(normal, centroid)
-
-        # Calculate max deviation for quality check
-        deviations = [abs(np.dot(normal, p) - d) for p in points_arr]
-        max_deviation = float(max(deviations)) if deviations else 0
-
-        return {
-            'type': 'plane',
-            'coefficients': [float(normal[0]), float(normal[1]), float(normal[2]), -float(d)],
-            'centroid': centroid.tolist(),
-            'max_deviation': max_deviation
-        }
+    if surf_type == 'plane':
+        return 'plane', coeffs
+    elif surf_type == 'sphere':
+        return 'sphere', coeffs
+    elif surf_type == 'cylinder':
+        # General cylinder: [x0, y0, z0, vx, vy, vz, r]
+        # Map to axis-aligned if possible
+        vx, vy, vz = coeffs[3], coeffs[4], coeffs[5]
+        ax = abs(vx)
+        ay = abs(vy)
+        az = abs(vz)
+        if ax > 0.9 and ay < 0.1 and az < 0.1:
+            return 'x-cylinder', [coeffs[0], coeffs[1], coeffs[2], vx, vy, vz, coeffs[6]]
+        elif ay > 0.9 and ax < 0.1 and az < 0.1:
+            return 'y-cylinder', [coeffs[0], coeffs[1], coeffs[2], vx, vy, vz, coeffs[6]]
+        elif az > 0.9 and ax < 0.1 and ay < 0.1:
+            return 'z-cylinder', [coeffs[0], coeffs[1], coeffs[2], vx, vy, vz, coeffs[6]]
+        else:
+            return 'cylinder', coeffs
+    elif surf_type in ('x-cone', 'y-cone', 'z-cone'):
+        return surf_type, coeffs
+    elif surf_type in ('x-torus', 'y-torus', 'z-torus'):
+        return surf_type, coeffs
+    elif surf_type == 'quadric':
+        return 'quadric', coeffs
     else:
-        # Basic implementation without numpy
-        # Simple centroid and normal estimation
-        n = len(points)
-        cx = sum(p[0] for p in points) / n
-        cy = sum(p[1] for p in points) / n
-        cz = sum(p[2] for p in points) / n
-
-        # Estimate normal from first 3 points
-        if len(points) >= 3:
-            p1, p2, p3 = points[0], points[1], points[2]
-            v1 = [p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]]
-            v2 = [p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]]
-            # Cross product
-            nx = v1[1]*v2[2] - v1[2]*v2[1]
-            ny = v1[2]*v2[0] - v1[0]*v2[2]
-            nz = v1[0]*v2[1] - v1[1]*v2[0]
-            normal = normalize_vector([nx, ny, nz])
-        else:
-            normal = [0, 0, 1]
-
-        d = normal[0]*cx + normal[1]*cy + normal[2]*cz
-
-        return {
-            'type': 'plane',
-            'coefficients': [normal[0], normal[1], normal[2], -d],
-            'centroid': [cx, cy, cz],
-            'max_deviation': 0.001  # Assume good fit
-        }
-
-
-def fit_cylinder(points):
-    """Fit a cylinder to a set of 3D points using PCA and least squares.
-
-    Args:
-        points: List of [x, y, z] points on the surface.
-
-    Returns:
-        Dictionary with cylinder coefficients, radius, axis, center,
-        max deviation, and type label, or None if fitting fails or
-        numpy is unavailable.
-    """
-    if len(points) < 6:
-        return None
-
-    if not HAS_NUMPY:
-        return None  # Too complex without numpy
-
-    points_arr = np.array(points)
-
-    # Estimate axis from point distribution using PCA
-    centroid = np.mean(points_arr, axis=0)
-    centered = points_arr - centroid
-    cov = np.dot(centered.T, centered) / len(points)
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
-
-    # The axis is the direction of largest variance (largest eigenvalue)
-    axis = eigenvectors[:, 2]
-    axis = normalize_vector(axis.tolist())
-
-    # Project points onto plane perpendicular to axis
-    u = np.cross(axis, [1, 0, 0])
-    if np.linalg.norm(u) < 0.1:
-        u = np.cross(axis, [0, 1, 0])
-    u = normalize_vector(u.tolist())
-    v = np.cross(axis, u)
-    v = normalize_vector(v.tolist())
-
-    # Project points
-    projections = []
-    for p in centered:
-        pu = np.dot(p, u)
-        pv = np.dot(p, v)
-        projections.append([pu, pv])
-
-    projections = np.array(projections)
-
-    # Fit circle to projections (algebraic method)
-    A = np.column_stack([projections[:, 0], projections[:, 1],
-                         np.ones(len(projections))])
-    b = projections[:, 0]**2 + projections[:, 1]**2
-
-    try:
-        sol = np.linalg.lstsq(A, b, rcond=None)[0]
-        cx, cy = sol[0] / 2, sol[1] / 2
-        r = math.sqrt(sol[2] + cx**2 + cy**2)
-
-        # Center in 3D
-        center = centroid + cx * np.array(u) + cy * np.array(v)
-
-        # Calculate max deviation
-        deviations = []
-        for p in points_arr:
-            to_point = p - center
-            proj_axis = np.dot(to_point, axis)
-            perp = to_point - proj_axis * np.array(axis)
-            dist = np.linalg.norm(perp)
-            deviations.append(abs(dist - r))
-
-        max_deviation = max(deviations) if deviations else float('inf')
-
-        return {
-            'type': 'cylinder',
-            'coefficients': [float(center[0]), float(center[1]), float(center[2]),
-                           float(axis[0]), float(axis[1]), float(axis[2]), float(r)],
-            'radius': float(r),
-            'axis': [float(a) for a in axis],
-            'center': center.tolist(),
-            'max_deviation': float(max_deviation)
-        }
-    except:
-        return None
-
-
-def fit_sphere(points):
-    """Fit a sphere to a set of 3D points using linear least squares.
-
-    Args:
-        points: List of [x, y, z] points on the surface.
-
-    Returns:
-        Dictionary with sphere coefficients, radius, center, max deviation,
-        and type label, or None if fitting fails or numpy is unavailable.
-    """
-    if len(points) < 4:
-        return None
-
-    if not HAS_NUMPY:
-        return None  # Too complex without numpy
-
-    points_arr = np.array(points)
-
-    # Linear least squares for sphere
-    A = np.column_stack([2*points_arr[:, 0], 2*points_arr[:, 1], 2*points_arr[:, 2],
-                         np.ones(len(points_arr))])
-    b = points_arr[:, 0]**2 + points_arr[:, 1]**2 + points_arr[:, 2]**2
-
-    try:
-        sol = np.linalg.lstsq(A, b, rcond=None)[0]
-        center = [float(sol[0]), float(sol[1]), float(sol[2])]
-        r = math.sqrt(sol[3] + center[0]**2 + center[1]**2 + center[2]**2)
-
-        # Calculate max deviation
-        deviations = [abs(math.sqrt(sum((p[i] - center[i])**2 for i in range(3))) - r)
-                     for p in points]
-        max_deviation = max(deviations) if deviations else float('inf')
-
-        return {
-            'type': 'sphere',
-            'coefficients': [center[0], center[1], center[2], float(r)],
-            'radius': float(r),
-            'center': center,
-            'max_deviation': float(max_deviation)
-        }
-    except:
-        return None
-
-
-def analyze_surface_type(points, normals, tolerance):
-    """Analyze surface type and fit the best primitive.
-
-    Tries plane, cylinder, and sphere fits in order of complexity.
-    Falls back to a plane approximation with a warning if no primitive
-    meets the tolerance.
-
-    Args:
-        points: List of [x, y, z] sampled points.
-        normals: List of surface normals (currently unused).
-        tolerance: Maximum allowed fitting deviation.
-
-    Returns:
-        Dictionary describing the fitted surface, or None if fitting fails.
-    """
-    if len(points) < 3:
-        return None
-
-    # Check if planar
-    plane_fit = fit_plane(points)
-    if plane_fit and plane_fit['max_deviation'] < tolerance:
-        return plane_fit
-
-    # Check if cylindrical
-    cyl_fit = fit_cylinder(points)
-    if cyl_fit and cyl_fit['max_deviation'] < tolerance:
-        return cyl_fit
-
-    # Check if spherical
-    sph_fit = fit_sphere(points)
-    if sph_fit and sph_fit['max_deviation'] < tolerance * 2:
-        return sph_fit
-
-    # Default to plane with warning
-    if plane_fit:
-        plane_fit['warning'] = f'Non-planar surface approximated as plane (deviation: {plane_fit["max_deviation"]:.6f})'
-        return plane_fit
-
-    return None
-
-
-def sample_surface_parametric(dim, tag, num_samples=15):
-    """Sample points on a surface using parametric coordinates.
-
-    Args:
-        dim: Geometric dimension of the entity.
-        tag: Gmsh tag identifying the surface.
-        num_samples: Number of samples per parametric direction.
-
-    Returns:
-        List of [x, y, z] points sampled from the surface.
-    """
-    points = []
-
-    try:
-        # Get parameter bounds for the surface
-        param_bounds = gmsh.model.getParametrizationBounds(dim, tag)
-
-        # param_bounds is a tuple of two arrays: (u_bounds, v_bounds)
-        if param_bounds and len(param_bounds) >= 2:
-            u_min, u_max = float(param_bounds[0][0]), float(param_bounds[0][1])
-            v_min, v_max = float(param_bounds[1][0]), float(param_bounds[1][1])
-        else:
-            return points  # Can't sample without bounds
-
-        # Sample uniformly in parametric space
-        for i in range(num_samples):
-            for j in range(num_samples):
-                u = u_min + (u_max - u_min) * i / max(num_samples - 1, 1)
-                v = v_min + (v_max - v_min) * j / max(num_samples - 1, 1)
-
-                try:
-                    coord = gmsh.model.getValue(dim, tag, [u, v])
-                    if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
-                        points.append([float(coord[0]), float(coord[1]), float(coord[2])])
-                except:
-                    pass
-
-        # If we got points but very few, try denser sampling in center region
-        if 0 < len(points) < 9:
-            for i in range(5):
-                for j in range(5):
-                    u = u_min + (u_max - u_min) * (0.3 + 0.4 * i / 4)
-                    v = v_min + (v_max - v_min) * (0.3 + 0.4 * j / 4)
-                    try:
-                        coord = gmsh.model.getValue(dim, tag, [u, v])
-                        if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
-                            pt = [float(coord[0]), float(coord[1]), float(coord[2])]
-                            # Check for duplicates
-                            if not any(abs(p[0]-pt[0]) < 1e-6 and abs(p[1]-pt[1]) < 1e-6 and abs(p[2]-pt[2]) < 1e-6 for p in points):
-                                points.append(pt)
-                    except:
-                        pass
-    except Exception as e:
-        pass
-
-    return points
-
-
-def sample_surface_from_curves(dim, tag):
-    """Sample points from a surface's boundary curves.
-
-    Args:
-        dim: Geometric dimension of the surface entity.
-        tag: Gmsh tag identifying the surface.
-
-    Returns:
-        List of [x, y, z] points sampled from boundary curves.
-    """
-    points = []
-
-    try:
-        # Get boundary curves of the surface
-        boundary = gmsh.model.getBoundary([(dim, tag)], oriented=False, recursive=False)
-
-        for curve_dim, curve_tag in boundary:
-            if curve_dim != 1:
-                continue
-
-            try:
-                # Sample points along the curve
-                param_bounds = gmsh.model.getParametrizationBounds(curve_dim, curve_tag)
-                if param_bounds and len(param_bounds) >= 1:
-                    t_min, t_max = float(param_bounds[0][0]), float(param_bounds[0][1])
-                else:
-                    continue
-
-                for i in range(10):
-                    t = t_min + (t_max - t_min) * i / 9
-                    try:
-                        coord = gmsh.model.getValue(curve_dim, curve_tag, [t])
-                        if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
-                            pt = [float(coord[0]), float(coord[1]), float(coord[2])]
-                            # Check for duplicates
-                            if not any(abs(p[0]-pt[0]) < 1e-6 and abs(p[1]-pt[1]) < 1e-6 and abs(p[2]-pt[2]) < 1e-6 for p in points):
-                                points.append(pt)
-                    except:
-                        pass
-            except:
-                pass
-    except Exception as e:
-        pass
-
-    return points
-
-
-def get_surface_parametrization(dim, tag, tolerance):
-    """Get surface parametrization data using gmsh.
-
-    Samples points parametrically and falls back to curve boundary
-    sampling if too few points are obtained.
-
-    Args:
-        dim: Geometric dimension of the entity.
-        tag: Gmsh tag identifying the surface.
-        tolerance: Fitting tolerance (passed through; currently unused here).
-
-    Returns:
-        Tuple of (points, normals, surf_type) where normals is an
-        empty list and surf_type is the gmsh surface type string.
-    """
-    try:
-        # Get surface type from gmsh
-        surf_type = gmsh.model.getType(dim, tag)
-
-        # Use parametric sampling first
-        points = sample_surface_parametric(dim, tag, 15)
-
-        # If insufficient points, try curve boundary sampling
-        if len(points) < 9:
-            curve_points = sample_surface_from_curves(dim, tag)
-            # Merge unique points
-            for pt in curve_points:
-                if not any(abs(p[0]-pt[0]) < 1e-6 and abs(p[1]-pt[1]) < 1e-6 and abs(p[2]-pt[2]) < 1e-6 for p in points):
-                    points.append(pt)
-
-        normals = []
-        return points, normals, surf_type
-    except Exception as e:
-        return [], [], str(e)
-
-
-def convert_cad_to_openmc(file_path, unit_factor=1.0, tolerance=0.001,
-                          material_id=None, universe_id=0):
-    """Convert a CAD file to OpenMC CSG geometry primitives.
-
-    Opens the CAD file with gmsh, extracts solid boundaries, samples
-    and fits surfaces to planes, cylinders, or spheres, and builds
-    OpenMC-compatible surface and cell dictionaries.
-
-    Args:
-        file_path: Path to the input CAD file (STEP/IGES/BREP/STL).
-        unit_factor: Unit conversion factor applied to coordinates.
-        tolerance: Maximum allowed surface fitting deviation in cm.
-        material_id: Material ID assigned to generated cells.
-        universe_id: Universe ID assigned to generated cells.
-
-    Returns:
-        Dictionary with success flag, surfaces, cells, warnings, and summary.
+        return 'plane', coeffs
+
+
+def convert_cad_to_openmc(file_path: str,
+                          unit_factor: float = 1.0,
+                          tolerance: float = 0.001,
+                          material_id: int = None,
+                          universe_id: int = 0,
+                          force_dagmc: bool = False,
+                          force_csg: bool = False,
+                          dagmc_output: str = None,
+                          faceting_tolerance: float = 0.001,
+                          auto_adjust_tolerance: bool = True) -> dict:
+    """Convert a CAD file to OpenMC geometry.
+
+    Automatically detects NURBS surfaces and falls back to DAGMC conversion
+    unless force_csg is set.
     """
 
-    if not HAS_GMSH:
+    if not gmsh_utils.HAS_GMSH:
         return {'success': False, 'error': 'gmsh not available'}
-
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Terminal", 0)  # Suppress output
-
-    try:
-        gmsh.open(file_path)
-    except Exception as e:
-        gmsh.finalize()
-        return {'success': False, 'error': f'Failed to open CAD file: {str(e)}'}
 
     result = {
         'success': True,
@@ -476,136 +109,153 @@ def convert_cad_to_openmc(file_path, unit_factor=1.0, tolerance=0.001,
         'summary': {
             'surfacesCreated': 0,
             'cellsCreated': 0,
-            'approximationsMade': 0
-        }
+            'approximationsMade': 0,
+        },
+        'dagmc': False,
+        'dagmcFile': None,
+        'nurbsDetected': False,
     }
 
-    try:
-        entities = gmsh.model.getEntities()
+    # ------------------------------------------------------------------
+    # Stage 1: Detect NURBS
+    # ------------------------------------------------------------------
+    has_nurbs = False
+    if not force_csg:
+        try:
+            has_nurbs = nurbs_handler.has_nurbs_surfaces(file_path)
+            result['nurbsDetected'] = has_nurbs
+        except Exception as e:
+            result['warnings'].append(f'NURBS detection failed: {e}')
 
-        # Get all solids (3D entities)
+    # ------------------------------------------------------------------
+    # Stage 2: DAGMC fallback
+    # ------------------------------------------------------------------
+    if (has_nurbs or force_dagmc) and not force_csg:
+        result['warnings'].append(
+            'NURBS or free-form surfaces detected. Falling back to DAGMC conversion.'
+        )
+        dagmc_res = nurbs_handler.convert_to_dagmc(
+            file_path,
+            output_path=dagmc_output,
+            faceting_tolerance=faceting_tolerance,
+            length_scale=unit_factor,
+            auto_adjust_tolerance=auto_adjust_tolerance,
+        )
+        if dagmc_res['success']:
+            result['dagmc'] = True
+            result['dagmcFile'] = dagmc_res['output_path']
+            result['success'] = True
+            # Add basic file info from gmsh
+            gmsh_utils.gmsh.initialize()
+            gmsh_utils.gmsh.option.setNumber("General.Terminal", 0)
+            try:
+                gmsh_utils.gmsh.open(file_path)
+                entities = gmsh_utils.get_all_entities()
+                solids = [e for e in entities if e[0] == 3]
+                faces = [e for e in entities if e[0] == 2]
+                result['fileInfo'] = {
+                    'solidCount': len(solids),
+                    'faceCount': len(faces),
+                    'edgeCount': len([e for e in entities if e[0] == 1]),
+                    'dagmc': True,
+                    'dagmcOutput': dagmc_res['output_path'],
+                }
+                bbox = gmsh_utils.get_bounding_box(-1, -1)
+                result['boundingBox'] = {
+                    'min': [bbox[0] * unit_factor, bbox[1] * unit_factor, bbox[2] * unit_factor],
+                    'max': [bbox[3] * unit_factor, bbox[4] * unit_factor, bbox[5] * unit_factor],
+                }
+            except Exception:
+                pass
+            finally:
+                gmsh_utils.gmsh.finalize()
+
+            if dagmc_res.get('warnings'):
+                result['warnings'].extend(dagmc_res['warnings'])
+            return result
+        else:
+            result['success'] = False
+            result['error'] = dagmc_res.get('error', 'DAGMC conversion failed')
+            return result
+
+    # ------------------------------------------------------------------
+    # Stage 3: CSG conversion for analytic surfaces
+    # ------------------------------------------------------------------
+    gmsh_utils.gmsh.initialize()
+    gmsh_utils.gmsh.option.setNumber("General.Terminal", 0)
+
+    try:
+        gmsh_utils.gmsh.open(file_path)
+    except Exception as e:
+        gmsh_utils.gmsh.finalize()
+        return {'success': False, 'error': f'Failed to open CAD file: {e}'}
+
+    try:
+        entities = gmsh_utils.get_all_entities()
         solids = [e for e in entities if e[0] == 3]
-        surfaces_2d = [e for e in entities if e[0] == 2]
+        faces = [e for e in entities if e[0] == 2]
 
         result['fileInfo'] = {
             'solidCount': len(solids),
-            'faceCount': len(surfaces_2d),
-            'edgeCount': len([e for e in entities if e[0] == 1])
+            'faceCount': len(faces),
+            'edgeCount': len([e for e in entities if e[0] == 1]),
+            'dagmc': False,
         }
 
-        # Get bounding box
-        bbox = gmsh.model.getBoundingBox(-1, -1)
+        bbox = gmsh_utils.get_bounding_box(-1, -1)
         result['boundingBox'] = {
             'min': [bbox[0] * unit_factor, bbox[1] * unit_factor, bbox[2] * unit_factor],
-            'max': [bbox[3] * unit_factor, bbox[4] * unit_factor, bbox[5] * unit_factor]
+            'max': [bbox[3] * unit_factor, bbox[4] * unit_factor, bbox[5] * unit_factor],
         }
 
-        # Note: Mesh generation is disabled for performance
-        # Instead, we use parametric sampling which is faster for large models
-        # If high precision is needed, consider pre-meshing the CAD file
-        pass
-
-        # Surface counter for OpenMC IDs
         surface_id = 1
         cell_id = 1
+        all_surfaces: list = []
 
-        # Process each solid
         for solid_dim, solid_tag in solids:
-            # Get bounding surfaces of this solid
-            try:
-                boundary = gmsh.model.getBoundary([(solid_dim, solid_tag)],
-                                                   oriented=True, recursive=False)
-            except:
-                continue
-
-            solid_surfaces = []
-            solid_surface_ids = []
-
-            # Track surfaces for this solid with their orientations
-            solid_surface_specs = []  # [(surface_id, sign), ...]
+            boundary = gmsh_utils.get_boundary(
+                (solid_dim, solid_tag), oriented=True, recursive=False
+            )
+            solid_surface_specs = []
 
             for surf_dim, signed_tag in boundary:
-                # signed_tag can be positive or negative indicating orientation
+                if surf_dim != 2:
+                    continue
                 surf_tag = abs(signed_tag)
-                orientation = '-' if signed_tag > 0 else '+'  # gmsh sign convention
+                orientation = '-' if signed_tag > 0 else '+'
 
-                # Get surface points and analyze
-                points, normals, surf_type = get_surface_parametrization(
-                    surf_dim, surf_tag, tolerance
+                fit_result = surface_extractor.extract_surface_from_entity(
+                    surf_dim, surf_tag, tolerance, unit_factor, file_path
                 )
 
-                if len(points) < 3:
-                    # Try to get points directly from geometry if mesh failed
-                    try:
-                        points = sample_surface_parametric(surf_dim, surf_tag, 10)
-                    except:
-                        pass
-
-                if len(points) < 3:
-                    result['warnings'].append(f'Surface {signed_tag}: insufficient points for fitting ({len(points)} points)')
+                if fit_result is None:
+                    result['warnings'].append(
+                        f'Surface {signed_tag}: could not fit any analytic primitive'
+                    )
                     continue
 
-                # Analyze and fit surface
-                surface_data = analyze_surface_type(points, normals, tolerance)
+                openmc_type, openmc_coeffs = _map_surface_type_to_openmc(
+                    fit_result.surface_type, fit_result.coefficients
+                )
 
-                if surface_data:
-                    # Apply scale and unit conversion to coefficients
-                    coeffs = surface_data['coefficients']
-                    surf_type = surface_data['type']
+                openmc_surface = {
+                    'id': surface_id,
+                    'type': openmc_type,
+                    'coefficients': openmc_coeffs,
+                    'name': f'surf_{solid_tag}_{surf_tag}',
+                }
 
-                    if surf_type == 'plane':
-                        coeffs = [coeffs[0], coeffs[1], coeffs[2],
-                                 coeffs[3] * unit_factor]
-                    elif surf_type == 'cylinder':
-                        coeffs = [coeffs[0] * unit_factor,
-                                 coeffs[1] * unit_factor,
-                                 coeffs[2] * unit_factor,
-                                 coeffs[3], coeffs[4], coeffs[5],
-                                 coeffs[6] * unit_factor]
-                        # Determine cylinder orientation
-                        if abs(coeffs[3]) > 0.9:
-                            surf_type = 'x-cylinder'
-                        elif abs(coeffs[4]) > 0.9:
-                            surf_type = 'y-cylinder'
-                        elif abs(coeffs[5]) > 0.9:
-                            surf_type = 'z-cylinder'
-                    elif surf_type == 'sphere':
-                        coeffs = [coeffs[0] * unit_factor,
-                                 coeffs[1] * unit_factor,
-                                 coeffs[2] * unit_factor,
-                                 coeffs[3] * unit_factor]
+                if fit_result.warning:
+                    result['warnings'].append(
+                        f'Surface {signed_tag}: {fit_result.warning}'
+                    )
+                    result['summary']['approximationsMade'] += 1
 
-                    # Map surface type to OpenMC surface type
-                    openmc_type_map = {
-                        'plane': 'plane',
-                        'x-cylinder': 'x-cylinder',
-                        'y-cylinder': 'y-cylinder',
-                        'z-cylinder': 'z-cylinder',
-                        'cylinder': 'cylinder',
-                        'sphere': 'sphere'
-                    }
+                all_surfaces.append(openmc_surface)
+                solid_surface_specs.append((surface_id, orientation))
+                surface_id += 1
 
-                    openmc_surface = {
-                        'id': surface_id,
-                        'type': openmc_type_map.get(surf_type, 'plane'),
-                        'coefficients': coeffs,
-                        'name': f'surf_{solid_tag}_{surf_tag}'
-                    }
-
-                    if 'warning' in surface_data:
-                        result['warnings'].append(
-                            f'Surface {signed_tag}: {surface_data["warning"]}'
-                        )
-                        result['summary']['approximationsMade'] += 1
-
-                    result['surfaces'].append(openmc_surface)
-                    solid_surfaces.append(openmc_surface)
-                    solid_surface_specs.append((surface_id, orientation))
-                    surface_id += 1
-
-            # Create cell for this solid
             if solid_surface_specs:
-                # Build region expression with proper orientations
                 region_terms = [f'{sign}{sid}' for sid, sign in solid_surface_specs]
                 region = ' & '.join(region_terms)
 
@@ -614,34 +264,32 @@ def convert_cad_to_openmc(file_path, unit_factor=1.0, tolerance=0.001,
                     'name': f'cell_solid_{solid_tag}',
                     'region': region,
                     'material': str(material_id) if material_id is not None else 'void',
-                    'universe': universe_id
+                    'universe': universe_id,
                 }
-
                 result['cells'].append(cell)
                 cell_id += 1
 
-        result['summary']['surfacesCreated'] = len(result['surfaces'])
+        # Post-process: merge coplanar surfaces
+        all_surfaces = topology.merge_coplanar_surfaces(all_surfaces, tolerance)
+
+        result['surfaces'] = all_surfaces
+        result['summary']['surfacesCreated'] = len(all_surfaces)
         result['summary']['cellsCreated'] = len(result['cells'])
 
-        gmsh.finalize()
+        gmsh_utils.gmsh.finalize()
         return result
 
     except Exception as e:
-        gmsh.finalize()
+        gmsh_utils.gmsh.finalize()
         return {
             'success': False,
-            'error': f'Geometry extraction failed: {str(e)}',
-            'warnings': result.get('warnings', [])
+            'error': f'Geometry extraction failed: {e}',
+            'warnings': result.get('warnings', []),
         }
 
 
 def main():
-    """Main entry point for CLI usage.
-
-    Parses arguments, calls convert_cad_to_openmc, and prints the
-    result as JSON or a human-readable summary.
-    """
-    parser = argparse.ArgumentParser(description='Convert CAD to OpenMC CSG')
+    parser = argparse.ArgumentParser(description='Convert CAD to OpenMC CSG or DAGMC')
     parser.add_argument('input_file', help='Input CAD file (STEP/IGES/BREP/STL)')
     parser.add_argument('--unit-factor', type=float, default=1.0,
                        help='Unit conversion factor (default: 1.0)')
@@ -655,10 +303,18 @@ def main():
                        help='Universe ID for imported cells')
     parser.add_argument('--output-json', action='store_true',
                        help='Output result as JSON')
+    parser.add_argument('--force-dagmc', action='store_true',
+                       help='Force DAGMC conversion')
+    parser.add_argument('--force-csg', action='store_true',
+                       help='Force CSG conversion even with NURBS')
+    parser.add_argument('--dagmc-output', type=str, default=None,
+                       help='Output path for DAGMC .h5m file')
+    parser.add_argument('--faceting-tol', type=float, default=0.001,
+                       help='Faceting tolerance for DAGMC (default: 0.001)')
+    parser.add_argument('--no-auto-adjust-tol', action='store_true',
+                       help='Disable automatic faceting tolerance adjustment for large models')
 
     args = parser.parse_args()
-
-    # Apply both unit factor and scale
     total_scale = args.unit_factor * args.scale
 
     result = convert_cad_to_openmc(
@@ -666,17 +322,22 @@ def main():
         unit_factor=total_scale,
         tolerance=args.tolerance,
         material_id=args.material_id,
-        universe_id=args.universe_id
+        universe_id=args.universe_id,
+        force_dagmc=args.force_dagmc,
+        force_csg=args.force_csg,
+        dagmc_output=args.dagmc_output,
+        faceting_tolerance=args.faceting_tol,
+        auto_adjust_tolerance=not args.no_auto_adjust_tol,
     )
 
     if args.output_json:
-        # Print JSON to stderr to avoid mixing with gmsh stdout
-        import sys
         json.dump(result, sys.stdout)
         sys.stdout.flush()
     else:
         if result['success']:
-            print(f"Successfully converted CAD file")
+            print("Successfully converted CAD file")
+            if result.get('dagmc'):
+                print(f"DAGMC output: {result.get('dagmcFile')}")
             print(f"Surfaces created: {result['summary']['surfacesCreated']}")
             print(f"Cells created: {result['summary']['cellsCreated']}")
             if result['warnings']:

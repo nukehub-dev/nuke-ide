@@ -60,6 +60,16 @@ export const OpenMCStudioPreferenceSchema: PreferenceSchema = {
             type: 'number',
             default: 10,
             description: 'Default number of inactive batches for eigenvalue calculations.'
+        },
+        'openmcStudio.defaultFacetingTolerance': {
+            type: 'number',
+            default: 0.001,
+            description: 'Default faceting tolerance (cm) for CAD-to-DAGMC conversion. Smaller values produce finer meshes.'
+        },
+        'openmcStudio.autoAdjustFacetingTolerance': {
+            type: 'boolean',
+            default: true,
+            description: 'Automatically increase faceting tolerance for very large models to prevent excessive mesh generation time.'
         }
     }
 };
@@ -72,6 +82,10 @@ export interface OpenMCStudioConfiguration {
     'openmcStudio.defaultBatches': number;
     /** Default number of inactive batches for eigenvalue calculations. */
     'openmcStudio.defaultInactive': number;
+    /** Default faceting tolerance (cm) for CAD-to-DAGMC conversion. */
+    'openmcStudio.defaultFacetingTolerance': number;
+    /** Whether to auto-adjust faceting tolerance for large models. */
+    'openmcStudio.autoAdjustFacetingTolerance': boolean;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for OpenMC Studio. */

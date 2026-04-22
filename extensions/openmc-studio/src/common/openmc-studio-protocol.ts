@@ -752,6 +752,8 @@ export interface CADImportRequest {
         scale?: number;
         /** Units of the input file (default: 'cm') */
         units?: 'cm' | 'mm' | 'm' | 'in' | 'ft';
+        /** Whether to auto-adjust faceting tolerance for large models */
+        autoAdjustTolerance?: boolean;
         /** Material assignment for imported geometry */
         materialId?: number;
         /** Universe to place the imported geometry in */

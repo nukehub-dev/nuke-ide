@@ -164,31 +164,29 @@ Click any `.h5m` file in the Explorer.
 
 ### Viewing Volumes
 
-The DAGMC Editor sidebar lists all volumes in the file:
+The DAGMC Editor displays all volumes in a scrollable grid. Click any volume card to open a **centered detail modal** that shows:
 
-| Column | Description |
-|--------|-------------|
+| Property | Description |
+|----------|-------------|
 | **Volume ID** | DAGMC volume identifier |
 | **Name** | Volume name (if tagged) |
 | **Material** | Assigned material tag |
 | **Group Tags** | DAGMC group memberships |
+| **Bounding Box** | Axis-aligned bounds `[xmin, ymin, zmin]` to `[xmax, ymax, zmax]` |
+| **Surface Count** | Number of bounding surfaces |
+| **Triangle Count** | Faceted mesh triangle count |
 
-Click a volume to see its properties:
-- Bounding box
-- Surface count
-- Triangle count
-- Assigned material
+The modal floats above the volume grid, so you can scroll through the list without losing your place. Click outside the modal or press `Escape` to close it.
 
-Click **"View 3D"** on a volume to visualize it in the 3D viewer. Use Ctrl/Cmd-click to select multiple volumes for combined visualization.
+Click **"View 3D"** in the modal to visualize the selected volume in the 3D viewer. Use Ctrl/Cmd-click on the grid to select multiple volumes for combined visualization.
 
 ---
 
 ### Assigning Materials
 
-1. Select one or more volumes in the volume list.
-2. Click **"Assign Material"** in the toolbar.
-3. Choose a material from the dropdown (populated from the current project's Materials tab) or type a new material name.
-4. The material tag is written to the `.h5m` file immediately.
+1. Click a volume card to open the detail modal.
+2. In the **Material** section, select a material from the dropdown (populated from the current project's Materials tab) or type a new material name.
+3. The material tag is written to the `.h5m` file immediately.
 
 > **Tip:** DAGMC materials are stored as string tags on volumes. They must match material names in your `materials.xml` at runtime.
 
@@ -200,11 +198,11 @@ DAGMC uses groups to organize volumes and surfaces (e.g., "graveyard", "reflecti
 
 | Action | How To |
 |--------|--------|
-| **Create Group** | Click **"New Group"**, enter a name |
-| **Add Volume to Group** | Select volume → **"Add to Group"** → choose group |
-| **Remove from Group** | Select volume → **"Remove from Group"** |
-| **Delete Group** | Right-click group → **"Delete Group"** |
-| **Rename Group** | Right-click group → **"Rename"** |
+| **Create Group** | Switch to the **Groups** tab → Click **"New Group"**, enter a name |
+| **Add Volume to Group** | Open volume modal → **"Add to Group"** → choose group |
+| **Remove from Group** | Open volume modal → **"Remove from Group"** |
+| **Delete Group** | Groups tab → Click group → **"Delete Group"** |
+| **Rename Group** | Groups tab → Click group → **"Rename"** |
 
 Important groups:
 
@@ -217,15 +215,27 @@ Important groups:
 
 ---
 
+### Saving the DAGMC File
+
+When a DAGMC file is loaded, the header shows a **Save As** button. Click it to save a copy of the current `.h5m` file under a new name or location. This is useful for:
+
+- Creating checkpoints before bulk material assignments
+- Exporting a modified model for use in other workflows
+- Renaming files to match project conventions
+
+The Save As button only appears when a file is actually loaded.
+
+---
+
 ### 3D Preview via Nuke-Visualizer
 
-Click **"Preview All Volumes"** to open the full model in the 3D viewer:
+Click **"3D View"** in the header to open the full model in the 3D viewer:
 
 - Volumes are rendered as watertight triangular meshes.
 - Colors are assigned by material tag or volume ID.
 - Use the [Base Visualizer controls](../nuke-visualizer/docs/user/base-visualizer.md) for opacity, clipping, and screenshots.
 
-For large models, use **"Preview Selected"** to load only the selected volumes and reduce memory usage.
+For large models, use **"Preview Selected"** in the volume modal to load only the selected volumes and reduce memory usage.
 
 ---
 
@@ -248,6 +258,19 @@ Import STEP, IGES, BREP, and STL files and convert them to CSG surfaces or DAGMC
 5. For DAGMC conversion, set the mesh tolerance and output path.
 
 > **Tip:** CSG conversion works best on primitives (cylinders, boxes, spheres). Highly curved or organic shapes should use DAGMC.
+
+---
+
+## Robustness Notes
+
+### Handling Corrupt or Partial Volumes
+
+Some DAGMC files contain volumes that cannot be fully interrogated (e.g., missing triangle data or invalid topology). The DAGMC Editor **gracefully skips these individual volumes** rather than crashing the entire load. A warning toast appears listing how many volumes were skipped, and the remaining valid volumes are still displayed and editable.
+
+If you see "skipped N volumes" warnings:
+- The file may have been generated with an older or incomplete mesher.
+- Try re-faceting the source CAD with the current importer (see [CAD Import](cad-import.md)).
+- Check the Python output channel for the specific volume IDs that failed.
 
 ---
 

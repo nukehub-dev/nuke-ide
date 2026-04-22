@@ -7,6 +7,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    position: relative;
     background: var(--theia-editor-background);
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
@@ -29,7 +30,7 @@
 }
 
 /* ============================================================================
-   Header Section - Improved like CSG Builder
+   Header Section
    ============================================================================ */
 
 .dagmc-editor-header {
@@ -109,7 +110,7 @@
 }
 
 /* ============================================================================
-   Tabs Navigation - Like CSG Builder
+   Tabs Navigation
    ============================================================================ */
 
 .dagmc-editor-tabs {
@@ -230,12 +231,12 @@
    Tab Content
    ============================================================================ */
 
-.dagmc-tab-content {
+.dagmc-editor .dagmc-tab-content {
     animation: dagmc-slide-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Tab Header with Stats */
-.dagmc-tab-header {
+.dagmc-editor .dagmc-tab-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -244,13 +245,13 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.tab-title-group {
+.dagmc-editor .tab-title-group {
     display: flex;
     align-items: center;
     gap: 24px;
 }
 
-.filter-pills {
+.dagmc-editor .filter-pills {
     display: flex;
     gap: 8px;
     background: var(--theia-panel-background);
@@ -259,7 +260,7 @@
     border: 1px solid var(--theia-panel-border);
 }
 
-.filter-pills .pill {
+.dagmc-editor .filter-pills .pill {
     padding: 4px 12px;
     border-radius: 16px;
     border: none;
@@ -273,17 +274,17 @@
     transition: all 0.2s ease;
 }
 
-.filter-pills .pill:hover {
+.dagmc-editor .filter-pills .pill:hover {
     color: var(--theia-foreground);
     background: rgba(255, 255, 255, 0.05);
 }
 
-.filter-pills .pill.active {
+.dagmc-editor .filter-pills .pill.active {
     background: var(--theia-focusBorder);
     color: white;
 }
 
-.empty-state-mini {
+.dagmc-editor .empty-state-mini {
     grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
@@ -294,24 +295,24 @@
     text-align: center;
 }
 
-.empty-state-mini i {
+.dagmc-editor .empty-state-mini i {
     font-size: 40px;
     margin-bottom: 16px;
     opacity: 0.4;
 }
 
 /* Inspector Style for Details Panel */
-.volume-details-panel .inspector-section {
+.dagmc-editor .volume-details-panel .inspector-section {
     margin-bottom: 24px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.volume-details-panel .inspector-section:last-child {
+.dagmc-editor .volume-details-panel .inspector-section:last-child {
     border-bottom: none;
 }
 
-.volume-details-panel .inspector-title {
+.dagmc-editor .volume-details-panel .inspector-title {
     font-size: 11px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
@@ -320,13 +321,13 @@
     font-weight: 600;
 }
 
-.volume-details-panel .stats-grid-mini {
+.dagmc-editor .volume-details-panel .stats-grid-mini {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
 }
 
-.volume-details-panel .stat-mini-item {
+.dagmc-editor .volume-details-panel .stat-mini-item {
     background: var(--theia-panel-background);
     padding: 12px;
     border-radius: 8px;
@@ -335,37 +336,37 @@
     gap: 4px;
 }
 
-.volume-details-panel .stat-mini-item .label {
+.dagmc-editor .volume-details-panel .stat-mini-item .label {
     font-size: 10px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
 }
 
-.volume-details-panel .stat-mini-item .value {
+.dagmc-editor .volume-details-panel .stat-mini-item .value {
     font-size: 14px;
     font-weight: 700;
     color: var(--theia-focusBorder);
     font-family: var(--theia-code-font-family);
 }
 
-.volume-details-panel .bbox-coord {
+.dagmc-editor .volume-details-panel .bbox-coord {
     display: flex;
     flex-direction: column;
     gap: 4px;
     margin-bottom: 12px;
 }
 
-.volume-details-panel .bbox-coord:last-child {
+.dagmc-editor .volume-details-panel .bbox-coord:last-child {
     margin-bottom: 0;
 }
 
-.volume-details-panel .bbox-coord .label {
+.dagmc-editor .volume-details-panel .bbox-coord .label {
     font-size: 10px;
     font-weight: 700;
     color: var(--theia-descriptionForeground);
 }
 
-.volume-details-panel .bbox-coord .value {
+.dagmc-editor .volume-details-panel .bbox-coord .value {
     font-size: 12px;
     font-family: var(--theia-monospace-font-family);
     color: var(--theia-foreground);
@@ -374,12 +375,12 @@
     border-radius: 4px;
 }
 
-.volume-details-panel .inspector-actions {
+.dagmc-editor .volume-details-panel .inspector-actions {
     margin-top: 24px;
 }
 
 /* Inline Material Editor */
-.material-editor-inline {
+.dagmc-editor .material-editor-inline {
     display: flex;
     gap: 8px;
     align-items: center;
@@ -387,7 +388,7 @@
     animation: dagmc-fade-in 0.2s ease-out;
 }
 
-.material-editor-inline .editor-input-wrapper {
+.dagmc-editor .material-editor-inline .editor-input-wrapper {
     flex: 1;
     display: flex;
     align-items: center;
@@ -399,12 +400,12 @@
     box-shadow: 0 0 0 1px var(--theia-focusBorder);
 }
 
-.material-editor-inline .editor-input-wrapper i {
+.dagmc-editor .material-editor-inline .editor-input-wrapper i {
     color: var(--theia-focusBorder);
     font-size: 14px;
 }
 
-.material-editor-inline .editor-input-wrapper input {
+.dagmc-editor .material-editor-inline .editor-input-wrapper input {
     flex: 1;
     background: transparent;
     border: none;
@@ -414,12 +415,12 @@
     padding: 0;
 }
 
-.material-editor-inline .editor-actions {
+.dagmc-editor .material-editor-inline .editor-actions {
     display: flex;
     gap: 4px;
 }
 
-.material-editor-inline .action-btn {
+.dagmc-editor .material-editor-inline .action-btn {
     width: 30px;
     height: 30px;
     display: flex;
@@ -431,43 +432,43 @@
     transition: all 0.2s;
 }
 
-.material-editor-inline .action-btn.confirm {
+.dagmc-editor .material-editor-inline .action-btn.confirm {
     background: var(--theia-button-background);
     color: var(--theia-button-foreground);
 }
 
-.material-editor-inline .action-btn.confirm:hover {
+.dagmc-editor .material-editor-inline .action-btn.confirm:hover {
     background: var(--theia-button-hoverBackground);
 }
 
-.material-editor-inline .action-btn.cancel {
+.dagmc-editor .material-editor-inline .action-btn.cancel {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
 }
 
-.material-editor-inline .action-btn.cancel:hover {
+.dagmc-editor .material-editor-inline .action-btn.cancel:hover {
     opacity: 0.8;
 }
 
-.volume-card .selection-icon {
+.dagmc-editor .volume-card .selection-icon {
     opacity: 0.3;
     transition: all 0.2s ease;
 }
 
-.volume-card.selected .selection-icon {
+.dagmc-editor .volume-card.selected .selection-icon {
     opacity: 1;
     transform: translateX(2px);
     color: var(--theia-focusBorder);
 }
 
-.inspector-section .detail-material .material-text {
+.dagmc-editor .inspector-section .detail-material .material-text {
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.dagmc-tab-header h3 {
+.dagmc-editor .dagmc-tab-header h3 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
@@ -479,17 +480,17 @@
     gap: 8px;
 }
 
-.dagmc-tab-header h3 i {
+.dagmc-editor .dagmc-tab-header h3 i {
     color: var(--theia-focusBorder);
 }
 
-.dagmc-tab-header .header-actions {
+.dagmc-editor .dagmc-tab-header .header-actions {
     display: flex;
     gap: 12px;
     align-items: center;
 }
 
-.dagmc-tab-header .search-box {
+.dagmc-editor .dagmc-tab-header .search-box {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -501,16 +502,16 @@
     transition: border-color 0.2s ease;
 }
 
-.dagmc-tab-header .search-box:focus-within {
+.dagmc-editor .dagmc-tab-header .search-box:focus-within {
     border-color: var(--theia-focusBorder);
 }
 
-.dagmc-tab-header .search-box i {
+.dagmc-editor .dagmc-tab-header .search-box i {
     color: var(--theia-descriptionForeground);
     font-size: 14px;
 }
 
-.dagmc-tab-header .search-box input {
+.dagmc-editor .dagmc-tab-header .search-box input {
     border: none;
     background: transparent;
     color: var(--theia-input-foreground);
@@ -523,14 +524,14 @@
    Volumes Grid
    ============================================================================ */
 
-.volumes-grid {
+.dagmc-editor .volumes-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 20px;
     padding-bottom: 20px;
 }
 
-.volume-card {
+.dagmc-editor .volume-card {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 12px;
@@ -544,20 +545,20 @@
     flex-direction: column;
 }
 
-.volume-card:hover {
+.dagmc-editor .volume-card:hover {
     border-color: var(--theia-focusBorder);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     transform: translateY(-4px);
 }
 
-.volume-card.selected {
+.dagmc-editor .volume-card.selected {
     border-color: var(--theia-focusBorder);
     background: var(--theia-list-activeSelectionBackground);
     box-shadow: 0 0 0 2px var(--theia-focusBorder), 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
 /* Card Decorative Background */
-.volume-card::after {
+.dagmc-editor .volume-card::after {
     content: '';
     position: absolute;
     top: -50px;
@@ -571,23 +572,23 @@
     transition: opacity 0.3s ease;
 }
 
-.volume-card:hover::after {
+.dagmc-editor .volume-card:hover::after {
     opacity: 0.08;
 }
 
-.volume-card .volume-card-main {
+.dagmc-editor .volume-card .volume-card-main {
     padding: 16px;
     flex: 1;
 }
 
-.volume-card .volume-header {
+.dagmc-editor .volume-card .volume-header {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
 }
 
-.volume-card .volume-icon {
+.dagmc-editor .volume-card .volume-icon {
     width: 44px;
     height: 44px;
     display: flex;
@@ -599,34 +600,34 @@
     transition: all 0.3s ease;
 }
 
-.volume-card:hover .volume-icon {
+.dagmc-editor .volume-card:hover .volume-icon {
     background: var(--theia-inputValidation-infoBackground);
 }
 
-.volume-card .volume-icon i {
+.dagmc-editor .volume-card .volume-icon i {
     font-size: 22px;
     color: var(--theia-descriptionForeground);
     transition: color 0.3s ease;
 }
 
-.volume-card.selected .volume-icon i,
-.volume-card:hover .volume-icon i {
+.dagmc-editor .volume-card.selected .volume-icon i,
+.dagmc-editor .volume-card:hover .volume-icon i {
     color: var(--theia-focusBorder);
 }
 
-.volume-card .volume-info {
+.dagmc-editor .volume-card .volume-info {
     flex: 1;
     min-width: 0;
 }
 
-.volume-card .volume-id {
+.dagmc-editor .volume-card .volume-id {
     font-size: 15px;
     font-weight: 700;
     color: var(--theia-foreground);
     font-family: var(--theia-ui-font-family);
 }
 
-.volume-card .volume-triangles {
+.dagmc-editor .volume-card .volume-triangles {
     font-size: 11px;
     color: var(--theia-descriptionForeground);
     display: flex;
@@ -637,7 +638,7 @@
     letter-spacing: 0.5px;
 }
 
-.volume-card .volume-card-footer {
+.dagmc-editor .volume-card .volume-card-footer {
     padding: 12px 16px;
     background: rgba(0, 0, 0, 0.05);
     border-top: 1px solid var(--theia-panel-border);
@@ -646,17 +647,17 @@
     justify-content: space-between;
 }
 
-.volume-card .volume-card-footer .action-btn {
+.dagmc-editor .volume-card .volume-card-footer .action-btn {
     cursor: pointer;
     transition: all 0.2s;
 }
 
-.volume-card.selected .volume-card-footer {
+.dagmc-editor .volume-card.selected .volume-card-footer {
     background: rgba(0, 0, 0, 0.1);
 }
 
 /* Material Chip */
-.volume-card .volume-material-chip {
+.dagmc-editor .volume-card .volume-material-chip {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -668,36 +669,36 @@
     max-width: 100%;
 }
 
-.volume-card .volume-material-chip i {
+.dagmc-editor .volume-card .volume-material-chip i {
     font-size: 13px;
     color: var(--theia-focusBorder);
 }
 
-.volume-card .volume-material-chip .material-name {
+.dagmc-editor .volume-card .volume-material-chip .material-name {
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.volume-card .volume-material-chip .material-name.unassigned {
+.dagmc-editor .volume-card .volume-material-chip .material-name.unassigned {
     font-style: italic;
     opacity: 0.6;
     font-weight: 400;
 }
 
-.volume-card .quick-actions {
+.dagmc-editor .volume-card .quick-actions {
     display: flex;
     gap: 4px;
     opacity: 0;
     transition: opacity 0.2s ease;
 }
 
-.volume-card:hover .quick-actions {
+.dagmc-editor .volume-card:hover .quick-actions {
     opacity: 1;
 }
 
-.volume-card .action-btn {
+.dagmc-editor .volume-card .action-btn {
     width: 28px;
     height: 28px;
     display: flex;
@@ -711,13 +712,13 @@
     transition: all 0.2s ease;
 }
 
-.volume-card .action-btn:hover {
+.dagmc-editor .volume-card .action-btn:hover {
     background: var(--theia-list-hoverBackground);
     color: var(--theia-foreground);
 }
 
 /* Triangle Bar Indicator */
-.volume-card .triangle-bar-container {
+.dagmc-editor .volume-card .triangle-bar-container {
     height: 4px;
     background: var(--theia-panel-background);
     width: 100%;
@@ -726,7 +727,7 @@
     left: 0;
 }
 
-.volume-card .triangle-bar-fill {
+.dagmc-editor .volume-card .triangle-bar-fill {
     height: 100%;
     background: var(--theia-focusBorder);
     opacity: 0.5;
@@ -737,23 +738,29 @@
    Volumes Layout with Side Panel
    ============================================================================ */
 
-.volumes-layout {
+/* Make the volumes tab fill the editor content area so the grid
+   can scroll independently without pushing the whole page. */
+.dagmc-editor .volumes-tab {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.dagmc-editor .volumes-layout {
     display: flex;
     gap: 20px;
-    height: calc(100% - 60px);
-}
-
-.volumes-layout .volumes-grid {
     flex: 1;
+    min-height: 0;
 }
 
-.volumes-layout.with-details .volumes-grid {
-    flex: 0 0 60%;
+.dagmc-editor .volumes-layout .volumes-grid {
+    flex: 1;
+    min-height: 0;
+    padding-right: 4px;
 }
 
-/* Volume Details Panel */
-.volume-details-panel {
-    flex: 0 0 380px;
+/* Volume Details Panel (used inside modal) */
+.dagmc-editor .volume-details-panel {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
@@ -761,18 +768,22 @@
     flex-direction: column;
     animation: dagmc-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    max-height: 80vh;
 }
 
-.volume-details-panel .details-header {
+.dagmc-editor .volume-details-panel .details-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
-.volume-details-panel .details-header h4 {
+.dagmc-editor .volume-details-panel .details-header h4 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
@@ -781,11 +792,11 @@
     gap: 8px;
 }
 
-.volume-details-panel .details-header h4 i {
+.dagmc-editor .volume-details-panel .details-header h4 i {
     color: var(--theia-focusBorder);
 }
 
-.volume-details-panel .close-btn {
+.dagmc-editor .volume-details-panel .close-btn {
     background: transparent;
     border: none;
     padding: 4px;
@@ -796,22 +807,22 @@
     border-radius: 4px;
 }
 
-.volume-details-panel .close-btn:hover {
+.dagmc-editor .volume-details-panel .close-btn:hover {
     opacity: 1;
     background: var(--theia-list-hoverBackground);
 }
 
-.volume-details-panel .details-content {
+.dagmc-editor .volume-details-panel .details-content {
     flex: 1;
     padding: 20px;
     overflow-y: auto;
 }
 
-.volume-details-panel .detail-row {
+.dagmc-editor .volume-details-panel .detail-row {
     margin-bottom: 20px;
 }
 
-.volume-details-panel .detail-row label {
+.dagmc-editor .volume-details-panel .detail-row label {
     display: block;
     font-size: 11px;
     color: var(--theia-descriptionForeground);
@@ -820,13 +831,13 @@
     margin-bottom: 8px;
 }
 
-.volume-details-panel .detail-value {
+.dagmc-editor .volume-details-panel .detail-value {
     font-size: 14px;
     color: var(--theia-foreground);
     font-family: var(--theia-code-font-family);
 }
 
-.volume-details-panel .detail-material {
+.dagmc-editor .volume-details-panel .detail-material {
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -836,21 +847,21 @@
     font-weight: 500;
 }
 
-.volume-details-panel .detail-material.assigned {
+.dagmc-editor .volume-details-panel .detail-material.assigned {
     background: var(--theia-inputValidation-infoBackground);
     color: var(--theia-inputValidation-infoBorder);
 }
 
-.volume-details-panel .detail-material.unassigned {
+.dagmc-editor .volume-details-panel .detail-material.unassigned {
     background: var(--theia-inputValidation-warningBackground);
     color: var(--theia-inputValidation-warningBorder);
 }
 
-.volume-details-panel .detail-material i {
+.dagmc-editor .volume-details-panel .detail-material i {
     font-size: 16px;
 }
 
-.volume-details-panel .detail-material .edit-btn {
+.dagmc-editor .volume-details-panel .detail-material .edit-btn {
     margin-left: 8px;
     background: transparent;
     border: none;
@@ -862,12 +873,12 @@
     transition: opacity 0.2s;
 }
 
-.volume-details-panel .detail-material .edit-btn:hover {
+.dagmc-editor .volume-details-panel .detail-material .edit-btn:hover {
     opacity: 1;
     background: rgba(255, 255, 255, 0.1);
 }
 
-.volume-details-panel .detail-bbox {
+.dagmc-editor .volume-details-panel .detail-bbox {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -883,7 +894,13 @@
    Materials Tab
    ============================================================================ */
 
-.material-card {
+.dagmc-editor .materials-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.dagmc-editor .material-card {
     display: flex;
     flex-direction: column;
     padding: 0;
@@ -894,29 +911,29 @@
     border: 1px solid var(--theia-panel-border);
 }
 
-.material-card:hover {
+.dagmc-editor .material-card:hover {
     border-color: var(--theia-focusBorder);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.material-card .material-card-main {
+.dagmc-editor .material-card .material-card-main {
     padding: 16px;
     flex: 1;
 }
 
-.material-card .material-header {
+.dagmc-editor .material-card .material-header {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 12px;
 }
 
-.material-card .material-info {
+.dagmc-editor .material-card .material-info {
     flex: 1;
     min-width: 0;
 }
 
-.material-card .material-name {
+.dagmc-editor .material-card .material-name {
     font-size: 15px;
     font-weight: 700;
     color: var(--theia-foreground);
@@ -925,7 +942,7 @@
     text-overflow: ellipsis;
 }
 
-.material-card .material-meta {
+.dagmc-editor .material-card .material-meta {
     font-size: 10px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
@@ -933,7 +950,7 @@
     margin-top: 2px;
 }
 
-.material-card .material-count-big {
+.dagmc-editor .material-card .material-count-big {
     font-size: 24px;
     font-weight: 800;
     color: var(--theia-focusBorder);
@@ -941,25 +958,25 @@
     opacity: 0.8;
 }
 
-.material-card .coverage-indicator {
+.dagmc-editor .material-card .coverage-indicator {
     margin-top: 12px;
 }
 
-.material-card .bar-track {
+.dagmc-editor .material-card .bar-track {
     height: 6px;
     background: var(--theia-panel-background);
     border-radius: 3px;
     overflow: hidden;
 }
 
-.material-card .bar-fill {
+.dagmc-editor .material-card .bar-fill {
     height: 100%;
     background: var(--theia-focusBorder);
     border-radius: 3px;
     transition: width 0.6s ease;
 }
 
-.material-card .material-card-footer {
+.dagmc-editor .material-card .material-card-footer {
     padding: 12px 16px;
     background: rgba(0, 0, 0, 0.05);
     border-top: 1px solid var(--theia-panel-border);
@@ -968,24 +985,24 @@
     justify-content: space-between;
 }
 
-.material-card .material-volumes-preview {
+.dagmc-editor .material-card .material-volumes-preview {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
 }
 
-.material-card .material-actions {
+.dagmc-editor .material-card .material-actions {
     display: flex;
     gap: 4px;
     opacity: 0;
     transition: opacity 0.2s ease;
 }
 
-.material-card:hover .material-actions {
+.dagmc-editor .material-card:hover .material-actions {
     opacity: 1;
 }
 
-.material-actions .action-btn {
+.dagmc-editor .material-actions .action-btn {
     width: 28px;
     height: 28px;
     display: flex;
@@ -999,12 +1016,12 @@
     transition: all 0.2s ease;
 }
 
-.material-actions .action-btn:hover {
+.dagmc-editor .material-actions .action-btn:hover {
     background: var(--theia-list-hoverBackground);
     color: var(--theia-foreground);
 }
 
-.volume-tag.mini {
+.dagmc-editor .volume-tag.mini {
     padding: 1px 6px;
     font-size: 10px;
     border-radius: 3px;
@@ -1013,12 +1030,12 @@
     cursor: pointer;
 }
 
-.volume-tag.mini:hover {
+.dagmc-editor .volume-tag.mini:hover {
     background: var(--theia-focusBorder);
     color: white;
 }
 
-.more-label {
+.dagmc-editor .more-label {
     font-size: 10px;
     color: var(--theia-descriptionForeground);
     align-self: center;
@@ -1029,13 +1046,13 @@
    Groups Tab
    ============================================================================ */
 
-.groups-grid {
+.dagmc-editor .groups-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px;
 }
 
-.group-card {
+.dagmc-editor .group-card {
     padding: 0;
     border-radius: 12px;
     border-left-width: 6px;
@@ -1047,31 +1064,31 @@
     overflow: hidden;
 }
 
-.group-card:hover {
+.dagmc-editor .group-card:hover {
     border-color: var(--theia-focusBorder);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.group-card.material {
+.dagmc-editor .group-card.material {
     border-left-color: var(--theia-inputValidation-infoBorder);
 }
 
-.group-card.boundary {
+.dagmc-editor .group-card.boundary {
     border-left-color: var(--theia-inputValidation-warningBorder);
 }
 
-.group-card .group-card-main {
+.dagmc-editor .group-card .group-card-main {
     padding: 16px;
 }
 
-.group-card .group-header {
+.dagmc-editor .group-card .group-header {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
 }
 
-.group-card .group-icon {
+.dagmc-editor .group-card .group-icon {
     width: 40px;
     height: 40px;
     border-radius: 8px;
@@ -1081,7 +1098,7 @@
     background: var(--theia-panel-background);
 }
 
-.group-card .group-name {
+.dagmc-editor .group-card .group-name {
     font-size: 15px;
     font-weight: 700;
     flex: 1;
@@ -1090,7 +1107,7 @@
     text-overflow: ellipsis;
 }
 
-.group-card .group-type-label {
+.dagmc-editor .group-card .group-type-label {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 1px;
@@ -1098,7 +1115,7 @@
     margin-top: 2px;
 }
 
-.group-card .group-count-badge {
+.dagmc-editor .group-card .group-count-badge {
     background: var(--theia-panel-background);
     padding: 4px 10px;
     border-radius: 6px;
@@ -1107,7 +1124,7 @@
     color: var(--theia-focusBorder);
 }
 
-.group-card .group-volumes-grid {
+.dagmc-editor .group-card .group-volumes-grid {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -1116,7 +1133,7 @@
     padding-right: 4px;
 }
 
-.group-card .group-card-footer {
+.dagmc-editor .group-card .group-card-footer {
     padding: 10px 16px;
     background: rgba(0, 0, 0, 0.05);
     border-top: 1px solid var(--theia-panel-border);
@@ -1124,12 +1141,12 @@
     justify-content: flex-end;
 }
 
-.group-card .group-actions {
+.dagmc-editor .group-card .group-actions {
     display: flex;
     gap: 8px;
 }
 
-.group-card .action-btn {
+.dagmc-editor .group-card .action-btn {
     width: 28px;
     height: 28px;
     display: flex;
@@ -1143,18 +1160,18 @@
     transition: all 0.2s ease;
 }
 
-.group-card .action-btn:hover {
+.dagmc-editor .group-card .action-btn:hover {
     background: var(--theia-list-hoverBackground);
     color: var(--theia-foreground);
 }
 
-.group-card .action-btn.delete:hover {
+.dagmc-editor .group-card .action-btn.delete:hover {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
 }
 
 /* Create Group */
-.create-group {
+.dagmc-editor .create-group {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-focusBorder);
     border-radius: 12px;
@@ -1164,13 +1181,13 @@
     animation: dagmc-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.create-group .form-content {
+.dagmc-editor .create-group .form-content {
     display: flex;
     flex-direction: column;
     gap: 16px;
 }
 
-.create-group .input-group label {
+.dagmc-editor .create-group .input-group label {
     display: block;
     font-size: 11px;
     font-weight: 600;
@@ -1179,7 +1196,7 @@
     margin-bottom: 8px;
 }
 
-.create-group .input-wrapper {
+.dagmc-editor .create-group .input-wrapper {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1190,11 +1207,11 @@
     transition: border-color 0.2s;
 }
 
-.create-group .input-wrapper:focus-within {
+.dagmc-editor .create-group .input-wrapper:focus-within {
     border-color: var(--theia-focusBorder);
 }
 
-.create-group .input-wrapper input {
+.dagmc-editor .create-group .input-wrapper input {
     flex: 1;
     background: transparent;
     border: none;
@@ -1203,7 +1220,7 @@
     outline: none;
 }
 
-.create-group .form-info {
+.dagmc-editor .create-group .form-info {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1214,7 +1231,7 @@
     border-radius: 6px;
 }
 
-.create-group .theia-button {
+.dagmc-editor .create-group .theia-button {
     align-self: flex-start;
     padding: 8px 24px;
     border-radius: 6px;
@@ -1224,13 +1241,13 @@
    Properties Tab - Side Panel Style
    ============================================================================ */
 
-.properties-layout {
+.dagmc-editor .properties-layout {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
 }
 
-.properties-panel {
+.dagmc-editor .properties-panel {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
@@ -1238,7 +1255,7 @@
     animation: dagmc-card-pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.properties-panel .panel-header {
+.dagmc-editor .properties-panel .panel-header {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -1247,32 +1264,32 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.properties-panel .panel-header i {
+.dagmc-editor .properties-panel .panel-header i {
     color: var(--theia-focusBorder);
     font-size: 18px;
 }
 
-.properties-panel .panel-header h4 {
+.dagmc-editor .properties-panel .panel-header h4 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
 }
 
-.properties-panel .panel-content {
+.dagmc-editor .properties-panel .panel-content {
     padding: 16px;
 }
 
-.property-row {
+.dagmc-editor .property-row {
     display: flex;
     padding: 12px 0;
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.property-row:last-child {
+.dagmc-editor .property-row:last-child {
     border-bottom: none;
 }
 
-.property-row .property-label {
+.dagmc-editor .property-row .property-label {
     min-width: 120px;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
@@ -1280,7 +1297,7 @@
     letter-spacing: 0.5px;
 }
 
-.property-row .property-value {
+.dagmc-editor .property-row .property-value {
     flex: 1;
     font-size: 13px;
     color: var(--theia-foreground);
@@ -1288,13 +1305,13 @@
     word-break: break-word;
 }
 
-.property-row .property-value.monospace {
+.dagmc-editor .property-row .property-value.monospace {
     font-family: var(--theia-monospace-font-family);
     font-size: 12px;
     line-height: 1.5;
 }
 
-.properties-empty {
+.dagmc-editor .properties-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1305,7 +1322,7 @@
     animation: dagmc-fade-in 0.4s ease;
 }
 
-.properties-empty i {
+.dagmc-editor .properties-empty i {
     font-size: 48px;
     opacity: 0.3;
     margin-bottom: 16px;
@@ -1315,7 +1332,7 @@
    Common Components
    ============================================================================ */
 
-.volume-tag {
+.dagmc-editor .volume-tag {
     display: inline-flex;
     align-items: center;
     padding: 4px 10px;
@@ -1327,13 +1344,13 @@
     transition: all 150ms ease;
 }
 
-.volume-tag:hover {
+.dagmc-editor .volume-tag:hover {
     background: var(--theia-focusBorder);
     color: white;
 }
 
 /* Badge for counts */
-.count-badge {
+.dagmc-editor .count-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1348,27 +1365,56 @@
 }
 
 /* ============================================================================
+   Volume Details Modal
+   ============================================================================ */
+
+.dagmc-editor .volume-modal-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    z-index: 1000;
+    animation: dagmc-fade-in 0.2s ease-out;
+}
+
+.dagmc-editor .volume-modal {
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: dagmc-card-pop 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dagmc-editor .volume-modal .volume-details-panel {
+    max-height: 90vh;
+}
+
+/* ============================================================================
    Responsive
    ============================================================================ */
 
 @media (max-width: 900px) {
-    .properties-layout {
+    .dagmc-editor .properties-layout {
         grid-template-columns: 1fr;
     }
     
-    .volumes-grid,
-    .materials-grid,
-    .groups-grid {
+    .dagmc-editor .volumes-grid,
+    .dagmc-editor .materials-grid,
+    .dagmc-editor .groups-grid {
         grid-template-columns: 1fr;
     }
     
-    .dagmc-editor-header {
+    .dagmc-editor .dagmc-editor-header {
         flex-direction: column;
         gap: 16px;
         align-items: flex-start;
     }
     
-    .dagmc-editor-header .header-stats {
+    .dagmc-editor .dagmc-editor-header .header-stats {
         width: 100%;
         justify-content: space-around;
     }
@@ -1378,7 +1424,7 @@
    PROPERTIES TAB - REDESIGNED
    ============================================================================ */
 
-.properties-tab .properties-stats-grid {
+.dagmc-editor .properties-tab .properties-stats-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
@@ -1386,7 +1432,7 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.properties-tab .stat-card {
+.dagmc-editor .properties-tab .stat-card {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -1397,13 +1443,13 @@
     transition: all 0.2s ease;
 }
 
-.properties-tab .stat-card:hover {
+.dagmc-editor .properties-tab .stat-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     border-color: var(--theia-focusBorder);
 }
 
-.properties-tab .stat-icon {
+.dagmc-editor .properties-tab .stat-icon {
     width: 48px;
     height: 48px;
     border-radius: 10px;
@@ -1413,34 +1459,34 @@
     font-size: 22px;
 }
 
-.properties-tab .stat-icon.volumes {
+.dagmc-editor .properties-tab .stat-icon.volumes {
     background: var(--theia-inputValidation-infoBackground);
     color: var(--theia-inputValidation-infoBorder);
 }
 
-.properties-tab .stat-icon.surfaces {
+.dagmc-editor .properties-tab .stat-icon.surfaces {
     background: var(--theia-inputValidation-successBackground);
     color: var(--theia-inputValidation-successBorder);
 }
 
-.properties-tab .stat-icon.triangles {
+.dagmc-editor .properties-tab .stat-icon.triangles {
     background: var(--theia-inputValidation-warningBackground);
     color: var(--theia-inputValidation-warningBorder);
 }
 
-.properties-tab .stat-icon.materials {
+.dagmc-editor .properties-tab .stat-icon.materials {
     background: var(--theia-inputValidation-errorBackground);
     color: var(--theia-inputValidation-errorBorder);
 }
 
-.properties-tab .stat-value {
+.dagmc-editor .properties-tab .stat-value {
     font-size: 28px;
     font-weight: 700;
     color: var(--theia-foreground);
     line-height: 1;
 }
 
-.properties-tab .stat-label {
+.dagmc-editor .properties-tab .stat-label {
     font-size: 12px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
@@ -1449,28 +1495,28 @@
 }
 
 /* Two column layout */
-.properties-tab .properties-layout-two-col {
+.dagmc-editor .properties-tab .properties-layout-two-col {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     padding: 20px;
 }
 
-.properties-tab .properties-column {
+.dagmc-editor .properties-tab .properties-column {
     display: flex;
     flex-direction: column;
     gap: 20px;
 }
 
 /* Section styling */
-.properties-tab .properties-section {
+.dagmc-editor .properties-tab .properties-section {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 10px;
     overflow: hidden;
 }
 
-.properties-tab .section-title {
+.dagmc-editor .properties-tab .section-title {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -1484,7 +1530,7 @@
     letter-spacing: 0.5px;
 }
 
-.properties-tab .section-title .count-badge {
+.dagmc-editor .properties-tab .section-title .count-badge {
     margin-left: auto;
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
@@ -1495,37 +1541,37 @@
 }
 
 /* File info grid */
-.properties-tab .file-info-grid {
+.dagmc-editor .properties-tab .file-info-grid {
     padding: 16px 18px;
     display: grid;
     grid-template-columns: 1fr;
     gap: 12px;
 }
 
-.properties-tab .file-info-item {
+.dagmc-editor .properties-tab .file-info-item {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.properties-tab .file-info-item.full-width {
+.dagmc-editor .properties-tab .file-info-item.full-width {
     grid-column: 1 / -1;
 }
 
-.properties-tab .file-info-item .label {
+.dagmc-editor .properties-tab .file-info-item .label {
     font-size: 11px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
-.properties-tab .file-info-item .value {
+.dagmc-editor .properties-tab .file-info-item .value {
     font-size: 13px;
     color: var(--theia-foreground);
     font-weight: 500;
 }
 
-.properties-tab .file-info-item .value.path {
+.dagmc-editor .properties-tab .file-info-item .value.path {
     font-family: var(--theia-ui-font-family);
     font-size: 12px;
     color: var(--theia-descriptionForeground);
@@ -1533,72 +1579,72 @@
 }
 
 /* Material distribution bars */
-.properties-tab .material-bars {
+.dagmc-editor .properties-tab .material-bars {
     padding: 16px 18px;
     display: flex;
     flex-direction: column;
     gap: 14px;
 }
 
-.properties-tab .material-bar-item {
+.dagmc-editor .properties-tab .material-bar-item {
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
-.properties-tab .bar-header {
+.dagmc-editor .properties-tab .bar-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-size: 12px;
 }
 
-.properties-tab .bar-header .mat-name {
+.dagmc-editor .properties-tab .bar-header .mat-name {
     font-weight: 600;
     color: var(--theia-foreground);
 }
 
-.properties-tab .bar-header .mat-name.unassigned {
+.dagmc-editor .properties-tab .bar-header .mat-name.unassigned {
     color: var(--theia-descriptionForeground);
     font-style: italic;
 }
 
-.properties-tab .bar-header .mat-count {
+.dagmc-editor .properties-tab .bar-header .mat-count {
     color: var(--theia-descriptionForeground);
 }
 
-.properties-tab .bar-track {
+.dagmc-editor .properties-tab .bar-track {
     height: 6px;
     background: var(--theia-input-background);
     border-radius: 3px;
     overflow: hidden;
 }
 
-.properties-tab .bar-fill {
+.dagmc-editor .properties-tab .bar-fill {
     height: 100%;
     background: var(--theia-focusBorder);
     border-radius: 3px;
     transition: width 0.5s ease;
 }
 
-.properties-tab .bar-fill.unassigned {
+.dagmc-editor .properties-tab .bar-fill.unassigned {
     background: var(--theia-descriptionForeground);
     opacity: 0.4;
 }
 
 /* Volumes table */
-.properties-tab .volumes-table-wrapper {
+.dagmc-editor .properties-tab .volumes-table-wrapper {
     max-height: 400px;
     overflow-y: auto;
 }
 
-.properties-tab .volumes-data-table {
+.dagmc-editor .properties-tab .volumes-data-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
 }
 
-.properties-tab .volumes-data-table th {
+.dagmc-editor .properties-tab .volumes-data-table th {
     position: sticky;
     top: 0;
     background: var(--theia-titleBar-activeBackground);
@@ -1612,46 +1658,46 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.properties-tab .volumes-data-table th.numeric {
+.dagmc-editor .properties-tab .volumes-data-table th.numeric {
     text-align: right;
 }
 
-.properties-tab .volumes-data-table td {
+.dagmc-editor .properties-tab .volumes-data-table td {
     padding: 10px 14px;
     border-bottom: 1px solid var(--theia-panel-border);
     color: var(--theia-foreground);
 }
 
-.properties-tab .volumes-data-table td.numeric {
+.dagmc-editor .properties-tab .volumes-data-table td.numeric {
     text-align: right;
     font-family: var(--theia-ui-font-family);
     color: var(--theia-descriptionForeground);
 }
 
-.properties-tab .volumes-data-table tbody tr {
+.dagmc-editor .properties-tab .volumes-data-table tbody tr {
     cursor: pointer;
     transition: background 0.15s ease;
 }
 
-.properties-tab .volumes-data-table tbody tr:hover {
+.dagmc-editor .properties-tab .volumes-data-table tbody tr:hover {
     background: var(--theia-list-hoverBackground);
 }
 
-.properties-tab .volumes-data-table tbody tr.selected {
+.dagmc-editor .properties-tab .volumes-data-table tbody tr.selected {
     background: var(--theia-list-activeSelectionBackground);
 }
 
-.properties-tab .volumes-data-table tbody tr.selected td {
+.dagmc-editor .properties-tab .volumes-data-table tbody tr.selected td {
     color: var(--theia-list-activeSelectionForeground);
 }
 
-.properties-tab .volumes-data-table .vol-id {
+.dagmc-editor .properties-tab .volumes-data-table .vol-id {
     font-family: var(--theia-ui-font-family);
     font-weight: 600;
     color: var(--theia-focusBorder);
 }
 
-.properties-tab .volumes-data-table .table-material {
+.dagmc-editor .properties-tab .volumes-data-table .table-material {
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
@@ -1662,7 +1708,7 @@
     font-weight: 500;
 }
 
-.properties-tab .volumes-data-table .table-material.unassigned {
+.dagmc-editor .properties-tab .volumes-data-table .table-material.unassigned {
     background: transparent;
     color: var(--theia-descriptionForeground);
     padding: 0;
@@ -1670,11 +1716,11 @@
 
 /* Responsive adjustments for Properties tab */
 @media (max-width: 1000px) {
-    .properties-tab .properties-stats-grid {
+    .dagmc-editor .properties-tab .properties-stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
     
-    .properties-tab .properties-layout-two-col {
+    .dagmc-editor .properties-tab .properties-layout-two-col {
         grid-template-columns: 1fr;
     }
 }

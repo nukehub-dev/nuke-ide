@@ -43,7 +43,8 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
-import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
@@ -144,6 +145,9 @@ export class DAGMCEditorWidget extends ReactWidget {
 
     @inject(FileDialogService)
     protected readonly fileDialogService!: FileDialogService;
+
+    @inject(FileService)
+    protected readonly fileService!: FileService;
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService!: NukeCoreService;
@@ -295,11 +299,16 @@ export class DAGMCEditorWidget extends ReactWidget {
      * @returns The React element tree for the widget.
      */
     protected render(): React.ReactNode {
+        const selectedVolume = this.selectedVolumeId && this.modelData
+            ? this.modelData.volumes.find(v => v.id === this.selectedVolumeId)
+            : undefined;
+
         return (
             <div className='dagmc-editor'>
                 {this.renderHeader()}
                 {this.modelData && this.renderTabs()}
                 {this.renderContent()}
+                {selectedVolume && this.renderVolumeModal(selectedVolume)}
             </div>
         );
     }
@@ -347,15 +356,26 @@ export class DAGMCEditorWidget extends ReactWidget {
 
                 <div className='header-actions'>
                     {this.modelData && (
-                        <Tooltip content='View 3D geometry' position='bottom'>
-                            <button
-                                className='theia-button secondary'
-                                onClick={() => this.preview3D()}
-                            >
-                                <i className='codicon codicon-globe'></i>
-                                3D View
-                            </button>
-                        </Tooltip>
+                        <>
+                            <Tooltip content='Save as new file' position='bottom'>
+                                <button
+                                    className='theia-button secondary'
+                                    onClick={() => this.saveAs()}
+                                >
+                                    <i className='codicon codicon-save'></i>
+                                    Save As
+                                </button>
+                            </Tooltip>
+                            <Tooltip content='View 3D geometry' position='bottom'>
+                                <button
+                                    className='theia-button secondary'
+                                    onClick={() => this.preview3D()}
+                                >
+                                    <i className='codicon codicon-globe'></i>
+                                    3D View
+                                </button>
+                            </Tooltip>
+                        </>
                     )}
                     <Tooltip content={this.modelData ? 'Open different DAGMC file' : 'Open DAGMC file'} position='bottom'>
                         <button
@@ -479,10 +499,6 @@ export class DAGMCEditorWidget extends ReactWidget {
             return true;
         });
 
-        const selectedVolume = this.selectedVolumeId 
-            ? this.modelData.volumes.find(v => v.id === this.selectedVolumeId)
-            : undefined;
-
         // Calculate max triangles for relative bar
         const maxTriangles = Math.max(...this.modelData.volumes.map(v => v.numTriangles), 1);
 
@@ -531,7 +547,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                         <span className='count-badge'>{filteredVolumes.length} / {this.modelData.volumes.length}</span>
                     </div>
                 </div>
-                <div className={`volumes-layout ${selectedVolume ? 'with-details' : ''}`}>
+                <div className='volumes-layout'>
                     <div className='volumes-grid'>
                         {filteredVolumes.length === 0 ? (
                             <div className='empty-state-mini'>
@@ -545,7 +561,6 @@ export class DAGMCEditorWidget extends ReactWidget {
                             filteredVolumes.map(volume => this.renderVolumeCard(volume, maxTriangles))
                         )}
                     </div>
-                    {selectedVolume && this.renderVolumeDetails(selectedVolume)}
                 </div>
             </div>
         );
@@ -737,6 +752,30 @@ export class DAGMCEditorWidget extends ReactWidget {
                             <i className='codicon codicon-globe'></i> View in 3D
                         </button>
                     </div>
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * Render a modal popup for the selected volume details.
+     * @param volume - Selected volume data.
+     * @returns Modal overlay React node.
+     */
+    private renderVolumeModal(volume: DAGMCVolumeExtended): React.ReactNode {
+        return (
+            <div 
+                className='volume-modal-overlay'
+                onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                        this.selectedVolumeId = undefined;
+                        this.editingMaterial = null;
+                        this.update();
+                    }
+                }}
+            >
+                <div className='volume-modal'>
+                    {this.renderVolumeDetails(volume)}
                 </div>
             </div>
         );
@@ -1143,6 +1182,44 @@ export class DAGMCEditorWidget extends ReactWidget {
     }
 
     /**
+     * Save the current DAGMC file to a new location.
+     */
+    private async saveAs(): Promise<void> {
+        if (!this.modelData?.filePath) {
+            this.messageService.warn('No DAGMC file loaded to save');
+            return;
+        }
+
+        const props: SaveFileDialogProps = {
+            title: 'Save DAGMC File As',
+            inputValue: this.modelData.fileName,
+            filters: {
+                'DAGMC Files': ['h5m'],
+                'All Files': ['*']
+            }
+        };
+
+        const uri = await this.fileDialogService.showSaveDialog(props);
+        if (!uri) {
+            return;
+        }
+
+        try {
+            const sourceUri = new URI(this.modelData.filePath);
+            await this.fileService.copy(sourceUri, uri);
+
+            // Update model data to point to the new file
+            this.modelData.filePath = uri.path.toString();
+            this.modelData.fileName = uri.path.base;
+            this.update();
+
+            this.messageService.info(`Saved as ${this.modelData.fileName}`);
+        } catch (error) {
+            this.messageService.error(`Failed to save file: ${error}`);
+        }
+    }
+
+    /**
      * Load a DAGMC file by path.
      * @param filePath - Absolute path to the DAGMC file.
      */
@@ -1192,14 +1269,26 @@ export class DAGMCEditorWidget extends ReactWidget {
                 };
                 this.messageService.info(`Loaded ${result.data.volumeCount} volumes from ${result.data.fileName}`);
             } else {
-                this.error = result.error || 'Failed to load DAGMC file';
+                // If we already have model data from state, show a warning instead
+                // of blocking the entire UI with an error page.
+                if (this.modelData) {
+                    console.warn('[DAGMC Editor] Reload failed, keeping existing data:', result.error);
+                    this.messageService.warn(`DAGMC reload warning: ${result.error || 'Unknown error'}`);
+                } else {
+                    this.error = result.error || 'Failed to load DAGMC file';
+                }
             }
             
             this.isLoading = false;
             this.update();
         } catch (error) {
             this.isLoading = false;
-            this.error = `Failed to load DAGMC file: ${error}`;
+            if (this.modelData) {
+                console.warn('[DAGMC Editor] Reload failed, keeping existing data:', error);
+                this.messageService.warn(`DAGMC reload error: ${error}`);
+            } else {
+                this.error = `Failed to load DAGMC file: ${error}`;
+            }
             this.update();
         }
     }

@@ -8,16 +8,6 @@ Python helper scripts in `python/` perform scientific work: reading statepoints,
 
 All Python scripts live in `extensions/openmc-studio/python/`:
 
-```
-python/
-├── statepoint_reader.py      # Read OpenMC statepoint HDF5 files
-├── run_depletion.py          # Execute depletion calculations
-├── run_optimization.py       # Parameter sweep optimization runner
-├── cad_importer.py           # CAD file import and CSG conversion
-├── dagmc_editor_service.py   # DAGMC file editing operations
-└── dagmc_info.py             # DAGMC geometry introspection
-```
-
 The Node.js backend resolves script paths via `__dirname` relative resolution (production `lib/python/` vs development `src/python/`).
 
 ---
@@ -237,8 +227,20 @@ async startSimulation(request: SimulationRunRequest): Promise<StartSimulationRes
     return { processId: uuid(), success: true };
 }
 ```
+---
 
-See [`openmc-runner-service.ts`](../../src/node/openmc-runner-service.ts).
+### Native DAGMC Writer
+
+The CAD import pipeline uses a **native DAGMC H5M writer**. This avoids dependency fragility and handles edge cases (empty element lists, invalid topology) gracefully.
+
+**Key features:**
+- Extracts triangle meshes from Gmsh via `gmsh.model.mesh`
+- Splits quadrilateral elements into triangles automatically
+- Writes full DAGMC tag schema: `tstt/nodes`, `tstt/elements/Tri3`, `tstt/sets` with `CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`
+- Material groups written as `mat:...` tags under `tstt/tags`
+- Supports both `pymoab` and `h5py` fallback writing
+
+**Mesh algorithm:** Uses Gmsh Frontal-Delaunay (`Mesh.Algorithm = 6`) with `Mesh.Optimize = 1` for high-quality facetation that matches nuke-visualizer output.
 
 ---
 

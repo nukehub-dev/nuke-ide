@@ -111,6 +111,18 @@ The main backend service interface is intentionally broad — it is the single R
 | `importCAD(request)` | Converts STEP/IGES/BREP/STL to OpenMC CSG surfaces and cells. |
 | `previewCAD(filePath)` | Returns solid count, face count, and bounding box without full conversion. |
 
+**`CADImportRequest.options` fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tolerance` | `number` | `0.001` | Tolerance for surface approximation in cm |
+| `mergeSurfaces` | `boolean` | — | Whether to merge coplanar surfaces |
+| `scale` | `number` | `1.0` | Scale factor for the geometry |
+| `units` | `string` | `'cm'` | Input file units (`cm`, `mm`, `m`, `in`, `ft`) |
+| `autoAdjustTolerance` | `boolean` | `true` | Whether to auto-raise tolerance for very large models |
+| `materialId` | `number` | — | Material assignment for imported geometry |
+| `universeId` | `number` | `0` | Universe to place the imported geometry in |
+
 ### DAGMC Editor
 
 | Method | Purpose |

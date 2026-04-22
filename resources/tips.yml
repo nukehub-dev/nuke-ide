@@ -26,7 +26,7 @@ tips:
     category: nuke-core
     icon: ⚡
 
-  - text: 'You can install Python packages directly from the Command Palette with "Nuke: Install Package" — no terminal needed.'
+  - text: 'You can install Python packages directly from the Command Palette with Nuke: Install Package — no terminal needed.'
     category: nuke-core
     icon: ⬇️
 
@@ -80,7 +80,7 @@ tips:
     category: openmc-studio
     icon: 🖱️
 
-  - text: 'Validate your model with "Tools → OpenMC Studio → Simulation → Validate Model" before exporting XML files.'
+  - text: 'Validate your model with Tools → OpenMC Studio → Simulation → Validate Model before exporting XML files.'
     category: openmc-studio
     icon: ✔️
 

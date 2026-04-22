@@ -141,48 +141,6 @@ Python scripts that perform scientific computing operations that are impractical
 
 ---
 
-## Directory Layout
-
-```
-extensions/openmc-studio/
-├── src/
-│   ├── common/                          # RPC contracts + state schema
-│   │   ├── openmc-studio-protocol.ts    # JSON-RPC interface + request/response types
-│   │   ├── openmc-state-schema.ts       # OpenMCState + all sub-types
-│   │   └── index.ts                     # Re-exports
-│   ├── browser/                         # Frontend
-│   │   ├── openmc-studio-frontend-module.ts   # DI bindings
-│   │   ├── openmc-state-manager.ts            # Central reactive store
-│   │   ├── openmc-studio-service.ts           # High-level frontend service
-│   │   ├── openmc-studio-preferences.ts       # Settings schema
-│   │   ├── commands/                    # Command modules (env, project, sim, view)
-│   │   ├── contributions/               # Command/menu/toolbar/openhandler contributions
-│   │   ├── widgets/                     # React widgets
-│   │   │   ├── simulation-dashboard/
-│   │   │   ├── csg-builder/
-│   │   │   ├── tally-configurator/
-│   │   │   ├── dagmc-editor/
-│   │   │   ├── simulation-comparison/
-│   │   │   └── optimization/
-│   │   ├── services/                    # Environment, health, installer services
-│   │   └── xml-generator/               # Frontend XML generation helpers
-│   └── node/                            # Backend
-│       ├── openmc-studio-backend-module.ts    # DI bindings
-│       ├── openmc-studio-backend-service.ts   # Main orchestrator (~2000 lines)
-│       ├── openmc-runner-service.ts           # Simulation spawning (~1200 lines)
-│       ├── xml-generation-service.ts          # XML writer (~1100 lines)
-│       ├── cad-import-service.ts              # CAD → CSG/DAGMC
-│       ├── dagmc-editor-service.ts            # DAGMC model editing
-│       ├── optimization-backend-service.ts    # Parameter sweeps
-│       ├── openmc-validation-backend-service.ts
-│       └── rpc-buffer-config.ts               # WebSocket buffer tuning
-├── python/                              # Python helper scripts
-│   ├── statepoint_reader.py             # Statepoint read/compare/convergence
-│   └── run_depletion.py                 # Depletion runner
-└── docs/                                # This documentation
-```
-
----
 
 ## Key Design Decisions
 

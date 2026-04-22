@@ -17,6 +17,23 @@ OpenMC Studio can import CAD geometry and convert it into forms usable by OpenMC
 
 ---
 
+## Faceting Tolerance Preferences
+
+When converting CAD to DAGMC, the **faceting tolerance** controls how finely curved surfaces are tessellated into triangles. You can customize the default behavior in **Settings** (`File → Preferences → Extensions → OpenMC Studio`):
+
+| Setting | ID | Default | Description |
+|---------|-----|---------|-------------|
+| **Default Faceting Tolerance** | `openmcStudio.defaultFacetingTolerance` | `0.001` cm | Base tolerance for all CAD→DAGMC conversions |
+| **Auto-Adjust Tolerance** | `openmcStudio.autoAdjustFacetingTolerance` | `true` | Automatically increase tolerance for very large models (diagonal > 100 cm) |
+
+### How Auto-Adjustment Works
+
+When enabled, the importer checks the model's bounding-box diagonal. If the diagonal exceeds 100 cm and the tolerance is smaller than `diagonal / 500`, the tolerance is raised to `diagonal / 500`. This prevents unreasonably dense meshes on large models (e.g., tokamaks, reactor vessels) without manual intervention.
+
+To disable auto-adjustment for a specific import, uncheck the setting above or pass `--no-auto-adjust-tol` via the CLI.
+
+---
+
 ## Importing a CAD File
 
 ### Method 1: File Dialog
@@ -25,11 +42,7 @@ OpenMC Studio can import CAD geometry and convert it into forms usable by OpenMC
 2. Select a file with one of the supported extensions.
 3. The **CAD Import Wizard** opens.
 
-### Method 2: Explorer
-
-Right-click a CAD file in the Explorer and choose **"Import as OpenMC Geometry"**.
-
-### Method 3: Drag and Drop
+### Method 2: Drag and Drop
 
 Drag a CAD file from your file manager directly into the OpenMC Studio window.
 
@@ -41,11 +54,13 @@ The import process runs through several stages. You can monitor progress in the 
 
 ### Stage 1: Geometry Loading
 
-The file is parsed using OpenCASCADE. The importer extracts:
+The file is parsed using OpenCASCADE and Gmsh. The importer extracts:
 
 - Solid volumes
 - Bounding faces and edges
 - Surface types (planar, cylindrical, spherical, toroidal, etc.)
+
+During this stage a loading overlay with a progress spinner is shown for large files.
 
 ### Stage 2: Surface Recognition
 
@@ -160,9 +175,45 @@ The CAD import pipeline is under active development. The following limitations a
 
 For models that cannot be expressed in pure CSG, OpenMC Studio supports DAGMC `.h5m` files. The CAD import widget offers a **"Export to DAGMC"** button that routes the model through the MOAB pipeline instead of CSG conversion.
 
-### Placeholder Directory
+### Surface Support Matrix
 
-> **Note:** The internal `python/cad_conversion/` directory is currently a placeholder. Full automated CAD-to-CSG translation for arbitrary NURBS and advanced topological operations is not yet implemented. STEP/IGES/BREP imports work for models composed of analytic surfaces (planes, cylinders, spheres, cones, tori). For everything else, use the DAGMC export path or build CSG manually.
+| CAD Surface | OpenMC Surface | Fidelity | Notes |
+|-------------|----------------|----------|-------|
+| Plane | `Plane`, `XPlane`, `YPlane`, `ZPlane` | Exact | Always exact |
+| Sphere | `Sphere` | Exact | Always exact |
+| Cylinder | `XCylinder`, `YCylinder`, `ZCylinder`, `Cylinder` | Exact | Axis-aligned or general |
+| Cone | `XCone`, `YCone`, `ZCone` | Exact | Axis-aligned only |
+| Torus | `XTorus`, `YTorus`, `ZTorus` | Exact | Axis-aligned only |
+| General quadric | `Quadric` | Exact | 10-coefficient fallback |
+| NURBS / B-Spline / Bezier | DAGMC `.h5m` | Exact | Auto-converted to faceted geometry via native `pymoab` writer |
+| Spline (other) | DAGMC `.h5m` | Exact | Auto-converted to faceted geometry via native `pymoab` writer |
+
+### NURBS Auto-Fallback
+
+When the importer detects NURBS, B-Spline, or Bezier surfaces that cannot be expressed as OpenMC CSG primitives, it **automatically converts the model to DAGMC `.h5m` format** instead of failing or producing poor approximations. You will see a notification in the CAD Import output channel when this happens.
+
+The DAGMC conversion uses a **native H5M writer** built on `pymoab` and `h5py`. This writer handles:
+
+- Triangle mesh extraction from Gmsh
+- Automatic quadrilateral splitting
+- Full DAGMC tagging (`CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`, material groups)
+- Graceful handling of empty element lists
+
+To override the automatic behavior:
+
+| Override | Effect |
+|----------|--------|
+| `--force-csg` | Force CSG conversion even if NURBS are present (analytic faces become CSG; NURBS faces are skipped with warnings) |
+| `--force-dagmc` | Force DAGMC output even for purely analytic models |
+
+### Advanced Topology
+
+The converter analyzes multi-solid assemblies and:
+
+- Detects shared faces between adjacent volumes
+- Merges coincident coplanar surfaces to reduce CSG complexity
+- Preserves solid boundaries for closed-cell validation
+
 
 ---
 
@@ -172,3 +223,4 @@ For models that cannot be expressed in pure CSG, OpenMC Studio supports DAGMC `.
 - **Check units:** OpenMC expects centimeters. Verify that your CAD model is not in millimeters or inches.
 - **Validate after import:** Always run `Validate Model` (`Tools → OpenMC Studio → Simulation → Validate Model`) after importing CAD.
 - **Save early:** Importing large CAD files can take several minutes. Save the project immediately after a successful import.
+- **Tune faceting tolerance:** For very large models, consider disabling auto-adjustment and setting a custom tolerance if you need higher fidelity.

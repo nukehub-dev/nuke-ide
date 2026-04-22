@@ -70,6 +70,8 @@ export interface CADImportRequest {
         scale?: number;
         /** Units of the input file (default: 'cm') */
         units?: 'cm' | 'mm' | 'm' | 'in' | 'ft';
+        /** Whether to auto-adjust faceting tolerance for large models */
+        autoAdjustTolerance?: boolean;
         /** Material assignment for imported geometry */
         materialId?: number;
         /** Universe to place the imported geometry in */
@@ -140,6 +142,12 @@ export interface CADImportResult {
         cellsCreated: number;
         approximationsMade: number;
     };
+    /** Whether NURBS were detected and DAGMC fallback was used */
+    dagmc?: boolean;
+    /** Path to generated DAGMC file when NURBS fallback is used */
+    dagmcFile?: string;
+    /** Whether NURBS surfaces were detected in the source CAD */
+    nurbsDetected?: boolean;
     /** DAGMC model information (when importing .h5m files) */
     dagmcInfo?: DAGMCInfo;
 }
@@ -227,6 +235,16 @@ export class OpenMCCADImportService {
                 args.push('--material-id', materialId.toString());
             }
 
+            // Pass faceting tolerance through if provided
+            if (request.options?.tolerance !== undefined) {
+                args.push('--faceting-tol', request.options.tolerance.toString());
+            }
+
+            // Disable auto-adjustment if requested
+            if (request.options?.autoAdjustTolerance === false) {
+                args.push('--no-auto-adjust-tol');
+            }
+
             // Execute Python script
             const result = cp.spawnSync(support.pythonPath, args, {
                 encoding: 'utf-8',
@@ -251,7 +269,7 @@ export class OpenMCCADImportService {
             if (jsonLine) {
                 try {
                     const parsed = JSON.parse(jsonLine);
-                    return {
+                    const result: CADImportResult = {
                         success: parsed.success ?? false,
                         error: parsed.error,
                         warnings: [...warnings, ...(parsed.warnings || [])],
@@ -259,8 +277,31 @@ export class OpenMCCADImportService {
                         cells: parsed.cells,
                         boundingBox: parsed.boundingBox,
                         fileInfo: parsed.fileInfo,
-                        summary: parsed.summary
+                        summary: parsed.summary,
+                        dagmc: parsed.dagmc ?? false,
+                        dagmcFile: parsed.dagmcFile,
+                        nurbsDetected: parsed.nurbsDetected ?? false,
                     };
+
+                    // If DAGMC fallback was used, populate dagmcInfo from the generated file
+                    if (result.dagmc && result.dagmcFile && fs.existsSync(result.dagmcFile)) {
+                        try {
+                            const dagmcResult = await this.importDAGMC(result.dagmcFile);
+                            if (dagmcResult.success && dagmcResult.dagmcInfo) {
+                                result.dagmcInfo = dagmcResult.dagmcInfo;
+                                // Merge fileInfo from DAGMC import
+                                if (dagmcResult.fileInfo) {
+                                    result.fileInfo = { ...result.fileInfo, ...dagmcResult.fileInfo };
+                                }
+                            }
+                        } catch (dagmcErr) {
+                            const msg = dagmcErr instanceof Error ? dagmcErr.message : String(dagmcErr);
+                            result.warnings = result.warnings || [];
+                            result.warnings.push(`DAGMC info extraction failed: ${msg}`);
+                        }
+                    }
+
+                    return result;
                 } catch (parseError) {
                     const msg = parseError instanceof Error ? parseError.message : String(parseError);
                     warnings.push(`JSON parse error: ${msg}`);
