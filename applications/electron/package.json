@@ -117,8 +117,8 @@
   },
   "main": "src-gen/backend/electron-main.js",
   "scripts": {
-    "bundle": "yarn rebuild && theia build --mode development && node ../../scripts/patch-electron-main.js",
-    "bundle:prod": "yarn rebuild && theia build --mode production && node ../../scripts/patch-electron-main.js",
+    "bundle": "yarn rebuild && node ../../scripts/generate-preload.js && theia build --mode development && node ../../scripts/patch-electron-main.js",
+    "bundle:prod": "yarn rebuild && node ../../scripts/generate-preload.js && theia build --mode production && node ../../scripts/patch-electron-main.js",
     "rebuild": "theia rebuild:electron --cacheRoot ..",
     "start": "theia start --plugins=local-dir:../../plugins",
     "watch": "yarn rebuild && theia build --watch --mode development",
