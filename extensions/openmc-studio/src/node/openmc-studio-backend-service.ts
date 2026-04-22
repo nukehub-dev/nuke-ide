@@ -35,6 +35,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { BackendApplicationContribution } from '@theia/core/lib/node';
 
 import {
@@ -1631,7 +1632,9 @@ export class OpenMCStudioBackendServiceImpl
                     }
                 }
             }
-            
+
+            scriptPath = resolveAsarUnpacked(scriptPath);
+
             if (!fs.existsSync(scriptPath)) {
                 return {
                     success: false,
@@ -1763,7 +1766,9 @@ export class OpenMCStudioBackendServiceImpl
                     }
                 }
             }
-            
+
+            scriptPath = resolveAsarUnpacked(scriptPath);
+
             if (!fs.existsSync(scriptPath)) {
                 return {
                     success: false,
@@ -1849,7 +1854,9 @@ export class OpenMCStudioBackendServiceImpl
                     }
                 }
             }
-            
+
+            scriptPath = resolveAsarUnpacked(scriptPath);
+
             const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
                 || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';
@@ -1925,7 +1932,9 @@ export class OpenMCStudioBackendServiceImpl
                     }
                 }
             }
-            
+
+            scriptPath = resolveAsarUnpacked(scriptPath);
+
             const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
                 || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';

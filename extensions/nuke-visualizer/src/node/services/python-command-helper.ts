@@ -30,6 +30,7 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface, PackageDependency } from 'nuke-core/lib/common';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { OPENMC_REQUIREMENTS } from '../../common/openmc-protocol';
 import { PythonConfig, BASE_VISUALIZER_REQUIREMENTS } from '../../common/base-visualizer-protocol';
 
@@ -210,7 +211,9 @@ export class PythonCommandHelper {
         const scriptPath = path.resolve(extensionPath, 'python', scriptName);
 
         if (fs.existsSync(scriptPath)) {
-            return scriptPath;
+            // External Python processes cannot read from app.asar.
+            // If the file is unpacked (asarUnpack), redirect to the real path.
+            return resolveAsarUnpacked(scriptPath);
         }
 
         // Fallback search in common development locations
@@ -222,12 +225,14 @@ export class PythonCommandHelper {
 
         for (const fp of fallbackPaths) {
             if (fs.existsSync(fp)) {
-                return fp;
+                return resolveAsarUnpacked(fp);
             }
         }
 
         return scriptPath;
     }
+
+
 
     /**
      * Get the root path of the nuke-visualizer extension.

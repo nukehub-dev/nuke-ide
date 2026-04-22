@@ -34,6 +34,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 import * as path from 'path';
 
@@ -397,10 +398,11 @@ export class DAGMCEditorService {
         
         const extensionPath = this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/dagmc_editor_service.py');
-        
-        console.log(`[DAGMC Editor] Checking extension path: ${scriptPath}`);
-        if (fs.existsSync(scriptPath)) {
-            return scriptPath;
+        const unpackedPath = resolveAsarUnpacked(scriptPath);
+
+        console.log(`[DAGMC Editor] Checking extension path: ${unpackedPath}`);
+        if (fs.existsSync(unpackedPath)) {
+            return unpackedPath;
         }
 
         return undefined;

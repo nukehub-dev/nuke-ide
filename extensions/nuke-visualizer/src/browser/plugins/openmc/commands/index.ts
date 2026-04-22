@@ -88,4 +88,9 @@ export namespace OpenMCCommands {
         label: 'Check Geometry Overlaps...',
         iconClass: 'codicon codicon-search'
     };
+    export const OPEN_TALLIES: Command = {
+        id: 'openmc.open-tallies',
+        label: 'Open OpenMC Tallies',
+        iconClass: 'codicon codicon-list-tree'
+    };
 }

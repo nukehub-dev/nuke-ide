@@ -36,6 +36,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { ProcessManager } from '@theia/process/lib/node/process-manager';
 import * as path from 'path';
@@ -98,9 +99,10 @@ export class OptimizationBackendService {
     private async getDepletionRunnerPath(): Promise<string> {
         const extensionPath = this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
+        const unpackedPath = resolveAsarUnpacked(scriptPath);
 
-        if (fs.existsSync(scriptPath)) {
-            return scriptPath;
+        if (fs.existsSync(unpackedPath)) {
+            return unpackedPath;
         }
 
         const fallbackPaths = [

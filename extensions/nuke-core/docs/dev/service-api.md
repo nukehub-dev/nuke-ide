@@ -566,3 +566,23 @@ await terminal.executeCommand({ cwd, args: command.split(' ') });
 - **Live output**: Users see real-time install progress.
 - **Error visibility**: Failed commands show full stderr in the terminal.
 - **Interaction**: Commands that prompt for input (e.g., conda solve) work correctly.
+
+---
+
+## Shared Utilities
+
+### `resolveAsarUnpacked` — Electron Packaged App Helper
+
+When NukeIDE is packaged as an Electron app, files inside `app.asar` cannot be read by external processes (e.g. Python). Files listed in `electron-builder`'s `asarUnpack` are extracted to `app.asar.unpacked`, but `require.resolve()` still returns the original `.asar` path.
+
+Use `resolveAsarUnpacked` from `nuke-core` before passing a script path to an external process:
+
+```typescript
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+
+const scriptPath = path.resolve(extensionPath, 'python/my_script.py');
+const unpackedPath = resolveAsarUnpacked(scriptPath);
+// Pass unpackedPath to Python — it points to the real filesystem location
+```
+
+**Used by:** `nuke-visualizer`, `openmc-studio` (any extension that spawns Python processes from bundled scripts).

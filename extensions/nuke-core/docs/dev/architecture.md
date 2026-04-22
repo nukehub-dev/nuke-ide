@@ -46,7 +46,7 @@ Nuke Core is split into three layers: **Browser (Frontend)**, **Common (Protocol
 │   │  └──────────────┘  └──────────────┘                         │     │
 │   └─────────────────────────────────────────────────────────────┘     │
 │                                                                       │
-│   UTILITIES: CondaResolver · UvResolver · PythonInfo                  │
+│   UTILITIES: CondaResolver · UvResolver · PythonInfo · AsarHelper     │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,7 +74,7 @@ Nuke Core is split into three layers: **Browser (Frontend)**, **Common (Protocol
 | `PackageService` | Builds install and environment-creation commands. Determines which tool to use (mamba/conda → uv → pip) and resolves the target environment's Python path. |
 | `HealthService` | Runs diagnostics: Python availability, tool availability (conda, mamba, uv), and optional package checks. |
 | **Providers** | Each provider implements the `EnvironmentProvider` interface to discover environments from a specific source. See Provider Pattern below. |
-| **Utilities** | `CondaResolver` finds conda/mamba executables; `UvResolver` finds `uv`; `PythonInfo` inspects a Python executable for version and installed packages. |
+| **Utilities** | `CondaResolver` finds conda/mamba executables; `UvResolver` finds `uv`; `PythonInfo` inspects a Python executable for version and installed packages; `AsarHelper` converts `app.asar` paths to `app.asar.unpacked` so external processes (e.g. Python scripts) can access files in packaged Electron apps. |
 
 ### Common (Protocol)
 
@@ -168,6 +168,8 @@ src/
     │   │   └── environment-service.ts  # Aggregates providers
     │   ├── package-service.ts          # Command preparation
     │   └── health-service.ts           # Diagnostics
+    ├── utils/
+    │   └── asar-helper.ts              # Electron ASAR path helper for packaged apps
     ├── nuke-core-backend-service.ts    # RPC implementation
     └── nuke-core-backend-module.ts     # Backend DI bindings
 ```

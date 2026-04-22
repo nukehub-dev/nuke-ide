@@ -47,7 +47,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from './plugins/openmc/openmc-service';
 import { OpenMCWidgetFactory } from './plugins/openmc/services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './plugins/openmc/services/openmc-file-discovery';
-import { OpenMCContribution, XSPlotViewContribution, OpenMCTalliesViewContribution } from './plugins/openmc/openmc-contribution';
+import { OpenMCContribution } from './plugins/openmc/openmc-contribution';
 import { OpenMCStatepointCommands } from './plugins/openmc/commands/statepoint-commands';
 import { OpenMCGeometryCommands } from './plugins/openmc/commands/geometry-commands';
 import { OpenMCPlottingCommands } from './plugins/openmc/commands/plotting-commands';
@@ -106,6 +106,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind contributions
     bindViewContribution(bind, VisualizerContribution);
     bind(OpenHandler).toService(VisualizerContribution);
+    
+    // Note: XS Plot and OpenMC Tallies are handled by OpenMCContribution (not AbstractViewContribution)
+    // to avoid automatic View-menu registration. They use manual Command+Menu+Keybinding contributions.
     
     // Bind widget - NOT as singleton so fresh instances are created when reopened
     bind(VisualizerWidget).toSelf().inTransientScope();
@@ -224,14 +227,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             return widget;
         },
     })).inSingletonScope();
-
-    // Bind XS Plot View Contribution (adds icon to sidebar)
-    bindViewContribution(bind, XSPlotViewContribution);
-    bind(FrontendApplicationContribution).toService(XSPlotViewContribution);
-
-    // Bind OpenMC Tallies View Contribution (adds icon to sidebar)
-    bindViewContribution(bind, OpenMCTalliesViewContribution);
-    bind(FrontendApplicationContribution).toService(OpenMCTalliesViewContribution);
 
     // Bind depletion widget
     bind(OpenMCDepletionWidget).toSelf().inTransientScope();

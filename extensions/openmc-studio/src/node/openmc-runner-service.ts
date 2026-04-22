@@ -35,6 +35,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { ProcessManager } from '@theia/process/lib/node';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -163,10 +164,11 @@ export class OpenMCRunnerService {
         // First try the standard extension path
         const extensionPath = await this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
-        
-        if (fs.existsSync(scriptPath)) {
-            this.log(`Found depletion script: ${scriptPath}`);
-            return scriptPath;
+        const unpackedPath = resolveAsarUnpacked(scriptPath);
+
+        if (fs.existsSync(unpackedPath)) {
+            this.log(`Found depletion script: ${unpackedPath}`);
+            return unpackedPath;
         }
         
         // Fallback search in common locations (same pattern as nuke-visualizer)

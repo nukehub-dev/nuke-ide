@@ -37,6 +37,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -522,9 +523,10 @@ export class OpenMCCADImportService {
     private findDAGMCInfoScript(): string {
         const extensionPath = this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/dagmc_info.py');
-        
-        if (fs.existsSync(scriptPath)) {
-            return scriptPath;
+        const unpackedPath = resolveAsarUnpacked(scriptPath);
+
+        if (fs.existsSync(unpackedPath)) {
+            return unpackedPath;
         }
 
         // Fallback search in common locations
@@ -648,9 +650,10 @@ gmsh.finalize()
     private findCADImporterScript(): string {
         const extensionPath = this.getExtensionPath();
         const scriptPath = path.resolve(extensionPath, 'python/cad_importer.py');
-        
-        if (fs.existsSync(scriptPath)) {
-            return scriptPath;
+        const unpackedPath = resolveAsarUnpacked(scriptPath);
+
+        if (fs.existsSync(unpackedPath)) {
+            return unpackedPath;
         }
 
         // Fallback search in common locations

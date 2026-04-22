@@ -30,8 +30,7 @@ import { CommandRegistry, MenuModelRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common';
 import { 
     QuickInputService, 
-    QuickPickValue,
-    AbstractViewContribution
+    QuickPickValue
 } from '@theia/core/lib/browser';
 import { 
     LabelProvider, 
@@ -300,6 +299,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         // NOTE: Most OpenMC commands are now registered by dedicated CommandContribution
         // classes (OpenMCStatepointCommands, OpenMCGeometryCommands, etc.).
         // The complex COMPARE_DEPLETION_WITH handler remains here until it can be safely extracted.
+
         registry.registerCommand(OpenMCCommands.COMPARE_DEPLETION_WITH, {
             execute: async () => {
                 const selection = this.selectionService.selection;
@@ -424,7 +424,24 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             order: 'a'
         });
 
-            }
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_TALLY, {
+            commandId: OpenMCCommands.OPEN_TALLIES.id,
+            order: 'e'
+        });
+    }
+
+    async initializeLayout(app: FrontendApplication): Promise<void> {
+        // Create sidebar tabs for XS Plot and Tallies without activating them
+        const xsPlotWidget = await this.widgetManager.getOrCreateWidget(XSPlotWidget.ID);
+        if (!xsPlotWidget.isAttached) {
+            app.shell.addWidget(xsPlotWidget, { area: 'main' });
+        }
+
+        const talliesWidget = await this.widgetManager.getOrCreateWidget(OpenMCTallyTreeWidget.ID);
+        if (!talliesWidget.isAttached) {
+            app.shell.addWidget(talliesWidget, { area: 'right' });
+        }
+    }
 
     async loadStatepointCommand(): Promise<void> {
         let files = await this.getStatepointFiles();
@@ -848,7 +865,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     scoreIdx,
                     nuclideIdx
                 );
-                console.log(`[OpenMC] Spectrum data received:`, data);
                 const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum');
                 plotWidget.setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
                 if (!plotWidget.isAttached) {
@@ -1769,84 +1785,15 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         
         await this.shell.activateWidget(widget.id);
     }
-}
 
-/**
- * View contribution for XS Plot widget - adds icon to sidebar
- */
-@injectable()
-export class XSPlotViewContribution extends AbstractViewContribution<XSPlotWidget> {
-    
-    @inject(ApplicationShell)
-    protected readonly shell: ApplicationShell;
-
-    constructor() {
-        super({
-            widgetId: XSPlotWidget.ID,
-            widgetName: XSPlotWidget.LABEL,
-            defaultWidgetOptions: {
-                area: 'main',
-                rank: 0
-            },
-            toggleCommandId: 'xsPlot.toggle',
-            toggleKeybinding: 'ctrlcmd+shift+x'
-        });
-    }
-
-    override registerCommands(commands: CommandRegistry): void {
-        super.registerCommands(commands);
-        
-        commands.registerCommand({
-            id: 'xsPlot.open',
-            label: 'Open Cross-Section Plot'
-        }, {
-            execute: () => this.openView({ reveal: true, activate: true })
-        });
-    }
-
-    async initializeLayout(app: FrontendApplication): Promise<void> {
-        // Don't auto-open by default, but the icon will be available in the sidebar
+    async openTalliesWidget(): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget.ID);
+        this.tallyTreeWidget = widget;
+        if (!widget.isAttached) {
+            await this.shell.addWidget(widget, { area: 'right' });
+        }
+        await this.shell.activateWidget(widget.id);
     }
 }
 
-/**
- * View contribution for OpenMC Tallies widget - adds icon to sidebar
- */
-@injectable()
-export class OpenMCTalliesViewContribution extends AbstractViewContribution<OpenMCTallyTreeWidget> {
-    
-    @inject(ApplicationShell)
-    protected readonly shell: ApplicationShell;
 
-    @inject(OpenMCService)
-    protected readonly openmcService: OpenMCService;
-
-    constructor() {
-        super({
-            widgetId: OpenMCTallyTreeWidget.ID,
-            widgetName: OpenMCTallyTreeWidget.LABEL,
-            defaultWidgetOptions: {
-                area: 'right',
-                rank: 100
-            },
-            toggleCommandId: 'openmcTallies.toggle',
-            toggleKeybinding: 'ctrlcmd+shift+t'
-        });
-    }
-
-    override registerCommands(commands: CommandRegistry): void {
-        super.registerCommands(commands);
-        
-        commands.registerCommand({
-            id: 'openmcTallies.open',
-            label: 'OpenMC: Open Tallies'
-        }, {
-            execute: () => this.openView({ reveal: true, activate: true }),
-            isEnabled: () => this.openmcService.getCurrentStatepoint() !== null
-        });
-    }
-
-    async initializeLayout(app: FrontendApplication): Promise<void> {
-        // Don't auto-open by default, but the icon will be available in the sidebar
-    }
-}

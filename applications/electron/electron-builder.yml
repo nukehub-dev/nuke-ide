@@ -53,7 +53,8 @@ asarUnpack:
   - "node_modules/cpu-features/**/*"
   - "node_modules/ssh2/**/*"
   - "node_modules/@theia/*/prebuilds/**/*"
-  - "extensions/**/python/**/*"
+  - "node_modules/nuke-visualizer/python/**/*"
+  - "node_modules/openmc-studio/python/**/*"
 
 # Linux targets
 linux:
