@@ -2,8 +2,11 @@ appId: org.nukehub.nukeide
 productName: NukeIDE
 copyright: Copyright © 2025 NukeHub Team
 
-# Publishing is handled by the GitHub Actions release job
-publish: null
+publish:
+  provider: github
+  owner: nukehub-dev
+  repo: nuke-ide
+  releaseType: release
 
 # Performance
 electronDownload:
@@ -21,7 +24,11 @@ directories:
 files:
   - lib/**/*
   - src-gen/**/*
+  - scripts/**/*
   - package.json
+  # Explicitly include node_modules lib dirs and package.json to override .gitignore **/lib
+  - node_modules/**/lib/**/*
+  - node_modules/**/package.json
   # Include docs and extension resources at the app root for runtime access
   - from: ../../docs
     to: docs
@@ -40,8 +47,11 @@ files:
       - "!**/lib/**"
       - "!**/node_modules/**"
       - "!**/.git/**"
+
+# Place plugins outside the ASAR so Theia can load them properly
+extraResources:
   - from: ../../plugins
-    to: plugins
+    to: app/plugins
     filter:
       - "**/*.vsix"
       - "**/*.theia"
@@ -108,8 +118,3 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: NukeIDE
 
-# Publish configuration (optional - for auto-updates)
-# publish:
-#   provider: github
-#   owner: nukehub-dev
-#   repo: nuke-ide

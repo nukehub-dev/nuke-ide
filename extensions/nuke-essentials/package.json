@@ -63,6 +63,10 @@
     },
     {
       "frontend": "lib/theme/browser/theme-frontend-module"
+    },
+    {
+      "frontendElectron": "lib/electron-updater/updater-frontend-module",
+      "electronMain": "lib/electron-updater/updater-main-module"
     }
   ]
 }

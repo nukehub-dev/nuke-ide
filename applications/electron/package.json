@@ -108,14 +108,15 @@
   "devDependencies": {
     "@theia/cli": "1.70.2",
     "electron": "39.8.7",
-    "electron-builder": "^26.9.0"
+    "electron-builder": "^26.9.0",
+    "electron-updater": "^6.3.0"
   },
   "peerDependencies": {
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "markdown-it": "^8.4.1"
   },
-  "main": "src-gen/backend/electron-main.js",
+  "main": "scripts/electron-main.js",
   "scripts": {
     "bundle": "yarn rebuild && node ../../scripts/generate-preload.js && theia build --mode development && node ../../scripts/patch-electron-main.js",
     "bundle:prod": "yarn rebuild && node ../../scripts/generate-preload.js && theia build --mode production && node ../../scripts/patch-electron-main.js",
