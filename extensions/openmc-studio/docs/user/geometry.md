@@ -151,8 +151,8 @@ The DAGMC Editor is for working with CAD-based `.h5m` files. You can view volume
 
 ### Opening the DAGMC Editor
 
-### Method 1: Double-Click
-Double-click any `.h5m` file in the Explorer.
+### Method 1: Click
+Click any `.h5m` file in the Explorer.
 
 ### Method 2: Command Palette
 `Ctrl+Shift+P` → **"OpenMC Studio: Open DAGMC Editor"**

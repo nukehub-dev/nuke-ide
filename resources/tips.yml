@@ -1,117 +1,135 @@
 # NukeIDE Loading Screen Tips
-# Edit this file to customize the tips shown during startup
+# Tips are sourced from extension documentation and real user workflows
 
 settings:
-  # How long each tip displays (in milliseconds)
   tipDuration: 8000
 
-# Tips are shown randomly during the loading screen
 tips:
-  # Productivity Tips
-  - text: Use keyboard shortcuts to speed up development! Try Ctrl+P for quick file navigation.
-    category: productivity
-    icon: ⌨️
-
-  - text: Save your work frequently. Auto-save can be enabled in preferences.
-    category: productivity
-    icon: 💾
-
-  - text: Break complex problems into smaller, manageable tasks.
-    category: productivity
-    icon: 🧩
-
-  - text: Automate your workflows using Python scripts for efficiency.
-    category: productivity
+  # Nuke Core
+  - text: 'Click the Nuke Core status bar indicator to switch environments, open a terminal, or install packages without leaving the editor.'
+    category: nuke-core
     icon: 🐍
 
-  # Health & Wellness
-  - text: Dark mode helps reduce eye strain during long coding sessions.
-    category: health
-    icon: 👁️
-
-  - text: Take regular breaks to stay productive and avoid burnout.
-    category: health
-    icon: ☕
-
-  # Best Practices
-  - text: Keep your code clean and well-commented for better readability.
-    category: best-practice
-    icon: ✨
-
-  - text: Use version control to track changes and collaborate with others.
-    category: best-practice
-    icon: 🌿
-
-  - text: Test your code before committing to ensure it works as intended.
-    category: best-practice
-    icon: 🧪
-
-  - text: Document your code to make it easier to understand and maintain.
-    category: best-practice
-    icon: 📝
-
-  # Debugging
-  - text: Use debugging tools to find and fix issues in your code quickly.
-    category: debugging
-    icon: 🐛
-
-  # IDE Features
-  - text: Press F1 to open the Command Palette for quick access to all commands.
-    category: ide
-    icon: 🎨
-
-  - text: Use Ctrl+Shift+P to quickly search and execute commands.
-    category: ide
+  - text: 'Nuke Core auto-detects conda, mamba, venv, poetry, and pyenv environments across your system — no manual path configuration needed.'
+    category: nuke-core
     icon: 🔍
 
-  - text: Split editors side-by-side to compare files or reference code.
-    category: ide
+  - text: 'Open a folder containing environment.yml or requirements.txt and Nuke Core will offer to create an environment and install dependencies automatically.'
+    category: nuke-core
+    icon: 📦
+
+  - text: 'Press Ctrl+Shift+P and type "Nuke: Run Health Check" to verify your Python setup, OpenMC, and cross-section data in one go.'
+    category: nuke-core
+    icon: 🩺
+
+  - text: 'Nuke Core uses uv for pip installs and mamba for conda installs when available — significantly faster than standard tools.'
+    category: nuke-core
+    icon: ⚡
+
+  - text: 'You can install Python packages directly from the Command Palette with "Nuke: Install Package" — no terminal needed.'
+    category: nuke-core
+    icon: ⬇️
+
+  # Nuke Visualizer
+  - text: 'Click .h5m, .vtk, .vtu, or statepoint*.h5 files in the Explorer to open them directly in the Visualizer.'
+    category: visualizer
+    icon: 👁️
+
+  - text: 'The Visualizer supports 30+ color maps, clipping planes, and preset camera views (isometric, front, top) for precise geometry inspection.'
+    category: visualizer
+    icon: 🎨
+
+  - text: 'If a statepoint file exists in the same folder as a DAGMC .h5m, the Visualizer can overlay tally results directly onto the 3D geometry.'
+    category: visualizer
+    icon: 🔥
+
+  - text: 'The 3D viewer background automatically adapts to your IDE theme — dark or light, it always looks right.'
+    category: visualizer
+    icon: 🌓
+
+  - text: 'Run "Visualizer: Run Health Check" from the Command Palette to verify trame, ParaView, openmc, and h5py are properly installed.'
+    category: visualizer
+    icon: ✅
+
+  - text: 'Capture screenshots of your 3D visualizations as PNG, JPG, SVG, or PDF for reports and presentations.'
+    category: visualizer
+    icon: 📸
+
+  # OpenMC Studio
+  - text: 'Start a new OpenMC project from a template — Pincell, Bare Sphere, PWR Assembly, or CANDU Bundle — with "OpenMC Studio: New Project".'
+    category: openmc-studio
+    icon: 🚀
+
+  - text: 'The Simulation Dashboard is your central hub — configure Settings, Materials, Geometry, Tallies, Depletion, and Variance Reduction in one place.'
+    category: openmc-studio
+    icon: 🎛️
+
+  - text: 'Use the Optimization Framework to run parameter sweeps across enrichment, moderator density, or geometry dimensions with automatic batch execution.'
+    category: openmc-studio
+    icon: 📊
+
+  - text: 'Compare multiple statepoint files side-by-side in the Simulation Comparison widget — overlay k-eff curves, run t-tests, and export reports.'
+    category: openmc-studio
+    icon: ⚖️
+
+  - text: 'Import CAD files (STEP, IGES, BREP, STL) directly and convert them to CSG or DAGMC geometry for transport simulations.'
+    category: openmc-studio
+    icon: 🏗️
+
+  - text: 'Use Ctrl+Click or Shift+Click in the CSG Builder to bulk-assign materials to cells and speed up model setup.'
+    category: openmc-studio
+    icon: 🖱️
+
+  - text: 'Validate your model with "Tools → OpenMC Studio → Simulation → Validate Model" before exporting XML files.'
+    category: openmc-studio
+    icon: ✔️
+
+  - text: 'Export optimization results to CSV, JSON, or HDF5 — or generate a reusable Python script for later use.'
+    category: openmc-studio
+    icon: 💾
+
+  # NukeIDE General
+  - text: 'Open the Documentation panel from Help → Documentation to browse user guides for all installed extensions with full-text search.'
+    category: nukeide
+    icon: 📚
+
+  - text: 'Press Ctrl+Shift+P (or F1) to open the Command Palette — every NukeIDE command is searchable from there.'
+    category: nukeide
+    icon: ⌨️
+
+  - text: 'Split editors side-by-side to compare input files, geometry definitions, or simulation results while you work.'
+    category: nukeide
     icon: 📑
 
-  # Nuclear Engineering Tips
-  - text: OpenMC can be used for Monte Carlo neutron transport simulations.
-    category: nuclear
-    icon: ⚛️
+  - text: 'Use Ctrl+P for quick file navigation — jump to any file in your workspace without touching the mouse.'
+    category: nukeide
+    icon: 🔎
 
-  - text: DAGMC allows detailed geometry modeling for nuclear simulations.
-    category: nuclear
-    icon: 🔷
+  - text: 'NukeIDE runs in two modes — yarn start:browser for web access, or yarn start:electron for a native desktop experience.'
+    category: nukeide
+    icon: 🖥️
 
-  - text: PyNE provides essential nuclear data manipulation tools.
-    category: nuclear
-    icon: 🧬
-
-  - text: MOOSE framework is powerful for multiphysics simulations.
-    category: nuclear
-    icon: 🦌
-
-  - text: Proper meshing is crucial for accurate reactor simulations.
-    category: nuclear
-    icon: 🔲
-
-  - text: Validate your nuclear models against experimental data.
+  # Nuclear Engineering
+  - text: 'Always validate your nuclear models against experimental data or benchmark results before drawing conclusions.'
     category: nuclear
     icon: ✅
 
-  - text: Use nuclear data libraries like ENDF for accurate calculations.
+  - text: 'Set the OPENMC_CROSS_SECTIONS environment variable to point to your ENDF/B-VII.1 or ENDF/B-VIII.0 data library.'
     category: nuclear
     icon: 📚
 
-  # Performance
-  - text: Parallel computing can significantly speed up simulations.
-    category: performance
+  - text: 'Proper mesh refinement is crucial for accurate reactor simulations — coarse meshes can miss local power peaking.'
+    category: nuclear
+    icon: 🔲
+
+  - text: 'Run depletion calculations with fine time steps for high-burnup scenarios to capture isotopic evolution accurately.'
+    category: nuclear
+    icon: ⏱️
+
+  - text: 'Use variance reduction techniques like weight windows and source biasing to improve statistics in deep-penetration problems.'
+    category: nuclear
+    icon: 🎯
+
+  - text: 'Parallelize OpenMC simulations with MPI for significant speedups on multi-core workstations and clusters.'
+    category: nuclear
     icon: 🚀
-
-  # Cardinal Specific
-  - text: Cardinal integrates high-res thermal-hydraulics and radiation feedback.
-    category: nuclear
-    icon: 🔥
-
-  - text: Cardinal couples NekRS and OpenMC to MOOSE for multiphysics.
-    category: nuclear
-    icon: 🔗
-
-  # Paramak
-  - text: Paramak enables easy, parameter-driven Tokamak neutronics models.
-    category: nuclear
-    icon: 🌀

@@ -148,7 +148,7 @@ OpenMC Studio stores simulation configurations in `.nuke-openmc` project files.
    - Simulation metadata
    - k-effective convergence plot
    - Runtime breakdown
-3. Double-click any tally in the Tallies panel to visualize results (requires nuke-visualizer).
+3. Click any tally in the Tallies panel to visualize results (requires nuke-visualizer).
 
 ---
 

@@ -138,7 +138,7 @@ This guide covers the most common issues encountered when building, running, and
 
 **Symptoms:**
 - Error when loading a `.h5m` file in the DAGMC Editor
-- Blank 3D view after double-clicking a DAGMC file
+- Blank 3D view after clicking a DAGMC file
 - Error: `pydagmc` or `moab` not found
 
 **Fixes:**

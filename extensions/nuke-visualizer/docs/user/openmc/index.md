@@ -20,7 +20,7 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 ## Typical Workflow
 
 1. **Run your OpenMC simulation** to produce `statepoint*.h5` (and optionally `depletion_results.h5`).
-2. **Open the statepoint** by double-clicking it in the Explorer.
+2. **Open the statepoint** by clicking it in the Explorer.
    - The [Statepoint Viewer](statepoint-viewer.md) shows simulation summary and tallies.
 3. **Visualize tallies**:
    - [3D mesh tally](tally-visualization.md) — interactive volume rendering

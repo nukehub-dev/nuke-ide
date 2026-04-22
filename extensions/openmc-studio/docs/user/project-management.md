@@ -55,7 +55,7 @@ A `.nuke-openmc` file is a compressed archive containing:
 `File → Open Project` → select any `.nuke-openmc` file.
 
 ### Method 2: Explorer
-Double-click a `.nuke-openmc` file in the Explorer sidebar.
+Click a `.nuke-openmc` file in the Explorer sidebar.
 
 ### Method 3: Recent Projects
 `File → Open Recent → OpenMC Projects`

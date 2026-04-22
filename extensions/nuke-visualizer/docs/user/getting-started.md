@@ -69,7 +69,7 @@ If the health check reports missing packages, you can install them directly:
 
 ### 3D Mesh / DAGMC
 
-1. In the Explorer sidebar, **double-click** any of these file types:
+1. In the Explorer sidebar, **click** any of these file types:
    - `.h5m` — DAGMC geometry (highest priority)
    - `.vtk`, `.vtu`, `.vtp` — VTK data
    - `.stl`, `.ply`, `.obj` — Surface meshes
@@ -77,7 +77,7 @@ If the health check reports missing packages, you can install them directly:
 
 ### OpenMC Statepoint
 
-1. **Double-click** a `statepoint*.h5` file in your workspace.
+1. **Click** a `statepoint*.h5` file in your workspace.
 2. The **Statepoint Viewer** opens, showing:
    - Simulation metadata (batches, particles, k-effective)
    - Runtime breakdown
@@ -86,13 +86,13 @@ If the health check reports missing packages, you can install them directly:
 
 ### OpenMC Geometry
 
-1. **Double-click** `geometry.xml`.
+1. **Click** `geometry.xml`.
 2. The **Geometry Hierarchy** tree opens in the sidebar.
 3. Click **"View 3D"** on any universe or cell to launch the 3D viewer.
 
 ### OpenMC Materials
 
-1. **Double-click** `materials.xml`.
+1. **Click** `materials.xml`.
 2. The **Material Explorer** shows all defined materials, nuclides, and densities.
 
 ---

@@ -109,7 +109,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
    ls -la /path/to/cross_sections.xml
    ```
 
-> **Tip:** Download cross-section data from the [OpenMC website](https://openmc.org/) or generate them with `openmc-data-downloader`.
+> **Tip:** Download cross-section data from the [OpenMC website](https://openmc.org/).
 
 ---
 

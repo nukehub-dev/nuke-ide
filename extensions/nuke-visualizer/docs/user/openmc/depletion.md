@@ -6,8 +6,8 @@ The Depletion Viewer analyzes `depletion_results.h5` files produced by OpenMC's 
 
 ## Opening Depletion Results
 
-### Method 1: Double-Click
-Double-click `depletion_results.h5` in the Explorer.
+### Method 1: Click
+Click `depletion_results.h5` in the Explorer.
 
 ### Method 2: Menu
 `Tools → Visualizer → OpenMC → Depletion → View Depletion Results...`

@@ -104,7 +104,7 @@ Imported geometry is not locked. You can modify it like native CSG.
 |--------|--------|
 | **Rename a cell** | Right-click the cell in the hierarchy tree → **Rename** |
 | **Delete a volume** | Select the cell → press `Delete` or right-click → **Remove Cell** |
-| **Adjust a surface** | Double-click the surface in the cell details → edit coefficients |
+| **Adjust a surface** | Click the surface in the cell details → edit coefficients |
 | **Add a bounding surface** | If the model is unbounded, add a large spherical or box surface and union it into the root cell |
 
 ### Re-importing

@@ -322,8 +322,8 @@ export class EnvironmentService {
                 const allPkgNames = requiredPackages.map(p => p.name);
                 const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
                 const warning = warnings.length > 0
-                    ? `${warnings.join(' ')}. Using '${bestMatch.name}' with all required packages.`
-                    : `Using '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                    ? `${warnings.join(' ')}. Using environment '${bestMatch.name}' with all required packages.`
+                    : `Using environment '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                 return { success: true, command: bestMatch.pythonPath, warning, environment: bestMatch };
             }
         }

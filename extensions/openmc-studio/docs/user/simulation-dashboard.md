@@ -10,7 +10,7 @@ The Simulation Dashboard is the central workspace for building, configuring, and
 Create a new project (`Ctrl+Shift+P` → **"OpenMC Studio: New Project"**). The dashboard opens automatically.
 
 ### Method 2: Open Existing Project
-Double-click any `.nuke-openmc` file in the Explorer.
+Click any `.nuke-openmc` file in the Explorer.
 
 ### Method 3: Command Palette
 `Ctrl+Shift+P` → **"OpenMC Studio: Open Dashboard"**
