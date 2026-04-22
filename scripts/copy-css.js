@@ -7,6 +7,11 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * @param {string} dir
+ * @param {string[]} [files]
+ * @returns {string[]}
+ */
 function findCssFiles(dir, files = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -20,6 +25,10 @@ function findCssFiles(dir, files = []) {
   return files;
 }
 
+/**
+ * @param {string} src
+ * @param {string} dest
+ */
 function copyFile(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);

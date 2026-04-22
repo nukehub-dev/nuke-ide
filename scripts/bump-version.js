@@ -32,6 +32,10 @@ const PACKAGE_NAMES = [
   'nuke-ide-electron',
 ];
 
+/**
+ * @param {string} filePath
+ * @param {string} newVersion
+ */
 function bumpFile(filePath, newVersion) {
   if (!fs.existsSync(filePath)) {
     console.warn(`Skipping missing file: ${filePath}`);
@@ -57,6 +61,9 @@ function bumpFile(filePath, newVersion) {
   }
 }
 
+/**
+ * @param {string} newVersion
+ */
 function bumpLerna(newVersion) {
   const lernaPath = 'lerna.json';
   let content = fs.readFileSync(lernaPath, 'utf-8');
