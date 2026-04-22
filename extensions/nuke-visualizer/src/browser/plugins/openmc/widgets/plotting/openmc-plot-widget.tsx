@@ -34,6 +34,7 @@ import { OpenMCSpectrumData, OpenMCSpatialPlotData } from '../../../../../common
 import { PlotlyFigure } from '../../../../../common/base-visualizer-protocol';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { PlotlyUtils } from '../../../../plotly/plotly-utils';
+import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 @injectable()
 export class OpenMCPlotWidget extends ReactWidget {
@@ -85,7 +86,21 @@ export class OpenMCPlotWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         if (!this.data && !this.genericFigure) {
-            return <div className="openmc-plot empty" style={{ padding: '20px', textAlign: 'center' }}>No data to display</div>;
+            return (
+                <div className="openmc-plot empty" style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--theia-editor-background)'
+                }}>
+                    <LoadingAnimations />
+                    <FancyLoadingSpinner
+                        message="Loading plot data..."
+                        subMessage="Fetching from statepoint"
+                    />
+                </div>
+            );
         }
 
         return (

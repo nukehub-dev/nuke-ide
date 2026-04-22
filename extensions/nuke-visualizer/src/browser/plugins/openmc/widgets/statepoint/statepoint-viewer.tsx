@@ -295,9 +295,11 @@ const handlers = {
                                 if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
-                                const data = await this.openmcService.getHeatmapSlice(statepointUri, selection.tallyId, 'xy', 0, scoreIdx, nuclideIdx);
+                                // Open widget immediately, then fetch data
                                 const heatmapWidgetId = `${(await import('../plotting/openmc-heatmap-widget')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
                                 const heatmapWidget = await this.getOrCreateHeatmapWidget(heatmapWidgetId);
+                                await this.openWidgetInMainArea(heatmapWidget, heatmapWidgetId);
+                                const data = await this.openmcService.getHeatmapSlice(statepointUri, selection.tallyId, 'xy', 0, scoreIdx, nuclideIdx);
                                 heatmapWidget.setData(
                                     data,
                                     statepointUri,
@@ -308,7 +310,6 @@ const handlers = {
                                     selection.nuclide || 'total',
                                     `Tally ${selection.tallyId} 2D Heatmap`
                                 );
-                                await this.openWidgetInMainArea(heatmapWidget, heatmapWidgetId);
                             }
                         } else if (selection.action === 'spectrum') {
                             const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
@@ -321,12 +322,13 @@ const handlers = {
                                 if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
-                                const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, nuclideIdx);
+                                // Open widget immediately, then fetch data
                                 const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spectrum`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
-                                (plotWidget as any).setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
+                                const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, nuclideIdx);
+                                (plotWidget as any).setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
                             }
                         } else if (selection.action === 'spatial') {
                             const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
@@ -339,12 +341,13 @@ const handlers = {
                                 if (selection.nuclide && tallyInfo.nuclides.includes(selection.nuclide)) {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
-                                const data = await this.openmcService.getSpatialPlot(statepointUri, selection.tallyId, 'z', scoreIdx, nuclideIdx);
+                                // Open widget immediately, then fetch data
                                 const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spatial`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
-                                (plotWidget as any).setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
+                                const data = await this.openmcService.getSpatialPlot(statepointUri, selection.tallyId, 'z', scoreIdx, nuclideIdx);
+                                (plotWidget as any).setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
                             }
                         }
                     },
@@ -903,7 +906,7 @@ const handlers = {
                                         score: tally.scores[0]
                                     })}
                                 >
-                                    <i className="fa fa-th"></i>
+                                    <i className={codicon('table')}></i>
                                 </button>
                             </Tooltip>
                             <Tooltip content="View spatial distribution" position="top">

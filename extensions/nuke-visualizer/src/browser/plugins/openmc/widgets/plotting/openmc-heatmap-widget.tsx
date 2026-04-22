@@ -36,6 +36,7 @@ import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
+import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 @injectable()
 export class OpenMCHeatmapWidget extends ReactWidget {
@@ -389,10 +390,13 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: 'var(--theia-descriptionForeground)',
-                padding: '20px'
+                backgroundColor: 'var(--theia-editor-background)'
             }}>
-                <div>No heatmap data to display</div>
+                <LoadingAnimations />
+                <FancyLoadingSpinner
+                    message="Loading heatmap data..."
+                    subMessage="Fetching slice from statepoint"
+                />
             </div>
         );
     }

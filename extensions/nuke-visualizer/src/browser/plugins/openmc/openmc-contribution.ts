@@ -877,7 +877,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     scoreIdx,
                     nuclideIdx
                 );
-                console.log(`[OpenMC] Spatial data received:`, data);
                 const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
                 plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
                 if (!plotWidget.isAttached) {
@@ -885,7 +884,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 }
                 this.shell.activateWidget(plotWidget.id);
             } else if (selection.action === 'heatmap') {
-                console.log(`[OpenMC] Creating 2D heatmap for tally ${selection.tallyId}`);
                 
                 // Resolve indices for heatmap
                 let scoreIdx = 0;
@@ -911,7 +909,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                     scoreIdx,
                     nuclideIdx
                 );
-                console.log(`[OpenMC] Heatmap data received:`, data);
                 
                 if (data.error) {
                     this.messageService.error(`Heatmap error: ${data.error}`);

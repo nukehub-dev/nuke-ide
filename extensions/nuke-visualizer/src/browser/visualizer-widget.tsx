@@ -31,6 +31,7 @@ import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { CommandRegistry } from '@theia/core/lib/common/command';
+import { MessageService } from '@theia/core/lib/common/message-service';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
 
@@ -65,6 +66,9 @@ export class VisualizerWidget extends ReactWidget {
 
     @inject(CommandRegistry)
     protected readonly commandRegistry: CommandRegistry;
+
+    @inject(MessageService)
+    protected readonly messageService: MessageService;
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
@@ -791,7 +795,7 @@ export class VisualizerWidget extends ReactWidget {
             
             if (result.warning) {
                 this.warningMessage = result.warning;
-
+                this.messageService.warn(result.warning);
                 this.ensureClosable();
             }
             

@@ -246,25 +246,9 @@ export class EnvironmentService {
                     return { success: false, missing: ['Python not valid'], mismatches: [] };
                 }
 
-                const missing: string[] = [];
-                const mismatches: string[] = [];
+                const result = await this.checkPackages(requiredPackages, pythonPath);
 
-                for (const pkg of requiredPackages) {
-                    try {
-                        const { execSync } = await import('child_process');
-                        const versionCmd = pkg.submodule
-                            ? `import ${pkg.name}.${pkg.submodule}; print(${pkg.name}.${pkg.submodule}.__version__)`
-                            : `import ${pkg.name}; print(${pkg.name}.__version__)`;
-
-                        execSync(`"${pythonPath}" -c "${versionCmd}"`, { stdio: 'ignore' });
-                    } catch {
-                        if (pkg.required !== false) {
-                            missing.push(pkg.name);
-                        }
-                    }
-                }
-
-                return { success: missing.length === 0, missing, mismatches, env };
+                return { success: result.available, missing: result.missing, mismatches: result.versionMismatches.map(m => m.name), env };
             } catch {
                 return { success: false, missing: ['Python check failed'], mismatches: [] };
             }
