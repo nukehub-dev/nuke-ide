@@ -3,7 +3,9 @@ __pycache__/
 **/node_modules
 **/.browser_modules
 **/dist
-**/lib
+applications/*/lib/
+extensions/*/lib/
+!extensions/*/python/**/lib/
 **/src-gen
 **/gen-webpack.config.js
 **/gen-webpack.node.config.js

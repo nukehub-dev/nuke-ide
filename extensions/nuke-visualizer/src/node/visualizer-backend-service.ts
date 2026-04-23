@@ -40,7 +40,8 @@ import {
     CameraViewType,
     ScreenshotOptions,
     ScreenshotResult,
-    DEFAULT_VISUALIZATION_STATE
+    DEFAULT_VISUALIZATION_STATE,
+    DagmcModelInfo
 } from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from './services/python-command-helper';
@@ -318,6 +319,96 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         throw new Error(`STEP conversion completed but could not find output VTK file: ${vtkPath}`);
+    }
+
+    async getDagmcInfo(filePath: string): Promise<DagmcModelInfo> {
+        this.log(`Getting DAGMC info: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
+        this.log(`[DAGMC Info] Using Python: ${pythonInfo.command}`);
+
+        const args = ['dagmc.info', '--file', filePath];
+        this.log(`[DAGMC Info] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args);
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[DAGMC Info] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `DAGMC info extraction failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            volumes: any[];
+            materials: Record<string, any>;
+            groups: Record<string, any>;
+            surfaces: any[];
+            fileInfo: any;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[DAGMC Info] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        return result as DagmcModelInfo;
+    }
+
+    async startDagmcServer(filePath: string, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
+        const port = await this.findFreePort(8080);
+        this.reservedPorts.add(port);
+
+        try {
+            const pythonScript = this.pythonHelper.findScript('server.py');
+            const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
+            const warning = pythonInfo.warning;
+
+            const args: string[] = [pythonScript, 'dagmc.visualize', '--file', filePath, '--port', port.toString()];
+            if (theme) {
+                args.push('--theme', theme);
+            }
+
+            const processOptions: RawProcessOptions = {
+                command: pythonInfo.command,
+                args,
+            };
+
+            this.log(`Starting DAGMC server on port ${port} for ${filePath}`);
+            const process = this.rawProcessFactory(processOptions);
+            this.processes.set(port, process);
+
+            this.log(`[DAGMC Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
+
+            process.outputStream.on('data', (data: Buffer) => {
+                const line = data.toString().trim();
+                this.log(`[DAGMC Server ${port}] ${line}`);
+            });
+
+            process.errorStream.on('data', (data: Buffer) => {
+                const line = data.toString().trim();
+                this.errorLog(`[DAGMC Server ${port}] ERROR: ${line}`);
+            });
+
+            process.onExit((event: { code?: number; signal?: string }) => {
+                this.log(`[DAGMC Server ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+                this.client?.onServerStop(port);
+            });
+
+            try {
+                await this.waitForServer(port, process);
+                return { port, url: `http://127.0.0.1:${port}`, warning };
+            } catch (error) {
+                process.kill();
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+                throw error;
+            }
+        } finally {
+            // Reserved port cleanup happens in onExit or catch above
+        }
     }
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {

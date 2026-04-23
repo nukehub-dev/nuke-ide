@@ -669,6 +669,39 @@ export class VisualizerWidget extends ReactWidget {
         const volumeInfo = this.highlightVolumeId !== undefined ? ` (volume ${this.highlightVolumeId})` : '';
         this.statusMessage = `Converting DAGMC file: ${h5mPath}${volumeInfo}...`;
         this.update();
+
+        // Try the DAGMC-specific server first
+        try {
+            if (this.highlightVolumeId === undefined) {
+                this.statusMessage = `Starting DAGMC viewer...`;
+                this.update();
+
+                const theme = this.detectTheme();
+                const serverInfo = await this.visualizerBackend.startDagmcServer(h5mPath, theme);
+
+                if (loadId !== this.currentLoadId) {
+                    this.visualizerBackend.stopServer(serverInfo.port);
+                    return;
+                }
+
+                this.serverPort = serverInfo.port;
+                if (serverInfo.warning) {
+                    this.warningMessage = serverInfo.warning;
+                    this.messageService.warn(serverInfo.warning);
+                }
+
+                this.statusMessage = `Server started on port ${serverInfo.port}. Waiting for it to be ready...`;
+                this.update();
+                this.ensureClosable();
+
+                // Poll to check if server is ready (same pattern as startVisualizerServer)
+                await this.pollServerReady(serverInfo.url, theme, loadId);
+                return;
+            }
+        } catch (dagmcError) {
+            console.log('[Visualizer] DAGMC-specific server failed, falling back to base viewer:', dagmcError);
+            // Fall through to base viewer
+        }
         
         try {
             // Use backend service to convert DAGMC to VTK
@@ -692,6 +725,90 @@ export class VisualizerWidget extends ReactWidget {
             // Still try to start server with default visualization
             await this.startVisualizerServer(undefined, loadId);
         }
+    }
+
+    private detectTheme(): string {
+        let theme = 'dark';
+        try {
+            const body = document.body;
+            const classes = body?.className || '';
+            const computedStyle = window.getComputedStyle(body);
+            const bgColor = computedStyle.backgroundColor;
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            if (classes.includes('theia-light') || classes.includes('light-theia')) {
+                theme = 'light';
+            } else if (classes.includes('theia-dark') || classes.includes('dark-theia') || classes.includes('vs-dark')) {
+                theme = 'dark';
+            } else if (bgColor && (bgColor.includes('255') || bgColor.includes('rgb(255'))) {
+                theme = 'light';
+            } else if (bgColor && (bgColor.includes('0, 0, 0') || bgColor.includes('30') || bgColor.includes('37'))) {
+                theme = 'dark';
+            } else if (prefersDark) {
+                theme = 'dark';
+            }
+        } catch (e) {
+            // ignore
+        }
+        return theme;
+    }
+
+    private async pollServerReady(url: string, theme: string, loadId: number): Promise<void> {
+        const timeout = (this.preferences['nukeVisualizer.serverTimeout'] || 30) * 1000;
+        let attempts = 0;
+        const maxAttempts = timeout / 1000;
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        this.checkInterval = window.setInterval(async () => {
+            if (loadId !== this.currentLoadId) {
+                if (this.checkInterval) {
+                    clearInterval(this.checkInterval);
+                    this.checkInterval = null;
+                }
+                return;
+            }
+
+            attempts++;
+            try {
+                const testImg = new Image();
+
+                const setReady = () => {
+                    if (loadId !== this.currentLoadId) return;
+                    if (!this.serverUrl) {
+                        this.serverUrl = `${url}?theme=${theme}`;
+                        this.statusMessage = `Server ready at ${url}`;
+                        this.update();
+                        this.ensureClosable();
+                        if (this.checkInterval) {
+                            clearInterval(this.checkInterval);
+                            this.checkInterval = null;
+                        }
+                    }
+                };
+
+                testImg.onload = setReady;
+                testImg.onerror = () => {
+                    if (loadId !== this.currentLoadId) return;
+                    if (!this.serverUrl) {
+                        setReady();
+                    }
+                };
+                testImg.src = `${url}/favicon.ico?${Date.now()}`;
+
+                if (!this.serverUrl && attempts >= maxAttempts) {
+                    if (this.checkInterval) {
+                        clearInterval(this.checkInterval);
+                        this.checkInterval = null;
+                    }
+                    this.statusMessage = `Server not responding after ${maxAttempts}s. Check backend logs.`;
+                    this.update();
+                    this.ensureClosable();
+                }
+            } catch (e) {
+                // ignore polling errors
+            }
+        }, 2000);
     }
 
     private async convertAndLoadSTEP(stepPath: string, loadId: number): Promise<void> {
@@ -747,39 +864,7 @@ export class VisualizerWidget extends ReactWidget {
         this.update();
 
         try {
-            // Detect current theme using multiple methods
-            let theme = 'dark'; // default
-            try {
-                // Method 1: Check CSS classes
-                const body = document.body;
-                const classes = body?.className || '';
-                
-                // Method 2: Check computed background color
-                const computedStyle = window.getComputedStyle(body);
-                const bgColor = computedStyle.backgroundColor;
-                
-                // Method 3: Check matchMedia for system preference
-                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                
-
-                
-                // Determine theme based on evidence
-                if (classes.includes('theia-light') || classes.includes('light-theia')) {
-                    theme = 'light';
-                } else if (classes.includes('theia-dark') || classes.includes('dark-theia') || classes.includes('vs-dark')) {
-                    theme = 'dark';
-                } else if (bgColor && (bgColor.includes('255') || bgColor.includes('rgb(255'))) {
-                    // Light background (rgb(255, 255, 255) or similar)
-                    theme = 'light';
-                } else if (bgColor && (bgColor.includes('0, 0, 0') || bgColor.includes('30') || bgColor.includes('37'))) {
-                    // Dark background
-                    theme = 'dark';
-                } else if (prefersDark) {
-                    theme = 'dark';
-                }
-            } catch (e) {
-
-            }
+            const theme = this.detectTheme();
             console.log('[Visualizer] Requesting server start from backend...');
             const result = await this.visualizerBackend.startServer(filePath, undefined, theme);
             

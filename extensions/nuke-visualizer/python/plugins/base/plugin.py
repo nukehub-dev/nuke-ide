@@ -5,7 +5,7 @@ import sys
 # Import command modules — this triggers @command registration.
 # We catch import errors so missing optional dependencies don't break
 # the entire plugin.
-_COMMAND_MODULES = ['serve', 'convert']
+_COMMAND_MODULES = ['serve', 'convert', 'dagmc']
 
 for mod_name in _COMMAND_MODULES:
     try:

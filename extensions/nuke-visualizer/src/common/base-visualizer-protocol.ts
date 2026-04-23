@@ -141,6 +141,52 @@ export interface ServerInfo {
     warning?: string;
 }
 
+/** Single volume info within a DAGMC model */
+export interface DagmcVolumeInfo {
+    id: number;
+    material: string;
+    numTriangles: number;
+    numSurfaces?: number;
+    boundingBox?: number[] | null;
+}
+
+/** Material summary within a DAGMC model */
+export interface DagmcMaterialInfo {
+    volumeCount: number;
+    volumeIds: number[];
+}
+
+/** Group summary within a DAGMC model */
+export interface DagmcGroupInfo {
+    volumeCount: number;
+    volumeIds: number[];
+}
+
+/** Surface info within a DAGMC model */
+export interface DagmcSurfaceInfo {
+    id: number;
+    numTriangles?: number;
+    forwardVolumes?: number[];
+    reverseVolumes?: number[];
+}
+
+/** File metadata for a DAGMC model */
+export interface DagmcFileInfo {
+    path: string;
+    name: string;
+    sizeBytes: number;
+    sizeMb: number;
+}
+
+/** Complete DAGMC model metadata returned by getDagmcInfo */
+export interface DagmcModelInfo {
+    volumes: DagmcVolumeInfo[];
+    materials: Record<string, DagmcMaterialInfo>;
+    groups: Record<string, DagmcGroupInfo>;
+    surfaces: DagmcSurfaceInfo[];
+    fileInfo: DagmcFileInfo;
+}
+
 /**
  * Backend RPC service for the base 3D mesh/DAGMC visualizer.
  *
@@ -187,6 +233,25 @@ export interface VisualizerBackendService {
      * @returns Path to the generated VTK file
      */
     convertStep(filePath: string): Promise<string>;
+
+    /**
+     * Get DAGMC model metadata (volumes, materials, groups, surfaces).
+     * Runs `python server.py dagmc.info` via pydagmc.
+     *
+     * @param filePath Path to the .h5m file
+     * @returns DAGMC model information
+     */
+    getDagmcInfo(filePath: string): Promise<DagmcModelInfo>;
+
+    /**
+     * Start a DAGMC-specific visualization server with volume/material/group selection.
+     * Runs `python server.py dagmc.visualize` via pydagmc.
+     *
+     * @param filePath Path to the .h5m file
+     * @param theme UI theme — 'dark' or 'light'
+     * @returns Server info including allocated port and URL
+     */
+    startDagmcServer(filePath: string, theme?: string): Promise<ServerInfo>;
 
     /**
      * Check the configured Python environment for base visualizer dependencies.
