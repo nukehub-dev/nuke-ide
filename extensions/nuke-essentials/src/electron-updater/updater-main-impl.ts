@@ -1,11 +1,11 @@
-import { ElectronMainApplicationContribution } from '@theia/core/lib/electron-main/electron-main-application';
 import { injectable } from '@theia/core/shared/inversify';
-import { ipcMain } from 'electron';
+import { ElectronMainApplicationContribution } from '@theia/core/lib/electron-main/electron-main-application';
+import { NukeUpdaterService, NukeUpdaterStatus } from '../common/updater-protocol';
 
 const { autoUpdater } = require('electron-updater');
 
 @injectable()
-export class NukeUpdaterMainImpl implements ElectronMainApplicationContribution {
+export class NukeUpdaterMainImpl implements NukeUpdaterService, ElectronMainApplicationContribution {
 
     private readyToUpdate = false;
 
@@ -25,20 +25,6 @@ export class NukeUpdaterMainImpl implements ElectronMainApplicationContribution 
         autoUpdater.on('error', (err: Error) => {
             console.error('[NukeUpdater] Error:', err.message);
         });
-
-        ipcMain.on('nuke-updater:check', () => {
-            autoUpdater.checkForUpdates().catch((err: Error) => {
-                console.error('[NukeUpdater] Manual check failed:', err.message);
-            });
-        });
-
-        ipcMain.on('nuke-updater:restart', () => {
-            autoUpdater.quitAndInstall();
-        });
-
-        ipcMain.handle('nuke-updater:status', () => {
-            return { readyToUpdate: this.readyToUpdate };
-        });
     }
 
     onStart(): void {
@@ -47,5 +33,19 @@ export class NukeUpdaterMainImpl implements ElectronMainApplicationContribution 
                 console.error('[NukeUpdater] Check failed:', err.message);
             });
         }, 5000);
+    }
+
+    checkForUpdates(): void {
+        autoUpdater.checkForUpdates().catch((err: Error) => {
+            console.error('[NukeUpdater] Manual check failed:', err.message);
+        });
+    }
+
+    restartToUpdate(): void {
+        autoUpdater.quitAndInstall();
+    }
+
+    getStatus(): Promise<NukeUpdaterStatus> {
+        return Promise.resolve({ readyToUpdate: this.readyToUpdate });
     }
 }
