@@ -80,32 +80,32 @@ VIEW_TYPES = ['isometric', 'front', 'back', 'left', 'right', 'top', 'bottom']
 
 # Common CSS styles for visualizer UIs
 GLOBAL_STYLES = """
-    /* Custom scrollbar for dropdowns */
+    /* Custom scrollbar for dropdowns - theme-neutral */
     .v-autocomplete__content::-webkit-scrollbar,
     .v-menu__content::-webkit-scrollbar {
-        width: 8px;
+        width: 6px;
     }
     .v-autocomplete__content::-webkit-scrollbar-track,
     .v-menu__content::-webkit-scrollbar-track {
-        background: #1e1e2d;
+        background: transparent;
     }
     .v-autocomplete__content::-webkit-scrollbar-thumb,
     .v-menu__content::-webkit-scrollbar-thumb {
-        background: #3f3f5f;
-        border-radius: 4px;
+        background: rgba(128, 128, 128, 0.35);
+        border-radius: 3px;
     }
     .v-autocomplete__content::-webkit-scrollbar-thumb:hover,
     .v-menu__content::-webkit-scrollbar-thumb:hover {
-        background: #5a5a8a;
+        background: rgba(128, 128, 128, 0.55);
     }
 
-    /* Dropdown menu styling */
+    /* Dropdown menu styling - let Vuetify theme handle background,
+       only add shadow and subtle border */
     .v-autocomplete__content.v-menu__content,
     .v-menu__content.menuable__content__active {
         border-radius: 8px !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
-        border: 1px solid #3f3f5f !important;
-        background-color: #1a1a26 !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
     }
 
     /* List item improvements */
@@ -115,23 +115,23 @@ GLOBAL_STYLES = """
         margin-top: 2px;
     }
     .v-list-item--active {
-        background-color: rgba(63, 63, 95, 0.4) !important;
+        background-color: rgba(128, 128, 128, 0.15) !important;
     }
 
-    /* Chip styling */
+    /* Chip styling - theme-neutral */
     .v-chip.v-size--small,
     .v-chip.v-size--x-small {
         border-radius: 4px !important;
         font-weight: 500;
-        background-color: #2a2a3d !important;
-        border: 1px solid #3f3f5f !important;
+        background-color: rgba(128, 128, 128, 0.12) !important;
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
     }
     .v-chip.v-size--x-small {
         height: 20px !important;
         font-size: 0.7rem !important;
         padding: 0 6px !important;
     }
-    
+
     /* VAutocomplete improvements */
     .v-autocomplete .v-input__prepend-inner {
         margin-top: 4px !important;
@@ -142,7 +142,7 @@ GLOBAL_STYLES = """
     .v-autocomplete .v-select__selections {
         padding-top: 4px !important;
         padding-bottom: 4px !important;
-        min-height: 40px !important;
+        min-height: 36px !important;
     }
     .v-autocomplete .v-chip {
         margin: 2px 4px !important;
