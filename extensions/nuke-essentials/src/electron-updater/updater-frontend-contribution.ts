@@ -8,7 +8,12 @@ import {
 } from '@theia/core/lib/common';
 import { CommonMenus } from '@theia/core/lib/browser';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
-import { ipcRenderer } from '@theia/electron/shared/electron';
+let ipcRenderer: typeof import('electron').ipcRenderer | undefined;
+try {
+    ipcRenderer = require('@theia/electron/shared/electron').ipcRenderer;
+} catch {
+    // Not available in browser builds
+}
 
 export namespace NukeUpdaterCommands {
     export const CHECK_FOR_UPDATES: Command = {
@@ -31,6 +36,9 @@ export class NukeUpdaterFrontendContribution implements CommandContribution, Men
 
     @postConstruct()
     protected init(): void {
+        if (!ipcRenderer) {
+            return;
+        }
         setInterval(async () => {
             try {
                 const status = await ipcRenderer.invoke('nuke-updater:status');
@@ -44,19 +52,25 @@ export class NukeUpdaterFrontendContribution implements CommandContribution, Men
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(NukeUpdaterCommands.CHECK_FOR_UPDATES, {
             execute: async () => {
+                if (!ipcRenderer) {
+                    return;
+                }
                 ipcRenderer.send('nuke-updater:check');
                 await this.messageService.info('Checking for updates...');
             },
-            isEnabled: () => !this.readyToUpdate,
-            isVisible: () => !this.readyToUpdate,
+            isEnabled: () => !this.readyToUpdate && !!ipcRenderer,
+            isVisible: () => !this.readyToUpdate && !!ipcRenderer,
         });
 
         registry.registerCommand(NukeUpdaterCommands.RESTART_TO_UPDATE, {
             execute: () => {
+                if (!ipcRenderer) {
+                    return;
+                }
                 ipcRenderer.send('nuke-updater:restart');
             },
-            isEnabled: () => this.readyToUpdate,
-            isVisible: () => this.readyToUpdate,
+            isEnabled: () => this.readyToUpdate && !!ipcRenderer,
+            isVisible: () => this.readyToUpdate && !!ipcRenderer,
         });
     }
 

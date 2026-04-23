@@ -5,8 +5,17 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const webpack = require('webpack');
 const path = require('path');
 
-// Add CopyWebpackPlugin to copy resources
+// Prevent webpack from bundling 'electron' in browser builds.
+// electron-only extensions (e.g., updater) may be reachable in some build environments.
 configs.forEach(config => {
+    if (!config.resolve) {
+        config.resolve = {};
+    }
+    if (!config.resolve.fallback) {
+        config.resolve.fallback = {};
+    }
+    config.resolve.fallback.electron = false;
+
     if (!config.plugins) {
         config.plugins = [];
     }
