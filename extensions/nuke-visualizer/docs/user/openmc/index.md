@@ -45,7 +45,7 @@ All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 | Submenu | Commands |
 |---------|----------|
 | **Statepoint** | View Statepoint... |
-| **Tally** | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Show Tally Info |
+| **Tally** | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Overlay Tally on Geometry with Source, Show Tally Info |
 | **Depletion** | View Depletion Results..., Compare Depletion Results... |
 | **Geometry** | View Geometry Hierarchy..., Check Geometry Overlaps... |
 | **Materials** | View Materials |

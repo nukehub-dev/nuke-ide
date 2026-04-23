@@ -63,6 +63,38 @@ If the tally mesh bounding box does not align with the geometry, a yellow warnin
 
 ---
 
+## Overlay Tally on Geometry with Source Particles
+
+Best for: Validating that your source distribution covers the tally regions you care about.
+
+### How to Open
+
+1. Load a statepoint that contains a **source bank**.
+2. In the **Tallies** list, click a tally that has a **mesh filter**.
+3. Click **"+ Source"** (or **"Overlay with Source"** in the Tally Tree).
+
+Or use the menu: `Tools → Visualizer → OpenMC → Tally → Overlay Tally on Geometry with Source`
+
+### What You See
+
+- Your DAGMC or CSG geometry rendered in 3D, colored by the tally value.
+- Source particles from the statepoint overlaid as points on top of the geometry.
+- Source particles are colored by **energy** (default) or **weight**.
+
+### Controls
+
+In addition to the standard geometry overlay controls, the sidebar includes a **Source Particles** section:
+
+| Control | Description |
+|---------|-------------|
+| **Point Size** | Size of source particle points |
+| **Source Opacity** | Transparency of source particles |
+| **Source Color By** | Color particles by `energy`, `weight`, or `Solid Color` |
+
+> If the statepoint has no source bank, the visualization falls back to a standard geometry overlay.
+
+---
+
 ## Energy Spectrum
 
 Best for: Seeing how tally values vary with neutron energy.
@@ -155,3 +187,4 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 | Spatial Plot | Mesh filter | 1D profiles along an axis |
 | 2D Heatmap | Mesh filter | Slice-by-slice inspection |
 | Source Distribution | `source.h5` or statepoint with source | Source convergence checks |
+| Overlay + Source | Geometry + statepoint with source bank | Correlating source birth with tally regions |

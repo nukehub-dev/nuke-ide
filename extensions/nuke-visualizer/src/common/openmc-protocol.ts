@@ -207,6 +207,15 @@ export interface OpenMCBackendService {
         filterGraveyard?: boolean
     ): Promise<OpenMCVisualizationResult>;
 
+    /** Overlay tally on geometry with source particles (geometry + statepoint) */
+    visualizeTallyAndSourceOnGeometry(
+        geometryPath: string,
+        statepointPath: string,
+        tallyId: number,
+        score?: string,
+        filterGraveyard?: boolean
+    ): Promise<OpenMCVisualizationResult>;
+
     /** Get energy spectrum data for a tally */
     getEnergySpectrum(
         statepointPath: string,

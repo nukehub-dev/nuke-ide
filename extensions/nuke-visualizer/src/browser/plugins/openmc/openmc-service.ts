@@ -525,6 +525,76 @@ export class OpenMCService {
     }
 
     /**
+     * Overlay tally results on geometry with source particles.
+     */
+    async visualizeTallyAndSourceOnGeometry(
+        geometryUri: URI,
+        statepointUri: URI,
+        options: TallyVisualizationOptions
+    ): Promise<VisualizerWidget | null> {
+        const available = await this.checkAvailability();
+        if (!available) {
+            return null;
+        }
+
+        try {
+            const uniqueSuffix = `overlay-source:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
+
+            let label = `Tally ${options.tallyId}`;
+            if (options.score) {
+                label += ` (${options.score})`;
+            }
+            label += ' + Source';
+
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                geometryUri,
+                label,
+                uniqueSuffix,
+                `Loading tally ${options.tallyId} with source particles...`
+            );
+
+            const geometryPath = geometryUri.path.toString();
+            const statepointPath = statepointUri.path.toString();
+
+            const result = await this.openmcBackend.visualizeTallyAndSourceOnGeometry(
+                geometryPath,
+                statepointPath,
+                options.tallyId,
+                options.score,
+                options.filterGraveyard !== false
+            );
+
+            if (!result.success || !result.port || !result.url) {
+                throw new Error(result.error || 'Unknown error loading overlay with source');
+            }
+
+            const tallyName = result.tallyInfo?.name;
+            const defaultName = `Tally ${options.tallyId}`;
+            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
+                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
+                if (options.score) {
+                    widget.title.label += ` (${options.score})`;
+                }
+                widget.title.label += ' + Source';
+            }
+
+            completeLoading(result.port, result.url);
+
+            if (result.tallyInfo) {
+                this._onTallyVisualized.fire(result.tallyInfo);
+            }
+
+            this.messageService.info('Loaded tally overlay with source particles');
+            return widget;
+
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to overlay tally with source: ${msg}`);
+            return null;
+        }
+    }
+
+    /**
      * Get energy spectrum data for a tally.
      */
     async getEnergySpectrum(statepointUri: URI, tallyId: number, scoreIndex?: number, nuclideIndex?: number) {

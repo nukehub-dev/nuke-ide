@@ -781,6 +781,8 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 await this.openmcService.visualizeMeshTally(currentStatepointUri, options);
             } else if (selection.action === 'overlay-geometry') {
                 await this.handleOverlayOnGeometry(selection, currentStatepointUri);
+            } else if (selection.action === 'overlay-source') {
+                await this.handleOverlayOnGeometry(selection, currentStatepointUri, undefined, true);
             } else if (selection.action === 'heatmap') {
                 // Handle heatmap - delegate to existing heatmap logic
                 const tallySelection: TallySelection = {
@@ -844,6 +846,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 // Use stored geometry URI if available
                 const storedGeometryUri = this.tallyTreeWidget ? (this.tallyTreeWidget as any)._geometryUri as URI | undefined : undefined;
                 await this.handleOverlayOnGeometry(selection, currentStatepointUri, storedGeometryUri);
+            } else if (selection.action === 'overlay-source') {
+                console.log(`[OpenMC] Overlaying tally ${selection.tallyId} on geometry with source`);
+                const storedGeometryUri = this.tallyTreeWidget ? (this.tallyTreeWidget as any)._geometryUri as URI | undefined : undefined;
+                await this.handleOverlayOnGeometry(selection, currentStatepointUri, storedGeometryUri, true);
             } else if (selection.action === 'spectrum') {
                 console.log(`[OpenMC] Plotting energy spectrum for tally ${selection.tallyId}`);
                 
@@ -1052,7 +1058,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
     }
 
-    private async handleOverlayOnGeometry(selection: any, statepointUri: URI, knownGeometryUri?: URI): Promise<void> {
+    private async handleOverlayOnGeometry(selection: any, statepointUri: URI, knownGeometryUri?: URI, withSource: boolean = false): Promise<void> {
         let geometryUri: URI;
         
         // If geometry is already known (from file manager), use it directly
@@ -1143,7 +1149,11 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         };
 
         try {
-            await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            if (withSource) {
+                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, options);
+            } else {
+                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            }
         } catch (error) {
             this.messageService.error(`Failed to overlay tally: ${error}`);
         }

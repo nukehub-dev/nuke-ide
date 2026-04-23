@@ -43,7 +43,7 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
-    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides' | 'overlay-geometry';
+    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides' | 'overlay-geometry' | 'overlay-source';
     geometryUri?: string;
 }
 
@@ -336,6 +336,17 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                             >
                                                 <i className={codicon('layers')}></i>
                                                 <span>Overlay</span>
+                                            </button>
+                                        </Tooltip>
+                                        
+                                        <Tooltip content="Overlay on Geometry with Source Particles" position="top">
+                                            <button 
+                                                className="action-btn accent"
+                                                style={{ background: '#2a5f3f', borderColor: '#3a7f4f' }}
+                                                onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-source')}
+                                            >
+                                                <i className={codicon('activate-breakpoints')}></i>
+                                                <span>+ Source</span>
                                             </button>
                                         </Tooltip>
                                         

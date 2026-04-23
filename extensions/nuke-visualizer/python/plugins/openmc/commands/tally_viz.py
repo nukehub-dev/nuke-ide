@@ -1337,3 +1337,588 @@ def cmd_visualize_overlay(args):
         import traceback
         traceback.print_exc()
         return 1
+
+
+
+@command('openmc.visualize-overlay-source', help='Overlay tally on geometry with source particles')
+@arg('geometry', help='Path to geometry.xml or .h5m')
+@arg('statepoint', help='Path to statepoint file')
+@arg('tally_id', type=int, help='Tally ID')
+@arg('--score', help='Score name')
+@arg('--max-source-particles', type=int, default=5000, help='Max source particles to visualize')
+@arg('--colormap', help='Color map name')
+@arg('--no-graveyard-filter', action='store_true', help='Disable graveyard surface filtering')
+@arg('--port', type=int, help='Server port')
+def cmd_visualize_overlay_source(args):
+    """Overlay tally on geometry with source particles from statepoint."""
+    try:
+        from trame.app import get_server
+        from trame.widgets import paraview as pv_widgets
+        from trame.widgets import vuetify2 as vuetify
+        from trame.ui.vuetify2 import VAppLayout
+        from paraview import simple
+        import vtk
+    except ImportError as e:
+        print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
+        return 1
+    
+    port = args.port or find_free_port(8090)
+    reader = OpenMCReader()
+    
+    try:
+        viz_data = reader.visualize_tally_and_source_on_geometry(
+            args.geometry, args.statepoint, args.tally_id, args.score,
+            filter_graveyard=not args.no_graveyard_filter,
+            max_source_particles=args.max_source_particles
+        )
+        tally = viz_data['tally']
+        overlay_type = viz_data.get('overlay_type', 'none')
+        source_poly = viz_data.get('source_poly')
+        n_source_particles = viz_data.get('n_source_particles', 0)
+        
+        server = get_server(client_type="vue2", port=port)
+        state = server.state
+        
+        has_colored_data = overlay_type in ('cell', 'mesh', 'mesh_mapped')
+        
+        if overlay_type == 'cell':
+            color_array_name = 'tally_value'
+            color_array_location = 'CELLS'
+        elif overlay_type == 'mesh_mapped':
+            color_array_name = viz_data.get('array_name', 'tally_mean')
+            color_array_location = viz_data.get('array_location', 'POINTS')
+        else:
+            color_array_name = 'tally_mean'
+            color_array_location = 'CELLS'
+        
+        default_color_type = 'Cell' if color_array_location == 'CELLS' else 'Point'
+        
+        init_common_state(state, theme='dark',
+                         opacity=1.0 if overlay_type in ('cell', 'mesh_mapped') else 0.6,
+                         color_by=f'{default_color_type}: {color_array_name}' if has_colored_data else 'Solid Color',
+                         show_scalar_bar=has_colored_data,
+                         color_map=args.colormap or 'Cool to Warm')
+        
+        state.array_name = color_array_name
+        state.array_location = color_array_location
+        state.tally_id = tally.id
+        state.tally_name = tally.name
+        state.has_mesh = tally.has_mesh
+        state.overlay_type = overlay_type
+        state.current_score = args.score if args.score else (tally.scores[0] if tally.scores else 'total')
+        state.n_source_particles = n_source_particles
+        state.source_point_size = 3.0
+        state.source_opacity = 1.0
+        state.source_color_by = 'Point: energy' if source_poly else 'Solid Color'
+        
+        spatial_warning = viz_data.get('spatial_warning')
+        if spatial_warning:
+            state.spatial_warning = spatial_warning
+            warning_obj = {"type": "spatial_warning", "message": spatial_warning}
+            print(f"NUKE_IDE_WARNING:{json.dumps(warning_obj)}", flush=True)
+            print(f"[Overlay Source] Spatial warning: {spatial_warning}", file=sys.stderr, flush=True)
+        
+        view = simple.GetActiveViewOrCreate('RenderView')
+        bg_rgb = hex_to_rgb(state.background_color_hex)
+        view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]
+        view.UseColorPaletteForBackground = 0
+        view.OrientationAxesVisibility = 1
+        
+        # Setup source if available
+        source_reader = None
+        source_display = None
+        if source_poly:
+            with tempfile.NamedTemporaryFile(suffix='.vtp', delete=False) as tmp:
+                source_tmp_path = tmp.name
+            writer = vtk.vtkXMLPolyDataWriter()
+            writer.SetFileName(source_tmp_path)
+            writer.SetInputData(source_poly)
+            writer.Write()
+            source_reader = simple.XMLPolyDataReader(FileName=source_tmp_path)
+            source_display = simple.Show(source_reader, view)
+            source_display.Representation = 'Points'
+            source_display.PointSize = state.source_point_size
+            source_display.Opacity = state.source_opacity
+            simple.ColorBy(source_display, ('POINTS', 'energy'))
+            lut_source = simple.GetColorTransferFunction('energy')
+            lut_source.ApplyPreset('Plasma', True)
+        
+        # Get available arrays for geometry
+        available_arrays = ['Solid Color']
+        if overlay_type in ('cell', 'mesh_mapped'):
+            data_source = viz_data.get('geometry')
+        else:
+            data_source = viz_data.get('tally_source')
+        
+        if data_source:
+            try:
+                for i in range(data_source.CellData.GetNumberOfArrays()):
+                    array = data_source.CellData.GetArray(i)
+                    if array and array.GetName():
+                        available_arrays.append(f"Cell: {array.GetName()}")
+                for i in range(data_source.PointData.GetNumberOfArrays()):
+                    array = data_source.PointData.GetArray(i)
+                    if array and array.GetName():
+                        available_arrays.append(f"Point: {array.GetName()}")
+            except Exception:
+                pass
+        
+        default_entry = f"{default_color_type}: {color_array_name}"
+        if has_colored_data and default_entry not in available_arrays:
+            available_arrays.append(default_entry)
+        
+        state.available_arrays = available_arrays
+        
+        # Get available arrays for source
+        source_available_arrays = ['Solid Color']
+        if source_reader:
+            try:
+                for i in range(source_reader.PointData.GetNumberOfArrays()):
+                    array = source_reader.PointData.GetArray(i)
+                    if array and array.GetName():
+                        source_available_arrays.append(f"Point: {array.GetName()}")
+            except Exception:
+                pass
+        state.source_available_arrays = source_available_arrays
+        
+        simple.Render(view)
+        simple.ResetCamera()
+        
+        geometry_display = viz_data.get('geometry_display')
+        tally_display = viz_data.get('tally_display')
+        primary_display = geometry_display if overlay_type in ('cell', 'mesh_mapped') else tally_display
+        
+        pipeline_geometry = viz_data.get('geometry') if overlay_type in ('cell', 'mesh_mapped') else viz_data.get('tally_source')
+        
+        pipeline = {
+            'view': view,
+            'view_widget': None,
+            'source': viz_data.get('geometry') if overlay_type in ('cell', 'mesh_mapped') else viz_data.get('tally_source'),
+            'display': primary_display,
+            'geometry': pipeline_geometry,
+            'geometry_display': geometry_display,
+            'tally_source': viz_data.get('tally_source'),
+            'tally_display': tally_display,
+            'overlay_type': overlay_type,
+            'source_reader': source_reader,
+            'source_display': source_display
+        }
+        
+        if has_colored_data and primary_display:
+            try:
+                lut = simple.GetColorTransferFunction(color_array_name)
+                lut.ApplyPreset(state.color_map, True)
+                if overlay_type == 'mesh':
+                    data_src = viz_data.get('tally_source')
+                else:
+                    data_src = viz_data.get('geometry')
+                if data_src:
+                    if color_array_location == 'CELLS':
+                        data_array = data_src.CellData.GetArray(color_array_name)
+                    else:
+                        data_array = data_src.PointData.GetArray(color_array_name)
+                    if data_array:
+                        data_range = data_array.GetRange()
+                        lut.RescaleTransferFunction(data_range[0], data_range[1])
+                scalar_bar = simple.GetScalarBar(lut, view)
+                if scalar_bar:
+                    scalar_bar.Visibility = 1 if state.show_scalar_bar else 0
+                    scalar_bar.Title = color_array_name.replace('_', ' ').title()
+            except Exception as e:
+                print(f"[Overlay Source] Warning: Could not setup initial scalar bar: {e}", file=sys.stderr)
+        
+        simple.Render(view)
+        
+        def update_view(push_camera=False):
+            try:
+                simple.Render(view)
+                vw = pipeline.get('view_widget')
+                if vw:
+                    if push_camera:
+                        state.camera_update_counter = (state.camera_update_counter + 1) if hasattr(state, 'camera_update_counter') else 1
+                    else:
+                        vw.update()
+            except Exception as e:
+                print(f"Error updating view: {e}", file=sys.stderr)
+        
+        # State change handlers
+        @state.change("color_by")
+        def on_color_by_change(color_by, **kwargs):
+            try:
+                if not primary_display:
+                    return
+                if color_by == 'Solid Color':
+                    simple.ColorBy(primary_display, None)
+                elif color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                    simple.ColorBy(primary_display, ('POINTS', array_name))
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(state.color_map, True)
+                    try:
+                        if pipeline.get('geometry'):
+                            data_array = pipeline['geometry'].PointData.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception:
+                        pass
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                    simple.ColorBy(primary_display, ('CELLS', array_name))
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(state.color_map, True)
+                    try:
+                        if pipeline.get('geometry'):
+                            data_array = pipeline['geometry'].CellData.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception:
+                        pass
+                update_view()
+            except Exception as e:
+                print(f"Error updating color by: {e}", file=sys.stderr)
+        
+        @state.change("color_map")
+        def on_color_map_change(color_map, **kwargs):
+            try:
+                color_by = state.color_by
+                if color_by == 'Solid Color' or not primary_display:
+                    return
+                array_name = None
+                array_location = None
+                if color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                    array_location = 'PointData'
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                    array_location = 'CellData'
+                if array_name:
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset(color_map, True)
+                    try:
+                        if pipeline.get('geometry'):
+                            data = getattr(pipeline['geometry'], array_location)
+                            data_array = data.GetArray(array_name)
+                            if data_array:
+                                data_range = data_array.GetRange()
+                                lut.RescaleTransferFunction(data_range[0], data_range[1])
+                    except Exception:
+                        pass
+                update_view()
+            except Exception as e:
+                print(f"Error updating color map: {e}", file=sys.stderr)
+        
+        @state.change("opacity")
+        def on_opacity_change(opacity, **kwargs):
+            try:
+                if overlay_type in ('cell', 'mesh_mapped') and geometry_display:
+                    geometry_display.Opacity = float(opacity)
+                elif overlay_type == 'mesh' and tally_display:
+                    tally_display.Opacity = float(opacity)
+                update_view()
+            except Exception as e:
+                print(f"Error updating opacity: {e}", file=sys.stderr)
+        
+        @state.change("representation")
+        def on_representation_change(representation, **kwargs):
+            try:
+                if primary_display:
+                    primary_display.Representation = representation
+                update_view()
+            except Exception as e:
+                print(f"Error updating representation: {e}", file=sys.stderr)
+        
+        @state.change("show_scalar_bar")
+        def on_scalar_bar_change(show_scalar_bar, **kwargs):
+            try:
+                color_by = state.color_by
+                if color_by == 'Solid Color' or not view:
+                    return
+                array_name = None
+                if color_by.startswith('Point: '):
+                    array_name = color_by[7:]
+                elif color_by.startswith('Cell: '):
+                    array_name = color_by[6:]
+                if array_name:
+                    lut = simple.GetColorTransferFunction(array_name)
+                    scalar_bar = simple.GetScalarBar(lut, view)
+                    if scalar_bar:
+                        scalar_bar.Visibility = 1 if show_scalar_bar else 0
+                    elif show_scalar_bar:
+                        scalar_bar = simple.GetScalarBar(lut, view)
+                        scalar_bar.Visibility = 1
+                        scalar_bar.Title = array_name.replace('_', ' ').title()
+                update_view()
+            except Exception as e:
+                print(f"Error updating scalar bar: {e}", file=sys.stderr)
+        
+        @state.change("background_color_hex")
+        def on_background_change(background_color_hex, **kwargs):
+            try:
+                rgb = hex_to_rgb(background_color_hex)
+                if rgb and view:
+                    try:
+                        view.UseColorPaletteForBackground = 0
+                    except Exception:
+                        pass
+                    view.Background = rgb
+                update_view()
+            except Exception as e:
+                print(f"Error updating background: {e}", file=sys.stderr)
+        
+        @state.change("show_orientation_axes")
+        def on_orientation_axes_change(show_orientation_axes, **kwargs):
+            try:
+                if view:
+                    view.OrientationAxesVisibility = 1 if show_orientation_axes else 0
+                update_view()
+            except Exception as e:
+                print(f"Error updating orientation axes: {e}", file=sys.stderr)
+        
+        @state.change("show_cube_axes")
+        def on_cube_axes_change(show_cube_axes, **kwargs):
+            try:
+                val = 1 if show_cube_axes else 0
+                if hasattr(view, 'CubeAxesVisibility'):
+                    view.CubeAxesVisibility = val
+                elif hasattr(view, 'AxesGrid'):
+                    view.AxesGrid.Visibility = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating cube axes: {e}", file=sys.stderr)
+        
+        @state.change("ambient_light")
+        def on_ambient_light_change(ambient_light, **kwargs):
+            try:
+                val = float(ambient_light)
+                if primary_display:
+                    primary_display.Ambient = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.Ambient = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating ambient light: {e}", file=sys.stderr)
+        
+        @state.change("parallel_projection")
+        def on_parallel_projection_change(parallel_projection, **kwargs):
+            try:
+                if view:
+                    view.CameraParallelProjection = 1 if parallel_projection else 0
+                update_view(True)
+            except Exception as e:
+                print(f"Error updating projection mode: {e}", file=sys.stderr)
+        
+        @state.change("point_size")
+        def on_point_size_change(point_size, **kwargs):
+            try:
+                val = float(point_size)
+                if primary_display:
+                    primary_display.PointSize = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.PointSize = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating point size: {e}", file=sys.stderr)
+        
+        @state.change("line_width")
+        def on_line_width_change(line_width, **kwargs):
+            try:
+                val = float(line_width)
+                if primary_display:
+                    primary_display.LineWidth = val
+                if overlay_type == 'mesh' and geometry_display:
+                    geometry_display.LineWidth = val
+                update_view()
+            except Exception as e:
+                print(f"Error updating line width: {e}", file=sys.stderr)
+        
+        # Source-specific handlers
+        @state.change("source_point_size")
+        def on_source_point_size_change(source_point_size, **kwargs):
+            try:
+                if source_display:
+                    source_display.PointSize = float(source_point_size)
+                    update_view()
+            except Exception as e:
+                print(f"Error updating source point size: {e}", file=sys.stderr)
+        
+        @state.change("source_opacity")
+        def on_source_opacity_change(source_opacity, **kwargs):
+            try:
+                if source_display:
+                    source_display.Opacity = float(source_opacity)
+                    update_view()
+            except Exception as e:
+                print(f"Error updating source opacity: {e}", file=sys.stderr)
+        
+        @state.change("source_color_by")
+        def on_source_color_by_change(source_color_by, **kwargs):
+            try:
+                if not source_display:
+                    return
+                if source_color_by == 'Solid Color':
+                    simple.ColorBy(source_display, None)
+                elif source_color_by.startswith('Point: '):
+                    array_name = source_color_by[7:]
+                    simple.ColorBy(source_display, ('POINTS', array_name))
+                    lut = simple.GetColorTransferFunction(array_name)
+                    lut.ApplyPreset('Plasma', True)
+                update_view()
+            except Exception as e:
+                print(f"Error updating source color: {e}", file=sys.stderr)
+        
+        # Controllers
+        reset_camera = create_reset_camera_controller(pipeline, update_view)
+        set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
+        pan_camera = create_pan_camera_controller(pipeline, update_view)
+        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
+        capture_screenshot = create_capture_screenshot_controller(pipeline)
+        
+        def toggle_controls():
+            state.show_controls = not state.show_controls
+            return state.show_controls
+        
+        def save_screenshot():
+            save_screenshot_with_timestamp(capture_screenshot, state)
+        
+        with VAppLayout(server) as layout:
+            from trame.widgets import html
+            html.Style(GLOBAL_STYLES)
+            with vuetify.VNavigationDrawer(
+                v_model=("show_controls", True), app=True, width=320, clipped=True,
+                color="#1e1e1e", dark=True
+            ):
+                with vuetify.VContainer(classes="pa-3"):
+                    # Header
+                    with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
+                        html.Div(f"Tally {tally.id} + Source",
+                                classes="text-subtitle-1 font-weight-medium white--text")
+                        with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                            vuetify.VIcon("mdi-chevron-left")
+                    vuetify.VDivider(classes="mb-2")
+                    
+                    # Overlay type indicator
+                    overlay_label = {
+                        'cell': 'Cell Tally (on Geometry)',
+                        'mesh': 'Mesh Tally (Overlay)',
+                        'none': 'Geometry Only'
+                    }.get(overlay_type, 'Unknown')
+                    
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #2a3f5f; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Overlay Type", style="font-size: 10px; color: #88aaff; text-transform: uppercase;")
+                                html.Div(overlay_label, style="font-size: 12px; color: #fff; font-weight: 500;")
+                    
+                    # Tally info
+                    with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                        with vuetify.VCol(cols=12, classes="pa-0"):
+                            with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px;"):
+                                html.Div("Tally Name", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                                html.Div(tally.name, style="font-size: 13px; color: #fff; font-weight: 500;")
+                    
+                    # Source particles info
+                    if source_poly:
+                        with vuetify.VRow(dense=True, classes="ma-0 mb-2"):
+                            with vuetify.VCol(cols=12, classes="pa-0"):
+                                with html.Div(style="background: #2a5f3f; border-radius: 4px; padding: 4px 8px;"):
+                                    html.Div("Source Particles", style="font-size: 10px; color: #88ffaa; text-transform: uppercase;")
+                                    html.Div(str(n_source_particles), style="font-size: 13px; color: #fff; font-weight: 500;")
+                    
+                    vuetify.VDivider(classes="mb-4")
+                    
+                    # Geometry controls
+                    opacity_label = "Mesh Opacity" if overlay_type == 'mesh' else "Geometry Opacity"
+                    with vuetify.VContainer(classes="pa-0"):
+                        html.Div(opacity_label, style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px;")
+                        UIComponents.opacity_slider(vuetify, ("opacity", 0.6 if overlay_type == 'mesh' else 1.0))
+                    
+                    UIComponents.representation_selector(vuetify)
+                    
+                    if has_colored_data:
+                        UIComponents.color_by_selector(vuetify)
+                        with vuetify.VContainer(v_if=("color_by !== 'Solid Color'",)):
+                            UIComponents.color_map_selector(vuetify, COLOR_MAPS)
+                            vuetify.VCheckbox(
+                                v_model=("show_scalar_bar", True),
+                                label="Show Color Legend",
+                                dense=True, classes="mb-4"
+                            )
+                        vuetify.VDivider(classes="my-4")
+                    
+                    # Source controls
+                    if source_poly:
+                        html.Div("Source Particles", style="font-size: 11px; color: #888; text-transform: uppercase; margin: 8px 0 4px 0;")
+                        with vuetify.VContainer(classes="pa-0"):
+                            html.Div("Point Size", style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px;")
+                            UIComponents.point_size_slider(vuetify, ("source_point_size", 3.0), max=10)
+                        with vuetify.VContainer(classes="pa-0"):
+                            html.Div("Source Opacity", style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px;")
+                            UIComponents.opacity_slider(vuetify, ("source_opacity", 1.0))
+                        vuetify.VSelect(
+                            v_model=("source_color_by", state.source_color_by),
+                            items=("source_available_arrays",),
+                            label="Source Color By", dense=True, outlined=True, classes="mb-4"
+                        )
+                        vuetify.VDivider(classes="my-4")
+                    
+                    UIComponents.compact_appearance_controls(vuetify)
+                    vuetify.VDivider(classes="my-4")
+                    UIComponents.point_size_slider(vuetify)
+                    UIComponents.line_width_slider(vuetify)
+                    UIComponents.ambient_light_slider(vuetify)
+                    vuetify.VDivider(classes="my-4")
+                    
+                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                    vuetify.VBtn("Save Screenshot", click=save_screenshot,
+                                block=True, small=True, color="primary", classes="mb-2")
+                    
+                    with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
+                        vuetify.VSubheader(("screenshot_status",), classes="text-caption justify-center")
+            
+            with vuetify.VMain():
+                with vuetify.VContainer(
+                    v_if=("!show_controls",), classes="ma-2 pa-0",
+                    style="position: absolute; top: 0; left: 0; z-index: 100;"
+                ):
+                    with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
+                        vuetify.VIcon("mdi-chevron-right")
+                
+                UIComponents.create_canvas_gadget(vuetify, pan_camera, zoom_camera, reset_callback=reset_camera, view_callback=set_camera_view)
+                
+                pipeline['view_widget'] = pv_widgets.VtkRemoteView(view, interactive_ratio=1, style="width: 100%; height: 100%;")
+        
+        @server.controller.add("view_update")
+        def ctrl_view_update():
+            update_view()
+        
+        @server.controller.add("toggle_controls")
+        def ctrl_toggle_controls():
+            return toggle_controls()
+        
+        @server.controller.add("reset_camera")
+        def ctrl_reset_camera():
+            return reset_camera()
+        
+        @server.controller.add("set_camera_view")
+        def ctrl_set_camera_view(view_type):
+            return set_camera_view(view_type)
+        
+        @state.change("camera_update_counter")
+        def on_camera_update(camera_update_counter, **kwargs):
+            try:
+                simple.Render(view)
+                if pipeline.get('view_widget'):
+                    pipeline['view_widget'].update()
+            except Exception as e:
+                print(f"Warning: camera update failed: {e}", file=sys.stderr)
+        
+        print(f"Starting OpenMC overlay+source server on port {port}", file=sys.stderr)
+        server.start(port=port, debug=False, open_browser=False)
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1

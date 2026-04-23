@@ -680,12 +680,13 @@ class OpenMCReader:
         vtk_std.SetName('tally_std_dev')
         grid.GetCellData().AddArray(vtk_std)
     
-    def load_source(self, source_file: str) -> vtk.vtkPolyData:
+    def load_source(self, source_file: str, max_particles: int = None) -> vtk.vtkPolyData:
         """
-        Load OpenMC source distribution from source.h5 and create point cloud.
+        Load OpenMC source distribution from source.h5 or statepoint and create point cloud.
         
         Args:
-            source_file: Path to source.h5
+            source_file: Path to source.h5 or statepoint file
+            max_particles: Maximum number of particles to load (samples by stride if exceeded)
             
         Returns:
             VTK polydata with source particles as points
@@ -748,9 +749,20 @@ class OpenMCReader:
                 raise ValueError(f"No 'source' group or 'source_bank' dataset found in {source_file}. "
                                  f"Available keys: {list(f.keys())}")
             
+            # Sample if max_particles is set
+            n_points = len(x)
+            if max_particles and n_points > max_particles:
+                stride = n_points // max_particles
+                indices = np.arange(0, n_points, stride)[:max_particles]
+                x = x[indices]
+                y = y[indices]
+                z = z[indices]
+                energies = energies[indices]
+                weights = weights[indices]
+                n_points = len(x)
+            
             # Create VTK points
             vtk_points = vtk.vtkPoints()
-            n_points = min(len(x), n_particles) if isinstance(n_particles, (int, np.integer)) else len(x)
             for i in range(n_points):
                 vtk_points.InsertNextPoint(x[i], y[i], z[i])
             
@@ -895,6 +907,43 @@ class OpenMCReader:
                 'tally': tally,
                 'overlay_type': 'none'
             }
+    
+    def visualize_tally_and_source_on_geometry(
+        self, geometry_file: str, statepoint_file: str,
+        tally_id: int, score: str = None,
+        filter_graveyard: bool = True, max_source_particles: int = 5000
+    ) -> Dict:
+        """
+        Overlay tally results on geometry and add source particles from statepoint.
+        
+        Args:
+            geometry_file: Path to geometry file (.h5m or .xml)
+            statepoint_file: Path to statepoint.h5
+            tally_id: Tally ID to visualize
+            score: Specific score to visualize (optional)
+            filter_graveyard: Whether to filter out graveyard surfaces (default True)
+            max_source_particles: Max source particles to visualize (default 5000)
+            
+        Returns:
+            Dictionary with visualization objects including 'source_poly'
+        """
+        # Load geometry + tally overlay using existing logic
+        result = self.visualize_tally_on_geometry(
+            geometry_file, statepoint_file, tally_id, score,
+            filter_graveyard=filter_graveyard
+        )
+        
+        # Load source particles from statepoint
+        try:
+            source_poly = self.load_source(statepoint_file, max_particles=max_source_particles)
+            result['source_poly'] = source_poly
+            result['n_source_particles'] = source_poly.GetNumberOfPoints()
+        except Exception as e:
+            print(f"[Overlay Source] Could not load source particles: {e}", file=sys.stderr)
+            result['source_poly'] = None
+            result['n_source_particles'] = 0
+        
+        return result
     
     def _validate_spatial_overlap(self, geometry, tally) -> Optional[str]:
         """

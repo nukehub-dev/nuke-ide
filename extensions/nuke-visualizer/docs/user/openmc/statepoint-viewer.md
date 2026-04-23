@@ -86,6 +86,7 @@ Click a tally to reveal action buttons:
 |--------|--------|
 | **View 3D** | Opens a 3D mesh tally visualization (if mesh filter exists) |
 | **Overlay on Geometry** | Colors DAGMC/VTK geometry with this tally |
+| **+ Source** | Colors geometry with tally *and* overlays source particles from the statepoint |
 | **Heatmap** | Opens a 2D slice heatmap viewer |
 | **Spectrum** | Plots energy spectrum (if energy filter exists) |
 | **Spatial** | Plots 1D spatial distribution (if mesh filter exists) |

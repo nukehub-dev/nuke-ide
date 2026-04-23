@@ -47,7 +47,7 @@ import { PlotlyComponent } from '../../../../plotly/plotly-component';
 
 export interface StatepointTallySelection {
     tallyId: number;
-    action: 'view-3d' | 'overlay-geometry' | 'heatmap' | 'spectrum' | 'spatial';
+    action: 'view-3d' | 'overlay-geometry' | 'overlay-source' | 'heatmap' | 'spectrum' | 'spatial';
     score?: string;
     nuclide?: string;
 }
@@ -283,6 +283,52 @@ const handlers = {
                                 };
                                 
                                 await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+                            }
+                        } else if (selection.action === 'overlay-source') {
+                            const fileUri = await this.fileDialogService.showOpenDialog({
+                                title: 'Select Geometry File',
+                                openLabel: 'Select',
+                                canSelectFiles: true,
+                                canSelectFolders: false,
+                                canSelectMany: false,
+                                filters: {
+                                    'Geometry Files': ['h5m', 'xml'],
+                                    'DAGMC Files': ['h5m'],
+                                    'OpenMC Geometry': ['xml'],
+                                    'All Files': ['*']
+                                }
+                            });
+                            
+                            if (fileUri) {
+                                const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                                if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
+                                    console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
+                                    return;
+                                }
+                                
+                                const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
+                                let filterGraveyard = false;
+                                if (!isGeometryXml) {
+                                    const filterChoice = await this.quickInput.showQuickPick([
+                                        { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                                        { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
+                                    ], {
+                                        title: 'Graveyard Surface Filtering',
+                                        placeholder: 'Select visualization mode'
+                                    });
+                                    
+                                    if (!filterChoice) return;
+                                    filterGraveyard = filterChoice.value === 'filter';
+                                }
+                                
+                                const options: any = {
+                                    tallyId: selection.tallyId,
+                                    score: selection.score || 'total',
+                                    nuclide: selection.nuclide || 'total',
+                                    filterGraveyard
+                                };
+                                
+                                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, options);
                             }
                         } else if (selection.action === 'heatmap') {
                             const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
@@ -897,6 +943,20 @@ const handlers = {
                                     <i className={codicon('layers')}></i>
                                 </button>
                             </Tooltip>
+                            {this.statepointInfo?.hasSourceBank && (
+                                <Tooltip content="Overlay tally on geometry with source particles" position="top">
+                                    <button 
+                                        className="tally-card-btn tally-card-btn--accent"
+                                        onClick={() => this.fireTallySelected({ 
+                                            tallyId: tally.id, 
+                                            action: 'overlay-source',
+                                            score: tally.scores[0]
+                                        })}
+                                    >
+                                        <i className={codicon('activate-breakpoints')}></i>
+                                    </button>
+                                </Tooltip>
+                            )}
                             <Tooltip content="View tally as 2D heatmap" position="top">
                                 <button 
                                     className="tally-card-btn"

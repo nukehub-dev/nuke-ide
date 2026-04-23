@@ -297,6 +297,96 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
+    async visualizeTallyAndSourceOnGeometry(
+        geometryPath: string,
+        statepointPath: string,
+        tallyId: number,
+        score?: string,
+        filterGraveyard: boolean = true
+    ): Promise<OpenMCVisualizationResult> {
+        const port = await this.findFreePort(8090);
+        this.reservedPorts.add(port);
+
+        try {
+            const pythonInfo = await this.pythonHelper.detectPython();
+            const pythonCommand = pythonInfo.command;
+            const scriptPath = this.pythonHelper.findScript('server.py');
+
+            const args: string[] = [
+                scriptPath,
+                'openmc.visualize-overlay-source',
+                geometryPath,
+                statepointPath,
+                tallyId.toString(),
+                '--port', port.toString()
+            ];
+
+            if (score) {
+                args.push('--score', score);
+            }
+
+            if (!filterGraveyard) {
+                args.push('--no-graveyard-filter');
+            }
+
+            const processOptions: RawProcessOptions = {
+                command: pythonCommand,
+                args,
+            };
+            const process = this.rawProcessFactory(processOptions);
+
+            process.outputStream.on('data', (data: Buffer) => {
+                const msg = data.toString();
+                console.log(`[OpenMC ${port}] ${msg.trim()}`);
+                const lines = msg.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('NUKE_IDE_WARNING:')) {
+                        try {
+                            const jsonStr = line.substring('NUKE_IDE_WARNING:'.length);
+                            const parsed = JSON.parse(jsonStr);
+                            if (parsed.type === 'spatial_warning' && parsed.message) {
+                                console.log(`[OpenMC Backend] Sending spatial warning to client via RPC`);
+                                this.client?.warn(parsed.message);
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+            });
+
+            process.errorStream.on('data', (data: Buffer) => {
+                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
+            });
+
+            process.onExit((event: { code?: number; signal?: string }) => {
+                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+            });
+
+            this.processes.set(port, { process, port, filePath: geometryPath });
+
+            await this.waitForServer(port, process, 120000);
+
+            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
+
+            return {
+                success: true,
+                port,
+                url: `http://127.0.0.1:${port}`,
+                tallyInfo
+            };
+
+        } catch (error) {
+            this.reservedPorts.delete(port);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
     async getEnergySpectrum(
         statepointPath: string,
         tallyId: number,
