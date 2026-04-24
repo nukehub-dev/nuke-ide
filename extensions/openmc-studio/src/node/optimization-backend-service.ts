@@ -36,7 +36,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { ProcessManager } from '@theia/process/lib/node/process-manager';
 import * as path from 'path';
@@ -87,38 +87,14 @@ export class OptimizationBackendService {
     private clients: Set<OpenMCStudioClient> = new Set();
 
     /**
-     * Get the extension root path for locating Python scripts.
-     */
-    private getExtensionPath(): string {
-        return path.resolve(__dirname, '../..');
-    }
-
-    /**
-     * Find the depletion runner Python script with fallback paths.
+     * Find the depletion runner Python script.
      */
     private async getDepletionRunnerPath(): Promise<string> {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
-        const unpackedPath = resolveAsarUnpacked(scriptPath);
-
-        if (fs.existsSync(unpackedPath)) {
-            return unpackedPath;
+        const resolved = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'run_depletion.py' });
+        if (!resolved) {
+            throw new Error('Python script not found: run_depletion.py');
         }
-
-        const fallbackPaths = [
-            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/run_depletion.py'),
-            path.resolve(process.cwd(), 'extensions/openmc-studio/python/run_depletion.py'),
-            path.resolve(__dirname, '../../python/run_depletion.py'),
-            path.resolve(__dirname, '../../../python/run_depletion.py'),
-        ];
-
-        for (const fp of fallbackPaths) {
-            if (fs.existsSync(fp)) {
-                return fp;
-            }
-        }
-
-        return scriptPath;
+        return resolved;
     }
 
     /**

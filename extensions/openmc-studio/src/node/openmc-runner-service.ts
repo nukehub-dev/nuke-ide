@@ -35,7 +35,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { ProcessManager } from '@theia/process/lib/node';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -140,55 +140,15 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Get the extension root path.
-     * Follows nuke-visualizer pattern.
-     */
-    private async getExtensionPath(): Promise<string> {
-        const path = await import('path');
-        try {
-            return path.dirname(require.resolve('openmc-studio/package.json'));
-        } catch (e) {
-            // Fallback to __dirname if require.resolve fails
-            return path.resolve(__dirname, '../..');
-        }
-    }
-
-    /**
      * Get the path to the depletion runner script.
-     * Follows nuke-visualizer pattern for robust path resolution.
      */
     private async getDepletionRunnerPath(): Promise<string> {
-        const path = await import('path');
-        const fs = await import('fs');
-        
-        // First try the standard extension path
-        const extensionPath = await this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/run_depletion.py');
-        const unpackedPath = resolveAsarUnpacked(scriptPath);
-
-        if (fs.existsSync(unpackedPath)) {
-            this.log(`Found depletion script: ${unpackedPath}`);
-            return unpackedPath;
+        const resolved = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'run_depletion.py' });
+        if (resolved) {
+            this.log(`Found depletion script: ${resolved}`);
+            return resolved;
         }
-        
-        // Fallback search in common locations (same pattern as nuke-visualizer)
-        const fallbackPaths = [
-            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/run_depletion.py'),
-            path.resolve(process.cwd(), 'extensions/openmc-studio/python/run_depletion.py'),
-            path.resolve(__dirname, '../../python/run_depletion.py'),
-            path.resolve(__dirname, '../../../python/run_depletion.py'),
-        ];
-        
-        for (const fp of fallbackPaths) {
-            this.log(`Checking fallback path: ${fp}`);
-            if (fs.existsSync(fp)) {
-                this.log(`Found depletion script at fallback: ${fp}`);
-                return fp;
-            }
-        }
-        
-        this.log(`Warning: Could not find run_depletion.py, returning default: ${scriptPath}`);
-        return scriptPath;
+        throw new Error('Python script not found: run_depletion.py');
     }
 
     /**

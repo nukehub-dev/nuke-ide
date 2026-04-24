@@ -48,13 +48,17 @@ files:
       - "!**/node_modules/**"
       - "!**/.git/**"
 
-# Place plugins outside the ASAR so Theia can load them properly
+# Place plugins and Python scripts outside the ASAR so external processes can access them
 extraResources:
   - from: ../../plugins
     to: app/plugins
     filter:
       - "**/*.vsix"
       - "**/*.theia"
+  - from: ../../extensions/nuke-visualizer/python
+    to: python/nuke-visualizer
+  - from: ../../extensions/openmc-studio/python
+    to: python/openmc-studio
 
 # ASAR packaging (keep true, but unpack native modules)
 asar: true
@@ -63,8 +67,10 @@ asarUnpack:
   - "node_modules/cpu-features/**/*"
   - "node_modules/ssh2/**/*"
   - "node_modules/@theia/*/prebuilds/**/*"
+  # Extension python files must be unpacked so external Python processes can read them
   - "node_modules/nuke-visualizer/python/**/*"
   - "node_modules/openmc-studio/python/**/*"
+  - "extensions/*/python/**/*"
 
 # Linux targets
 linux:

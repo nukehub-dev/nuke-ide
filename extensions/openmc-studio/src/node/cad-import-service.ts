@@ -37,9 +37,8 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
-import * as path from 'path';
 import * as fs from 'fs';
 
 // Use CommonJS require for Node.js modules to ensure proper externalization by webpack
@@ -521,28 +520,11 @@ export class OpenMCCADImportService {
      * Find the DAGMC info Python script.
      */
     private findDAGMCInfoScript(): string {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/dagmc_info.py');
-        const unpackedPath = resolveAsarUnpacked(scriptPath);
-
-        if (fs.existsSync(unpackedPath)) {
-            return unpackedPath;
+        const resolved = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'dagmc_info.py' });
+        if (!resolved) {
+            throw new Error('Python script not found: dagmc_info.py');
         }
-
-        // Fallback search in common locations
-        const fallbackPaths = [
-            path.resolve(__dirname, '../../python/dagmc_info.py'),
-            path.resolve(process.cwd(), 'extensions/openmc-studio/python/dagmc_info.py'),
-            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/dagmc_info.py'),
-        ];
-        
-        for (const fp of fallbackPaths) {
-            if (fs.existsSync(fp)) {
-                return fp;
-            }
-        }
-
-        return scriptPath;
+        return resolved;
     }
 
     async previewCAD(filePath: string): Promise<{
@@ -645,42 +627,14 @@ gmsh.finalize()
 
     /**
      * Find the CAD importer Python script.
-     * Follows the same pattern as nuke-visualizer.
      */
     private findCADImporterScript(): string {
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/cad_importer.py');
-        const unpackedPath = resolveAsarUnpacked(scriptPath);
-
-        if (fs.existsSync(unpackedPath)) {
-            return unpackedPath;
+        const resolved = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'cad_importer.py' });
+        if (!resolved) {
+            throw new Error('Python script not found: cad_importer.py');
         }
-
-        // Fallback search in common locations
-        const fallbackPaths = [
-            path.resolve(__dirname, '../../python/cad_importer.py'),
-            path.resolve(process.cwd(), 'extensions/openmc-studio/python/cad_importer.py'),
-            path.resolve(__dirname, '../../../../extensions/openmc-studio/python/cad_importer.py'),
-        ];
-        
-        for (const fp of fallbackPaths) {
-            if (fs.existsSync(fp)) {
-                return fp;
-            }
-        }
-
-        return scriptPath;
+        return resolved;
     }
 
-    /**
-     * Get the extension root path.
-     */
-    private getExtensionPath(): string {
-        try {
-            return path.dirname(require.resolve('openmc-studio/package.json'));
-        } catch (e) {
-            // Fallback to __dirname if require.resolve fails
-            return path.resolve(__dirname, '../..');
-        }
-    }
+
 }

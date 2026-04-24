@@ -35,7 +35,7 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { BackendApplicationContribution } from '@theia/core/lib/node';
 
 import {
@@ -1614,28 +1614,9 @@ export class OpenMCStudioBackendServiceImpl
             const stats = fs.statSync(request.filePath);
             
             // Find the statepoint reader script
-            const extensionPath = await this.getExtensionPath();
-            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
-            
-            if (!fs.existsSync(scriptPath)) {
-                // Fallback paths
-                const fallbackPaths = [
-                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
-                ];
-                
-                for (const fp of fallbackPaths) {
-                    if (fs.existsSync(fp)) {
-                        scriptPath = fp;
-                        break;
-                    }
-                }
-            }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
 
-            scriptPath = resolveAsarUnpacked(scriptPath);
-
-            if (!fs.existsSync(scriptPath)) {
+            if (!scriptPath) {
                 return {
                     success: false,
                     filePath: request.filePath,
@@ -1733,7 +1714,6 @@ export class OpenMCStudioBackendServiceImpl
         
         try {
             const fs = await import('fs');
-            const path = await import('path');
             const { execSync } = await import('child_process');
             
             // Check if files exist
@@ -1748,28 +1728,9 @@ export class OpenMCStudioBackendServiceImpl
             }
             
             // Find the statepoint reader script
-            const extensionPath = await this.getExtensionPath();
-            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
-            
-            if (!fs.existsSync(scriptPath)) {
-                // Fallback paths
-                const fallbackPaths = [
-                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
-                ];
-                
-                for (const fp of fallbackPaths) {
-                    if (fs.existsSync(fp)) {
-                        scriptPath = fp;
-                        break;
-                    }
-                }
-            }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
 
-            scriptPath = resolveAsarUnpacked(scriptPath);
-
-            if (!fs.existsSync(scriptPath)) {
+            if (!scriptPath) {
                 return {
                     success: false,
                     statepoints: [],
@@ -1837,25 +1798,10 @@ export class OpenMCStudioBackendServiceImpl
             const stats = fs.statSync(request.filePath);
             
             // Find script
-            const extensionPath = await this.getExtensionPath();
-            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
-            
-            if (!fs.existsSync(scriptPath)) {
-                const fallbackPaths = [
-                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
-                ];
-                
-                for (const fp of fallbackPaths) {
-                    if (fs.existsSync(fp)) {
-                        scriptPath = fp;
-                        break;
-                    }
-                }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
+            if (!scriptPath) {
+                throw new Error('Statepoint reader script not found');
             }
-
-            scriptPath = resolveAsarUnpacked(scriptPath);
 
             const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
                 || { command: 'python' };
@@ -1902,7 +1848,6 @@ export class OpenMCStudioBackendServiceImpl
         
         try {
             const fs = await import('fs');
-            const path = await import('path');
             const { execSync } = await import('child_process');
             
             if (!fs.existsSync(request.filePath)) {
@@ -1915,25 +1860,10 @@ export class OpenMCStudioBackendServiceImpl
             }
             
             // Find script
-            const extensionPath = await this.getExtensionPath();
-            let scriptPath = path.resolve(extensionPath, 'python/statepoint_reader.py');
-            
-            if (!fs.existsSync(scriptPath)) {
-                const fallbackPaths = [
-                    path.resolve(__dirname, '../../../../extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(process.cwd(), 'extensions/openmc-studio/python/statepoint_reader.py'),
-                    path.resolve(__dirname, '../../python/statepoint_reader.py'),
-                ];
-                
-                for (const fp of fallbackPaths) {
-                    if (fs.existsSync(fp)) {
-                        scriptPath = fp;
-                        break;
-                    }
-                }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
+            if (!scriptPath) {
+                throw new Error('Statepoint reader script not found');
             }
-
-            scriptPath = resolveAsarUnpacked(scriptPath);
 
             const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
                 || { command: 'python' };
@@ -1959,17 +1889,7 @@ export class OpenMCStudioBackendServiceImpl
         }
     }
 
-    /**
-     * Get the extension root path.
-     */
-    private async getExtensionPath(): Promise<string> {
-        const path = await import('path');
-        try {
-            return path.dirname(require.resolve('openmc-studio/package.json'));
-        } catch (e) {
-            return path.resolve(__dirname, '../..');
-        }
-    }
+
 
     // ============================================================================
     // Optimization Framework Methods

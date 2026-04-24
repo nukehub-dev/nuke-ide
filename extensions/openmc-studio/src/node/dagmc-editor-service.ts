@@ -34,9 +34,8 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { resolveAsarUnpacked } from 'nuke-core/lib/node/utils/asar-helper';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
-import * as path from 'path';
 
 // Use CommonJS require for Node.js modules
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -379,32 +378,9 @@ export class DAGMCEditorService {
     }
 
     /**
-     * Get the extension root path.
-     */
-    private getExtensionPath(): string {
-        try {
-            return path.dirname(require.resolve('openmc-studio/package.json'));
-        } catch (e) {
-            // Fallback to __dirname if require.resolve fails
-            return path.resolve(__dirname, '../..');
-        }
-    }
-
-    /**
      * Find the DAGMC editor service script.
      */
     private findScriptPath(): string | undefined {
-        const fs = require('fs');
-        
-        const extensionPath = this.getExtensionPath();
-        const scriptPath = path.resolve(extensionPath, 'python/dagmc_editor_service.py');
-        const unpackedPath = resolveAsarUnpacked(scriptPath);
-
-        console.log(`[DAGMC Editor] Checking extension path: ${unpackedPath}`);
-        if (fs.existsSync(unpackedPath)) {
-            return unpackedPath;
-        }
-
-        return undefined;
+        return resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'dagmc_editor_service.py' });
     }
 }
