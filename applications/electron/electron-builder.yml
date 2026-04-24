@@ -53,8 +53,7 @@ extraResources:
   - from: ../../plugins
     to: app/plugins
     filter:
-      - "**/*.vsix"
-      - "**/*.theia"
+      - "**/*"
   - from: ../../extensions/nuke-visualizer/python
     to: python/nuke-visualizer
   - from: ../../extensions/openmc-studio/python
