@@ -514,15 +514,6 @@ input[type="radio"]:checked {
 }
 
 /* ============================================================================
-   Custom Scrollable areas with smooth scrolling
-   ============================================================================ */
-.theia-TreeContainer,
-.monaco-scrollable-element,
-.lm-Widget {
-  scroll-behavior: smooth;
-}
-
-/* ============================================================================
    Focus indicators for accessibility
    ============================================================================ */
 :focus-visible {
