@@ -56,7 +56,7 @@ tips:
     icon: 📸
 
   # OpenMC Studio
-  - text: 'Start a new OpenMC project from a template — Pincell, Bare Sphere, PWR Assembly, or CANDU Bundle — with "OpenMC Studio: New Project".'
+  - text: 'Start a new OpenMC project from a template — Pincell, Bare Sphere, PWR Assembly, or CANDU Bundle — with OpenMC Studio: New Project.'
     category: openmc-studio
     icon: 🚀
 

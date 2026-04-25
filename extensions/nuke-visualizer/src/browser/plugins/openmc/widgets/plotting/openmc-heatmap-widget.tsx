@@ -36,6 +36,7 @@ import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
+import './openmc-heatmap-widget.css';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 @injectable()
@@ -335,25 +336,11 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         }
 
         return (
-            <div className="openmc-heatmap" style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                backgroundColor: 'var(--theia-editor-background)',
-                color: 'var(--theia-foreground)',
-                fontFamily: 'var(--theia-ui-font-family)',
-                overflow: 'hidden'
-            }}>
+            <div className="openmc-heatmap-container">
                 {/* Header */}
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '10px 20px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}>
-                    <h3 style={{ margin: 0, color: 'var(--theia-foreground)' }}>{this.titleText}</h3>
-                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
+                <div className="openmc-heatmap-header">
+                    <h3>{this.titleText}</h3>
+                    <div className="openmc-heatmap-header-meta">
                         {this.scoreName && this.nuclideName ? `${this.scoreName} (${this.nuclideName})` : ''}
                     </div>
                 </div>
@@ -362,15 +349,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 {this.renderControls()}
 
                 {/* Plot Area */}
-                <div style={{ flex: 1, position: 'relative', minHeight: '350px', overflow: 'hidden' }}>
+                <div className="openmc-heatmap-plot-area">
                     {this.isLoading ? (
-                        <div style={{
-                            position: 'absolute',
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            color: 'var(--theia-descriptionForeground)'
-                        }}>
+                        <div className="openmc-heatmap-loading">
                             Loading...
                         </div>
                     ) : (
@@ -385,13 +366,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     private renderEmpty(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'var(--theia-editor-background)'
-            }}>
+            <div className="openmc-heatmap-empty">
                 <LoadingAnimations />
                 <FancyLoadingSpinner
                     message="Loading heatmap data..."
@@ -403,17 +378,8 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     private renderError(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--theia-errorForeground)',
-                padding: '20px',
-                textAlign: 'center'
-            }}>
-                <div style={{ fontSize: '18px', marginBottom: '10px' }}>Error</div>
+            <div className="openmc-heatmap-error">
+                <div className="openmc-heatmap-error-title">Error</div>
                 <div>{this.errorMessage}</div>
             </div>
         );
@@ -423,13 +389,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         if (!this.data) return null;
 
         const { plane, total_slices, slice_label } = this.data;
-        // Use pendingSliceIndex for responsive slider (updates immediately on user interaction)
         const displaySliceIndex = this.pendingSliceIndex;
-        const bgColor = 'var(--theia-sideBar-background)';
-        const borderColor = 'var(--theia-panel-border)';
-        const buttonBg = 'var(--theia-button-secondaryBackground)';
-        const buttonActiveBg = 'var(--theia-button-background)';
-        const textColor = 'var(--theia-foreground)'
 
         const planes: { key: OpenMCHeatmapPlane; label: string }[] = [
             { key: 'xy', label: 'XY (Z slice)' },
@@ -438,32 +398,15 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         ];
 
         return (
-            <div style={{
-                padding: '10px 20px',
-                backgroundColor: bgColor,
-                borderBottom: `1px solid ${borderColor}`,
-                display: 'flex',
-                gap: '20px',
-                alignItems: 'center',
-                flexWrap: 'wrap'
-            }}>
+            <div className="openmc-heatmap-controls">
                 {/* Plane Selection */}
-                <div style={{ display: 'flex', gap: '5px' }}>
+                <div className="openmc-heatmap-plane-group">
                     {planes.map(({ key, label }) => (
                         <button
                             key={key}
                             onClick={() => this.handlePlaneChange(key)}
                             disabled={this.isLoading}
-                            style={{
-                                padding: '6px 12px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: this.isLoading ? 'not-allowed' : 'pointer',
-                                backgroundColor: plane === key ? buttonActiveBg : buttonBg,
-                                color: plane === key ? 'var(--theia-button-foreground)' : textColor,
-                                fontSize: '12px',
-                                opacity: this.isLoading ? 0.6 : 1
-                            }}
+                            className={`openmc-heatmap-plane-btn ${plane === key ? 'active' : ''}`}
                         >
                             {label}
                         </button>
@@ -471,57 +414,36 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 </div>
 
                 {/* Slice Slider */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '250px' }}>
-                    <span style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
-                        {slice_label} Slice:
-                    </span>
+                <div className="openmc-heatmap-slider-group">
+                    <span className="openmc-heatmap-slider-label">{slice_label} Slice:</span>
                     <input
                         type="range"
                         min={0}
                         max={total_slices - 1}
                         value={displaySliceIndex}
+                        className="openmc-heatmap-slider"
                         onInput={(e) => {
-                            // Use onInput for immediate response during dragging
                             e.stopPropagation();
                             this.handleSliceChange(parseInt((e.target as HTMLInputElement).value, 10));
                         }}
-                        onChange={(e) => {
-                            // onChange fires when dragging ends
-                            e.stopPropagation();
-                        }}
+                        onChange={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                         onMouseUp={(e) => e.stopPropagation()}
                         disabled={this.isLoading}
-                        style={{
-                            flex: 1,
-                            cursor: this.isLoading ? 'not-allowed' : 'pointer',
-                            outline: 'none',
-                            WebkitAppearance: 'none',
-                            appearance: 'none',
-                            background: 'transparent'
-                        }}
                     />
-                    <span style={{ fontSize: '12px', whiteSpace: 'nowrap', minWidth: '80px' }}>
+                    <span className="openmc-heatmap-slider-value">
                         {displaySliceIndex + 1} / {total_slices}
                     </span>
                 </div>
 
                 {/* Colormap Selector */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Colormap:</span>
+                <div className="openmc-heatmap-select-group">
+                    <span className="openmc-heatmap-select-label">Colormap:</span>
                     <select
                         value={this.colormap}
                         onChange={(e) => { this.colormap = e.target.value; this.update(); }}
                         disabled={this.isLoading}
-                        style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor,
-                            cursor: this.isLoading ? 'not-allowed' : 'pointer'
-                        }}
+                        className="openmc-heatmap-select"
                     >
                         <option value="Jet">Jet</option>
                         <option value="Viridis">Viridis</option>
@@ -542,70 +464,36 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 </div>
 
                 {/* Log Scale Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '6px',
-                        fontSize: '12px',
-                        cursor: this.isLoading ? 'not-allowed' : 'pointer',
-                        opacity: this.isLoading ? 0.6 : 1
-                    }}>
-                        <input
-                            type="checkbox"
-                            checked={this.useLogScale}
-                            onChange={() => { this.useLogScale = !this.useLogScale; this.update(); }}
-                            disabled={this.isLoading}
-                        />
-                        Log Scale
-                    </label>
-                </div>
+                <label className={`openmc-heatmap-checkbox-label ${this.isLoading ? 'disabled' : ''}`}>
+                    <input
+                        type="checkbox"
+                        checked={this.useLogScale}
+                        onChange={() => { this.useLogScale = !this.useLogScale; this.update(); }}
+                        disabled={this.isLoading}
+                    />
+                    Log Scale
+                </label>
 
-                {/* Difference View Toggle - Only show when all slices loaded */}
+                {/* Difference View Toggle */}
                 {this.hasLoadedAllSlices && (
-                    <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px',
-                        padding: '4px 10px',
-                        backgroundColor: this.isDifferenceMode ? 'var(--theia-warningBackground)' : 'transparent',
-                        borderRadius: '4px',
-                        border: this.isDifferenceMode ? '1px solid var(--theia-warningForeground)' : 'none'
-                    }}>
-                        <label style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '6px',
-                            fontSize: '12px',
-                            cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer',
-                            opacity: this.isAutoPlaying ? 0.6 : 1,
-                            color: this.isDifferenceMode ? 'var(--theia-warningForeground)' : textColor,
-                            fontWeight: this.isDifferenceMode ? 'bold' : 'normal'
-                        }}>
+                    <div className={`openmc-heatmap-difference-badge ${this.isDifferenceMode ? 'active' : ''}`}>
+                        <label>
                             <input
                                 type="checkbox"
                                 checked={this.isDifferenceMode}
                                 onChange={() => this.toggleDifferenceMode()}
                                 disabled={this.isAutoPlaying}
                             />
-                            🔍 Difference View
+                            Difference View
                         </label>
                         {this.isDifferenceMode && (
                             <>
-                                <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>Ref:</span>
+                                <span className="openmc-heatmap-select-label">Ref:</span>
                                 <select
                                     value={this.referenceSliceIndex}
                                     onChange={(e) => this.handleReferenceSliceChange(parseInt(e.target.value))}
                                     disabled={this.isAutoPlaying}
-                                    style={{
-                                        padding: '2px 6px',
-                                        fontSize: '11px',
-                                        borderRadius: '4px',
-                                        border: `1px solid ${borderColor}`,
-                                        backgroundColor: 'var(--theia-input-background)',
-                                        color: textColor,
-                                        cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
-                                    }}
+                                    className="openmc-heatmap-select"
                                 >
                                     {Array.from({ length: this.data?.total_slices || 0 }, (_, i) => (
                                         <option key={i} value={i}>Slice {i + 1}</option>
@@ -616,69 +504,45 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                     </div>
                 )}
 
-                {/* Min/Max Statistics */}
+                {/* Statistics */}
                 {this.data && (() => {
-                    // Use difference data for stats when in difference mode
                     const dataToUse = this.isDifferenceMode && this.differenceData ? this.differenceData : this.data;
                     const allValues = dataToUse.values.flat();
                     const minVal = Math.min(...allValues);
                     const maxVal = Math.max(...allValues);
                     const meanVal = allValues.reduce((a, b) => a + b, 0) / allValues.length;
                     return (
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '12px',
-                            fontSize: '11px',
-                            padding: '4px 10px',
-                            backgroundColor: this.isDifferenceMode 
-                                ? 'var(--theia-warningBackground)'
-                                : 'var(--theia-input-background)',
-                            borderRadius: '4px',
-                            border: this.isDifferenceMode ? '1px solid var(--theia-warningForeground)' : 'none'
-                        }}>
+                        <div className={`openmc-heatmap-stats ${this.isDifferenceMode ? 'openmc-heatmap-stats--difference' : ''}`}>
                             {this.isDifferenceMode && (
-                                <span style={{ color: 'var(--theia-warningForeground)', fontWeight: 'bold' }}>
-                                    Δ:
+                                <span className="openmc-heatmap-stat-label">Δ:</span>
+                            )}
+                            <span className="openmc-heatmap-stat-min">Min: {minVal.toExponential(3)}</span>
+                            <span className="openmc-heatmap-stat-max">Max: {maxVal.toExponential(3)}</span>
+                            <span className="openmc-heatmap-stat-mean">Mean: {meanVal.toExponential(3)}</span>
+                            {this.data?.mesh_dimensions && (
+                                <span className="openmc-heatmap-stat-mesh">
+                                    Mesh: {this.data.mesh_dimensions.join(' × ')}
                                 </span>
                             )}
-                            <span style={{ color: 'var(--theia-errorForeground)' }}>
-                                Min: {minVal.toExponential(3)}
-                            </span>
-                            <span style={{ color: 'var(--theia-successForeground, #4caf50)' }}>
-                                Max: {maxVal.toExponential(3)}
-                            </span>
-                            <span style={{ color: 'var(--theia-infoForeground, #2196f3)' }}>
-                                Mean: {meanVal.toExponential(3)}
-                            </span>
                         </div>
                     );
                 })()}
 
-                {/* Auto-play Controls */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Playback Controls */}
+                <div className="openmc-heatmap-playback">
                     {!this.hasLoadedAllSlices && !this.isLoadingAllSlices && (
                         <Tooltip content="Load all slices for smooth animation" position="top">
                             <button
                                 onClick={() => this.loadAllSlices()}
                                 disabled={this.isLoading}
-                                style={{
-                                    padding: '4px 12px',
-                                    fontSize: '12px',
-                                    borderRadius: '4px',
-                                    border: 'none',
-                                    backgroundColor: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    cursor: this.isLoading ? 'not-allowed' : 'pointer',
-                                    opacity: this.isLoading ? 0.6 : 1
-                                }}
+                                className="openmc-heatmap-btn openmc-heatmap-btn--primary"
                             >
-                                📥 Load All
+                                Load All
                             </button>
                         </Tooltip>
                     )}
                     {this.isLoadingAllSlices && (
-                        <span style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
+                        <span className="openmc-heatmap-loading-text">
                             Loading {this.data?.total_slices} slices...
                         </span>
                     )}
@@ -687,31 +551,15 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             <button
                                 onClick={() => this.toggleAutoPlay()}
                                 disabled={this.isLoading}
-                                style={{
-                                    padding: '4px 12px',
-                                    fontSize: '12px',
-                                    borderRadius: '4px',
-                                    border: 'none',
-                                    backgroundColor: this.isAutoPlaying ? 'var(--theia-errorForeground)' : 'var(--theia-successBackground, #4caf50)',
-                                    color: 'var(--theia-button-foreground)',
-                                    cursor: this.isLoading ? 'not-allowed' : 'pointer'
-                                }}
+                                className={`openmc-heatmap-btn ${this.isAutoPlaying ? 'openmc-heatmap-btn--danger' : 'openmc-heatmap-btn--success'}`}
                             >
-                                {this.isAutoPlaying ? '⏸ Stop' : '▶ Play'}
+                                {this.isAutoPlaying ? 'Stop' : 'Play'}
                             </button>
                             <select
                                 value={this.autoPlaySpeed}
                                 onChange={(e) => { this.autoPlaySpeed = parseInt(e.target.value); this.update(); }}
                                 disabled={this.isAutoPlaying}
-                                style={{
-                                    padding: '4px 8px',
-                                    fontSize: '11px',
-                                    borderRadius: '4px',
-                                    border: `1px solid ${borderColor}`,
-                                    backgroundColor: 'var(--theia-input-background)',
-                                    color: textColor,
-                                    cursor: this.isAutoPlaying ? 'not-allowed' : 'pointer'
-                                }}
+                                className="openmc-heatmap-select"
                             >
                                 <option value="1000">Slow (1s)</option>
                                 <option value="500">Normal (0.5s)</option>
@@ -770,6 +618,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             x: x_coords,
             y: y_coords,
             type: 'heatmap',
+            zsmooth: 'best',
             colorscale: effectiveColormap as Plotly.ColorScale,
             zmin: zMin,
             zmax: zMax,

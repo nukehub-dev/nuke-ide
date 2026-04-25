@@ -1,0 +1,435 @@
+/* ============================================================================
+   OpenMC 2D Heatmap Widget
+   ============================================================================ */
+
+/* Container */
+.openmc-heatmap-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    overflow: hidden;
+}
+
+/* Header */
+.openmc-heatmap-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+}
+
+.openmc-heatmap-header h3 {
+    margin: 0;
+    color: var(--theia-foreground);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.openmc-heatmap-header-meta {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Controls Panel */
+.openmc-heatmap-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 20px;
+    background: var(--theia-sideBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+}
+
+/* Plane Buttons */
+.openmc-heatmap-plane-group {
+    display: flex;
+    gap: 5px;
+}
+
+.openmc-heatmap-plane-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s ease;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+}
+
+.openmc-heatmap-plane-btn:hover:not(:disabled) {
+    background: var(--theia-button-secondaryHoverBackground);
+}
+
+.openmc-heatmap-plane-btn.active {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.openmc-heatmap-plane-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Slice Slider */
+.openmc-heatmap-slider-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 250px;
+}
+
+.openmc-heatmap-slider-label {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--theia-foreground);
+}
+
+.openmc-heatmap-slider-value {
+    font-size: 12px;
+    white-space: nowrap;
+    min-width: 60px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Custom Range Slider for Dark Theme */
+.openmc-heatmap-slider {
+    flex: 1;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.openmc-heatmap-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--theia-button-background);
+    cursor: pointer;
+    border: 2px solid var(--theia-button-foreground);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease;
+}
+
+.openmc-heatmap-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.openmc-heatmap-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--theia-button-background);
+    cursor: pointer;
+    border: 2px solid var(--theia-button-foreground);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.openmc-heatmap-slider:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Select Dropdown */
+.openmc-heatmap-select-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.openmc-heatmap-select-label {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--theia-foreground);
+}
+
+.openmc-heatmap-select {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    cursor: pointer;
+    outline: none;
+}
+
+.openmc-heatmap-select:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.openmc-heatmap-select:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Checkbox */
+.openmc-heatmap-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--theia-foreground);
+    transition: opacity 0.15s ease;
+}
+
+.openmc-heatmap-checkbox-label:hover {
+    opacity: 0.8;
+}
+
+.openmc-heatmap-checkbox-label:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.openmc-heatmap-checkbox-label input[type="checkbox"] {
+    accent-color: var(--theia-button-background);
+}
+
+.openmc-heatmap-checkbox-label.disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Statistics Panel */
+.openmc-heatmap-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    padding: 4px 10px;
+    background: var(--theia-input-background);
+    border-radius: 4px;
+    flex-wrap: wrap;
+}
+
+.openmc-heatmap-stats--difference {
+    background: var(--theia-warningBackground);
+    border: 1px solid var(--theia-warningForeground);
+    color: var(--theia-editor-foreground);
+}
+
+.openmc-heatmap-stats--difference .openmc-heatmap-stat-label,
+.openmc-heatmap-stats--difference .openmc-heatmap-stat-min,
+.openmc-heatmap-stats--difference .openmc-heatmap-stat-max,
+.openmc-heatmap-stats--difference .openmc-heatmap-stat-mean,
+.openmc-heatmap-stats--difference .openmc-heatmap-stat-mesh {
+    color: var(--theia-editor-foreground);
+    font-weight: 600;
+}
+
+.openmc-heatmap-stat-label {
+    font-weight: bold;
+}
+
+.openmc-heatmap-stat-min {
+    color: var(--theia-errorForeground);
+}
+
+.openmc-heatmap-stat-max {
+    color: var(--theia-successForeground, #4caf50);
+}
+
+.openmc-heatmap-stat-mean {
+    color: var(--theia-infoForeground, #2196f3);
+}
+
+.openmc-heatmap-stat-mesh {
+    color: var(--theia-descriptionForeground);
+    margin-left: 8px;
+    border-left: 1px solid var(--theia-panel-border);
+    padding-left: 8px;
+}
+
+/* Difference View Badge */
+.openmc-heatmap-difference-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.openmc-heatmap-difference-badge.active {
+    background: var(--theia-warningBackground);
+    border: 1px solid var(--theia-warningForeground);
+}
+
+.openmc-heatmap-difference-badge label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--theia-foreground);
+    transition: color 0.15s ease;
+}
+
+.openmc-heatmap-difference-badge.active label {
+    color: var(--theia-editor-foreground);
+    font-weight: bold;
+}
+
+.openmc-heatmap-difference-badge label input[type="checkbox"] {
+    accent-color: var(--theia-warningForeground);
+}
+
+.openmc-heatmap-difference-badge .openmc-heatmap-select-label {
+    color: var(--theia-editor-foreground);
+}
+
+.openmc-heatmap-difference-badge .openmc-heatmap-select {
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+/* Playback Controls */
+.openmc-heatmap-playback {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.openmc-heatmap-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-weight: 500;
+}
+
+.openmc-heatmap-btn--primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.openmc-heatmap-btn--primary:hover:not(:disabled) {
+    background: var(--theia-button-hoverBackground);
+}
+
+.openmc-heatmap-btn--danger {
+    background: var(--theia-errorForeground);
+    color: var(--theia-button-foreground);
+}
+
+.openmc-heatmap-btn--danger:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.openmc-heatmap-btn--success {
+    background: var(--theia-successBackground, #4caf50);
+    color: var(--theia-button-foreground);
+}
+
+.openmc-heatmap-btn--success:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.openmc-heatmap-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.openmc-heatmap-loading-text {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Plot Area */
+.openmc-heatmap-plot-area {
+    flex: 1;
+    position: relative;
+    min-height: 350px;
+    overflow: hidden;
+}
+
+.openmc-heatmap-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--theia-descriptionForeground);
+}
+
+/* Empty State */
+.openmc-heatmap-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-editor-background);
+    gap: 16px;
+}
+
+/* Error State */
+.openmc-heatmap-error {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--theia-errorForeground);
+    padding: 20px;
+    text-align: center;
+    gap: 10px;
+}
+
+.openmc-heatmap-error-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Scrollbar Styling */
+.openmc-heatmap-container ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.openmc-heatmap-container ::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.openmc-heatmap-container ::-webkit-scrollbar-thumb {
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 4px;
+}
+
+.openmc-heatmap-container ::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hoverBackground);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .openmc-heatmap-controls {
+        gap: 10px;
+        padding: 8px 12px;
+    }
+    
+    .openmc-heatmap-slider-group {
+        min-width: 180px;
+    }
+    
+    .openmc-heatmap-header {
+        padding: 8px 12px;
+    }
+}
