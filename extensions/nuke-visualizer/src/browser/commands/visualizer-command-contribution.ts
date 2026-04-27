@@ -25,5 +25,34 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-export * from './visualizer-commands';
-export * from './visualizer-command-contribution';
+import { injectable, inject } from '@theia/core/shared/inversify';
+import { CommandRegistry, CommandContribution } from '@theia/core/lib/common';
+import { VisualizerViewContribution } from '../contributions/visualizer-view-contribution';
+import { VisualizerHealthService } from '../services/visualizer-health-service';
+import {
+    VisualizerHealthCheckCommand,
+    InstallBaseVisualizerCommand,
+    InstallOpenMCCommand
+} from './visualizer-commands';
+
+@injectable()
+export class VisualizerCommandContribution implements CommandContribution {
+    @inject(VisualizerViewContribution)
+    protected readonly viewContribution: VisualizerViewContribution;
+
+    @inject(VisualizerHealthService)
+    protected readonly healthService: VisualizerHealthService;
+
+    registerCommands(commands: CommandRegistry): void {
+        this.healthService.registerBaseRequirements();
+        commands.registerCommand(VisualizerHealthCheckCommand, {
+            execute: () => this.healthService.runHealthCheck(),
+        });
+        commands.registerCommand(InstallBaseVisualizerCommand, {
+            execute: () => this.healthService.installBaseVisualizerDeps(),
+        });
+        commands.registerCommand(InstallOpenMCCommand, {
+            execute: () => this.healthService.installOpenMCDeps(),
+        });
+    }
+}

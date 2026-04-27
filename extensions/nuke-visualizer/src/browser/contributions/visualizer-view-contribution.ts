@@ -25,5 +25,31 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-export * from './visualizer-commands';
-export * from './visualizer-command-contribution';
+import { injectable, inject } from '@theia/core/shared/inversify';
+import { AbstractViewContribution } from '@theia/core/lib/browser';
+import { OpenViewArguments } from '@theia/core/lib/browser/shell/view-contribution';
+import { VisualizerWidget } from '../visualizer-widget';
+import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+
+@injectable()
+export class VisualizerViewContribution extends AbstractViewContribution<VisualizerWidget> {
+    @inject(NukeCoreStatusBarVisibility)
+    protected readonly visibilityService: NukeCoreStatusBarVisibilityService;
+
+    constructor() {
+        super({
+            widgetId: VisualizerWidget.ID,
+            widgetName: VisualizerWidget.LABEL,
+            defaultWidgetOptions: {
+                area: 'main',
+            }
+        });
+    }
+
+    override async openView(args?: Partial<OpenViewArguments>): Promise<VisualizerWidget> {
+        const widget = await super.openView(args);
+        const handle = this.visibilityService.requestVisibility('nuke-visualizer');
+        widget.disposed.connect(() => handle.dispose());
+        return widget;
+    }
+}

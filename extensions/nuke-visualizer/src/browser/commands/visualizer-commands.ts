@@ -25,5 +25,27 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-export * from './visualizer-commands';
-export * from './visualizer-command-contribution';
+import { VisualizerWidget } from '../visualizer-widget';
+
+export const VisualizerCommand = {
+    id: VisualizerWidget.ID,
+    label: 'Open Visualizer'
+};
+
+export const VisualizerHealthCheckCommand = {
+    id: 'nuke-visualizer.health-check',
+    label: 'Run Health Check',
+    category: 'Visualizer'
+};
+
+export const InstallBaseVisualizerCommand = {
+    id: 'nuke-visualizer.install-base',
+    label: 'Install Base Visualizer Dependencies',
+    category: 'Visualizer'
+};
+
+export const InstallOpenMCCommand = {
+    id: 'nuke-visualizer.install-openmc',
+    label: 'Install OpenMC Dependencies',
+    category: 'Visualizer'
+};

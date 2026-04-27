@@ -25,5 +25,40 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-export * from './visualizer-commands';
-export * from './visualizer-command-contribution';
+import { injectable } from '@theia/core/shared/inversify';
+import { MenuModelRegistry, MenuContribution } from '@theia/core/lib/common';
+import { NukeVisualizerMenus } from '../contributions/visualizer-menus';
+import {
+    VisualizerCommand,
+    VisualizerHealthCheckCommand,
+    InstallBaseVisualizerCommand,
+    InstallOpenMCCommand
+} from '../commands/visualizer-commands';
+
+@injectable()
+export class VisualizerMenuContribution implements MenuContribution {
+    registerMenus(menus: MenuModelRegistry): void {
+        menus.registerSubmenu(NukeVisualizerMenus.VISUALIZER, 'Visualizer');
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+            commandId: VisualizerCommand.id,
+            label: VisualizerCommand.label,
+            order: '0_main'
+        });
+        menus.registerSubmenu(NukeVisualizerMenus.ENVIRONMENT, 'Environment');
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
+            commandId: VisualizerHealthCheckCommand.id,
+            label: VisualizerHealthCheckCommand.label,
+            order: 'a'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
+            commandId: InstallBaseVisualizerCommand.id,
+            label: InstallBaseVisualizerCommand.label,
+            order: 'b'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {
+            commandId: InstallOpenMCCommand.id,
+            label: InstallOpenMCCommand.label,
+            order: 'c'
+        });
+    }
+}

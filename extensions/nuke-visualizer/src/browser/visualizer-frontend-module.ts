@@ -28,8 +28,11 @@
 import { CommandContribution, MenuContribution, MessageService } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';
-import { VisualizerContribution } from './visualizer-contribution';
 import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewContribution } from '@theia/core/lib/browser';
+import { VisualizerViewContribution } from './contributions/visualizer-view-contribution';
+import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
+import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
+import { VisualizerMenuContribution } from './contributions/visualizer-menu-contribution';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
 import { 
     VisualizerBackendService, 
@@ -48,6 +51,13 @@ import { OpenMCService } from './plugins/openmc/openmc-service';
 import { OpenMCWidgetFactory } from './plugins/openmc/services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './plugins/openmc/services/openmc-file-discovery';
 import { OpenMCContribution } from './plugins/openmc/openmc-contribution';
+import { OpenMCFileDiscovery } from './plugins/openmc/contributions/openmc-file-discovery';
+import { OpenMCStatepointContribution } from './plugins/openmc/contributions/openmc-statepoint-contribution';
+import { OpenMCGeometryContribution } from './plugins/openmc/contributions/openmc-geometry-contribution';
+import { OpenMCDepletionContribution } from './plugins/openmc/contributions/openmc-depletion-contribution';
+import { OpenMCOverlayContribution } from './plugins/openmc/contributions/openmc-overlay-contribution';
+import { OpenMCPlottingContribution } from './plugins/openmc/contributions/openmc-plotting-contribution';
+import { OpenMCMenuContribution } from './plugins/openmc/contributions/openmc-menu-contribution';
 import { OpenMCStatepointCommands } from './plugins/openmc/commands/statepoint-commands';
 import { OpenMCGeometryCommands } from './plugins/openmc/commands/geometry-commands';
 import { OpenMCPlottingCommands } from './plugins/openmc/commands/plotting-commands';
@@ -66,12 +76,14 @@ import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-ov
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 import { HealthCheckFramework } from './services/health-check-framework';
+import { VisualizerHealthService } from './services/visualizer-health-service';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
     bind(PlotlyService).to(PlotlyServiceImpl).inSingletonScope();
     // Bind health check framework
     bind(HealthCheckFramework).toSelf().inSingletonScope();
+    bind(VisualizerHealthService).toSelf().inSingletonScope();
     // Bind preferences
     bindVisualizerPreferences(bind);
 
@@ -103,9 +115,17 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         return proxy;
     }).inSingletonScope();
 
-    // Bind contributions
-    bindViewContribution(bind, VisualizerContribution);
-    bind(OpenHandler).toService(VisualizerContribution);
+    // Bind view contribution (registers default view command + keybinding)
+    bindViewContribution(bind, VisualizerViewContribution);
+    // Bind open handler
+    bind(VisualizerOpenHandler).toSelf().inSingletonScope();
+    bind(OpenHandler).toService(VisualizerOpenHandler);
+    // Bind custom commands
+    bind(VisualizerCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(VisualizerCommandContribution);
+    // Bind custom menus
+    bind(VisualizerMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(VisualizerMenuContribution);
     
     // Note: XS Plot and OpenMC Tallies are handled by OpenMCContribution (not AbstractViewContribution)
     // to avoid automatic View-menu registration. They use manual Command+Menu+Keybinding contributions.
@@ -168,11 +188,19 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCWidgetFactory).toSelf().inSingletonScope();
     bind(OpenMCFileDiscoveryService).toSelf().inSingletonScope();
     
+    // Bind OpenMC contribution classes
+    bind(OpenMCFileDiscovery).toSelf().inSingletonScope();
+    bind(OpenMCStatepointContribution).toSelf().inSingletonScope();
+    bind(OpenMCGeometryContribution).toSelf().inSingletonScope();
+    bind(OpenMCDepletionContribution).toSelf().inSingletonScope();
+    bind(OpenMCOverlayContribution).toSelf().inSingletonScope();
+    bind(OpenMCPlottingContribution).toSelf().inSingletonScope();
+    bind(OpenMCMenuContribution).toSelf().inSingletonScope();
+    
     // Bind OpenMC contribution
     bind(OpenMCContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(OpenMCContribution);
-    bind(CommandContribution).toService(OpenMCContribution);
-    bind(MenuContribution).toService(OpenMCContribution);
+    bind(MenuContribution).toService(OpenMCMenuContribution);
     bind(OpenHandler).toService(OpenMCContribution);
 
     // OpenMC plugin command contributions

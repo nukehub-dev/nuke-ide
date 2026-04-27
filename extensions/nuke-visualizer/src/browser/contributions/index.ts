@@ -25,4 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-// Base visualizer contributions barrel export.
+export * from './visualizer-menus';
+export * from './visualizer-view-contribution';
+export * from './visualizer-open-handler';
+export * from './visualizer-menu-contribution';

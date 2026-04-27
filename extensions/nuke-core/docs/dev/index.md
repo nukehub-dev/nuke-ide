@@ -4,8 +4,6 @@ This section is for developers building extensions that depend on **nuke-core**,
 
 Nuke Core is a Theia extension that provides Python environment discovery, package management, and health diagnostics for nuclear engineering workflows. It uses a layered architecture: frontend services proxy requests over JSON-RPC to a Node backend, which delegates environment discovery to pluggable providers (Conda, Venv, Poetry, Pyenv, System). Commands are prepared as shell strings and executed in live terminal widgets so users see real-time output.
 
-> **Looking for user docs?** See [`../USAGE.md`](../USAGE.md) for the end-user usage guide.
-
 ---
 
 ## Developer Guides

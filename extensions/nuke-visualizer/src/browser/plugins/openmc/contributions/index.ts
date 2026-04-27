@@ -25,5 +25,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-// OpenMC plugin contributions barrel export.
-// Contribution files will be extracted from openmc-contribution.ts in Phase 4.
+export * from './openmc-file-discovery';
+export * from './openmc-statepoint-contribution';
+export * from './openmc-geometry-contribution';
+export * from './openmc-depletion-contribution';
+export * from './openmc-overlay-contribution';
+export * from './openmc-plotting-contribution';
+export * from './openmc-menu-contribution';
