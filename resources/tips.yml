@@ -18,7 +18,7 @@ tips:
     category: nuke-core
     icon: 📦
 
-  - text: 'Press Ctrl+Shift+P and type "Nuke: Run Health Check" to verify your Python setup, OpenMC, and cross-section data in one go.'
+  - text: 'Press Ctrl+Shift+P and type Nuke: Run Health Check to verify your Python setup, OpenMC, and cross-section data in one go.'
     category: nuke-core
     icon: 🩺
 

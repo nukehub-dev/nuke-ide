@@ -50,6 +50,7 @@ import { WidgetManager } from '@theia/core/lib/browser';
 import { NavigatorDiff } from '@theia/navigator/lib/browser/navigator-diff';
 import { DiffUris } from '@theia/core/lib/browser/diff-uris';
 import { OpenMCService, TallyVisualizationOptions } from './openmc-service';
+import { OpenMCSliceOptions } from '../../../common/openmc-protocol';
 import { OpenMCTallySelector } from './widgets/statepoint/tally-selector';
 import { OpenMCTallyTreeWidget, TallySelection } from './widgets/statepoint/openmc-tally-tree';
 import { OpenMCPlotWidget } from './widgets/plotting/openmc-plot-widget';
@@ -539,51 +540,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     async overlayTallyCommand(): Promise<void> {
-        // Get geometry files from workspace (both DAGMC and geometry.xml)
-        const geometryFiles = await this.getGeometryFiles();
-        
-        // Build geometry options with browse
-        const geometryOptions: QuickPickValue<string>[] = [
-            { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
-        ];
-        
-        if (geometryFiles.length > 0) {
-            geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
-        }
-
-        // Select geometry file
-        const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
-            title: 'Select Geometry File',
-            placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for .h5m or .xml file...'
-        });
-
-        if (!geometrySelection) return;
-
-        let geometryUri: URI;
-        if (geometrySelection.value === '__browse__') {
-            const fileUri = await this.fileDialogService.showOpenDialog({
-                title: 'Select Geometry File',
-                openLabel: 'Select',
-                canSelectFiles: true,
-                canSelectFolders: false,
-                canSelectMany: false,
-                filters: {
-                    'Geometry Files': ['h5m', 'xml'],
-                    'DAGMC Files': ['h5m'],
-                    'OpenMC Geometry': ['xml'],
-                    'All Files': ['*']
-                }
-            });
-            if (!fileUri) return;
-            geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-        } else {
-            geometryUri = new URI(geometrySelection.value);
-        }
-
-        // Get statepoint files from workspace
+        // 1. Get statepoint file first
         const statepointFiles = await this.getStatepointFiles();
         
-        // Build statepoint options with browse
         const statepointOptions: QuickPickValue<string>[] = [
             { value: '__browse__', label: '$(folder-opened) Browse for statepoint file...', description: 'Select statepoint.h5 file from any location' }
         ];
@@ -592,7 +551,6 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             statepointOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...statepointFiles);
         }
 
-        // Select statepoint file
         const statepointSelection = await this.quickInput.showQuickPick(statepointOptions, {
             title: 'Select Statepoint File',
             placeholder: statepointFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for statepoint.h5 file...'
@@ -602,10 +560,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
         let statepointUri: URI;
         if (statepointSelection.value === '__browse__') {
-            console.log('[OpenMC] Opening file picker for statepoint...');
-            // Close any open quick pick first
             this.quickInput.hide();
-            // Longer delay to ensure dialog can open
             await new Promise(resolve => setTimeout(resolve, 300));
             try {
                 const fileUri = await this.fileDialogService.showOpenDialog({
@@ -619,14 +574,9 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                         'All Files': ['*']
                     }
                 });
-                console.log('[OpenMC] File picker result:', fileUri);
-                if (!fileUri) {
-                    console.log('[OpenMC] No file selected, cancelling');
-                    return;
-                }
+                if (!fileUri) return;
                 statepointUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
             } catch (error) {
-                console.error('[OpenMC] File picker error:', error);
                 this.messageService.error(`File picker failed: ${error}`);
                 return;
             }
@@ -634,7 +584,138 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             statepointUri = new URI(statepointSelection.value);
         }
 
-        await this.showTallySelectorForOverlay(geometryUri, statepointUri);
+        // 2. Auto-detect geometry from statepoint folder
+        const spDir = statepointUri.parent;
+        let geometryUri = await this.autoDetectGeometry(spDir);
+        
+        // Ask user to confirm or override
+        if (geometryUri) {
+            const confirm = await this.quickInput.showQuickPick([
+                { value: 'use', label: `$(check) Use detected: ${geometryUri.path.base}`, description: geometryUri.path.toString() },
+                { value: 'browse', label: '$(folder-opened) Browse for different geometry...', description: 'Select another .h5m or .xml file' }
+            ], {
+                title: 'Geometry File Detected',
+                placeholder: 'Use auto-detected geometry or browse for another'
+            });
+            
+            if (!confirm) return;
+            if (confirm.value === 'browse') {
+                geometryUri = undefined;
+            }
+        }
+        
+        // If no auto-detected geometry, browse
+        if (!geometryUri) {
+            const fileUri = await this.fileDialogService.showOpenDialog({
+                title: 'Select Geometry File',
+                openLabel: 'Select',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'Geometry Files': ['h5m', 'xml'],
+                    'All Files': ['*']
+                }
+            });
+            if (!fileUri) return;
+            geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        }
+
+        if (!geometryUri) return;
+
+        // 3. Ask about graveyard filtering
+        const isH5m = geometryUri.path.toString().endsWith('.h5m');
+        let filterGraveyard = false;
+        if (isH5m) {
+            const filterChoice = await this.quickInput.showQuickPick([
+                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
+            ], {
+                title: 'Graveyard Surface Filtering',
+                placeholder: 'Select visualization mode'
+            });
+            if (!filterChoice) return;
+            filterGraveyard = filterChoice.value === 'filter';
+        }
+
+        // 4. Ask about mode (slice vs full)
+        const modeChoice = await this.quickInput.showQuickPick([
+            { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
+            { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
+        ], {
+            title: 'Visualization Mode',
+            placeholder: 'Choose visualization mode'
+        });
+        
+        if (!modeChoice) return;
+        const mode = modeChoice.value as 'slice' | 'full';
+
+        // 5. Ask pixelated vs smooth (for both slice and full 3D)
+        const pixelChoice = await this.quickInput.showQuickPick([
+            { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
+            { value: 'pixelated', label: '$(symbol-structure) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+        ], {
+            title: 'Rendering Style',
+            placeholder: 'Select rendering style'
+        });
+        if (!pixelChoice) return;
+
+        // 6. If slice mode, ask for slice-specific options
+        let sliceOptions: OpenMCSliceOptions | undefined;
+        if (mode === 'slice') {
+            // Ask plane
+            const planeChoice = await this.quickInput.showQuickPick([
+                { value: 'x', label: 'X Plane', description: 'YZ cross-section' },
+                { value: 'y', label: 'Y Plane', description: 'XZ cross-section' },
+                { value: 'z', label: 'Z Plane', description: 'XY cross-section' }
+            ], {
+                title: 'Slice Plane',
+                placeholder: 'Select slice plane orientation'
+            });
+            if (!planeChoice) return;
+            
+            // Ask resolution
+            const resChoice = await this.quickInput.showQuickPick([
+                { value: '100', label: 'Low (100x100)', description: 'Fast, lower quality' },
+                { value: '200', label: 'Medium (200x200)', description: 'Balanced' },
+                { value: '400', label: 'High (400x400)', description: 'Good quality' },
+                { value: '800', label: 'Ultra (800x800)', description: 'Best quality, slower' }
+            ], {
+                title: 'Slice Resolution',
+                placeholder: 'Select plane resolution'
+            });
+            if (!resChoice) return;
+
+            sliceOptions = {
+                plane: planeChoice.value as 'x' | 'y' | 'z',
+                resolution: parseInt(resChoice.value),
+                pixelated: pixelChoice.value === 'pixelated',
+                showGeometry: true,
+                filterGraveyard: filterGraveyard
+            };
+        }
+
+        await this.showTallySelectorForOverlay(geometryUri, statepointUri, mode, sliceOptions, pixelChoice?.value === 'pixelated', filterGraveyard);
+    }
+    
+    private async autoDetectGeometry(directory: URI): Promise<URI | undefined> {
+        const candidates = [
+            directory.resolve('geometry.h5m'),
+            directory.resolve('dagmc.h5m'),
+            directory.resolve('geometry.xml')
+        ];
+        
+        for (const uri of candidates) {
+            try {
+                const stat = await this.fileService.resolve(uri);
+                if (stat.isFile) {
+                    return uri;
+                }
+            } catch {
+                // File doesn't exist
+            }
+        }
+        return undefined;
     }
 
     async showTallyInfoCommand(): Promise<void> {
@@ -1017,7 +1098,14 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 }
     }
 
-    private async showTallySelectorForOverlay(geometryUri: URI, statepointUri: URI): Promise<void> {
+    private async showTallySelectorForOverlay(
+        geometryUri: URI,
+        statepointUri: URI,
+        mode: 'slice' | 'full' = 'slice',
+        sliceOptions?: OpenMCSliceOptions,
+        pixelated?: boolean,
+        filterGraveyard?: boolean
+    ): Promise<void> {
         // Load tallies from statepoint
         console.log(`[OpenMC] Loading tallies from: ${statepointUri.toString()}`);
         try {
@@ -1027,10 +1115,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             this.messageService.error(`Failed to load tallies: ${error}`);
             return;
         }
-        
+
         const tallies = this.openmcService.getCurrentTallies();
         console.log(`[OpenMC] Found ${tallies.length} tallies:`, tallies.map(t => `Tally ${t.id}`).join(', '));
-        
+
         if (tallies.length === 0) {
             this.messageService.warn('No tallies found in statepoint file');
             return;
@@ -1046,7 +1134,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 this.messageService.error(`Tally ${selection.tallyId} not found in statepoint. Available: ${tallies.map(t => t.id).join(', ')}`);
                 return;
             }
-            
+
             const options: TallyVisualizationOptions = {
                 tallyId: selection.tallyId,
                 score: selection.score,
@@ -1054,107 +1142,93 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
                 colorMap: selection.colorMap
             };
 
-            await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            if (mode === 'slice' && sliceOptions) {
+                await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, options, sliceOptions);
+            } else {
+                options.pixelated = pixelated !== false;
+                options.filterGraveyard = filterGraveyard !== false;
+                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            }
         }
     }
 
     private async handleOverlayOnGeometry(selection: any, statepointUri: URI, knownGeometryUri?: URI, withSource: boolean = false): Promise<void> {
-        let geometryUri: URI;
-        
+        let geometryUri: URI | undefined;
+
         // If geometry is already known (from file manager), use it directly
         if (knownGeometryUri) {
             console.log(`[OpenMC] Using known geometry: ${knownGeometryUri.toString()}`);
             geometryUri = knownGeometryUri;
         } else {
-            // Get both DAGMC and geometry.xml files from workspace
-            const geometryFiles = await this.getGeometryFiles();
-            
-            // Build geometry options with browse
-            const geometryOptions: QuickPickValue<string>[] = [
-                { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
-            ];
-            
-            if (geometryFiles.length > 0) {
-                geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
-            }
+            // Auto-detect from statepoint folder first
+            geometryUri = await this.autoDetectGeometry(statepointUri.parent);
 
-            // Select geometry file
-            const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
-                title: 'Select Geometry File',
-                placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for .h5m or .xml file...'
-            });
-
-            if (!geometrySelection) return;
-            if (geometrySelection.value === '__browse__') {
-                console.log('[OpenMC] Opening file picker for geometry...');
-                // Close any open quick pick first
-                this.quickInput.hide();
-                // Longer delay to ensure dialog can open
-                await new Promise(resolve => setTimeout(resolve, 300));
-                try {
-                    const fileUri = await this.fileDialogService.showOpenDialog({
-                        title: 'Select Geometry File',
-                        openLabel: 'Select',
-                        canSelectFiles: true,
-                        canSelectFolders: false,
-                        canSelectMany: false,
-                        filters: {
-                            'Geometry Files': ['h5m', 'xml'],
-                            'DAGMC Files': ['h5m'],
-                            'OpenMC Geometry': ['xml'],
-                            'All Files': ['*']
-                        }
-                    });
-                    console.log('[OpenMC] Geometry file picker result:', fileUri);
-                    if (!fileUri) {
-                        console.log('[OpenMC] No geometry file selected, cancelling');
+            if (!geometryUri) {
+                // Fall back to manual selection
+                const geometryFiles = await this.getGeometryFiles();
+                const geometryOptions: QuickPickValue<string>[] = [
+                    { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
+                ];
+                if (geometryFiles.length > 0) {
+                    geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
+                }
+                const geometrySelection = await this.quickInput.showQuickPick(geometryOptions, {
+                    title: 'Select Geometry File',
+                    placeholder: geometryFiles.length > 0 ? 'Choose a file or browse...' : 'Browse for .h5m or .xml file...'
+                });
+                if (!geometrySelection) return;
+                if (geometrySelection.value === '__browse__') {
+                    this.quickInput.hide();
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    try {
+                        const fileUri = await this.fileDialogService.showOpenDialog({
+                            title: 'Select Geometry File',
+                            openLabel: 'Select',
+                            canSelectFiles: true,
+                            canSelectFolders: false,
+                            canSelectMany: false,
+                            filters: {
+                                'Geometry Files': ['h5m', 'xml'],
+                                'All Files': ['*']
+                            }
+                        });
+                        if (!fileUri) return;
+                        geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+                    } catch (error) {
+                        this.messageService.error(`File picker failed: ${error}`);
                         return;
                     }
-                    geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-                } catch (error) {
-                    console.error('[OpenMC] Geometry file picker error:', error);
-                    this.messageService.error(`File picker failed: ${error}`);
-                    return;
+                } else {
+                    geometryUri = new URI(geometrySelection.value);
                 }
-            } else {
-                geometryUri = new URI(geometrySelection.value);
             }
         }
 
-        // Check if using geometry.xml (CSG geometry) or DAGMC
-        const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
-        
-        // Skip graveyard filtering for geometry.xml (not applicable)
-        let filterGraveyard = false;
-        if (!isGeometryXml) {
-            // Ask about graveyard filtering only for DAGMC files
-            const filterChoice = await this.quickInput.showQuickPick([
-                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
-            ], {
-                title: 'Graveyard Surface Filtering',
-                placeholder: 'Select visualization mode'
-            });
+        if (!geometryUri) return;
 
-            if (!filterChoice) return;
-            filterGraveyard = filterChoice.value === 'filter';
-        }
+        // Use shared prompt for overlay options
+        const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
+        if (!overlayOptions) return;
 
-        // Perform the overlay
-        const options: TallyVisualizationOptions = {
+        const baseOptions: TallyVisualizationOptions = {
+            ...overlayOptions.options,
             tallyId: selection.tallyId,
             score: selection.score,
-            nuclide: selection.nuclide,
-            filterGraveyard
+            nuclide: selection.nuclide
         };
 
         try {
-            if (withSource) {
-                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, options);
+            if (overlayOptions.mode === 'slice') {
+                await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, baseOptions, overlayOptions.sliceOptions!);
             } else {
-                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+                if (withSource) {
+                    await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
+                } else {
+                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
+                }
             }
         } catch (error) {
+            console.error('[OpenMC] Overlay error:', error);
             this.messageService.error(`Failed to overlay tally: ${error}`);
         }
     }

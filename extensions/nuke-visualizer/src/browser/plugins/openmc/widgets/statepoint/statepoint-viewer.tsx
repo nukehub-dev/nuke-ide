@@ -257,32 +257,22 @@ const handlers = {
                                     return;
                                 }
                                 
-                                const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
-                                
-                                // Skip graveyard filtering for XML files
-                                let filterGraveyard = false;
-                                if (!isGeometryXml) {
-                                    // Ask about graveyard filtering only for DAGMC files
-                                    const filterChoice = await this.quickInput.showQuickPick([
-                                        { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                                        { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
-                                    ], {
-                                        title: 'Graveyard Surface Filtering',
-                                        placeholder: 'Select visualization mode'
-                                    });
-                                    
-                                    if (!filterChoice) return;
-                                    filterGraveyard = filterChoice.value === 'filter';
-                                }
-                                
-                                const options: any = { 
-                                    tallyId: selection.tallyId, 
-                                    score: selection.score || 'total', 
-                                    nuclide: selection.nuclide || 'total',
-                                    filterGraveyard
+                                // Use shared prompt for overlay options
+                                const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
+                                if (!overlayOptions) return;
+
+                                const baseOptions: any = {
+                                    ...overlayOptions.options,
+                                    tallyId: selection.tallyId,
+                                    score: selection.score || 'total',
+                                    nuclide: selection.nuclide || 'total'
                                 };
-                                
-                                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+
+                                if (overlayOptions.mode === 'slice') {
+                                    await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, baseOptions, overlayOptions.sliceOptions!);
+                                } else {
+                                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
+                                }
                             }
                         } else if (selection.action === 'overlay-source') {
                             const fileUri = await this.fileDialogService.showOpenDialog({
@@ -306,29 +296,18 @@ const handlers = {
                                     return;
                                 }
                                 
-                                const isGeometryXml = geometryUri.path.toString().endsWith('.xml') && !geometryUri.path.toString().endsWith('.h5m');
-                                let filterGraveyard = false;
-                                if (!isGeometryXml) {
-                                    const filterChoice = await this.quickInput.showQuickPick([
-                                        { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                                        { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include graveyard surfaces' }
-                                    ], {
-                                        title: 'Graveyard Surface Filtering',
-                                        placeholder: 'Select visualization mode'
-                                    });
-                                    
-                                    if (!filterChoice) return;
-                                    filterGraveyard = filterChoice.value === 'filter';
-                                }
-                                
-                                const options: any = {
+                                // Use shared prompt for overlay options (source only supports full 3D)
+                                const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
+                                if (!overlayOptions) return;
+
+                                const baseOptions: any = {
+                                    ...overlayOptions.options,
                                     tallyId: selection.tallyId,
                                     score: selection.score || 'total',
-                                    nuclide: selection.nuclide || 'total',
-                                    filterGraveyard
+                                    nuclide: selection.nuclide || 'total'
                                 };
-                                
-                                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, options);
+
+                                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
                             }
                         } else if (selection.action === 'heatmap') {
                             const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);

@@ -195,6 +195,10 @@ button.theia-button:active {
 /* ============================================================================
    Dock Panel Widgets
    ============================================================================ */
+.lm-Widget {
+  z-index: 1;
+}
+
 .lm-DockPanel-widget {
   border-radius: var(--nuke-radius-sm);
 }

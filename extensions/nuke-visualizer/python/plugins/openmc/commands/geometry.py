@@ -113,3 +113,22 @@ def cmd_overlap_viz(args):
         traceback.print_exc(file=sys.stderr)
         print(json.dumps({"markers": [], "overlappingCellIds": [], "error": str(e)}))
         return 1
+
+
+@command('openmc.geometry-bounds', help='Get geometry bounds from DAGMC file')
+@arg('geometry', help='Path to geometry .h5m file')
+def cmd_geometry_bounds(args):
+    """Get geometry bounds from DAGMC file."""
+    try:
+        from plugins.openmc.lib.slice_viz import get_geometry_bounds
+        bounds = get_geometry_bounds(args.geometry)
+        if bounds is None:
+            print(json.dumps({"error": "Could not load geometry bounds"}))
+            return 1
+        print(json.dumps(bounds))
+        return 0
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": str(e)}))
+        return 1

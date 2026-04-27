@@ -153,6 +153,24 @@ export interface OpenMCHeatmapData {
     error?: string;
 }
 
+/** Options for slice-based tally overlay */
+export interface OpenMCSliceOptions {
+    /** Slice plane: 'x', 'y', or 'z' */
+    plane: 'x' | 'y' | 'z';
+    /** Slice position in cm (default: center) */
+    position?: number;
+    /** Plane resolution (50, 100, 200, 400) */
+    resolution?: number;
+    /** Use pixelated (blocky) look */
+    pixelated?: boolean;
+    /** Show geometry wireframe outline */
+    showGeometry?: boolean;
+    /** Filter graveyard surfaces */
+    filterGraveyard?: boolean;
+    /** Color map name */
+    colorMap?: string;
+}
+
 /** Result of loading OpenMC geometry with tally overlay */
 export interface OpenMCVisualizationResult {
     /** Whether loading was successful */
@@ -204,7 +222,21 @@ export interface OpenMCBackendService {
         statepointPath: string,
         tallyId: number,
         score?: string,
-        filterGraveyard?: boolean
+        filterGraveyard?: boolean,
+        pixelated?: boolean
+    ): Promise<OpenMCVisualizationResult>;
+
+    /** Get geometry bounds from DAGMC file */
+    getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null>;
+
+    /** Overlay tally on geometry with slice-based visualization */
+    visualizeTallySlice(
+        geometryPath: string,
+        statepointPath: string,
+        tallyId: number,
+        options: OpenMCSliceOptions,
+        score?: string,
+        nuclide?: string
     ): Promise<OpenMCVisualizationResult>;
 
     /** Overlay tally on geometry with source particles (geometry + statepoint) */

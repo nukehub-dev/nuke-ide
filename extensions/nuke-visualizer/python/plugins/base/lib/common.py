@@ -80,6 +80,78 @@ VIEW_TYPES = ['isometric', 'front', 'back', 'left', 'right', 'top', 'bottom']
 
 # Common CSS styles for visualizer UIs
 GLOBAL_STYLES = """
+    /* Theme-aware scrollbar CSS variables
+       Vuetify 2 applies .theme--dark / .theme--light to .v-application */
+    :root {
+        --nuke-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+        --nuke-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+        --nuke-scrollbar-track: transparent;
+    }
+    .v-application.theme--light {
+        --nuke-scrollbar-thumb: rgba(0, 0, 0, 0.22);
+        --nuke-scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
+    }
+
+    /* Global scrollbar for the entire app */
+    html, body {
+        scrollbar-width: thin;
+        scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    html::-webkit-scrollbar-track,
+    body::-webkit-scrollbar-track {
+        background: var(--nuke-scrollbar-track);
+    }
+    html::-webkit-scrollbar-thumb,
+    body::-webkit-scrollbar-thumb {
+        background: var(--nuke-scrollbar-thumb);
+        border-radius: 3px;
+    }
+    html::-webkit-scrollbar-thumb:hover,
+    body::-webkit-scrollbar-thumb:hover {
+        background: var(--nuke-scrollbar-thumb-hover);
+    }
+
+    /* Hide scrollbar on main canvas / VTK view area */
+    main.v-main::-webkit-scrollbar,
+    .v-main::-webkit-scrollbar,
+    .vtk-remote-view::-webkit-scrollbar,
+    .v-navigation-drawer ~ main::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+    main.v-main,
+    .v-main,
+    .vtk-remote-view {
+        -ms-overflow-style: none !important;
+        scrollbar-width: none !important;
+        overflow: hidden !important;
+    }
+
+    /* Very thin scrollbar on sidebar (navigation drawer) */
+    .v-navigation-drawer::-webkit-scrollbar {
+        width: 2px !important;
+    }
+    .v-navigation-drawer::-webkit-scrollbar-track {
+        background: var(--nuke-scrollbar-track);
+    }
+    .v-navigation-drawer::-webkit-scrollbar-thumb {
+        background: var(--nuke-scrollbar-thumb);
+        border-radius: 1px;
+    }
+    .v-navigation-drawer::-webkit-scrollbar-thumb:hover {
+        background: var(--nuke-scrollbar-thumb-hover);
+    }
+    .v-navigation-drawer {
+        scrollbar-width: thin;
+        scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
+    }
+
     /* Custom scrollbar for dropdowns - theme-neutral */
     .v-autocomplete__content::-webkit-scrollbar,
     .v-menu__content::-webkit-scrollbar {
@@ -87,16 +159,16 @@ GLOBAL_STYLES = """
     }
     .v-autocomplete__content::-webkit-scrollbar-track,
     .v-menu__content::-webkit-scrollbar-track {
-        background: transparent;
+        background: var(--nuke-scrollbar-track);
     }
     .v-autocomplete__content::-webkit-scrollbar-thumb,
     .v-menu__content::-webkit-scrollbar-thumb {
-        background: rgba(128, 128, 128, 0.35);
+        background: var(--nuke-scrollbar-thumb);
         border-radius: 3px;
     }
     .v-autocomplete__content::-webkit-scrollbar-thumb:hover,
     .v-menu__content::-webkit-scrollbar-thumb:hover {
-        background: rgba(128, 128, 128, 0.55);
+        background: var(--nuke-scrollbar-thumb-hover);
     }
 
     /* Dropdown menu styling - let Vuetify theme handle background,

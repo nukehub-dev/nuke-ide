@@ -207,7 +207,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         statepointPath: string,
         tallyId: number,
         score?: string,
-        filterGraveyard: boolean = true
+        filterGraveyard: boolean = true,
+        pixelated: boolean = true
     ): Promise<OpenMCVisualizationResult> {
         const port = await this.findFreePort(8090);
         this.reservedPorts.add(port);
@@ -220,18 +221,26 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const args: string[] = [
                 scriptPath,
                 'openmc.visualize-overlay',
-                geometryPath,
                 statepointPath,
                 tallyId.toString(),
+                '--mode', 'full',
                 '--port', port.toString()
             ];
+
+            if (geometryPath) {
+                args.push('--geometry', geometryPath);
+            }
 
             if (score) {
                 args.push('--score', score);
             }
 
-            if (!filterGraveyard) {
-                args.push('--no-graveyard-filter');
+            if (filterGraveyard) {
+                args.push('--filter-graveyard');
+            }
+
+            if (pixelated) {
+                args.push('--pixelated');
             }
 
             // Create a custom process to capture stdout for warnings
@@ -277,6 +286,107 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             this.processes.set(port, { process, port, filePath: geometryPath });
 
             // Use longer timeout for large DAGMC files (120 seconds)
+            await this.waitForServer(port, process, 120000);
+
+            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
+
+            return {
+                success: true,
+                port,
+                url: `http://127.0.0.1:${port}`,
+                tallyInfo
+            };
+
+        } catch (error) {
+            this.reservedPorts.delete(port);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
+    async visualizeTallySlice(
+        geometryPath: string,
+        statepointPath: string,
+        tallyId: number,
+        options: any,
+        score?: string,
+        nuclide?: string
+    ): Promise<OpenMCVisualizationResult> {
+        const port = await this.findFreePort(8090);
+        this.reservedPorts.add(port);
+
+        try {
+            const pythonInfo = await this.pythonHelper.detectPython();
+            const pythonCommand = pythonInfo.command;
+            const scriptPath = this.pythonHelper.findScript('server.py');
+
+            const args: string[] = [
+                scriptPath,
+                'openmc.visualize-overlay',
+                statepointPath,
+                tallyId.toString(),
+                '--mode', 'slice',
+                '--plane', options.plane || 'z',
+                '--port', port.toString()
+            ];
+
+            if (geometryPath) {
+                args.push('--geometry', geometryPath);
+            }
+
+            if (score) {
+                args.push('--score', score);
+            }
+
+            if (nuclide) {
+                args.push('--nuclide', nuclide);
+            }
+
+            if (options.position !== undefined) {
+                args.push('--position', options.position.toString());
+            }
+
+            if (options.resolution) {
+                args.push('--resolution', options.resolution.toString());
+            }
+
+            if (options.pixelated) {
+                args.push('--pixelated');
+            }
+
+            if (options.showGeometry !== false) {
+                args.push('--show-geometry');
+            }
+
+            if (options.filterGraveyard) {
+                args.push('--filter-graveyard');
+            }
+
+            const processOptions: RawProcessOptions = {
+                command: pythonCommand,
+                args,
+            };
+            const process = this.rawProcessFactory(processOptions);
+
+            process.outputStream.on('data', (data: Buffer) => {
+                const msg = data.toString();
+                console.log(`[OpenMC ${port}] ${msg.trim()}`);
+            });
+
+            process.errorStream.on('data', (data: Buffer) => {
+                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
+            });
+
+            process.onExit((event: { code?: number; signal?: string }) => {
+                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(port);
+                this.reservedPorts.delete(port);
+            });
+
+            this.processes.set(port, { process, port, filePath: statepointPath });
+
             await this.waitForServer(port, process, 120000);
 
             const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
@@ -687,6 +797,23 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 success: false,
                 error: error instanceof Error ? error.message : String(error)
             };
+        }
+    }
+
+    async getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null> {
+        try {
+            const scriptPath = this.pythonHelper.findScript('server.py');
+            const result = await this.pythonHelper.executeScriptJson<{ x: [number, number]; y: [number, number]; z: [number, number] } | { error: string }>(
+                scriptPath, ['openmc.geometry-bounds', geometryPath]
+            );
+            if (result && 'error' in result) {
+                console.error('[OpenMC Backend] Geometry bounds error:', result.error);
+                return null;
+            }
+            return result as { x: [number, number]; y: [number, number]; z: [number, number] };
+        } catch (error) {
+            console.error('[OpenMC Backend] Failed to get geometry bounds:', error);
+            return null;
         }
     }
 

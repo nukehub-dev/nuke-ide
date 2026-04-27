@@ -49,13 +49,35 @@ Best for: Seeing tally results directly on your CAD/DAGMC geometry.
 2. Go to `Tools → Visualizer → OpenMC → Tally → Overlay Tally on Geometry`.
 3. Select a **geometry file** (`.h5m` or `.xml`).
 4. Select the **statepoint** (if not already loaded).
-5. Choose a tally, score, and nuclide.
+5. Choose the **visualization mode**:
+   - **Slice View** — 2D cross-section with interpolated tally values
+   - **Full 3D Overlay** — Map tally values onto 3D geometry cells
+6. Configure mode-specific options (see below).
+7. Choose a tally, score, and nuclide.
+
+### Slice View Mode
+
+Best for: Inspecting a specific cross-section of your geometry.
+
+**Options:**
+- **Plane** — X, Y, or Z cross-section
+- **Position** — Slice position in cm (shows geometry bounds; defaults to center)
+- **Resolution** — 100×100 (fast) to 400×400 (high quality)
+- **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
+
+### Full 3D Overlay Mode
+
+Best for: Full spatial context of tally results on the complete geometry.
+
+**Options:**
+- **Graveyard Filtering** — Hide large graveyard surfaces (DAGMC only)
+- **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
 
 ### What You See
 
-- Your DAGMC or CSG geometry rendered in 3D.
+- Your DAGMC or CSG geometry rendered in 3D (or 2D slice).
 - Geometry surfaces colored by the tally value.
-- The graveyard volume is automatically filtered out for clarity.
+- Interactive controls for rotation, zoom, and clipping.
 
 ### Spatial Mismatch Warning
 
@@ -182,7 +204,7 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 | Visualization | Requires | Best For |
 |---------------|----------|----------|
 | 3D Mesh Tally | Mesh filter | Full 3D spatial understanding |
-| Overlay on Geometry | Geometry + mesh filter | CAD-integrated results |
+| Overlay on Geometry | Geometry + mesh filter | CAD-integrated results (slice or full 3D) |
 | Energy Spectrum | Energy filter | Spectral analysis, flux shapes |
 | Spatial Plot | Mesh filter | 1D profiles along an axis |
 | 2D Heatmap | Mesh filter | Slice-by-slice inspection |

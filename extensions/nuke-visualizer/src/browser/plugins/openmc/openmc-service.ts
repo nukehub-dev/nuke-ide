@@ -39,10 +39,11 @@ import {
     XSGroupStructuresResponse,
     OpenMCHeatmapData,
     OpenMCHeatmapPlane,
+    OpenMCSliceOptions,
     OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
-import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { WidgetManager, ApplicationShell, QuickInputService } from '@theia/core/lib/browser';
 import { OpenMCMultiScoreData } from '../../plotly/plotly-utils';
 import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
@@ -73,6 +74,8 @@ export interface TallyVisualizationOptions {
     colorMap?: string;
     /** Whether to filter out graveyard surfaces (default: true) */
     filterGraveyard?: boolean;
+    /** Whether to use pixelated (blocky) rendering (default: true) */
+    pixelated?: boolean;
 }
 
 @injectable()
@@ -109,6 +112,9 @@ export class OpenMCService {
 
     @inject(HealthCheckFramework)
     protected readonly healthFramework: HealthCheckFramework;
+
+    @inject(QuickInputService)
+    protected readonly quickInput: QuickInputService;
 
     private readonly _onStatepointLoaded = new Emitter<OpenMCStatepointInfo>();
     readonly onStatepointLoaded: Event<OpenMCStatepointInfo> = this._onStatepointLoaded.event;
@@ -487,7 +493,8 @@ export class OpenMCService {
                 statepointPath,
                 options.tallyId,
                 options.score,
-                options.filterGraveyard !== false  // default to true
+                options.filterGraveyard !== false,  // default to true
+                options.pixelated !== false  // default to true
             );
 
             if (!result.success || !result.port || !result.url) {
@@ -522,6 +529,214 @@ export class OpenMCService {
             this.messageService.error(`Failed to overlay tally: ${msg}`);
             return null;
         }
+    }
+
+    /**
+     * Overlay tally results on geometry using slice-based visualization.
+     */
+    async visualizeTallySlice(
+        geometryUri: URI,
+        statepointUri: URI,
+        options: TallyVisualizationOptions,
+        sliceOptions: OpenMCSliceOptions
+    ): Promise<VisualizerWidget | null> {
+        const available = await this.checkAvailability();
+        if (!available) {
+            return null;
+        }
+
+        try {
+            const uniqueSuffix = `slice:${options.tallyId}:${sliceOptions.plane}:${Date.now()}`;
+
+            let label = `Tally ${options.tallyId}`;
+            if (options.score) {
+                label += ` (${options.score})`;
+            }
+            label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
+
+            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+                statepointUri,
+                label,
+                uniqueSuffix,
+                `Loading tally ${options.tallyId} slice...`
+            );
+
+            const geometryPath = geometryUri.path.toString();
+            const statepointPath = statepointUri.path.toString();
+
+            const result = await this.openmcBackend.visualizeTallySlice(
+                geometryPath,
+                statepointPath,
+                options.tallyId,
+                sliceOptions,
+                options.score,
+                options.nuclide
+            );
+
+            if (!result.success || !result.port || !result.url) {
+                throw new Error(result.error || 'Unknown error loading slice visualization');
+            }
+
+            const tallyName = result.tallyInfo?.name;
+            const defaultName = `Tally ${options.tallyId}`;
+            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
+                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
+                if (options.score) {
+                    widget.title.label += ` (${options.score})`;
+                }
+                widget.title.label += ` Slice`;
+            }
+
+            completeLoading(result.port, result.url);
+
+            if (result.tallyInfo) {
+                this._onTallyVisualized.fire(result.tallyInfo);
+            }
+
+            this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane`);
+            return widget;
+
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to overlay tally slice: ${msg}`);
+            return null;
+        }
+    }
+
+    /**
+     * Get geometry bounds from DAGMC file.
+     */
+    async getGeometryBounds(geometryUri: URI): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | undefined> {
+        try {
+            const geometryPath = geometryUri.path.toString();
+            const result = await this.openmcBackend.getGeometryBounds(geometryPath);
+            return result || undefined;
+        } catch (e) {
+            console.warn('[OpenMC] Could not get geometry bounds:', e);
+            return undefined;
+        }
+    }
+
+    /**
+     * Prompt user for overlay visualization options (mode, slice options, graveyard, pixelated).
+     * Returns the selected options or undefined if cancelled.
+     */
+    async promptOverlayOptions(
+        geometryUri: URI
+    ): Promise<{ mode: 'slice' | 'full'; options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>; sliceOptions?: OpenMCSliceOptions } | undefined> {
+        // 1. Mode selection
+        const modeChoice = await this.quickInput.showQuickPick([
+            { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
+            { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
+        ], {
+            title: 'Visualization Mode',
+            placeholder: 'Choose visualization mode'
+        });
+        if (!modeChoice) return undefined;
+        const mode = modeChoice.value as 'slice' | 'full';
+
+        // 2. Slice mode
+        if (mode === 'slice') {
+            const planeChoice = await this.quickInput.showQuickPick([
+                { value: 'x', label: 'X Plane', description: 'YZ cross-section' },
+                { value: 'y', label: 'Y Plane', description: 'XZ cross-section' },
+                { value: 'z', label: 'Z Plane', description: 'XY cross-section' }
+            ], {
+                title: 'Slice Plane',
+                placeholder: 'Select slice plane orientation'
+            });
+            if (!planeChoice) return undefined;
+            const plane = planeChoice.value as 'x' | 'y' | 'z';
+
+            // Get geometry bounds for the selected plane
+            const bounds = await this.getGeometryBounds(geometryUri);
+            const axisBounds = bounds ? bounds[plane] : undefined;
+            const boundsText = axisBounds
+                ? `Geometry range: ${axisBounds[0].toFixed(2)} to ${axisBounds[1].toFixed(2)} cm`
+                : 'Enter position in cm (leave empty for center)';
+            const defaultPos = axisBounds
+                ? ((axisBounds[0] + axisBounds[1]) / 2).toFixed(2)
+                : '0';
+
+            // Ask for slice position
+            const positionInput = await this.quickInput.input({
+                title: `Slice Position (${plane.toUpperCase()} axis)`,
+                prompt: boundsText,
+                placeHolder: `Default: ${defaultPos} (center)`
+            });
+            // Parse position, undefined means center
+            let position: number | undefined;
+            if (positionInput && positionInput.trim()) {
+                const parsed = parseFloat(positionInput.trim());
+                if (!isNaN(parsed)) {
+                    position = parsed;
+                }
+            }
+
+            const resChoice = await this.quickInput.showQuickPick([
+                { value: '50', label: 'Low (50x50)', description: 'Fast, lower quality' },
+                { value: '100', label: 'Medium (100x100)', description: 'Balanced' },
+                { value: '200', label: 'High (200x200)', description: 'Good quality' },
+                { value: '400', label: 'Ultra (400x400)', description: 'Best quality, slower' }
+            ], {
+                title: 'Slice Resolution',
+                placeholder: 'Select plane resolution'
+            });
+            if (!resChoice) return undefined;
+
+            const pixelChoice = await this.quickInput.showQuickPick([
+                { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
+                { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+            ], {
+                title: 'Rendering Style',
+                placeholder: 'Select rendering style'
+            });
+            if (!pixelChoice) return undefined;
+
+            return {
+                mode,
+                options: { pixelated: pixelChoice.value === 'pixelated' } as TallyVisualizationOptions,
+                sliceOptions: {
+                    plane,
+                    position,
+                    resolution: parseInt(resChoice.value),
+                    pixelated: pixelChoice.value === 'pixelated',
+                    showGeometry: true
+                }
+            };
+        }
+
+        // 3. Full 3D mode
+        const isH5m = geometryUri.path.toString().endsWith('.h5m');
+        let filterGraveyard = false;
+        if (isH5m) {
+            const filterChoice = await this.quickInput.showQuickPick([
+                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
+            ], {
+                title: 'Graveyard Surface Filtering',
+                placeholder: 'Select visualization mode'
+            });
+            if (!filterChoice) return undefined;
+            filterGraveyard = filterChoice.value === 'filter';
+        }
+
+        const pixelChoice = await this.quickInput.showQuickPick([
+            { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
+            { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+        ], {
+            title: 'Rendering Style',
+            placeholder: 'Select rendering style'
+        });
+        if (!pixelChoice) return undefined;
+
+        return {
+            mode,
+            options: {
+                filterGraveyard,
+                pixelated: pixelChoice.value === 'pixelated'
+            } as TallyVisualizationOptions
+        };
     }
 
     /**
