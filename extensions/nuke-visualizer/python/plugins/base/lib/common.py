@@ -89,6 +89,11 @@ GLOBAL_STYLES = """
         --nuke-dropdown-bg: #2a2a3a;
         --nuke-dropdown-color: #ffffff;
         --nuke-dropdown-active: rgba(255, 255, 255, 0.12);
+        --nuke-gadget-bg: rgba(30, 30, 45, 0.85);
+        --nuke-gadget-border: rgba(255,255,255,0.15);
+        --nuke-gadget-text: rgba(255,255,255,0.7);
+        --nuke-gadget-icon: #ffffff;
+        --nuke-gadget-divider: rgba(255,255,255,0.1);
     }
     .v-application.theme--light {
         --nuke-scrollbar-thumb: rgba(90, 90, 90, 0.25);
@@ -96,6 +101,11 @@ GLOBAL_STYLES = """
         --nuke-dropdown-bg: #ffffff;
         --nuke-dropdown-color: rgba(0, 0, 0, 0.87);
         --nuke-dropdown-active: rgba(0, 0, 0, 0.08);
+        --nuke-gadget-bg: rgba(240, 240, 240, 0.92);
+        --nuke-gadget-border: rgba(0,0,0,0.1);
+        --nuke-gadget-text: rgba(0,0,0,0.6);
+        --nuke-gadget-icon: rgba(0,0,0,0.7);
+        --nuke-gadget-divider: rgba(0,0,0,0.08);
     }
 
     /* Prevent page-level scrollbar; app fills viewport and internal containers scroll */
@@ -228,6 +238,25 @@ GLOBAL_STYLES = """
     .v-autocomplete .v-chip {
         margin: 2px 4px !important;
     }
+
+    /* Camera gadget - theme aware */
+    .nuke-camera-gadget {
+        background: var(--nuke-gadget-bg) !important;
+        border-color: var(--nuke-gadget-border) !important;
+        cursor: grab;
+    }
+    .nuke-camera-gadget:active {
+        cursor: grabbing;
+    }
+    .nuke-camera-gadget .nuke-camera-title {
+        color: var(--nuke-gadget-text) !important;
+    }
+    .nuke-camera-gadget .v-icon {
+        color: var(--nuke-gadget-icon) !important;
+    }
+    .nuke-camera-gadget .v-divider {
+        border-color: var(--nuke-gadget-divider) !important;
+    }
 """
 
 
@@ -295,8 +324,8 @@ def calculate_camera_position(view_type: str, bounds: List[float]) -> Tuple[List
     dz = zmax - zmin
     diagonal = (dx*dx + dy*dy + dz*dz) ** 0.5
     
-    # Distance factor
-    distance = diagonal * 1.5 if diagonal > 0 else 5
+    # Distance factor - use 2.2 to match ParaView ResetCamera framing
+    distance = diagonal * 2.2 if diagonal > 0 else 5
     
     view_configs = {
         'isometric': ([cx + distance * 0.7, cy + distance * 0.7, cz + distance * 0.7], [cx, cy, cz], [0, 0, 1]),
@@ -732,9 +761,9 @@ class UIComponents:
             
             # Zoom controls
             with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
-                btn_with_tooltip("mdi-plus-circle-outline", "Zoom In", lambda: zoom_callback(0.8))
-                vuetify.VIcon("mdi-magnify", color="white", small=True, classes="mx-2", style="opacity: 0.5")
-                btn_with_tooltip("mdi-minus-circle-outline", "Zoom Out", lambda: zoom_callback(1.2))
+                btn_with_tooltip("mdi-plus-circle-outline", "Zoom In", lambda: zoom_callback(0.85))
+                vuetify.VIcon("mdi-magnify", small=True, classes="mx-2", style="opacity: 0.5;")
+                btn_with_tooltip("mdi-minus-circle-outline", "Zoom Out", lambda: zoom_callback(1.15))
 
     @staticmethod
     def create_canvas_gadget(vuetify, pan_callback, zoom_callback, reset_callback=None, view_callback=None):
@@ -742,29 +771,76 @@ class UIComponents:
         from trame.widgets import html
         with vuetify.VContainer(
             v_if=("show_camera_gadget",),
-            classes="pa-2 ma-2", 
-            style="position: absolute; top: 0; right: 0; z-index: 100; background: rgba(30, 30, 45, 0.85); border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); width: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
+            classes="pa-2 ma-2 nuke-camera-gadget",
+            style="position: absolute; top: 0; right: 12px; z-index: 100; border-radius: 12px; border: 1px solid; width: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
         ):
-            html.Div("Camera", classes="text-caption text-center mb-1", style="color: rgba(255,255,255,0.7); font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.65rem !important;")
-            
+            html.Div("Camera", classes="text-caption text-center mb-1 nuke-camera-title", style="font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.65rem !important;")
+
             # Helper for styled tooltips
             def nav_tooltip(icon_name, text, **kwargs):
                 with vuetify.VTooltip(bottom=True, color="#283593"):
                     with vuetify.Template(v_slot_activator="{ on, attrs }"):
-                        vuetify.VIcon(icon_name, color="white", v_on="on", v_bind="attrs", **kwargs)
+                        vuetify.VIcon(icon_name, v_on="on", v_bind="attrs", **kwargs)
                     with html.Div(style="padding: 4px;"):
-                        html.Div(text, style="font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); margin-bottom: 4px; padding-bottom: 2px;")
+                        html.Div(text, style="font-weight: bold; border-bottom: 1px solid var(--nuke-gadget-divider); margin-bottom: 4px; padding-bottom: 2px;")
                         if "extra" in kwargs:
                             html.Div(kwargs["extra"], style="font-size: 0.7rem; opacity: 0.9;")
 
             UIComponents.navigation_pad(
-                vuetify, 
-                pan_callback, 
+                vuetify,
+                pan_callback,
                 zoom_callback,
                 reset_callback=reset_callback,
                 view_callback=view_callback,
                 tooltip_text="Navigation Guide:\n• Left Click: Rotate\n• Middle/Shift+Left: Pan\n• Scroll: Zoom"
             )
+
+            # Draggable script
+            html.Component("""
+(function() {
+    function initDrag() {
+        var el = document.querySelector('.nuke-camera-gadget');
+        if (!el || el.dataset.dragInit) return;
+        el.dataset.dragInit = '1';
+        var isDragging = false, startX, startY, startLeft, startTop;
+        var parent = el.offsetParent || el.parentElement;
+
+        // Convert initial right-positioned element to left-positioned for dragging
+        if (!el.style.left || el.style.left === 'auto') {
+            var rect = el.getBoundingClientRect();
+            var pRect = parent.getBoundingClientRect();
+            el.style.left = (rect.left - pRect.left) + 'px';
+            el.style.top = (rect.top - pRect.top) + 'px';
+            el.style.right = 'auto';
+        }
+
+        el.addEventListener('mousedown', function(e) {
+            if (e.target.closest('button, .v-btn, .v-icon')) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = parseInt(el.style.left || 0);
+            startTop = parseInt(el.style.top || 0);
+            el.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            el.style.left = (startLeft + e.clientX - startX) + 'px';
+            el.style.top = (startTop + e.clientY - startY) + 'px';
+        });
+        document.addEventListener('mouseup', function() {
+            isDragging = false;
+            el.style.cursor = 'grab';
+        });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initDrag);
+    } else {
+        setTimeout(initDrag, 500);
+    }
+})();
+            """, **{"is": "script"})
 
 
 # =============================================================================
@@ -993,6 +1069,9 @@ def create_set_camera_view_controller(pipeline, state, update_view_func):
             view.CameraViewUp = view_up
             
             from paraview import simple
+            # ResetCamera adjusts distance along current view direction
+            # so the object is properly framed (preserves isometric/front/etc.)
+            simple.ResetCamera(view)
             simple.Render(view)
             update_view_func(push_camera=True)
             
@@ -1046,15 +1125,24 @@ def create_pan_camera_controller(pipeline, update_view_func):
 
 
 def create_zoom_camera_controller(pipeline, update_view_func):
-    """Create zoom camera controller function."""
+    """Create zoom camera controller function.
+    
+    Supports both perspective (dolly) and parallel projection zoom.
+    """
     def zoom_camera(factor):
         try:
             view = pipeline.get('view')
             if not view: return False
-            pos = np.array(view.CameraPosition)
-            focal = np.array(view.CameraFocalPoint)
-            vec = pos - focal
-            view.CameraPosition = (focal + vec * factor).tolist()
+            # Parallel projection: scale the view instead of moving camera
+            if getattr(view, 'CameraParallelProjection', 0):
+                scale = getattr(view, 'CameraParallelScale', 1.0)
+                view.CameraParallelScale = scale * factor
+            else:
+                # Perspective projection: dolly by moving camera
+                pos = np.array(view.CameraPosition)
+                focal = np.array(view.CameraFocalPoint)
+                vec = pos - focal
+                view.CameraPosition = (focal + vec * factor).tolist()
             update_view_func(push_camera=True)
             return True
         except Exception as e:
