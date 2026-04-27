@@ -29,6 +29,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import URI from '@theia/core/lib/common/uri';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { VisualizerWidget } from '../../../visualizer-widget';
+import { WIDGET_IDS } from '../widgets/widget-ids';
 
 @injectable()
 export class OpenMCWidgetFactory {
@@ -113,5 +114,34 @@ export class OpenMCWidgetFactory {
             }
         }
         return undefined;
+    }
+
+    /**
+     * Get or create a plot widget for a specific tally.
+     */
+    async getPlotWidget(tallyId: number, type: string): Promise<any> {
+        const widgetId = `${WIDGET_IDS.OPENMC_PLOT}:${tallyId}:${type}`;
+        return this.widgetManager.getOrCreateWidget(WIDGET_IDS.OPENMC_PLOT, {
+            id: widgetId
+        } as any);
+    }
+
+    /**
+     * Get or create a heatmap widget for a specific tally.
+     */
+    async getHeatmapWidget(tallyId: number, score?: string): Promise<any> {
+        const widgetId = `${WIDGET_IDS.OPENMC_HEATMAP}:${tallyId}:${score || 'default'}`;
+        return this.widgetManager.getOrCreateWidget(WIDGET_IDS.OPENMC_HEATMAP, {
+            id: widgetId
+        } as any);
+    }
+
+    /**
+     * Get or create an XS plot widget.
+     */
+    async getXSPlotWidget(): Promise<any> {
+        return this.widgetManager.getOrCreateWidget(WIDGET_IDS.XS_PLOT, {
+            id: WIDGET_IDS.XS_PLOT
+        } as any);
     }
 }

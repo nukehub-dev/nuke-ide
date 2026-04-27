@@ -38,10 +38,11 @@ import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
 import './openmc-heatmap-widget.css';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { WIDGET_IDS } from '../widget-ids';
 
 @injectable()
 export class OpenMCHeatmapWidget extends ReactWidget {
-    static readonly ID = 'openmc-heatmap-widget';
+    static readonly ID = WIDGET_IDS.OPENMC_HEATMAP;
     static readonly LABEL = 'OpenMC 2D Heatmap';
 
     private data: OpenMCHeatmapData | null = null;

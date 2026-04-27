@@ -493,6 +493,8 @@ def cmd_visualize_mesh(args):
 @arg('--pixelated', action='store_true', help='Use blocky pixelated look (for slice mode)')
 @arg('--show-geometry', action='store_true', default=True, help='Show geometry outline (slice mode)')
 @arg('--filter-graveyard', action='store_true', help='Filter graveyard surfaces')
+@arg('--with-source', action='store_true', help='Overlay source particles from statepoint')
+@arg('--max-source-particles', type=int, default=5000, help='Max source particles to visualize')
 @arg('--port', type=int, help='Server port')
 def cmd_visualize_overlay(args):
     """Overlay tally on geometry with slice-based or full 3D visualization."""
@@ -559,8 +561,7 @@ def cmd_visualize_overlay(args):
             # === Slice mode ===
             from plugins.openmc.lib.slice_viz import create_slice_visualization
             
-            # Use temp directory for output files
-            import tempfile
+            # Use temp directory for output files (tempfile already imported at module level)
             slice_temp_dir = tempfile.mkdtemp(prefix='openmc_slice_')
             
             slice_result = create_slice_visualization(
@@ -674,6 +675,9 @@ def cmd_visualize_overlay(args):
             array_location = 'CELLS' if args.pixelated else 'POINTS'
             _setup_tally_coloring(geom_display, array_name, array_location,
                                  args.colormap or 'Cool to Warm')
+            # Make geometry semi-transparent if showing source particles
+            if args.with_source:
+                geom_display.Opacity = 0.6
             displays.append(('geometry', geom_display, mapped_source))
             
             # Debug: verify data loaded
@@ -696,6 +700,68 @@ def cmd_visualize_overlay(args):
                 scalar_bar.Title = array_name.replace('-', ' ').title()
             
             state.overlay_type = 'full_3d'
+            
+            # Add source particles if requested
+            if args.with_source:
+                try:
+                    import h5py
+                    with h5py.File(args.statepoint, 'r') as f:
+                        if 'source_bank' in f:
+                            source_bank = f['source_bank']
+                            n_particles = min(len(source_bank), args.max_source_particles)
+                            
+                            # Create vtkPolyData for source particles
+                            source_points = vtk.vtkPoints()
+                            source_energy = vtk.vtkDoubleArray()
+                            source_energy.SetName('energy')
+                            
+                            for i in range(n_particles):
+                                particle = source_bank[i]
+                                source_points.InsertNextPoint(
+                                    float(particle['r']['x']),
+                                    float(particle['r']['y']),
+                                    float(particle['r']['z'])
+                                )
+                                source_energy.InsertNextValue(float(particle['E']))
+                            
+                            source_poly = vtk.vtkPolyData()
+                            source_poly.SetPoints(source_points)
+                            
+                            # Add vertices so points are renderable
+                            verts = vtk.vtkCellArray()
+                            for i in range(n_particles):
+                                verts.InsertNextCell(1)
+                                verts.InsertCellPoint(i)
+                            source_poly.SetVerts(verts)
+                            
+                            source_poly.GetPointData().AddArray(source_energy)
+                            source_poly.GetPointData().SetActiveScalars('energy')
+                            
+                            # Write to temp file
+                            with tempfile.NamedTemporaryFile(suffix='.vtp', delete=False) as tmp:
+                                source_tmp_path = tmp.name
+                            writer = vtk.vtkXMLPolyDataWriter()
+                            writer.SetFileName(source_tmp_path)
+                            writer.SetInputData(source_poly)
+                            writer.Write()
+                            
+                            # Load into ParaView
+                            source_reader = simple.XMLPolyDataReader(FileName=source_tmp_path)
+                            source_display = simple.Show(source_reader, view)
+                            source_display.Representation = 'Points'
+                            source_display.PointSize = 3.0
+                            source_display.Opacity = 1.0
+                            simple.ColorBy(source_display, ('POINTS', 'energy'))
+                            lut_source = simple.GetColorTransferFunction('energy')
+                            lut_source.ApplyPreset('Plasma', True)
+                            
+                            displays.append(('source', source_display, source_reader))
+                            state.n_source_particles = n_particles
+                            print(f"[Overlay] Loaded {n_particles} source particles", file=sys.stderr)
+                        else:
+                            print("[Overlay] Warning: No source_bank in statepoint", file=sys.stderr)
+                except Exception as e:
+                    print(f"[Overlay] Warning: Could not load source particles: {e}", file=sys.stderr)
         
         # Common view setup
         bg_rgb = hex_to_rgb('#1a1a2e')
@@ -714,6 +780,11 @@ def cmd_visualize_overlay(args):
         state.array_name = array_name
         state.data_range = f"[{data_range[0]:.6e}, {data_range[1]:.6e}]"
         
+        # Source particles state (if present)
+        if args.with_source:
+            state.source_opacity = 1.0
+            state.source_point_size = 3.0
+        
         simple.Render(view)
         simple.ResetCamera()
         
@@ -730,7 +801,7 @@ def cmd_visualize_overlay(args):
         
         # Initialize common state
         init_common_state(state, theme='dark',
-                         opacity=1.0,
+                         opacity=0.6 if args.with_source else 1.0,
                          color_by=f'{color_by_prefix}: {array_name}',
                          show_scalar_bar=True,
                          color_map=args.colormap or 'Cool to Warm')
@@ -807,7 +878,8 @@ def cmd_visualize_overlay(args):
         def on_opacity_change(opacity, **kwargs):
             try:
                 for name, display, source in displays:
-                    display.Opacity = float(opacity)
+                    if name != 'source':
+                        display.Opacity = float(opacity)
                 update_view()
             except Exception as e:
                 print(f"Error updating opacity: {e}", file=sys.stderr)
@@ -816,10 +888,33 @@ def cmd_visualize_overlay(args):
         def on_representation_change(representation, **kwargs):
             try:
                 for name, display, source in displays:
-                    display.Representation = representation
+                    if name != 'source':
+                        display.Representation = representation
                 update_view()
             except Exception as e:
                 print(f"Error updating representation: {e}", file=sys.stderr)
+        
+        # Source-specific handlers (only if source particles are present)
+        if args.with_source:
+            @state.change("source_opacity")
+            def on_source_opacity_change(source_opacity, **kwargs):
+                try:
+                    for name, display, source in displays:
+                        if name == 'source':
+                            display.Opacity = float(source_opacity)
+                    update_view()
+                except Exception as e:
+                    print(f"Error updating source opacity: {e}", file=sys.stderr)
+            
+            @state.change("source_point_size")
+            def on_source_point_size_change(source_point_size, **kwargs):
+                try:
+                    for name, display, source in displays:
+                        if name == 'source':
+                            display.PointSize = float(source_point_size)
+                    update_view()
+                except Exception as e:
+                    print(f"Error updating source point size: {e}", file=sys.stderr)
         
         @state.change("show_scalar_bar")
         def on_scalar_bar_change(show_scalar_bar, **kwargs):
@@ -934,6 +1029,27 @@ def cmd_visualize_overlay(args):
                         with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px; margin-bottom: 16px;"):
                             html.Div("Mode", style="font-size: 10px; color: #888; text-transform: uppercase;")
                             html.Div("Full 3D Overlay", style="font-size: 13px; color: #fff; font-weight: 500;")
+                    
+                    # Source particles info and controls
+                    if args.with_source:
+                        vuetify.VDivider(classes="mb-4")
+                        with html.Div(style="background: #333; border-radius: 4px; padding: 4px 8px; margin-bottom: 16px;"):
+                            html.Div("Source Particles", style="font-size: 10px; color: #888; text-transform: uppercase;")
+                            html.Div("{{n_source_particles}} particles", style="font-size: 13px; color: #fff; font-weight: 500;")
+                        
+                        with vuetify.VContainer(classes="mb-4"):
+                            html.Div("Source Opacity", style="font-size: 11px; color: #aaa; margin-bottom: 4px;")
+                            vuetify.VSlider(
+                                v_model=("source_opacity", 1.0), min=0, max=1, step=0.01,
+                                dense=True, hide_details=True, thumb_label=True
+                            )
+                        
+                        with vuetify.VContainer(classes="mb-4"):
+                            html.Div("Source Point Size", style="font-size: 11px; color: #aaa; margin-bottom: 4px;")
+                            vuetify.VSlider(
+                                v_model=("source_point_size", 3.0), min=0.5, max=10, step=0.5,
+                                dense=True, hide_details=True, thumb_label=True
+                            )
                     
                     vuetify.VDivider(classes="mb-4")
                     

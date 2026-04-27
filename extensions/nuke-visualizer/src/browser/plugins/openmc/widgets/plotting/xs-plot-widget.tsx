@@ -47,6 +47,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { WIDGET_IDS } from '../widget-ids';
 
 /** Mode for XS plotting */
 type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
@@ -66,7 +67,7 @@ interface Material {
 
 @injectable()
 export class XSPlotWidget extends ReactWidget {
-    static readonly ID = 'xs-plot-widget';
+    static readonly ID = WIDGET_IDS.XS_PLOT;
     static readonly LABEL = 'Cross-Section Plot';
 
     private data: XSPlotData | null = null;

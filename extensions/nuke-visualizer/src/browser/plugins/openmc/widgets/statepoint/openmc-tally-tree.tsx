@@ -34,7 +34,7 @@ import './openmc-tally-tree.css';
 import { Emitter, Event } from '@theia/core';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
-import { OpenMCTallyInfo, OpenMCStatepointInfo } from '../../../../../common/openmc-protocol';
+import { OpenMCTallyInfo, OpenMCStatepointInfo, HDF5_FILE_FILTER } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -114,10 +114,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                 canSelectFiles: true,
                 canSelectFolders: false,
                 canSelectMany: false,
-                filters: {
-                    'HDF5 Files': ['h5'],
-                    'All Files': ['*']
-                }
+                filters: HDF5_FILE_FILTER
             });
             
             if (fileUri) {

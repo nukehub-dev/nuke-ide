@@ -35,10 +35,11 @@ import { PlotlyFigure } from '../../../../../common/base-visualizer-protocol';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { PlotlyUtils } from '../../../../plotly/plotly-utils';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { WIDGET_IDS } from '../widget-ids';
 
 @injectable()
 export class OpenMCPlotWidget extends ReactWidget {
-    static readonly ID = 'openmc-plot-widget';
+    static readonly ID = WIDGET_IDS.OPENMC_PLOT;
     static readonly LABEL = 'OpenMC Plot';
 
     private data: OpenMCSpectrumData | OpenMCSpatialPlotData | null = null;

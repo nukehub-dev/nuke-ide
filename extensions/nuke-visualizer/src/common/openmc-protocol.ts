@@ -36,6 +36,16 @@ export const OPENMC_REQUIREMENTS: PackageDependency[] = [
     { name: 'numpy', required: true }
 ];
 
+/** Common file filter constants for OpenMC file dialogs */
+export const HDF5_FILE_FILTER = { 'HDF5 Files': ['h5'], 'All Files': ['*'] };
+export const GEOMETRY_FILE_FILTER = {
+    'Geometry Files': ['h5m', 'xml'],
+    'DAGMC Files': ['h5m'],
+    'OpenMC Geometry': ['xml'],
+    'All Files': ['*']
+};
+export const XML_FILE_FILTER = { 'XML Files': ['xml'], 'All Files': ['*'] };
+
 // === OpenMC Integration Types ===
 
 /** OpenMC filter metadata */

@@ -346,7 +346,7 @@ export class OpenMCService {
             }
             
             // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
                 label,
                 deterministicId,
@@ -427,7 +427,7 @@ export class OpenMCService {
             const uniqueSuffix = `source:${Date.now()}`;
             
             // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 sourceUri,
                 'OpenMC Source Distribution',
                 uniqueSuffix,
@@ -478,7 +478,7 @@ export class OpenMCService {
             label += ' on Geometry';
             
             // Create widget immediately with loading state - use geometry as the main file
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 geometryUri,  // Use geometry as main file for the widget
                 label,
                 uniqueSuffix,
@@ -554,7 +554,7 @@ export class OpenMCService {
             }
             label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
 
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
                 label,
                 uniqueSuffix,
@@ -622,18 +622,22 @@ export class OpenMCService {
      * Returns the selected options or undefined if cancelled.
      */
     async promptOverlayOptions(
-        geometryUri: URI
+        geometryUri: URI,
+        allowSlice: boolean = true
     ): Promise<{ mode: 'slice' | 'full'; options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>; sliceOptions?: OpenMCSliceOptions } | undefined> {
         // 1. Mode selection
-        const modeChoice = await this.quickInput.showQuickPick([
-            { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
-            { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
-        ], {
-            title: 'Visualization Mode',
-            placeholder: 'Choose visualization mode'
-        });
-        if (!modeChoice) return undefined;
-        const mode = modeChoice.value as 'slice' | 'full';
+        let mode: 'slice' | 'full' = 'full';
+        if (allowSlice) {
+            const modeChoice = await this.quickInput.showQuickPick([
+                { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
+                { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
+            ], {
+                title: 'Visualization Mode',
+                placeholder: 'Choose visualization mode'
+            });
+            if (!modeChoice) return undefined;
+            mode = modeChoice.value as 'slice' | 'full';
+        }
 
         // 2. Slice mode
         if (mode === 'slice') {
@@ -674,10 +678,10 @@ export class OpenMCService {
             }
 
             const resChoice = await this.quickInput.showQuickPick([
-                { value: '50', label: 'Low (50x50)', description: 'Fast, lower quality' },
-                { value: '100', label: 'Medium (100x100)', description: 'Balanced' },
-                { value: '200', label: 'High (200x200)', description: 'Good quality' },
-                { value: '400', label: 'Ultra (400x400)', description: 'Best quality, slower' }
+                { value: '100', label: 'Low (100x100)', description: 'Fast, lower quality' },
+                { value: '200', label: 'Medium (200x200)', description: 'Balanced' },
+                { value: '400', label: 'High (400x400)', description: 'Good quality' },
+                { value: '800', label: 'Ultra (800x800)', description: 'Best quality, slower' }
             ], {
                 title: 'Slice Resolution',
                 placeholder: 'Select plane resolution'
@@ -761,7 +765,7 @@ export class OpenMCService {
             }
             label += ' + Source';
 
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 geometryUri,
                 label,
                 uniqueSuffix,
@@ -953,80 +957,7 @@ export class OpenMCService {
         return null;
     }
 
-    /**
-     * Create and configure a visualizer widget.
-     * Can be called with loading state first, then server URL set later.
-     */
-    private async createVisualizerWidget(
-        fileUri: URI,
-        label: string,
-        widgetId?: string,
-        serverInfo?: { port: number; url: string },
-        loadingMessage?: string
-    ): Promise<VisualizerWidget> {
-        // Use provided widgetId or create default one
-        const finalWidgetId = widgetId || `${VisualizerWidget.ID}:${fileUri.path.toString()}`;
-        
-        // Create widget with unique ID - always create new for different visualizations
-        const widget = await this.widgetManager.getOrCreateWidget<VisualizerWidget>(
-            VisualizerWidget.ID, 
-            { uri: fileUri.toString(), id: finalWidgetId }
-        );
-        
-        // Set the actual widget ID (before setUri which might overwrite it)
-        widget.id = finalWidgetId;
-        
-        // Set the file URI and label
-        widget.setUri(fileUri);
-        
-        // Restore the ID since setUri overwrites it
-        widget.id = finalWidgetId;
-        
-        widget.title.label = label;
-        widget.title.caption = label;
-        
-        // If loading message provided and no server URL yet, show loading state
-        if (loadingMessage && !serverInfo) {
-            (widget as any).statusMessage = loadingMessage;
-            widget.update();
-        }
-        
-        // Set server URL if provided (marks end of loading)
-        if (serverInfo) {
-            widget.setServerUrl(serverInfo.url, serverInfo.port);
-        }
-        
-        // Add widget to main area and activate it
-        await this.shell.addWidget(widget, { area: 'main' });
-        await this.shell.activateWidget(widget.id);
-        
-        return widget;
-    }
-    
-    /**
-     * Create a visualizer widget in loading state.
-     * Returns the widget and a function to complete loading once server is ready.
-     */
-    private async createVisualizerWidgetLoading(
-        fileUri: URI,
-        label: string,
-        widgetId: string,
-        loadingMessage: string
-    ): Promise<{ widget: VisualizerWidget; completeLoading: (port: number, url: string) => void }> {
-        const widget = await this.createVisualizerWidget(
-            fileUri,
-            label,
-            widgetId,
-            undefined,  // no server info yet (loading state)
-            loadingMessage
-        );
-        
-        const completeLoading = (port: number, url: string) => {
-            widget.setServerUrl(url, port);
-        };
-        
-        return { widget, completeLoading };
-    }
+    // Widget creation delegated to OpenMCWidgetFactory
 
     /**
      * Get filter description for display.
@@ -1304,7 +1235,7 @@ export class OpenMCService {
                 : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
             
             // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 fileUri,
                 label,
                 uniqueSuffix,
@@ -1435,7 +1366,7 @@ export class OpenMCService {
             const uniqueSuffix = `statepoint-source:${Date.now()}`;
             
             // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.createVisualizerWidgetLoading(
+            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
                 'OpenMC Source (from Statepoint)',
                 uniqueSuffix,

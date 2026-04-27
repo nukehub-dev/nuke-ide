@@ -43,7 +43,13 @@ export class OpenMCFileDiscovery {
     @inject(LabelProvider)
     protected readonly labelProvider: LabelProvider;
 
-    async getStatepointFiles(): Promise<QuickPickValue<string>[]> {
+    /**
+     * Generic file discovery method that recursively searches workspace for files matching criteria.
+     */
+    private async discoverFiles(
+        matcher: (name: string) => boolean,
+        maxFiles: number = 20
+    ): Promise<QuickPickValue<string>[]> {
         const workspace = this.workspaceService.workspace;
         if (!workspace) {
             return [];
@@ -54,19 +60,23 @@ export class OpenMCFileDiscovery {
         try {
             const rootUri = workspace.resource;
             
-            const collectStatepointFiles = async (uri: URI): Promise<void> => {
+            const collectFiles = async (uri: URI): Promise<void> => {
+                if (files.length >= maxFiles) return;
+                
                 try {
                     const dirStat = await this.fileService.resolve(uri);
                     if (dirStat.children) {
                         for (const child of dirStat.children) {
-                            if (child.isFile && child.name.startsWith('statepoint') && child.name.endsWith('.h5')) {
+                            if (child.isFile && matcher(child.name)) {
                                 files.push({
                                     value: child.resource.toString(),
                                     label: child.name,
                                     description: this.labelProvider.getLongName(child.resource)
                                 });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
-                                await collectStatepointFiles(child.resource);
+                                if (files.length >= maxFiles) return;
+                            } else if (child.isDirectory && !child.name.startsWith('.')) {
+                                await collectFiles(child.resource);
+                                if (files.length >= maxFiles) return;
                             }
                         }
                     }
@@ -75,52 +85,22 @@ export class OpenMCFileDiscovery {
                 }
             };
 
-            await collectStatepointFiles(rootUri);
+            await collectFiles(rootUri);
         } catch (e) {
-            console.error('[OpenMC] Failed to search for statepoint files:', e);
+            console.error('[OpenMC] Failed to search for files:', e);
         }
 
         return files;
     }
 
+    async getStatepointFiles(): Promise<QuickPickValue<string>[]> {
+        return this.discoverFiles(
+            name => name.startsWith('statepoint') && name.endsWith('.h5')
+        );
+    }
+
     async getSourceFiles(): Promise<QuickPickValue<string>[]> {
-        const workspace = this.workspaceService.workspace;
-        if (!workspace) {
-            return [];
-        }
-
-        const files: QuickPickValue<string>[] = [];
-        
-        try {
-            const rootUri = workspace.resource;
-            
-            const collectSourceFiles = async (uri: URI): Promise<void> => {
-                try {
-                    const dirStat = await this.fileService.resolve(uri);
-                    if (dirStat.children) {
-                        for (const child of dirStat.children) {
-                            if (child.isFile && child.name === 'source.h5') {
-                                files.push({
-                                    value: child.resource.toString(),
-                                    label: child.name,
-                                    description: this.labelProvider.getLongName(child.resource)
-                                });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
-                                await collectSourceFiles(child.resource);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore errors for individual directories
-                }
-            };
-
-            await collectSourceFiles(rootUri);
-        } catch (e) {
-            console.error('[OpenMC] Failed to search for source files:', e);
-        }
-
-        return files;
+        return this.discoverFiles(name => name === 'source.h5');
     }
 
     async getGeometryFiles(): Promise<QuickPickValue<string>[]> {
@@ -136,25 +116,27 @@ export class OpenMCFileDiscovery {
             const rootUri = workspace.resource;
             
             const collectGeometryFiles = async (uri: URI): Promise<void> => {
+                if (dagmcFiles.length >= 20 && geometryXmlFiles.length >= 20) return;
+                
                 try {
                     const dirStat = await this.fileService.resolve(uri);
                     if (dirStat.children) {
                         for (const child of dirStat.children) {
                             if (child.isFile) {
-                                if (child.name.endsWith('.h5m')) {
+                                if (child.name.endsWith('.h5m') && dagmcFiles.length < 20) {
                                     dagmcFiles.push({
                                         value: child.resource.toString(),
                                         label: child.name,
                                         description: this.labelProvider.getLongName(child.resource)
                                     });
-                                } else if (child.name === 'geometry.xml') {
+                                } else if (child.name === 'geometry.xml' && geometryXmlFiles.length < 20) {
                                     geometryXmlFiles.push({
                                         value: child.resource.toString(),
                                         label: child.name,
                                         description: this.labelProvider.getLongName(child.resource)
                                     });
                                 }
-                            } else if (child.isDirectory && !child.name.startsWith('.') && (dagmcFiles.length < 20 || geometryXmlFiles.length < 20)) {
+                            } else if (child.isDirectory && !child.name.startsWith('.')) {
                                 await collectGeometryFiles(child.resource);
                             }
                         }
@@ -187,44 +169,9 @@ export class OpenMCFileDiscovery {
     }
 
     async getDepletionFiles(): Promise<QuickPickValue<string>[]> {
-        const workspace = this.workspaceService.workspace;
-        if (!workspace) {
-            return [];
-        }
-
-        const files: QuickPickValue<string>[] = [];
-        
-        try {
-            const rootUri = workspace.resource;
-            
-            const collectH5Files = async (uri: URI): Promise<void> => {
-                try {
-                    const dirStat = await this.fileService.resolve(uri);
-                    if (dirStat.children) {
-                        for (const child of dirStat.children) {
-                            if (child.isFile && child.name.includes('depletion') && child.name.endsWith('.h5')) {
-                                files.push({
-                                    value: child.resource.toString(),
-                                    label: child.name,
-                                    description: this.labelProvider.getLongName(child.resource)
-                                });
-                            } else if (child.isDirectory && !child.name.startsWith('.') && files.length < 20) {
-                                // Recurse into subdirectories (limit to prevent too many requests)
-                                await collectH5Files(child.resource);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore errors for individual directories
-                }
-            };
-
-            await collectH5Files(rootUri);
-        } catch (e) {
-            console.error('[OpenMC] Failed to search for depletion files:', e);
-        }
-
-        return files;
+        return this.discoverFiles(
+            name => name.includes('depletion') && name.endsWith('.h5')
+        );
     }
 
     async autoDetectGeometry(directory: URI): Promise<URI | undefined> {

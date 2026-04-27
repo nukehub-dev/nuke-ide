@@ -34,14 +34,14 @@ import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService, TallyVisualizationOptions } from '../openmc-service';
 import { OpenMCTallyTreeWidget, TallySelection } from '../widgets/statepoint/openmc-tally-tree';
-import { OpenMCPlotWidget } from '../widgets/plotting/openmc-plot-widget';
-import { OpenMCHeatmapWidget } from '../widgets/plotting/openmc-heatmap-widget';
 import { OpenMCStatepointViewerWidget, StatepointTallySelection } from '../widgets/statepoint/statepoint-viewer';
 import { PlotlyService } from '../../../plotly/plotly-service';
 import { PlotlyUtils } from '../../../plotly/plotly-utils';
 import { PlotlyFigure } from '../../../../common/base-visualizer-protocol';
 import { OpenMCFileDiscovery } from './openmc-file-discovery';
+import { HDF5_FILE_FILTER } from '../../../../common/openmc-protocol';
 import { OpenMCOverlayContribution } from './openmc-overlay-contribution';
+import { OpenMCWidgetFactory } from '../services/openmc-widget-factory';
 
 @injectable()
 export class OpenMCStatepointContribution {
@@ -81,6 +81,9 @@ export class OpenMCStatepointContribution {
     @inject(OpenMCOverlayContribution)
     protected readonly overlay: OpenMCOverlayContribution;
 
+    @inject(OpenMCWidgetFactory)
+    protected readonly widgetFactory: OpenMCWidgetFactory;
+
     private tallyTreeWidget: OpenMCTallyTreeWidget | undefined;
     private statepointViewerWidget: OpenMCStatepointViewerWidget | undefined;
 
@@ -95,20 +98,6 @@ export class OpenMCStatepointContribution {
                 });
             }
         });
-    }
-
-    private async getPlotWidget(tallyId: number, type: string): Promise<OpenMCPlotWidget> {
-        const widgetId = `${OpenMCPlotWidget.ID}:${tallyId}:${type}`;
-        return this.widgetManager.getOrCreateWidget<OpenMCPlotWidget>(OpenMCPlotWidget.ID, {
-            id: widgetId
-        } as any);
-    }
-
-    private async getHeatmapWidget(tallyId: number, score?: string): Promise<OpenMCHeatmapWidget> {
-        const widgetId = `${OpenMCHeatmapWidget.ID}:${tallyId}:${score || 'default'}`;
-        return this.widgetManager.getOrCreateWidget<OpenMCHeatmapWidget>(OpenMCHeatmapWidget.ID, {
-            id: widgetId
-        } as any);
     }
 
     async loadStatepointCommand(): Promise<void> {
@@ -138,10 +127,7 @@ export class OpenMCStatepointContribution {
                     canSelectFiles: true,
                     canSelectFolders: false,
                     canSelectMany: false,
-                    filters: {
-                        'HDF5 Files': ['h5'],
-                        'All Files': ['*']
-                    }
+                    filters: HDF5_FILE_FILTER
                 });
                 
                 if (fileUri) {
@@ -404,7 +390,7 @@ export class OpenMCStatepointContribution {
                     scoreIdx,
                     nuclideIdx
                 );
-                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum');
+                const plotWidget = await this.widgetFactory.getPlotWidget(selection.tallyId, 'spectrum');
                 plotWidget.setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
                 if (!plotWidget.isAttached) {
                     this.shell.addWidget(plotWidget, { area: 'main' });
@@ -432,7 +418,7 @@ export class OpenMCStatepointContribution {
                     scoreIdx,
                     nuclideIdx
                 );
-                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial');
+                const plotWidget = await this.widgetFactory.getPlotWidget(selection.tallyId, 'spatial');
                 plotWidget.setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
                 if (!plotWidget.isAttached) {
                     this.shell.addWidget(plotWidget, { area: 'main' });
@@ -470,7 +456,7 @@ export class OpenMCStatepointContribution {
                     return;
                 }
                 
-                const heatmapWidget = await this.getHeatmapWidget(selection.tallyId, selection.score);
+                const heatmapWidget = await this.widgetFactory.getHeatmapWidget(selection.tallyId, selection.score);
                 heatmapWidget.setData(
                     data,
                     currentStatepointUri,
@@ -496,7 +482,7 @@ export class OpenMCStatepointContribution {
                     },
                     title: `Tally ${selection.tallyId} All Scores Spectrum`
                 };
-                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-multi');
+                const plotWidget = await this.widgetFactory.getPlotWidget(selection.tallyId, 'spectrum-multi');
                 plotWidget.setFigure(figure);
                 if (!plotWidget.isAttached) {
                     this.shell.addWidget(plotWidget, { area: 'main' });
@@ -513,7 +499,7 @@ export class OpenMCStatepointContribution {
                     },
                     title: `Tally ${selection.tallyId} All Scores Spatial Plot`
                 };
-                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spatial-multi');
+                const plotWidget = await this.widgetFactory.getPlotWidget(selection.tallyId, 'spatial-multi');
                 plotWidget.setFigure(figure);
                 if (!plotWidget.isAttached) {
                     this.shell.addWidget(plotWidget, { area: 'main' });
@@ -537,7 +523,7 @@ export class OpenMCStatepointContribution {
                     },
                     title: `Tally ${selection.tallyId} All Nuclides - ${scoreName}`
                 };
-                const plotWidget = await this.getPlotWidget(selection.tallyId, 'spectrum-nuclides');
+                const plotWidget = await this.widgetFactory.getPlotWidget(selection.tallyId, 'spectrum-nuclides');
                 plotWidget.setFigure(figure);
                 if (!plotWidget.isAttached) {
                     this.shell.addWidget(plotWidget, { area: 'main' });

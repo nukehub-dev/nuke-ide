@@ -140,79 +140,18 @@ export class OpenMCOverlayContribution {
 
         if (!geometryUri) return;
 
-        // 3. Ask about graveyard filtering
-        const isH5m = geometryUri.path.toString().endsWith('.h5m');
-        let filterGraveyard = false;
-        if (isH5m) {
-            const filterChoice = await this.quickInput.showQuickPick([
-                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
-            ], {
-                title: 'Graveyard Surface Filtering',
-                placeholder: 'Select visualization mode'
-            });
-            if (!filterChoice) return;
-            filterGraveyard = filterChoice.value === 'filter';
-        }
+        // 3. Use shared prompt for overlay options
+        const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
+        if (!overlayOptions) return;
 
-        // 4. Ask about mode (slice vs full)
-        const modeChoice = await this.quickInput.showQuickPick([
-            { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
-            { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
-        ], {
-            title: 'Visualization Mode',
-            placeholder: 'Choose visualization mode'
-        });
-        
-        if (!modeChoice) return;
-        const mode = modeChoice.value as 'slice' | 'full';
-
-        // 5. Ask pixelated vs smooth (for both slice and full 3D)
-        const pixelChoice = await this.quickInput.showQuickPick([
-            { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-            { value: 'pixelated', label: '$(symbol-structure) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
-        ], {
-            title: 'Rendering Style',
-            placeholder: 'Select rendering style'
-        });
-        if (!pixelChoice) return;
-
-        // 6. If slice mode, ask for slice-specific options
-        let sliceOptions: OpenMCSliceOptions | undefined;
-        if (mode === 'slice') {
-            // Ask plane
-            const planeChoice = await this.quickInput.showQuickPick([
-                { value: 'x', label: 'X Plane', description: 'YZ cross-section' },
-                { value: 'y', label: 'Y Plane', description: 'XZ cross-section' },
-                { value: 'z', label: 'Z Plane', description: 'XY cross-section' }
-            ], {
-                title: 'Slice Plane',
-                placeholder: 'Select slice plane orientation'
-            });
-            if (!planeChoice) return;
-            
-            // Ask resolution
-            const resChoice = await this.quickInput.showQuickPick([
-                { value: '100', label: 'Low (100x100)', description: 'Fast, lower quality' },
-                { value: '200', label: 'Medium (200x200)', description: 'Balanced' },
-                { value: '400', label: 'High (400x400)', description: 'Good quality' },
-                { value: '800', label: 'Ultra (800x800)', description: 'Best quality, slower' }
-            ], {
-                title: 'Slice Resolution',
-                placeholder: 'Select plane resolution'
-            });
-            if (!resChoice) return;
-
-            sliceOptions = {
-                plane: planeChoice.value as 'x' | 'y' | 'z',
-                resolution: parseInt(resChoice.value),
-                pixelated: pixelChoice.value === 'pixelated',
-                showGeometry: true,
-                filterGraveyard: filterGraveyard
-            };
-        }
-
-        await this.showTallySelectorForOverlay(geometryUri, statepointUri, mode, sliceOptions, pixelChoice?.value === 'pixelated', filterGraveyard);
+        await this.showTallySelectorForOverlay(
+            geometryUri,
+            statepointUri,
+            overlayOptions.mode,
+            overlayOptions.sliceOptions,
+            overlayOptions.options.pixelated,
+            overlayOptions.options.filterGraveyard
+        );
     }
 
     async showTallySelectorForOverlay(
@@ -323,7 +262,24 @@ export class OpenMCOverlayContribution {
 
         if (!geometryUri) return;
 
-        // Use shared prompt for overlay options
+        // Source overlay bypasses all prompts and uses defaults
+        if (withSource) {
+            const baseOptions: TallyVisualizationOptions = {
+                tallyId: selection.tallyId,
+                score: selection.score,
+                nuclide: selection.nuclide,
+                filterGraveyard: true
+            };
+            try {
+                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
+            } catch (error) {
+                console.error('[OpenMC] Overlay error:', error);
+                this.messageService.error(`Failed to overlay tally with source: ${error}`);
+            }
+            return;
+        }
+
+        // Use shared prompt for overlay options (regular overlay only)
         const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
         if (!overlayOptions) return;
 
@@ -338,11 +294,7 @@ export class OpenMCOverlayContribution {
             if (overlayOptions.mode === 'slice') {
                 await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, baseOptions, overlayOptions.sliceOptions!);
             } else {
-                if (withSource) {
-                    await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
-                } else {
-                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
-                }
+                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
             }
         } catch (error) {
             console.error('[OpenMC] Overlay error:', error);

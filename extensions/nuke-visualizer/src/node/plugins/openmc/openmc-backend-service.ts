@@ -424,10 +424,12 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             const args: string[] = [
                 scriptPath,
-                'openmc.visualize-overlay-source',
-                geometryPath,
+                'openmc.visualize-overlay',
                 statepointPath,
                 tallyId.toString(),
+                '--geometry', geometryPath,
+                '--mode', 'full',
+                '--with-source',
                 '--port', port.toString()
             ];
 
@@ -435,8 +437,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 args.push('--score', score);
             }
 
-            if (!filterGraveyard) {
-                args.push('--no-graveyard-filter');
+            if (filterGraveyard) {
+                args.push('--filter-graveyard');
             }
 
             const processOptions: RawProcessOptions = {

@@ -33,8 +33,9 @@ import URI from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../openmc-service';
-import { XSPlotWidget } from '../widgets/plotting/xs-plot-widget';
 import { OpenMCFileDiscovery } from './openmc-file-discovery';
+import { OpenMCWidgetFactory } from '../services/openmc-widget-factory';
+import { HDF5_FILE_FILTER } from '../../../../common/openmc-protocol';
 
 @injectable()
 export class OpenMCPlottingContribution {
@@ -68,14 +69,11 @@ export class OpenMCPlottingContribution {
     @inject(OpenMCFileDiscovery)
     protected readonly fileDiscovery: OpenMCFileDiscovery;
 
-    private async getOrCreateXSPlotWidget(): Promise<XSPlotWidget> {
-        return this.widgetManager.getOrCreateWidget<XSPlotWidget>(XSPlotWidget.ID, {
-            id: XSPlotWidget.ID
-        } as any);
-    }
+    @inject(OpenMCWidgetFactory)
+    protected readonly widgetFactory: OpenMCWidgetFactory;
 
     async plotXSCommand(): Promise<void> {
-        const widget = await this.getOrCreateXSPlotWidget();
+        const widget = await this.widgetFactory.getXSPlotWidget();
         
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, { area: 'main' });
@@ -112,10 +110,7 @@ export class OpenMCPlottingContribution {
                 canSelectFiles: true,
                 canSelectFolders: false,
                 canSelectMany: false,
-                filters: {
-                    'HDF5 Files': ['h5'],
-                    'All Files': ['*']
-                }
+                filters: HDF5_FILE_FILTER
             });
             
             if (fileUri) {

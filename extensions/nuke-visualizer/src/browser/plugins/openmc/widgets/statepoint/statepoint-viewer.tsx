@@ -38,7 +38,9 @@ import { OpenMCService } from '../../openmc-service';
 import { 
     OpenMCStatepointFullInfo, 
     OpenMCTallyInfo, 
-    OpenMCKGenerationData
+    OpenMCKGenerationData,
+    HDF5_FILE_FILTER,
+    GEOMETRY_FILE_FILTER,
 } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
@@ -215,10 +217,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 canSelectFiles: true,
                 canSelectFolders: false,
                 canSelectMany: false,
-                filters: {
-                    'HDF5 Files': ['h5'],
-                    'All Files': ['*']
-                }
+                filters: HDF5_FILE_FILTER
             });
             
             if (fileUri) {
@@ -241,12 +240,7 @@ const handlers = {
                                 canSelectFiles: true,
                                 canSelectFolders: false,
                                 canSelectMany: false,
-                                filters: {
-                                    'Geometry Files': ['h5m', 'xml'],
-                                    'DAGMC Files': ['h5m'],
-                                    'OpenMC Geometry': ['xml'],
-                                    'All Files': ['*']
-                                }
+                                filters: GEOMETRY_FILE_FILTER
                             });
                             
                             if (fileUri) {
@@ -281,12 +275,7 @@ const handlers = {
                                 canSelectFiles: true,
                                 canSelectFolders: false,
                                 canSelectMany: false,
-                                filters: {
-                                    'Geometry Files': ['h5m', 'xml'],
-                                    'DAGMC Files': ['h5m'],
-                                    'OpenMC Geometry': ['xml'],
-                                    'All Files': ['*']
-                                }
+                                filters: GEOMETRY_FILE_FILTER
                             });
                             
                             if (fileUri) {
@@ -296,15 +285,12 @@ const handlers = {
                                     return;
                                 }
                                 
-                                // Use shared prompt for overlay options (source only supports full 3D)
-                                const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
-                                if (!overlayOptions) return;
-
+                                // Source overlay uses defaults directly, no prompts needed
                                 const baseOptions: any = {
-                                    ...overlayOptions.options,
                                     tallyId: selection.tallyId,
                                     score: selection.score || 'total',
-                                    nuclide: selection.nuclide || 'total'
+                                    nuclide: selection.nuclide || 'total',
+                                    filterGraveyard: true
                                 };
 
                                 await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
