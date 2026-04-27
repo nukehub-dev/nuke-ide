@@ -275,7 +275,7 @@ def create_app(file_path=None, port=None, theme='dark'):
     # UI setup
     with VAppLayout(server) as layout:
         # Custom CSS for better UI aesthetics
-        html.Style(GLOBAL_STYLES)
+        html.Component(GLOBAL_STYLES, **{"is": "style"})
         
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),

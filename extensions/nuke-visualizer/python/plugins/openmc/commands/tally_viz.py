@@ -349,7 +349,7 @@ def cmd_visualize_mesh(args):
         # UI
         with VAppLayout(server) as layout:
             from trame.widgets import html
-            html.Style(GLOBAL_STYLES)
+            html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True), app=True, width=300, clipped=True,
                 color="#1e1e1e", dark=True
@@ -994,7 +994,7 @@ def cmd_visualize_overlay(args):
         # UI
         with VAppLayout(server) as layout:
             from trame.widgets import html
-            html.Style(GLOBAL_STYLES)
+            html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True), app=True, width=320, clipped=True,
                 color="#1e1e1e", dark=True
@@ -1280,7 +1280,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
         
         with VAppLayout(server) as layout:
             from trame.widgets import html
-            html.Style(GLOBAL_STYLES)
+            html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True), app=True, width=320, clipped=True,
                 color="#1e1e1e", dark=True
@@ -1310,7 +1310,8 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                     vuetify.VSelect(
                         v_model=("color_by", state.color_by),
                         items=("available_arrays",),
-                        label="Color By", dense=True, outlined=True, classes="mb-4"
+                        label="Color By", dense=True, outlined=True, classes="mb-4",
+                        dark=("sidebar_dark", True),
                     )
                     
                     UIComponents.color_map_selector_short(vuetify)

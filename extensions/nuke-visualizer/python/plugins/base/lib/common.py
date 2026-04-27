@@ -86,34 +86,27 @@ GLOBAL_STYLES = """
         --nuke-scrollbar-thumb: rgba(255, 255, 255, 0.18);
         --nuke-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
         --nuke-scrollbar-track: transparent;
+        --nuke-dropdown-bg: #2a2a3a;
+        --nuke-dropdown-color: #ffffff;
+        --nuke-dropdown-active: rgba(255, 255, 255, 0.12);
     }
     .v-application.theme--light {
-        --nuke-scrollbar-thumb: rgba(0, 0, 0, 0.22);
+        --nuke-scrollbar-thumb: rgba(90, 90, 90, 0.25);
         --nuke-scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
+        --nuke-dropdown-bg: #ffffff;
+        --nuke-dropdown-color: rgba(0, 0, 0, 0.87);
+        --nuke-dropdown-active: rgba(0, 0, 0, 0.08);
     }
 
-    /* Global scrollbar for the entire app */
+    /* Prevent page-level scrollbar; app fills viewport and internal containers scroll */
     html, body {
-        scrollbar-width: thin;
-        scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
+        overflow: hidden;
     }
     html::-webkit-scrollbar,
     body::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-    }
-    html::-webkit-scrollbar-track,
-    body::-webkit-scrollbar-track {
-        background: var(--nuke-scrollbar-track);
-    }
-    html::-webkit-scrollbar-thumb,
-    body::-webkit-scrollbar-thumb {
-        background: var(--nuke-scrollbar-thumb);
-        border-radius: 3px;
-    }
-    html::-webkit-scrollbar-thumb:hover,
-    body::-webkit-scrollbar-thumb:hover {
-        background: var(--nuke-scrollbar-thumb-hover);
+        display: none;
+        width: 0;
+        height: 0;
     }
 
     /* Hide scrollbar on main canvas / VTK view area */
@@ -133,21 +126,21 @@ GLOBAL_STYLES = """
         overflow: hidden !important;
     }
 
-    /* Very thin scrollbar on sidebar (navigation drawer) */
-    .v-navigation-drawer::-webkit-scrollbar {
+    /* Very thin scrollbar on sidebar (navigation drawer content) */
+    .v-navigation-drawer__content::-webkit-scrollbar {
         width: 2px !important;
     }
-    .v-navigation-drawer::-webkit-scrollbar-track {
+    .v-navigation-drawer__content::-webkit-scrollbar-track {
         background: var(--nuke-scrollbar-track);
     }
-    .v-navigation-drawer::-webkit-scrollbar-thumb {
+    .v-navigation-drawer__content::-webkit-scrollbar-thumb {
         background: var(--nuke-scrollbar-thumb);
         border-radius: 1px;
     }
-    .v-navigation-drawer::-webkit-scrollbar-thumb:hover {
+    .v-navigation-drawer__content::-webkit-scrollbar-thumb:hover {
         background: var(--nuke-scrollbar-thumb-hover);
     }
-    .v-navigation-drawer {
+    .v-navigation-drawer__content {
         scrollbar-width: thin;
         scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
     }
@@ -170,14 +163,30 @@ GLOBAL_STYLES = """
     .v-menu__content::-webkit-scrollbar-thumb:hover {
         background: var(--nuke-scrollbar-thumb-hover);
     }
+    .v-autocomplete__content,
+    .v-menu__content {
+        scrollbar-width: thin;
+        scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
+    }
 
-    /* Dropdown menu styling - let Vuetify theme handle background,
-       only add shadow and subtle border */
+    /* Dropdown menu styling - Vuetify theme doesn't propagate to portaled menus */
     .v-autocomplete__content.v-menu__content,
     .v-menu__content.menuable__content__active {
         border-radius: 8px !important;
         box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
+        background-color: var(--nuke-dropdown-bg) !important;
+        color: var(--nuke-dropdown-color) !important;
+    }
+    .v-menu__content .v-list-item,
+    .v-autocomplete__content .v-list-item {
+        color: var(--nuke-dropdown-color) !important;
+    }
+    .v-menu__content .v-list-item--active,
+    .v-autocomplete__content .v-list-item--active,
+    .v-menu__content .v-list-item:hover:not(.v-list-item--disabled),
+    .v-autocomplete__content .v-list-item:hover:not(.v-list-item--disabled) {
+        background-color: var(--nuke-dropdown-active) !important;
     }
 
     /* List item improvements */
@@ -497,7 +506,8 @@ class UIComponents:
             'label': "Representation",
             'dense': True,
             'outlined': True,
-            'classes': "mb-4"
+            'classes': "mb-4",
+            'dark': ("sidebar_dark", True),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)
@@ -511,7 +521,8 @@ class UIComponents:
             'label': "Color By",
             'dense': True,
             'outlined': True,
-            'classes': "mb-4"
+            'classes': "mb-4",
+            'dark': ("sidebar_dark", True),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)
@@ -526,7 +537,8 @@ class UIComponents:
             'label': "Color Map",
             'dense': True,
             'outlined': True,
-            'classes': "mb-2"
+            'classes': "mb-2",
+            'dark': ("sidebar_dark", True),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)

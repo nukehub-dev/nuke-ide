@@ -483,7 +483,7 @@ def visualize_dagmc(h5m_file: str, port: int = None, theme: str = 'dark',
 
     # UI
     with VAppLayout(server) as layout:
-        html.Style(GLOBAL_STYLES + DAGMC_STYLES)
+        html.Component(GLOBAL_STYLES + DAGMC_STYLES, **{"is": "style"})
 
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
@@ -528,6 +528,7 @@ def visualize_dagmc(h5m_file: str, port: int = None, theme: str = 'dark',
                     clearable=True,
                     attach=True,
                     hide_selected=True,
+                    dark=("sidebar_dark", True),
                     auto_select_first=False,
                     prepend_inner_icon="mdi-magnify",
                     classes="mb-2"
@@ -585,6 +586,7 @@ def visualize_dagmc(h5m_file: str, port: int = None, theme: str = 'dark',
                                 clearable=True,
                                 attach=True,
                                 hide_selected=True,
+                                dark=("sidebar_dark", True),
                                 auto_select_first=False,
                                 prepend_inner_icon="mdi-magnify",
                                 classes="mb-2"

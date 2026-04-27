@@ -1575,7 +1575,7 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
         # UI
         with VAppLayout(server) as layout:
             # Custom CSS for better UI aesthetics
-            html.Style(GLOBAL_STYLES + """
+            html.Component(GLOBAL_STYLES + """
                 .nav-guide {
                     background: rgba(0,0,0,0.2);
                     border-radius: 4px;
@@ -1584,7 +1584,7 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                     line-height: 1.4;
                 }
                 .nav-guide b { color: #82B1FF; }
-            """)
+            """, **{"is": "style"})
 
             with vuetify.VNavigationDrawer(v_model=("show_controls", True), app=True, width=300, dark=True):
                 with vuetify.VContainer():
@@ -1652,7 +1652,8 @@ def visualize_geometry(geometry_file: str, port: int = 8090, highlight_cells: Op
                             attach=True,
                             hide_selected=True, auto_select_first=False,
                             prepend_inner_icon="mdi-magnify",
-                            classes="mb-2"
+                            classes="mb-2",
+                            dark=("sidebar_dark", True),
                         ):
                             # Item slot: customize how each cell appears in the dropdown
                             with vuetify.Template(v_slot_item="{ item }"):
