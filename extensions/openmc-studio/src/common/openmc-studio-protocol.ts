@@ -692,6 +692,7 @@ export interface OpenMCStudioBackendService {
             facetingTolerance: number;
             totalTriangles: number;
             volumeCount: number;
+            surfaceCount: number;
         };
         error?: string;
     }>;

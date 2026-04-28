@@ -1735,272 +1735,505 @@
     color: var(--theia-descriptionForeground);
 }
 
-.dagmc-editor .faceting-panel {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 16px;
-    padding: 16px;
+.dagmc-editor .faceting-workflow {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 16px 24px;
     animation: dagmc-slide-up 0.3s ease;
 }
 
-.dagmc-editor .faceting-card {
-    background: var(--theia-input-background);
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 8px;
-    padding: 16px;
+/* Workflow Step */
+.dagmc-editor .workflow-step {
+    display: flex;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.dagmc-editor .workflow-step:last-child {
+    border-bottom: none;
+}
+
+.dagmc-editor .workflow-step.action-step {
+    padding-top: 8px;
+}
+
+.dagmc-editor .workflow-step .step-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--theia-focusBorder);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.dagmc-editor .workflow-step .step-content {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
 }
 
-.dagmc-editor .faceting-card .card-title {
+.dagmc-editor .workflow-step .step-title {
     font-size: 13px;
     font-weight: 600;
     color: var(--theia-foreground);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    letter-spacing: 0.3px;
 }
 
-.dagmc-editor .faceting-card .card-title i {
+/* Step 1: Current Stats Bar */
+.dagmc-editor .current-stats-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.dagmc-editor .stat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--theia-panel-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.dagmc-editor .stat-pill i {
+    font-size: 12px;
     color: var(--theia-focusBorder);
 }
 
-/* Current Parameters */
-.dagmc-editor .faceting-card .params-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+/* Step 2: Tolerance Presets */
+.dagmc-editor .tolerance-presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
-.dagmc-editor .faceting-card .param-item {
+.dagmc-editor .tolerance-preset {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 16px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-input-background);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-width: 72px;
 }
 
-.dagmc-editor .faceting-card .param-label {
-    font-size: 11px;
-    color: var(--theia-descriptionForeground);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+.dagmc-editor .tolerance-preset:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
 }
 
-.dagmc-editor .faceting-card .param-value {
-    font-size: 18px;
-    font-weight: 700;
+.dagmc-editor .tolerance-preset.active {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+    box-shadow: 0 0 0 1px var(--theia-focusBorder);
+}
+
+.dagmc-editor .tolerance-preset .preset-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.dagmc-editor .tolerance-preset.active .preset-label {
     color: var(--theia-focusBorder);
+}
+
+.dagmc-editor .tolerance-preset .preset-value {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
     font-family: var(--theia-code-font-family);
 }
 
-/* Tolerance Slider */
-.dagmc-editor .tolerance-slider-row {
+/* Fine-tune Slider */
+.dagmc-editor .tolerance-fine-tune {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    background: var(--theia-panel-background);
+    border-radius: 8px;
+    border: 1px solid var(--theia-panel-border);
 }
 
-.dagmc-editor .tolerance-slider-row .slider-label {
+.dagmc-editor .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 11px;
+}
+
+.dagmc-editor .slider-header .slider-end-label {
     color: var(--theia-descriptionForeground);
-    min-width: 40px;
-    text-align: center;
+}
+
+.dagmc-editor .slider-header .slider-value {
+    font-weight: 600;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
 }
 
 .dagmc-editor .tolerance-slider {
-    flex: 1;
+    width: 100%;
     -webkit-appearance: none;
     appearance: none;
     height: 6px;
-    background: var(--theia-panel-border);
+    background: var(--theia-input-background);
     border-radius: 3px;
     outline: none;
+    cursor: pointer;
 }
 
 .dagmc-editor .tolerance-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     background: var(--theia-focusBorder);
     border-radius: 50%;
     cursor: pointer;
-    border: 2px solid var(--theia-input-background);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    border: 3px solid var(--theia-input-background);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    transition: transform 0.1s ease;
+}
+
+.dagmc-editor .tolerance-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
 }
 
 .dagmc-editor .tolerance-slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     background: var(--theia-focusBorder);
     border-radius: 50%;
     cursor: pointer;
-    border: 2px solid var(--theia-input-background);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    border: 3px solid var(--theia-input-background);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
-.dagmc-editor .tolerance-input-row {
+.dagmc-editor .slider-scale {
     display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.dagmc-editor .tolerance-input-row label {
-    font-size: 12px;
-    color: var(--theia-foreground);
-    text-wrap: nowrap;
-}
-
-.dagmc-editor .tolerance-number-input {
-    width: 100%;
-    padding: 6px 10px;
-    background: var(--theia-input-background);
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 4px;
-    color: var(--theia-foreground);
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
     font-family: var(--theia-code-font-family);
-    font-size: 13px;
+    padding: 0 2px;
 }
 
-.dagmc-editor .tolerance-number-input:focus {
-    outline: none;
-    border-color: var(--theia-focusBorder);
-}
-
-/* Estimate Card */
-.dagmc-editor .estimate-comparison {
+/* Step 3: Estimate Gauge */
+.dagmc-editor .estimate-gauge {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 16px;
+    background: var(--theia-panel-background);
+    border-radius: 10px;
+    border: 1px solid var(--theia-panel-border);
 }
 
-.dagmc-editor .estimate-bar {
+.dagmc-editor .estimate-gauge.severity-warning {
+    border-color: var(--theia-inputValidation-warningBorder);
+}
+
+.dagmc-editor .estimate-gauge.severity-danger {
+    border-color: var(--theia-inputValidation-errorBorder);
+}
+
+.dagmc-editor .gauge-numbers {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.dagmc-editor .gauge-primary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.dagmc-editor .gauge-big {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+    line-height: 1;
+}
+
+.dagmc-editor .gauge-label {
+    font-size: 14px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dagmc-editor .gauge-delta {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--theia-code-font-family);
 }
 
-.dagmc-editor .estimate-bar .bar-label {
+.dagmc-editor .gauge-delta.down {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.dagmc-editor .gauge-delta.up {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.dagmc-editor .gauge-delta i {
     font-size: 12px;
-    color: var(--theia-descriptionForeground);
-    min-width: 60px;
 }
 
-.dagmc-editor .estimate-bar .bar-track {
-    flex: 1;
-    height: 10px;
+.dagmc-editor .gauge-visual {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dagmc-editor .gauge-track-bg {
+    position: relative;
+    height: 24px;
     background: var(--theia-input-background);
-    border-radius: 5px;
+    border-radius: 4px;
     overflow: hidden;
     border: 1px solid var(--theia-panel-border);
 }
 
-.dagmc-editor .estimate-bar .bar-fill {
-    height: 100%;
-    border-radius: 5px;
-    transition: width 0.4s ease;
+.dagmc-editor .gauge-bar {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    border-radius: 3px;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    min-width: 2px;
 }
 
-.dagmc-editor .estimate-bar .bar-fill.current-fill {
+.dagmc-editor .gauge-bar.current {
+    left: 2px;
+    background: var(--theia-focusBorder);
+    opacity: 0.35;
+    z-index: 1;
+}
+
+.dagmc-editor .gauge-bar.estimated {
+    left: 2px;
+    z-index: 2;
+}
+
+.dagmc-editor .gauge-bar.estimated.down {
+    background: var(--theia-inputValidation-infoBorder);
+    opacity: 0.9;
+}
+
+.dagmc-editor .gauge-bar.estimated.up {
+    background: var(--theia-inputValidation-warningBorder);
+    opacity: 0.9;
+}
+
+.dagmc-editor .gauge-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dagmc-editor .gauge-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dagmc-editor .gauge-legend .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.dagmc-editor .gauge-legend .legend-dot.current {
+    background: var(--theia-focusBorder);
+    opacity: 0.35;
+}
+
+.dagmc-editor .gauge-legend .legend-dot.estimated {
     background: var(--theia-focusBorder);
 }
 
-.dagmc-editor .estimate-bar .bar-fill.estimated-fill {
-    background: var(--theia-statusBarItem-remoteBackground, var(--theia-focusBorder));
-    opacity: 0.8;
-}
-
-.dagmc-editor .estimate-bar .bar-value {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--theia-foreground);
-    min-width: 70px;
-    text-align: right;
-    font-family: var(--theia-code-font-family);
-}
-
-.dagmc-editor .estimate-warning {
+.dagmc-editor .gauge-hint {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
-    background: var(--theia-inputValidation-warningBackground);
-    border: 1px solid var(--theia-inputValidation-warningBorder);
+    padding: 8px 12px;
     border-radius: 6px;
     font-size: 12px;
-    color: var(--theia-inputValidation-warningForeground);
     margin-top: 4px;
 }
 
-.dagmc-editor .estimate-warning i {
-    color: var(--theia-inputValidation-warningBorder);
+.dagmc-editor .gauge-hint.warning {
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-inputValidation-warningForeground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
 }
 
-/* Source CAD */
-.dagmc-editor .source-cad-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    background: var(--theia-inputValidation-infoBackground);
-    border: 1px solid var(--theia-inputValidation-infoBorder);
-    border-radius: 6px;
+.dagmc-editor .gauge-hint.danger {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorForeground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
 }
 
-.dagmc-editor .source-cad-info i {
-    color: var(--theia-inputValidation-infoBorder);
+.dagmc-editor .gauge-hint i {
+    font-size: 14px;
+    flex-shrink: 0;
 }
 
-.dagmc-editor .source-cad-info .source-path {
-    flex: 1;
-    font-size: 12px;
-    color: var(--theia-foreground);
-    word-break: break-all;
-    font-family: var(--theia-code-font-family);
-}
-
-.dagmc-editor .source-cad-search .source-cad-actions {
-    margin-top: 10px;
-}
-
-/* Re-export */
-.dagmc-editor .re-export-header {
+/* Step 4: Source CAD Inline */
+.dagmc-editor .source-cad-inline {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
-.dagmc-editor .re-export-header .disabled-reason {
+.dagmc-editor .cad-file-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.dagmc-editor .cad-file-chip i {
+    color: var(--theia-inputValidation-infoBorder);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.dagmc-editor .cad-file-chip .cad-name {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dagmc-editor .cad-file-chip .cad-path {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-code-font-family);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dagmc-editor .source-cad-missing {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--theia-input-background);
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.dagmc-editor .source-cad-missing i {
+    font-size: 16px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Step 5: Action */
+.dagmc-editor .action-generate {
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dagmc-editor .action-generate:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dagmc-editor .action-hint {
     font-size: 12px;
     color: var(--theia-descriptionForeground);
-    font-style: italic;
+    margin-left: 8px;
 }
 
 .dagmc-editor .refacet-error {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 10px 14px;
     background: var(--theia-inputValidation-errorBackground);
     border: 1px solid var(--theia-inputValidation-errorBorder);
     border-radius: 6px;
     font-size: 12px;
     color: var(--theia-inputValidation-errorForeground);
-    margin-top: 8px;
 }
 
 .dagmc-editor .refacet-error i {
     color: var(--theia-inputValidation-errorBorder);
+    flex-shrink: 0;
 }
 
-/* Responsive adjustments for Faceting tab */
-@media (max-width: 1000px) {
-    .dagmc-editor .faceting-panel {
-        grid-template-columns: 1fr;
+/* Responsive */
+@media (max-width: 640px) {
+    .dagmc-editor .faceting-workflow {
+        padding: 8px;
     }
-    
-    .dagmc-editor .faceting-card .params-grid {
-        grid-template-columns: repeat(2, 1fr);
+
+    .dagmc-editor .workflow-step {
+        gap: 10px;
+    }
+
+    .dagmc-editor .gauge-numbers {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .dagmc-editor .gauge-big {
+        font-size: 24px;
+    }
+
+    .dagmc-editor .current-stats-bar {
+        gap: 6px;
+    }
+
+    .dagmc-editor .stat-pill {
+        padding: 4px 8px;
+        font-size: 11px;
     }
 }

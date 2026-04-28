@@ -179,7 +179,7 @@ export class DAGMCEditorWidget extends ReactWidget {
     private showCreateGroup = false;
 
     // Faceting state
-    private facetingParams: { facetingTolerance: number; totalTriangles: number; volumeCount: number } | null = null;
+    private facetingParams: { facetingTolerance: number; totalTriangles: number; volumeCount: number; surfaceCount: number } | null = null;
     private facetingToleranceInput = 0.001;
     private estimatedTriangles: number | null = null;
     private sourceCadPath = '';
@@ -1182,7 +1182,7 @@ export class DAGMCEditorWidget extends ReactWidget {
     }
 
     /**
-     * Render the faceting tab with tolerance controls and re-export.
+     * Render the faceting tab.
      * @returns Faceting tab React node.
      */
     private renderFacetingTab(): React.ReactNode {
@@ -1192,165 +1192,274 @@ export class DAGMCEditorWidget extends ReactWidget {
         const currentTri = this.facetingParams?.totalTriangles ?? this.modelData.vertices;
         const estimatedTri = this.estimatedTriangles ?? currentTri;
         const canRefacet = !!this.sourceCadPath && !this.isRefaceting;
+        const logVal = Math.log10(this.facetingToleranceInput);
 
         return (
             <div className='faceting-tab dagmc-tab-content'>
-                <div className='dagmc-tab-header'>
-                    <h3><i className='codicon codicon-settings-gear'></i> Faceting Parameters</h3>
-                    <p className='tab-subtitle'>Control mesh density by adjusting the faceting tolerance</p>
+                {/* Header */}
+                <div className='dagmc-tab-header faceting-header'>
+                    <div>
+                        <h3><i className='codicon codicon-settings-gear'></i> Refacet Geometry</h3>
+                        <p className='tab-subtitle'>Regenerate mesh from source CAD with a new faceting tolerance</p>
+                    </div>
                 </div>
 
-                <div className='faceting-panel'>
-                    {/* Current Parameters Card */}
-                    <div className='faceting-card current-params'>
-                        <div className='card-title'><i className='codicon codicon-info'></i> Current Parameters</div>
-                        <div className='params-grid'>
-                            <div className='param-item'>
-                                <span className='param-label'>Faceting Tolerance</span>
-                                <span className='param-value'>{currentTol.toFixed(4)} cm</span>
-                            </div>
-                            <div className='param-item'>
-                                <span className='param-label'>Total Triangles</span>
-                                <span className='param-value'>{this.formatNumberCompact(currentTri)}</span>
-                            </div>
-                            <div className='param-item'>
-                                <span className='param-label'>Volumes</span>
-                                <span className='param-value'>{this.modelData.volumeCount}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Tolerance Adjustment */}
-                    <div className='faceting-card tolerance-control'>
-                        <div className='card-title'><i className='codicon codicon-settings'></i> Adjust Tolerance</div>
-                        <div className='tolerance-slider-row'>
-                            <span className='slider-label'>Coarse</span>
-                            <input
-                                type='range'
-                                className='tolerance-slider'
-                                min={-4}
-                                max={1}
-                                step={0.1}
-                                value={Math.log10(this.facetingToleranceInput)}
-                                onChange={e => this.handleToleranceChange(Math.pow(10, parseFloat(e.target.value)))}
-                            />
-                            <span className='slider-label'>Fine</span>
-                        </div>
-                        <div className='tolerance-input-row'>
-                            <label>Tolerance (cm):</label>
-                            <input
-                                type='number'
-                                className='tolerance-number-input'
-                                value={this.facetingToleranceInput}
-                                min={0.0001}
-                                max={10.0}
-                                step={0.0001}
-                                onChange={e => this.handleToleranceChange(parseFloat(e.target.value))}
-                            />
-                        </div>
-                        <p className='hint'>Smaller tolerance = more triangles = finer mesh</p>
-                    </div>
-
-                    {/* Estimate Card */}
-                    <div className='faceting-card estimate-card'>
-                        <div className='card-title'><i className='codicon codicon-graph'></i> Triangle Estimate</div>
-                        <div className='estimate-comparison'>
-                            <div className='estimate-bar current'>
-                                <span className='bar-label'>Current</span>
-                                <div className='bar-track'>
-                                    <div
-                                        className='bar-fill current-fill'
-                                        style={{ width: `${Math.min(100, (currentTri / Math.max(currentTri, estimatedTri)) * 100)}%` }}
-                                    />
+                <div className='faceting-workflow'>
+                    {/* Step 1: Current State */}
+                    <div className='workflow-step'>
+                        <div className='step-badge'>1</div>
+                        <div className='step-content'>
+                            <div className='step-title'>Current Model</div>
+                            <div className='current-stats-bar'>
+                                <div className='stat-pill'>
+                                    <i className='codicon codicon-file-code'></i>
+                                    <span>{this.modelData.fileName}</span>
                                 </div>
-                                <span className='bar-value'>{this.formatNumberCompact(currentTri)}</span>
-                            </div>
-                            <div className='estimate-bar estimated'>
-                                <span className='bar-label'>Estimated</span>
-                                <div className='bar-track'>
-                                    <div
-                                        className='bar-fill estimated-fill'
-                                        style={{ width: `${Math.min(100, (estimatedTri / Math.max(currentTri, estimatedTri)) * 100)}%` }}
-                                    />
+                                <div className='stat-pill'>
+                                    <i className='codicon codicon-package'></i>
+                                    <span>{this.modelData.volumeCount} vols</span>
                                 </div>
-                                <span className='bar-value'>{this.formatNumberCompact(estimatedTri)}</span>
+                                <div className='stat-pill'>
+                                    <i className='codicon codicon-layers'></i>
+                                    <span>{this.modelData.surfaceCount} surfs</span>
+                                </div>
+                                <div className='stat-pill'>
+                                    <i className='codicon codicon-triangle-up'></i>
+                                    <span>{this.formatNumberCompact(currentTri)} tris</span>
+                                </div>
+                                <div className='stat-pill'>
+                                    <i className='codicon codicon-ruler'></i>
+                                    <span>{currentTol.toFixed(3)} cm tol</span>
+                                </div>
                             </div>
                         </div>
-                        {this.estimatedTriangles !== null && this.estimatedTriangles > currentTri * 5 && (
-                            <div className='estimate-warning'>
-                                <i className='codicon codicon-warning'></i>
-                                Very fine mesh may take a long time to generate and use significant memory.
-                            </div>
-                        )}
                     </div>
 
-                    {/* Source CAD Section */}
-                    <div className='faceting-card source-cad'>
-                        <div className='card-title'><i className='codicon codicon-file-code'></i> Source CAD File</div>
-                        {this.sourceCadPath ? (
-                            <div className='source-cad-info'>
-                                <i className='codicon codicon-check'></i>
-                                <span className='source-path'>{this.sourceCadPath}</span>
-                                <Tooltip content='Remove selected source CAD' position='top'>
+                    {/* Step 2: Tolerance Selection */}
+                    <div className='workflow-step'>
+                        <div className='step-badge'>2</div>
+                        <div className='step-content'>
+                            <div className='step-title'>Choose Faceting Tolerance</div>
+                            {this.renderTolerancePresets()}
+                            <div className='tolerance-fine-tune'>
+                                <div className='slider-header'>
+                                    <span className='slider-end-label'>Fine (more triangles)</span>
+                                    <span className='slider-value'>{this.facetingToleranceInput.toFixed(4)} cm</span>
+                                    <span className='slider-end-label'>Coarse (fewer triangles)</span>
+                                </div>
+                                <input
+                                    type='range'
+                                    className='tolerance-slider'
+                                    min={-4}
+                                    max={1}
+                                    step={0.05}
+                                    value={logVal}
+                                    onChange={e => this.handleToleranceChange(Math.pow(10, parseFloat(e.target.value)))}
+                                />
+                                <div className='slider-scale'>
+                                    <span>0.0001 cm</span>
+                                    <span>10 cm</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Step 3: Impact Preview */}
+                    <div className='workflow-step'>
+                        <div className='step-badge'>3</div>
+                        <div className='step-content'>
+                            <div className='step-title'>Mesh Impact Preview</div>
+                            {this.renderEstimateGauge(currentTri, estimatedTri)}
+                        </div>
+                    </div>
+
+                    {/* Step 4: Source CAD */}
+                    <div className='workflow-step'>
+                        <div className='step-badge'>4</div>
+                        <div className='step-content'>
+                            <div className='step-title'>Source CAD File</div>
+                            {this.sourceCadPath ? (
+                                <div className='source-cad-inline'>
+                                    <div className='cad-file-chip'>
+                                        <i className='codicon codicon-check'></i>
+                                        <span className='cad-name'>{this.sourceCadPath.split('/').pop()}</span>
+                                        <span className='cad-path'>{this.sourceCadPath}</span>
+                                    </div>
                                     <button
                                         className='theia-button secondary small'
                                         onClick={() => { this.sourceCadPath = ''; this.update(); }}
                                     >
-                                        Clear
+                                        <i className='codicon codicon-close'></i> Remove
                                     </button>
-                                </Tooltip>
-                            </div>
-                        ) : (
-                            <div className='source-cad-search'>
-                                <p className='hint'>
-                                    Re-faceting requires the original CAD source file (STEP, IGES, etc.).
-                                </p>
-                                <div className='source-cad-actions'>
-                                    <Tooltip content='Select original STEP/IGES/BREP file' position='top'>
+                                </div>
+                            ) : (
+                                <div className='source-cad-missing'>
+                                    <i className='codicon codicon-file-code'></i>
+                                    <span>No source CAD selected</span>
+                                    <button
+                                        className='theia-button secondary'
+                                        onClick={() => this.browseForSourceCad()}
+                                    >
+                                        <i className='codicon codicon-folder-opened'></i> Browse...
+                                    </button>
+                                    <Tooltip content='Auto-detect in same directory' position='top'>
                                         <button
-                                            className='theia-button secondary'
-                                            onClick={() => this.browseForSourceCad()}
+                                            className='theia-button secondary small'
+                                            onClick={() => this.autoDetectSourceCad()}
                                         >
-                                            <i className='codicon codicon-folder-opened'></i> Browse for CAD File
+                                            <i className='codicon codicon-refresh'></i> Auto-detect
                                         </button>
                                     </Tooltip>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
 
-                    {/* Re-export Action */}
-                    <div className='faceting-card re-export'>
-                        <div className='re-export-header'>
-                            <div>
-                                <Tooltip
-                                    content={canRefacet ? 'Generate new H5M from source CAD' : 'Select a source CAD file first'}
-                                    position='top'
-                                >
-                                    <button
-                                        className='theia-button primary'
-                                        disabled={!canRefacet}
-                                        onClick={() => this.handleRefacet()}
-                                    >
-                                        {this.isRefaceting ? (
-                                            <><i className='codicon codicon-loading codicon-modifier-spin'></i> Re-exporting...</>
-                                        ) : (
-                                            <><i className='codicon codicon-export'></i> Re-export with New Tolerance</>
-                                        )}
-                                    </button>
-                                </Tooltip>
-                                {!this.sourceCadPath && (
-                                    <span className='disabled-reason'>Select a source CAD file to enable re-export</span>
+                    {/* Step 5: Action */}
+                    <div className='workflow-step action-step'>
+                        <div className='step-badge'>5</div>
+                        <div className='step-content'>
+                            <button
+                                className='theia-button primary action-generate'
+                                disabled={!canRefacet}
+                                onClick={() => this.handleRefacet()}
+                            >
+                                {this.isRefaceting ? (
+                                    <>
+                                        <i className='codicon codicon-loading codicon-modifier-spin'></i>
+                                        Generating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className='codicon codicon-export'></i>
+                                        Generate Re-faceted H5M
+                                    </>
                                 )}
-                            </div>
+                            </button>
+                            {!this.sourceCadPath && (
+                                <span className='action-hint'>Select a source CAD file to enable generation</span>
+                            )}
+                            {this.refacetError && (
+                                <div className='refacet-error'>
+                                    <i className='codicon codicon-error'></i> {this.refacetError}
+                                </div>
+                            )}
                         </div>
-                        {this.refacetError && (
-                            <div className='refacet-error'>
-                                <i className='codicon codicon-error'></i> {this.refacetError}
-                            </div>
-                        )}
                     </div>
                 </div>
+            </div>
+        );
+    }
+
+    /**
+     * Render tolerance preset buttons.
+     * @returns Preset buttons React node.
+     */
+    private renderTolerancePresets(): React.ReactNode {
+        const presets = [
+            { label: 'Draft', value: 1.0, desc: 'Fast preview' },
+            { label: 'Standard', value: 0.5, desc: 'Balanced quality' },
+            { label: 'Fine', value: 0.1, desc: 'Production grade' },
+            { label: 'Ultra', value: 0.01, desc: 'High fidelity' },
+        ];
+
+        // Determine active preset by proximity on log scale
+        const logInput = Math.log10(this.facetingToleranceInput);
+        let activeLabel = 'Custom';
+        for (const p of presets) {
+            if (Math.abs(Math.log10(p.value) - logInput) < 0.12) {
+                activeLabel = p.label;
+                break;
+            }
+        }
+
+        return (
+            <div className='tolerance-presets'>
+                {presets.map(p => {
+                    const isActive = activeLabel === p.label;
+                    return (
+                        <Tooltip key={p.label} content={p.desc} position='top'>
+                            <button
+                                className={`tolerance-preset ${isActive ? 'active' : ''}`}
+                                onClick={() => this.handleToleranceChange(p.value)}
+                            >
+                                <span className='preset-label'>{p.label}</span>
+                                <span className='preset-value'>{p.value} cm</span>
+                            </button>
+                        </Tooltip>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    /**
+     * Render the triangle estimate gauge with delta visualization.
+     * @param currentTri - Current triangle count.
+     * @param estimatedTri - Estimated triangle count.
+     * @returns Gauge React node.
+     */
+    private renderEstimateGauge(currentTri: number, estimatedTri: number): React.ReactNode {
+        const delta = estimatedTri - currentTri;
+        const deltaPct = currentTri > 0 ? (delta / currentTri) * 100 : 0;
+        const isReduction = delta < 0;
+        const absDeltaPct = Math.abs(deltaPct);
+
+        let severity: 'good' | 'warning' | 'danger' = 'good';
+        if (absDeltaPct > 300) severity = 'danger';
+        else if (absDeltaPct > 50 && !isReduction) severity = 'warning';
+
+        const maxVal = Math.max(currentTri, estimatedTri) * 1.15 || 1;
+        const currentWidth = Math.max(2, Math.min(100, (currentTri / maxVal) * 100));
+        const estimatedWidth = Math.max(2, Math.min(100, (estimatedTri / maxVal) * 100));
+
+        return (
+            <div className={`estimate-gauge severity-${severity}`}>
+                <div className='gauge-numbers'>
+                    <div className='gauge-primary'>
+                        <span className='gauge-big'>{this.formatNumberCompact(estimatedTri)}</span>
+                        <span className='gauge-label'>triangles</span>
+                    </div>
+                    <div className={`gauge-delta ${isReduction ? 'down' : 'up'}`}>
+                        <i className={`codicon codicon-arrow-${isReduction ? 'down' : 'up'}`}></i>
+                        <span className='delta-abs'>{this.formatNumberCompact(Math.abs(delta))}</span>
+                        <span className='delta-pct'>({absDeltaPct.toFixed(0)}%)</span>
+                    </div>
+                </div>
+
+                <div className='gauge-visual'>
+                    <div className='gauge-track-bg'>
+                        <div
+                            className='gauge-bar current'
+                            style={{ width: `${currentWidth}%` }}
+                        />
+                        <div
+                            className={`gauge-bar estimated ${isReduction ? 'down' : 'up'}`}
+                            style={{ width: `${estimatedWidth}%` }}
+                        />
+                    </div>
+                    <div className='gauge-legend'>
+                        <span className='legend-item'>
+                            <span className='legend-dot current'></span>
+                            Current ({this.formatNumberCompact(currentTri)})
+                        </span>
+                        <span className='legend-item'>
+                            <span className='legend-dot estimated'></span>
+                            New ({this.formatNumberCompact(estimatedTri)})
+                        </span>
+                    </div>
+                </div>
+
+                {severity !== 'good' && (
+                    <div className={`gauge-hint ${severity}`}>
+                        <i className={`codicon codicon-${severity === 'danger' ? 'error' : 'warning'}`}></i>
+                        <span>
+                            {severity === 'danger'
+                                ? 'Very fine mesh — generation may take significant time and memory.'
+                                : 'Increased mesh density — generation time will be longer.'}
+                        </span>
+                    </div>
+                )}
             </div>
         );
     }
@@ -1404,6 +1513,35 @@ export class DAGMCEditorWidget extends ReactWidget {
     /**
      * Load faceting parameters from the current DAGMC file.
      */
+    /**
+     * Compute a bounded triangle-count estimate using the same heuristic
+     * as the Python backend.  Coarsening uses sub-quadratic scaling because
+     * geometric feature sizes prevent extreme reductions.
+     */
+    private computeTriangleEstimate(
+        currentTol: number,
+        currentTri: number,
+        newTol: number,
+        numVolumes: number,
+        numSurfaces: number
+    ): number {
+        const ratio = currentTol / newTol;
+        let scale: number;
+        if (ratio < 1) {
+            // Coarsening (larger tolerance): square-root scaling, cap at 50x reduction
+            scale = Math.max(Math.pow(ratio, 0.5), 0.02);
+        } else {
+            // Refinement (smaller tolerance): 1.5 power, cap at 100x increase
+            scale = Math.min(Math.pow(ratio, 1.5), 100);
+        }
+        let estimated = Math.round(currentTri * scale);
+        const minEstimate = Math.max(numVolumes * 200, numSurfaces * 20, 1000);
+        estimated = Math.max(estimated, minEstimate);
+        const maxEstimate = Math.max(currentTri * 100, 1000000);
+        estimated = Math.min(estimated, maxEstimate);
+        return estimated;
+    }
+
     private async loadFacetingParams(): Promise<void> {
         if (!this.modelData?.filePath) return;
         try {
@@ -1418,8 +1556,12 @@ export class DAGMCEditorWidget extends ReactWidget {
                 const defaultTol = (storedTol < 1.0 && isLargeModel) ? 1.0 : storedTol;
                 this.facetingToleranceInput = defaultTol;
                 // Compute estimate for the defaulted tolerance
-                this.estimatedTriangles = Math.round(
-                    result.data.totalTriangles * Math.pow(storedTol / defaultTol, 2)
+                this.estimatedTriangles = this.computeTriangleEstimate(
+                    storedTol,
+                    result.data.totalTriangles,
+                    defaultTol,
+                    result.data.volumeCount,
+                    result.data.surfaceCount
                 );
                 this.update();
             }
@@ -1432,24 +1574,19 @@ export class DAGMCEditorWidget extends ReactWidget {
      * Handle tolerance input change and update the estimate.
      * @param value - New tolerance value.
      */
-    private async handleToleranceChange(value: number): Promise<void> {
+    private handleToleranceChange(value: number): void {
         if (isNaN(value) || value <= 0) return;
         this.facetingToleranceInput = value;
 
-        if (this.modelData?.filePath) {
-            try {
-                const result = await this.backendService.dagmcGetFacetingParams(this.modelData.filePath);
-                if (result.success && result.data) {
-                    const currentTol = result.data.facetingTolerance;
-                    const currentTri = result.data.totalTriangles;
-                    this.estimatedTriangles = Math.round(currentTri * Math.pow(currentTol / value, 2));
-                }
-            } catch (e) {
-                // Fallback: use cached params
-                const currentTol = this.facetingParams?.facetingTolerance ?? 0.001;
-                const currentTri = this.facetingParams?.totalTriangles ?? this.modelData.vertices;
-                this.estimatedTriangles = Math.round(currentTri * Math.pow(currentTol / value, 2));
-            }
+        if (this.facetingParams) {
+            const { facetingTolerance, totalTriangles, volumeCount, surfaceCount } = this.facetingParams;
+            this.estimatedTriangles = this.computeTriangleEstimate(
+                facetingTolerance,
+                totalTriangles,
+                value,
+                volumeCount,
+                surfaceCount
+            );
         }
         this.update();
     }

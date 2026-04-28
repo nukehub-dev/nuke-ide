@@ -80,6 +80,7 @@ export interface DAGMCFacetingParamsResult {
         facetingTolerance: number;
         totalTriangles: number;
         volumeCount: number;
+        surfaceCount: number;
     };
     error?: string;
 }

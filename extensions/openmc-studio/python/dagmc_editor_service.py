@@ -335,13 +335,15 @@ def get_faceting_params(file_path: str) -> dict:
         model = Model(file_path)
         tolerance = _read_faceting_tolerance(model)
         total_triangles = sum(v.num_triangles for v in model.volumes)
+        num_surfaces = len(model.surfaces)
 
         return {
             'success': True,
             'data': {
                 'facetingTolerance': tolerance,
                 'totalTriangles': int(total_triangles),
-                'volumeCount': len(model.volumes)
+                'volumeCount': len(model.volumes),
+                'surfaceCount': num_surfaces
             }
         }
     except Exception as e:
@@ -352,7 +354,14 @@ def get_faceting_params(file_path: str) -> dict:
 def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
     """Estimate triangle count for a given faceting tolerance.
 
-    Uses the heuristic: triangle count scales roughly as (1/tolerance)^2.
+    Uses a bounded scaling heuristic that accounts for the fact that
+    geometric feature sizes and curvature constraints prevent extreme
+    coarsening or refinement.
+
+    For coarsening (larger tolerance):  N_new ≈ N_old * (tol_old / tol_new)^0.5
+    For refinement (smaller tolerance): N_new ≈ N_old * (tol_old / tol_new)^1.5
+
+    The estimate is clamped to a geometry-aware floor and a reasonable ceiling.
 
     Args:
         file_path: Path to the DAGMC .h5m file.
@@ -368,13 +377,34 @@ def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
 
         current_tol = current['data']['facetingTolerance']
         current_tri = current['data']['totalTriangles']
+        num_volumes = current['data']['volumeCount']
+        num_surfaces = current['data']['surfaceCount']
 
         # Avoid division by zero
         if current_tol <= 0 or new_tolerance <= 0:
             return {'success': False, 'error': 'Tolerance must be positive'}
 
-        # Heuristic: N ∝ 1/tol^2
-        estimated = int(current_tri * (current_tol / new_tolerance) ** 2)
+        ratio = current_tol / new_tolerance
+
+        if ratio < 1:
+            # Coarsening (larger tolerance): sub-quadratic scaling.
+            # Curvature and feature-size constraints prevent the full 1/tol^2 reduction.
+            # Use square-root scaling, capped at a 50x reduction.
+            scale = max(ratio ** 0.5, 0.02)
+        else:
+            # Refinement (smaller tolerance): super-linear but capped at 100x increase.
+            scale = min(ratio ** 1.5, 100.0)
+
+        estimated = int(current_tri * scale)
+
+        # Geometry-aware floor: even very coarse meshes need a minimum number of
+        # triangles to represent the shape (roughly 200/volume or 20/surface).
+        min_estimate = max(num_volumes * 200, num_surfaces * 20, 1000)
+        estimated = max(estimated, min_estimate)
+
+        # Sanity ceiling: don't estimate more than 100x the current count.
+        max_estimate = max(current_tri * 100, 1000000)
+        estimated = min(estimated, max_estimate)
 
         return {
             'success': True,
@@ -382,7 +412,9 @@ def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
                 'currentTolerance': current_tol,
                 'newTolerance': new_tolerance,
                 'currentTriangles': current_tri,
-                'estimatedTriangles': estimated
+                'estimatedTriangles': estimated,
+                'volumeCount': num_volumes,
+                'surfaceCount': num_surfaces
             }
         }
     except Exception as e:
@@ -399,14 +431,18 @@ def _write_dagmc_streaming(
     tag_sense,
     tag_facet_tol,
     moab_verts,
-    material_tags,
+    node_tag_to_idx,
+    material_map,
     tolerance,
     length_scale=1.0,
-) -> str:
+) -> tuple[dict, dict, dict]:
     """Stream mesh data from gmsh directly into pymoab without holding all triangles in memory.
 
     Processes one volume at a time, extracting surface triangles from gmsh and
     immediately creating pymoab entities.
+
+    Returns:
+        Tuple of (volume_sets, surface_sets, group_sets) dictionaries.
     """
     import gmsh
     from pymoab import types
@@ -457,31 +493,26 @@ def _write_dagmc_streaming(
                 for etype, etags, enodes in zip(elem_types, elem_tags, elem_node_tags):
                     if etype == 2:  # 3-node triangle
                         for i in range(0, len(enodes), 3):
-                            tri_indices = [
-                                int(enodes[i]) - 1,
-                                int(enodes[i + 1]) - 1,
-                                int(enodes[i + 2]) - 1,
-                            ]
                             tri_verts = (
-                                moab_verts[tri_indices[0]],
-                                moab_verts[tri_indices[1]],
-                                moab_verts[tri_indices[2]],
+                                moab_verts[node_tag_to_idx[int(enodes[i])]],
+                                moab_verts[node_tag_to_idx[int(enodes[i + 1])]],
+                                moab_verts[node_tag_to_idx[int(enodes[i + 2])]],
                             )
                             mb_tri = moab_core.create_element(types.MBTRI, tri_verts)
                             moab_core.add_entity(surface_sets[face_tag], mb_tri)
                     elif etype == 3:  # 4-node quadrilateral -> split into 2 triangles
                         for i in range(0, len(enodes), 4):
                             q = [
-                                int(enodes[i]) - 1,
-                                int(enodes[i + 1]) - 1,
-                                int(enodes[i + 2]) - 1,
-                                int(enodes[i + 3]) - 1,
+                                int(enodes[i]),
+                                int(enodes[i + 1]),
+                                int(enodes[i + 2]),
+                                int(enodes[i + 3]),
                             ]
                             for tri in ([q[0], q[1], q[2]], [q[0], q[2], q[3]]):
                                 tri_verts = (
-                                    moab_verts[tri[0]],
-                                    moab_verts[tri[1]],
-                                    moab_verts[tri[2]],
+                                    moab_verts[node_tag_to_idx[tri[0]]],
+                                    moab_verts[node_tag_to_idx[tri[1]]],
+                                    moab_verts[node_tag_to_idx[tri[2]]],
                                 )
                                 mb_tri = moab_core.create_element(types.MBTRI, tri_verts)
                                 moab_core.add_entity(surface_sets[face_tag], mb_tri)
@@ -489,12 +520,14 @@ def _write_dagmc_streaming(
             # Link volume to surface
             moab_core.add_parent_child(volume_sets[vol_tag], surface_sets[face_tag])
 
-        # Create material group for this volume
-        mat_tag = material_tags[idx] if idx < len(material_tags) else f'mat_{idx}'
+        # Create material group for this volume using actual material from old model
+        mat_name = material_map.get(vol_tag, f'mat_{idx}')
+        if mat_name is None:
+            mat_name = f'mat_{idx}'
         gset = moab_core.create_meshset()
         moab_core.tag_set_data(tag_cat, gset, "Group")
         moab_core.tag_set_data(tag_gdim, gset, 4)
-        moab_core.tag_set_data(tag_name, gset, f"mat:{mat_tag}")
+        moab_core.tag_set_data(tag_name, gset, f"mat:{mat_name}")
         moab_core.tag_set_data(tag_gid, gset, int(vol_tag))
         moab_core.add_entity(gset, volume_sets[vol_tag])
         group_sets[vol_tag] = gset
@@ -516,124 +549,227 @@ def _write_dagmc_streaming(
     root = moab_core.get_root_set()
     moab_core.tag_set_data(tag_facet_tol, root, float(tolerance))
 
-    return ""
+    return volume_sets, surface_sets, group_sets
+
+
+def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
+                         material_map: dict = None) -> tuple:
+    """STEP→DAGMC conversion using OpenCASCADE BRepMesh.
+
+    Uses OCP.BRepMesh_IncrementalMesh for faceting-tolerance-based
+    tessellation directly from the CAD geometry.
+
+    Returns:
+        Tuple of (num_volumes, num_vertices, num_triangles).
+    """
+    from OCP.STEPControl import STEPControl_Reader
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRep import BRep_Tool
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_SOLID, TopAbs_FACE
+    from OCP.TopoDS import TopoDS
+    from pymoab import core as moab_core, types
+
+    # 1. Load STEP and tessellate with OpenCASCADE
+    reader = STEPControl_Reader()
+    status = reader.ReadFile(step_path)
+    if status != 1:
+        raise RuntimeError(f'Failed to read STEP file, status={status}')
+    reader.TransferRoot()
+    shape = reader.OneShape()
+    BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
+
+    # 2. Extract geometry (two-pass: collect vertices first, then build MOAB)
+    global_vertices = {}
+    vertex_coords = []
+    volume_faces = []       # list of (vol_id, [face_hash, ...])
+    face_to_volumes = {}    # face_hash -> [vol_id, ...]
+    face_hashes = {}        # face_hash -> list of [v0,v1,v2] triangles
+
+    solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    vol_id = 1
+    while solid_exp.More():
+        solid = TopoDS.Solid_s(solid_exp.Current())
+        faces = []
+        face_exp = TopExp_Explorer(solid, TopAbs_FACE)
+        while face_exp.More():
+            face = TopoDS.Face_s(face_exp.Current())
+            loc = face.Location()
+            tri = BRep_Tool.Triangulation_s(face, loc)
+            if tri is None or tri.NbTriangles() == 0:
+                face_exp.Next()
+                continue
+
+            face_hash = hash(face.TShape().__hash__())
+            if face_hash not in face_to_volumes:
+                face_to_volumes[face_hash] = []
+            face_to_volumes[face_hash].append(vol_id)
+
+            if face_hash not in face_hashes:
+                trsf = loc.Transformation()
+                local_to_global = {}
+                for i in range(1, tri.NbNodes() + 1):
+                    pnt = tri.Node(i)
+                    pnt.Transform(trsf)
+                    key = (round(pnt.X(), 9), round(pnt.Y(), 9), round(pnt.Z(), 9))
+                    if key not in global_vertices:
+                        global_vertices[key] = len(vertex_coords)
+                        vertex_coords.append([pnt.X(), pnt.Y(), pnt.Z()])
+                    local_to_global[i] = global_vertices[key]
+
+                face_tris = []
+                for i in range(1, tri.NbTriangles() + 1):
+                    t = tri.Triangle(i)
+                    face_tris.append([
+                        local_to_global[t.Value(1)],
+                        local_to_global[t.Value(2)],
+                        local_to_global[t.Value(3)],
+                    ])
+                face_hashes[face_hash] = face_tris
+
+            faces.append(face_hash)
+            face_exp.Next()
+
+        if faces:
+            volume_faces.append((vol_id, faces))
+            vol_id += 1
+        solid_exp.Next()
+
+    # 3. Build MOAB with proper DAGMC tags
+    mb = moab_core.Core()
+    tag_cat = mb.tag_get_handle(
+        types.CATEGORY_TAG_NAME, types.CATEGORY_TAG_SIZE,
+        types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+    tag_name = mb.tag_get_handle(
+        types.NAME_TAG_NAME, types.NAME_TAG_SIZE,
+        types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+    tag_gdim = mb.tag_get_handle(
+        types.GEOM_DIMENSION_TAG_NAME, 1,
+        types.MB_TYPE_INTEGER, types.MB_TAG_DENSE, create_if_missing=True
+    )
+    tag_gid = mb.tag_get_handle(types.GLOBAL_ID_TAG_NAME)
+    tag_sense = mb.tag_get_handle(
+        "GEOM_SENSE_2", 2,
+        types.MB_TYPE_HANDLE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+    tag_facet_tol = mb.tag_get_handle(
+        "FACETING_TOL", 1,
+        types.MB_TYPE_DOUBLE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+
+    verts_array = np.array(vertex_coords, dtype=np.float64)
+    moab_verts = mb.create_vertices(verts_array)
+
+    surface_sets = {}
+    surf_id = 1
+    for face_hash in face_hashes:
+        sset = mb.create_meshset()
+        mb.tag_set_data(tag_gid, sset, surf_id)
+        mb.tag_set_data(tag_gdim, sset, 2)
+        mb.tag_set_data(tag_cat, sset, "Surface")
+        surface_sets[face_hash] = sset
+
+        for tri_idx in face_hashes[face_hash]:
+            tri_verts = (
+                moab_verts[tri_idx[0]],
+                moab_verts[tri_idx[1]],
+                moab_verts[tri_idx[2]],
+            )
+            mb_tri = mb.create_element(types.MBTRI, tri_verts)
+            mb.add_entity(sset, mb_tri)
+        surf_id += 1
+
+    volume_sets = {}
+    for vol_id, face_hash_list in volume_faces:
+        vset = mb.create_meshset()
+        mb.tag_set_data(tag_gid, vset, vol_id)
+        mb.tag_set_data(tag_gdim, vset, 3)
+        mb.tag_set_data(tag_cat, vset, "Volume")
+        volume_sets[vol_id] = vset
+
+        for fh in face_hash_list:
+            mb.add_parent_child(vset, surface_sets[fh])
+
+        mat_name = material_map.get(vol_id, f"mat_{vol_id - 1}") if material_map else f"mat_{vol_id - 1}"
+        if mat_name is None:
+            mat_name = f"mat_{vol_id - 1}"
+        gset = mb.create_meshset()
+        mb.tag_set_data(tag_cat, gset, "Group")
+        mb.tag_set_data(tag_gdim, gset, 4)
+        mb.tag_set_data(tag_name, gset, f"mat:{mat_name}")
+        mb.tag_set_data(tag_gid, gset, vol_id)
+        mb.add_entity(gset, vset)
+
+    for face_hash, vols in face_to_volumes.items():
+        if face_hash not in surface_sets:
+            continue
+        sset = surface_sets[face_hash]
+        if len(vols) == 2 and vols[0] in volume_sets and vols[1] in volume_sets:
+            sense_data = np.array([volume_sets[vols[0]], volume_sets[vols[1]]], dtype=np.uint64)
+        elif len(vols) >= 1 and vols[0] in volume_sets:
+            sense_data = np.array([volume_sets[vols[0]], 0], dtype=np.uint64)
+        else:
+            continue
+        mb.tag_set_data(tag_sense, sset, sense_data)
+
+    root = mb.get_root_set()
+    mb.tag_set_data(tag_facet_tol, root, float(tolerance))
+    mb.write_file(h5m_path)
+
+    total_tris = sum(sum(len(face_hashes[fh]) for fh in fl) for _, fl in volume_faces)
+    return len(volume_faces), len(vertex_coords), total_tris
 
 
 def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
     """Re-export a DAGMC file from source CAD with a new faceting tolerance.
 
-    Memory-optimized: streams mesh data from gmsh directly into pymoab
-    one volume at a time, never holding all triangles in Python memory.
+    Uses OpenCASCADE BRepMesh_IncrementalMesh for tessellation.
+    Triangle count scales with tolerance because we tessellate based on
+    linear deflection from the true CAD surface.
 
     Args:
         existing_h5m: Path to the current DAGMC .h5m file.
         source_cad_path: Path to the source CAD file (STEP/STP/BREP/IGES).
-        tolerance: Desired faceting tolerance.
+        tolerance: Desired faceting tolerance (linear deflection in cm).
 
     Returns:
         Dictionary with success flag and output file path.
     """
     import tempfile
     try:
-        import gmsh
-    except ImportError:
-        return {'success': False, 'error': 'gmsh is not installed'}
-
-    try:
         from pymoab import core as moab_core, types
     except ImportError:
         return {'success': False, 'error': 'pymoab is not installed'}
 
     try:
-        # 1. Extract material assignments from existing H5M
+        # 1. Extract material assignments from existing H5M, then free it immediately
         old_model = Model(existing_h5m)
         old_materials = {}
         for vol in old_model.volumes:
             old_materials[vol.id] = vol.material
+        old_vol_count = len(old_model.volumes)
+        del old_model
+        import gc
+        gc.collect()
 
-        # 2. Open CAD in gmsh and generate mesh
-        gmsh.initialize()
-        gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.open(source_cad_path)
-
-        gmsh.option.setNumber('Mesh.Algorithm', 6)
-        gmsh.option.setNumber('Mesh.MeshSizeMax', tolerance)
-        gmsh.option.setNumber('Mesh.MeshSizeMin', tolerance * 0.05)
-        gmsh.option.setNumber('Mesh.Optimize', 1)
-        gmsh.option.setNumber('Mesh.QualityType', 2)
-        # Use all available CPU cores for mesh generation
-        import multiprocessing
-        gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
-
-        warnings = []
-        gmsh.model.mesh.generate(2)
-
-        # 3. Create pymoab Core and DAGMC tags
-        mb = moab_core.Core()
-
-        tag_cat = mb.tag_get_handle(
-            types.CATEGORY_TAG_NAME, types.CATEGORY_TAG_SIZE,
-            types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
-        )
-        tag_name = mb.tag_get_handle(
-            types.NAME_TAG_NAME, types.NAME_TAG_SIZE,
-            types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
-        )
-        tag_gdim = mb.tag_get_handle(
-            types.GEOM_DIMENSION_TAG_NAME, 1,
-            types.MB_TYPE_INTEGER, types.MB_TAG_DENSE, create_if_missing=True
-        )
-        tag_gid = mb.tag_get_handle(types.GLOBAL_ID_TAG_NAME)
-        tag_sense = mb.tag_get_handle(
-            "GEOM_SENSE_2", 2,
-            types.MB_TYPE_HANDLE, types.MB_TAG_SPARSE, create_if_missing=True
-        )
-        tag_facet_tol = mb.tag_get_handle(
-            "FACETING_TOL", 1,
-            types.MB_TYPE_DOUBLE, types.MB_TAG_SPARSE, create_if_missing=True
-        )
-
-        # 4. Create all vertices in pymoab
-        node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-        max_tag = int(max(node_tags)) if len(node_tags) > 0 else 0
-        verts_array = np.zeros((max_tag, 3), dtype=np.float64)
-        for tag, x, y, z in zip(node_tags, node_coords[0::3], node_coords[1::3], node_coords[2::3]):
-            verts_array[int(tag) - 1] = [float(x), float(y), float(z)]
-        moab_verts = mb.create_vertices(verts_array)
-
-        # 5. Generate default material tags matching volume count
-        volumes = gmsh.model.getEntities(3)
-        material_tags = [f'mat_{i}' for i in range(len(volumes))]
-
-        # 6. Stream mesh data volume-by-volume into pymoab
-        _write_dagmc_streaming(
-            mb, tag_gid, tag_gdim, tag_cat, tag_name, tag_sense, tag_facet_tol,
-            moab_verts, material_tags, tolerance
-        )
-
-        # 7. Write to temp H5M
+        # 2. Fast OCP-based conversion
         fd, temp_h5m = tempfile.mkstemp(suffix='.h5m')
         os.close(fd)
-        mb.write_file(temp_h5m)
-        gmsh.finalize()
 
-        # 8. Copy material assignments from old to new (best effort)
-        new_model = Model(temp_h5m)
+        n_vols, n_verts, n_tris = _step_to_dagmc_ocp(
+            source_cad_path, temp_h5m, tolerance, material_map=old_materials
+        )
 
-        if len(old_model.volumes) != len(new_model.volumes):
+        warnings = []
+        if old_vol_count != n_vols:
             warnings.append(
-                f'Volume count mismatch: old={len(old_model.volumes)}, '
-                f'new={len(new_model.volumes)}. Material assignments not copied.'
+                f'Volume count mismatch: old={old_vol_count}, new={n_vols}. '
+                f'Materials mapped by volume tag where possible.'
             )
-        else:
-            old_vols = sorted(old_model.volumes, key=lambda v: v.id)
-            new_vols = sorted(new_model.volumes, key=lambda v: v.id)
-            for old_vol, new_vol in zip(old_vols, new_vols):
-                if old_vol.material:
-                    new_vol.material = old_vol.material
-            new_model.mb.write_file(temp_h5m)
 
-        # 9. Move to output path
+        # 3. Move to output path
         output_dir = Path(existing_h5m).parent
         base_name = Path(existing_h5m).stem
         output_path = str(output_dir / f'{base_name}_refaceted.h5m')
@@ -646,16 +782,13 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
             'success': True,
             'data': {
                 'outputPath': output_path,
-                'message': f'Re-faceted geometry saved to {Path(output_path).name}'
+                'message': f'Re-faceted geometry saved to {Path(output_path).name} '
+                           f'({n_vols} volumes, {n_tris:,} triangles)'
             },
             'warnings': warnings
         }
     except Exception as e:
         import traceback
-        try:
-            gmsh.finalize()
-        except Exception:
-            pass
         return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
 
 

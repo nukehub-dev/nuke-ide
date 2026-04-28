@@ -1475,7 +1475,7 @@ export class OpenMCStudioBackendServiceImpl
      */
     async dagmcGetFacetingParams(filePath: string): Promise<{
         success: boolean;
-        data?: { facetingTolerance: number; totalTriangles: number; volumeCount: number };
+        data?: { facetingTolerance: number; totalTriangles: number; volumeCount: number; surfaceCount: number };
         error?: string;
     }> {
         this.log(`Getting faceting params for ${filePath}`);
