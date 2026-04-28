@@ -37,12 +37,35 @@ export interface FilePermissions {
     readonly others?: { read: boolean; write: boolean; execute: boolean };
 }
 
+export interface TextStats {
+    readonly lines: number;
+    readonly words: number;
+    readonly characters: number;
+}
+
+export interface ImageDimensions {
+    readonly width: number;
+    readonly height: number;
+}
+
+export interface GitFileInfo {
+    readonly lastCommitHash: string;
+    readonly lastCommitMessage: string;
+    readonly lastCommitAuthor: string;
+    readonly lastCommitDate: string;
+    readonly lastCommitRelativeDate: string;
+}
+
 export interface DetailedFileProperties {
     readonly mimeType: string;
     readonly permissions: FilePermissions;
     readonly isSymlink: boolean;
     readonly symlinkTarget?: string;
     readonly symlinkBroken?: boolean;
+    readonly atime?: number;
+    readonly textStats?: TextStats;
+    readonly imageDimensions?: ImageDimensions;
+    readonly gitInfo?: GitFileInfo;
 }
 
 export interface ChecksumResult {

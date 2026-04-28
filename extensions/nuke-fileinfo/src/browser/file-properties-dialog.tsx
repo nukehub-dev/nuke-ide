@@ -161,9 +161,13 @@ export class FilePropertiesDialog extends ReactDialog<void> {
                 {this.renderSizeRow()}
                 {this.renderRow('Created', this.formatDate(stat.ctime))}
                 {this.renderRow('Modified', this.formatDate(stat.mtime))}
+                {detailed?.atime !== undefined && this.renderRow('Accessed', this.formatDate(detailed.atime))}
                 {detailed?.isSymlink && this.renderRow('Target', detailed.symlinkTarget || '—', true, detailed.symlinkBroken)}
                 {detailed && this.renderRow('MIME Type', detailed.mimeType)}
                 {detailed?.permissions?.modeString && this.renderRow('Permissions', `${detailed.permissions.modeString} (${(detailed.permissions.mode || 0).toString(8).padStart(3, '0')})`)}
+                {detailed?.textStats && this.renderTextStats(detailed.textStats)}
+                {detailed?.imageDimensions && this.renderRow('Dimensions', `${detailed.imageDimensions.width} × ${detailed.imageDimensions.height} px`)}
+                {detailed?.gitInfo && this.renderGitInfo(detailed.gitInfo)}
                 {!stat.isDirectory && this.renderChecksumSection()}
             </div>
         );
@@ -205,6 +209,28 @@ export class FilePropertiesDialog extends ReactDialog<void> {
             );
         }
         return this.renderRow('Size', `${this.formatBytes(stat.size)} (${stat.size.toLocaleString()} bytes)`);
+    }
+
+    protected renderTextStats(stats: { lines: number; words: number; characters: number }): React.ReactNode {
+        return (
+            <div className="nuke-file-properties-section" key="text-stats">
+                <div className="nuke-file-properties-section-title">Text Statistics</div>
+                {this.renderRow('Lines', stats.lines.toLocaleString())}
+                {this.renderRow('Words', stats.words.toLocaleString())}
+                {this.renderRow('Characters', stats.characters.toLocaleString())}
+            </div>
+        );
+    }
+
+    protected renderGitInfo(info: { lastCommitHash: string; lastCommitMessage: string; lastCommitAuthor: string; lastCommitDate: string }): React.ReactNode {
+        return (
+            <div className="nuke-file-properties-section" key="git-info">
+                <div className="nuke-file-properties-section-title">Git</div>
+                {this.renderRow('Last Commit', `${info.lastCommitHash} · ${info.lastCommitMessage}`)}
+                {this.renderRow('Author', info.lastCommitAuthor)}
+                {this.renderRow('Date', this.formatDate(new Date(info.lastCommitDate).getTime()))}
+            </div>
+        );
     }
 
     protected renderChecksumSection(): React.ReactNode {

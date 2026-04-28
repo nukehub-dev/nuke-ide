@@ -25,9 +25,9 @@
 
 .nuke-file-properties-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 16px;
-    padding: 6px 8px;
+    padding: 4px 8px;
     border-radius: 4px;
 }
 
@@ -93,6 +93,16 @@
     gap: 8px;
 }
 
+.nuke-file-properties-dialog .theia-button,
+.nuke-file-properties-dialog .theia-button.secondary {
+    padding: 2px 8px;
+    margin-left: 0;
+    font-size: 12px;
+    min-height: 24px;
+    line-height: 20px;
+    border-radius: 4px;
+}
+
 .checksum-hash {
     font-family: var(--theia-ui-font-family);
     font-size: 12px;
@@ -100,4 +110,8 @@
     padding: 2px 8px;
     border-radius: 4px;
     word-break: break-all;
+    min-height: 24px;
+    line-height: 20px;
+    display: inline-flex;
+    align-items: center;
 }

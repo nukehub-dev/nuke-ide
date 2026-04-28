@@ -31,11 +31,16 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import * as mimeTypes from 'mime-types';
+import * as imageSize from 'image-size';
+import { simpleGit } from 'simple-git';
 import {
     FilePropertiesService,
     DetailedFileProperties,
     FilePermissions,
-    ChecksumResult
+    ChecksumResult,
+    TextStats,
+    ImageDimensions,
+    GitFileInfo
 } from '../common/fileinfo-protocol';
 
 @injectable()
@@ -63,7 +68,6 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         if (isSymlink) {
             try {
                 symlinkTarget = await fs.promises.readlink(localPath);
-                // Check if target is accessible
                 const resolved = path.resolve(path.dirname(localPath), symlinkTarget);
                 await fs.promises.access(resolved);
                 symlinkBroken = false;
@@ -72,18 +76,27 @@ export class FilePropertiesBackendService implements FilePropertiesService {
             }
         }
 
-        // Use lstats for permissions on the link itself, or regular stat for target
         const statForPerm = isSymlink ? lstats : await fs.promises.stat(localPath);
         const permissions = this.parsePermissions(statForPerm.mode);
-
         const mimeType = mimeTypes.lookup(localPath) || 'application/octet-stream';
+
+        // Gather extra metadata in parallel
+        const [textStats, imageDimensions, gitInfo] = await Promise.all([
+            this.computeTextStats(localPath, mimeType, statForPerm.size),
+            this.computeImageDimensions(localPath, mimeType),
+            this.computeGitInfo(localPath)
+        ]);
 
         return {
             mimeType,
             permissions,
             isSymlink,
             symlinkTarget,
-            symlinkBroken
+            symlinkBroken,
+            atime: statForPerm.atime ? statForPerm.atime.getTime() : undefined,
+            textStats,
+            imageDimensions,
+            gitInfo
         };
     }
 
@@ -101,8 +114,8 @@ export class FilePropertiesBackendService implements FilePropertiesService {
     async calculateFolderSize(folderPath: string): Promise<number> {
         const localPath = this.toLocalPath(folderPath);
         let total = 0;
-
         const stack: string[] = [localPath];
+
         while (stack.length > 0) {
             const current = stack.pop()!;
             const entries = await fs.promises.readdir(current, { withFileTypes: true });
@@ -115,12 +128,70 @@ export class FilePropertiesBackendService implements FilePropertiesService {
                         const s = await fs.promises.stat(entryPath);
                         total += s.size;
                     } catch {
-                        // Skip files we can't stat
+                        // skip unreadable files
                     }
                 }
             }
         }
         return total;
+    }
+
+    protected async computeTextStats(filePath: string, mimeType: string, size: number): Promise<TextStats | undefined> {
+        // Skip if not a text-like file or too large (>10MB)
+        if (size > 10 * 1024 * 1024) return undefined;
+        if (!mimeType.startsWith('text/') && !mimeType.includes('json') && !mimeType.includes('xml') && !mimeType.includes('javascript') && !mimeType.includes('typescript') && !mimeType.includes('python') && !mimeType.includes('markdown')) {
+            return undefined;
+        }
+        try {
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            const lines = content.split(/\r?\n/).length;
+            const words = content.trim().split(/\s+/).filter(w => w.length > 0).length;
+            const characters = content.length;
+            return { lines, words, characters };
+        } catch {
+            return undefined;
+        }
+    }
+
+    protected async computeImageDimensions(filePath: string, mimeType: string): Promise<ImageDimensions | undefined> {
+        if (!mimeType.startsWith('image/')) return undefined;
+        try {
+            const buffer = await fs.promises.readFile(filePath);
+            const result = imageSize.imageSize(buffer);
+            if (result.width && result.height) {
+                return { width: result.width, height: result.height };
+            }
+        } catch {
+            // ignore unsupported or corrupt images
+        }
+        return undefined;
+    }
+
+    protected async computeGitInfo(filePath: string): Promise<GitFileInfo | undefined> {
+        try {
+            const dir = path.dirname(filePath);
+            const git = simpleGit(dir);
+            const isRepo = await git.checkIsRepo();
+            if (!isRepo) return undefined;
+
+            // Get repo root to compute relative path for the file
+            const repoRoot = await git.revparse(['--show-toplevel']);
+            const relativePath = path.relative(repoRoot, filePath);
+
+            const log = await git.log({ file: relativePath, n: 1 });
+            if (!log.latest) return undefined;
+
+            const latest = log.latest;
+            return {
+                lastCommitHash: latest.hash.substring(0, 7),
+                lastCommitMessage: latest.message.split('\n')[0],
+                lastCommitAuthor: latest.author_name,
+                lastCommitDate: latest.date,
+                lastCommitRelativeDate: latest.date
+            };
+        } catch {
+            return undefined;
+        }
     }
 
     protected parsePermissions(mode: number): FilePermissions {
