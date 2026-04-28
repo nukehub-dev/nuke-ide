@@ -25,6 +25,14 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+/**
+ * Frontend DI module for the file properties extension.
+ *
+ * Binds the {@link FilePropertiesDialog}, registers the {@link FilePropertiesContribution}
+ * for commands and menus, and wires the {@link FilePropertiesService} RPC proxy.
+ *
+ * @see src/node/fileinfo-backend-module.ts
+ */
 import './file-properties-dialog.css';
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';

@@ -35,6 +35,9 @@ import { NavigatorContextMenu } from '@theia/navigator/lib/browser/navigator-con
 import { FilePropertiesDialog } from './file-properties-dialog';
 import { nls } from '@theia/core';
 
+/**
+ * Command definitions for the file properties extension.
+ */
 export namespace FilePropertiesCommands {
     export const FILE_PROPERTIES: Command = {
         id: 'nuke.file.properties',
@@ -42,6 +45,10 @@ export namespace FilePropertiesCommands {
     };
 }
 
+/**
+ * Contribution that registers the **Properties** command and menu item
+ * in the file navigator context menu.
+ */
 @injectable()
 export class FilePropertiesContribution implements CommandContribution, MenuContribution {
 
@@ -54,6 +61,10 @@ export class FilePropertiesContribution implements CommandContribution, MenuCont
     @inject(FilePropertiesDialog)
     protected readonly dialog: FilePropertiesDialog;
 
+    /**
+     * Register the Properties command bound to a single URI selection.
+     * @param commands - Theia command registry.
+     */
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(
             FilePropertiesCommands.FILE_PROPERTIES,
@@ -73,6 +84,10 @@ export class FilePropertiesContribution implements CommandContribution, MenuCont
         );
     }
 
+    /**
+     * Add the Properties command to the navigator modification context menu.
+     * @param menus - Theia menu model registry.
+     */
     registerMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(NavigatorContextMenu.MODIFICATION, {
             commandId: FilePropertiesCommands.FILE_PROPERTIES.id,

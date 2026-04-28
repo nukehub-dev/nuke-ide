@@ -37,8 +37,14 @@ import { useTooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { FilePropertiesFrontendService } from './fileinfo-frontend-service';
 import { DetailedFileProperties } from '../common/fileinfo-protocol';
 
+/**
+ * CSS class applied to the file properties dialog root element.
+ */
 export const FILE_PROPERTIES_DIALOG_CLASS = 'nuke-file-properties-dialog';
 
+/**
+ * React state shape for {@link FilePropertiesDialog}.
+ */
 interface FilePropertiesDialogState {
     loading: boolean;
     error?: string;
@@ -49,7 +55,13 @@ interface FilePropertiesDialogState {
     calculatingFolderSize: boolean;
 }
 
-/** Functional wrapper so we can use the useTooltip hook inside a class component render. */
+/**
+ * Functional wrapper so we can use the `useTooltip` hook inside a class component render.
+ * @param content - Tooltip text to display on hover.
+ * @param children - Element that triggers the tooltip.
+ * @param className - Optional CSS class for the wrapper.
+ * @param onClick - Optional click handler.
+ */
 const ValueWithTooltip: React.FC<{
     content: string;
     children: React.ReactNode;
@@ -67,8 +79,15 @@ const ValueWithTooltip: React.FC<{
     );
 };
 
+/**
+ * Dialog that renders detailed file metadata.
+ *
+ * Displays name, type, location, size, timestamps, permissions,
+ * text stats, image dimensions, Git info, and on-demand checksums.
+ */
 @injectable()
 export class FilePropertiesDialog extends ReactDialog<void> {
+    /** Internal React-like state managed manually by the dialog. */
     protected state: FilePropertiesDialogState = {
         loading: true,
         checksums: {},
@@ -76,8 +95,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         calculatingFolderSize: false
     };
 
-    protected uri: URI;
-    protected stat: FileStatWithMetadata;
+    /** URI of the file or folder being inspected. */
+    protected uri!: URI;
+    /** Resolved file stat with metadata. */
+    protected stat!: FileStatWithMetadata;
 
     constructor(
         @inject(FileService) protected readonly fileService: FileService,
@@ -90,6 +111,11 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         this.acceptButton.classList.add('main');
     }
 
+    /**
+     * Configure the dialog for a specific file and trigger detail loading.
+     * @param uri - Target file URI.
+     * @param stat - Resolved file stat.
+     */
     setFile(uri: URI, stat: FileStatWithMetadata): void {
         this.uri = uri;
         this.stat = stat;
@@ -97,6 +123,9 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         this.loadDetails();
     }
 
+    /**
+     * Fetch detailed properties from the backend service.
+     */
     protected async loadDetails(): Promise<void> {
         this.state = { ...this.state, loading: true, error: undefined };
         this.update();
@@ -109,6 +138,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         this.update();
     }
 
+    /**
+     * Compute MD5 or SHA-256 for the current file.
+     * @param algorithm - Hash algorithm to compute.
+     */
     protected handleComputeChecksum = async (algorithm: 'md5' | 'sha256'): Promise<void> => {
         if (this.stat.isDirectory) return;
         this.state = { ...this.state, computingChecksum: algorithm };
@@ -126,6 +159,9 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         this.update();
     };
 
+    /**
+     * Trigger recursive folder size calculation for the current directory.
+     */
     protected handleCalculateFolderSize = async (): Promise<void> => {
         if (!this.stat.isDirectory) return;
         this.state = { ...this.state, calculatingFolderSize: true };
@@ -139,6 +175,7 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         this.update();
     };
 
+    /** Render the dialog content. */
     protected render(): React.ReactNode {
         return (
             <div className={FILE_PROPERTIES_DIALOG_CLASS}>
@@ -149,6 +186,7 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /** Render the main property rows once data is loaded. */
     protected renderContent(): React.ReactNode {
         const stat = this.stat;
         const detailed = this.state.detailed;
@@ -173,6 +211,13 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /**
+     * Render a single label/value row.
+     * @param label - Display label.
+     * @param value - Display value.
+     * @param copyable - Whether clicking copies the value to clipboard.
+     * @param warning - Whether to style the value as a warning.
+     */
     protected renderRow(label: string, value: string | undefined, copyable = false, warning = false): React.ReactNode {
         if (value === undefined) return null;
         const className = `nuke-file-properties-value${copyable ? ' copyable' : ''}${warning ? ' warning' : ''}`;
@@ -187,6 +232,7 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /** Render the size row with folder-size calculation support. */
     protected renderSizeRow(): React.ReactNode {
         const stat = this.stat;
         if (stat.isDirectory) {
@@ -211,6 +257,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         return this.renderRow('Size', `${this.formatBytes(stat.size)} (${stat.size.toLocaleString()} bytes)`);
     }
 
+    /**
+     * Render text statistics section.
+     * @param stats - Line, word, and character counts.
+     */
     protected renderTextStats(stats: { lines: number; words: number; characters: number }): React.ReactNode {
         return (
             <div className="nuke-file-properties-section" key="text-stats">
@@ -222,6 +272,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /**
+     * Render Git metadata section.
+     * @param info - Latest commit information for the file.
+     */
     protected renderGitInfo(info: { lastCommitHash: string; lastCommitMessage: string; lastCommitAuthor: string; lastCommitDate: string }): React.ReactNode {
         return (
             <div className="nuke-file-properties-section" key="git-info">
@@ -233,6 +287,7 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /** Render the checksum section with MD5 and SHA-256 rows. */
     protected renderChecksumSection(): React.ReactNode {
         return (
             <div className="nuke-file-properties-section" key="checksums">
@@ -243,6 +298,12 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /**
+     * Render a single checksum row.
+     * @param label - Display label (e.g. "MD5").
+     * @param hash - Computed hash, if available.
+     * @param algorithm - Algorithm identifier for triggering computation.
+     */
     protected renderChecksumRow(label: string, hash: string | undefined, algorithm: 'md5' | 'sha256'): React.ReactNode {
         return (
             <div className="nuke-file-properties-row" key={label}>
@@ -266,6 +327,11 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         );
     }
 
+    /**
+     * Determine a human-readable type label from the file stat.
+     * @param stat - File stat.
+     * @param detailed - Optional detailed properties (for symlinks).
+     */
     protected getTypeLabel(stat: FileStatWithMetadata, detailed?: DetailedFileProperties): string {
         if (detailed?.isSymlink) return 'Symbolic Link';
         if (stat.isDirectory) return 'Folder';
@@ -279,6 +345,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         return 'File';
     }
 
+    /**
+     * Convert bytes to a human-readable string (B, KB, MB, GB, TB).
+     * @param bytes - Size in bytes.
+     */
     protected formatBytes(bytes: number): string {
         if (bytes === 0) return '0 B';
         const k = 1024;
@@ -287,6 +357,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    /**
+     * Format a Unix timestamp to a locale-aware date string.
+     * @param timestamp - Milliseconds since epoch.
+     */
     protected formatDate(timestamp: number): string {
         try {
             return new Date(timestamp).toLocaleString();
@@ -295,6 +369,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         }
     }
 
+    /**
+     * Copy text to the system clipboard, falling back to a DOM workaround.
+     * @param text - Text to copy.
+     */
     protected copyToClipboard(text: string): void {
         navigator.clipboard.writeText(text).catch(() => {
             const textarea = document.createElement('textarea');
@@ -306,6 +384,7 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         });
     }
 
+    /** Dialog close value (always undefined). */
     get value(): void {
         return undefined;
     }

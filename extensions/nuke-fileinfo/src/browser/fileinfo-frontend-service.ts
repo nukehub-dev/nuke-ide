@@ -34,23 +34,35 @@ import {
     ChecksumResult
 } from '../common/fileinfo-protocol';
 
+/**
+ * Frontend proxy for {@link FilePropertiesService}.
+ *
+ * Delegates all calls to the JSON-RPC proxy created over the WebSocket
+ * connection to the backend service.
+ */
 @injectable()
 export class FilePropertiesFrontendService implements FilePropertiesService {
     protected readonly onChecksumProgressEmitter = new Emitter<{ algorithm: string; bytesRead: number }>();
     readonly onChecksumProgress = this.onChecksumProgressEmitter.event;
 
+    /**
+     * @param proxy - JSON-RPC proxy to the backend {@link FilePropertiesService}.
+     */
     constructor(
         protected readonly proxy: JsonRpcProxy<FilePropertiesService>
     ) { }
 
+    /** {@inheritDoc FilePropertiesService.getDetailedProperties} */
     getDetailedProperties(filePath: string): Promise<DetailedFileProperties> {
         return this.proxy.getDetailedProperties(filePath);
     }
 
+    /** {@inheritDoc FilePropertiesService.computeChecksum} */
     computeChecksum(filePath: string, algorithm: 'md5' | 'sha256'): Promise<ChecksumResult> {
         return this.proxy.computeChecksum(filePath, algorithm);
     }
 
+    /** {@inheritDoc FilePropertiesService.calculateFolderSize} */
     calculateFolderSize(folderPath: string): Promise<number> {
         return this.proxy.calculateFolderSize(folderPath);
     }

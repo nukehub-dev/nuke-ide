@@ -43,9 +43,24 @@ import {
     GitFileInfo
 } from '../common/fileinfo-protocol';
 
+/**
+ * Node.js backend implementation of {@link FilePropertiesService}.
+ *
+ * Performs file-system operations directly on the backend to gather
+ * metadata such as permissions, MIME types, image dimensions, text
+ * statistics, Git history, and cryptographic checksums.
+ *
+ * @see src/browser/fileinfo-frontend-service.ts for the frontend proxy
+ * @see src/common/fileinfo-protocol.ts for the RPC interface
+ */
 @injectable()
 export class FilePropertiesBackendService implements FilePropertiesService {
 
+    /**
+     * Convert a `file://` URI to an absolute local path.
+     * @param filePath - URI or raw path.
+     * @returns Absolute local filesystem path.
+     */
     protected toLocalPath(filePath: string): string {
         if (filePath.startsWith('file://')) {
             try {
@@ -57,6 +72,7 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         return filePath;
     }
 
+    /** {@inheritDoc FilePropertiesService.getDetailedProperties} */
     async getDetailedProperties(filePath: string): Promise<DetailedFileProperties> {
         const localPath = this.toLocalPath(filePath);
         const lstats = await fs.promises.lstat(localPath);
@@ -100,6 +116,7 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         };
     }
 
+    /** {@inheritDoc FilePropertiesService.computeChecksum} */
     async computeChecksum(filePath: string, algorithm: 'md5' | 'sha256'): Promise<ChecksumResult> {
         const localPath = this.toLocalPath(filePath);
         return new Promise((resolve, reject) => {
@@ -111,6 +128,7 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         });
     }
 
+    /** {@inheritDoc FilePropertiesService.calculateFolderSize} */
     async calculateFolderSize(folderPath: string): Promise<number> {
         const localPath = this.toLocalPath(folderPath);
         let total = 0;
@@ -136,6 +154,13 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         return total;
     }
 
+    /**
+     * Compute line, word, and character counts for text-like files.
+     * Skips files larger than 10 MB or non-text MIME types.
+     * @param filePath - Absolute file path.
+     * @param mimeType - Detected MIME type.
+     * @param size - File size in bytes.
+     */
     protected async computeTextStats(filePath: string, mimeType: string, size: number): Promise<TextStats | undefined> {
         // Skip if not a text-like file or too large (>10MB)
         if (size > 10 * 1024 * 1024) return undefined;
@@ -153,6 +178,11 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         }
     }
 
+    /**
+     * Read image dimensions using the `image-size` library.
+     * @param filePath - Absolute file path.
+     * @param mimeType - Detected MIME type.
+     */
     protected async computeImageDimensions(filePath: string, mimeType: string): Promise<ImageDimensions | undefined> {
         if (!mimeType.startsWith('image/')) return undefined;
         try {
@@ -167,6 +197,10 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         return undefined;
     }
 
+    /**
+     * Query the latest Git commit affecting the given file.
+     * @param filePath - Absolute file path.
+     */
     protected async computeGitInfo(filePath: string): Promise<GitFileInfo | undefined> {
         try {
             const dir = path.dirname(filePath);
@@ -194,6 +228,10 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         }
     }
 
+    /**
+     * Parse a numeric Unix mode into a {@link FilePermissions} object.
+     * @param mode - Numeric file mode (e.g. `0o644`).
+     */
     protected parsePermissions(mode: number): FilePermissions {
         const owner = {
             read: !!(mode & 0o400),

@@ -25,10 +25,19 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+/**
+ * JSON-RPC path for the file properties backend service.
+ */
 export const FilePropertiesServicePath = '/services/file-properties';
 
+/**
+ * Inversify symbol for the file properties service interface.
+ */
 export const FilePropertiesService = Symbol('FilePropertiesService');
 
+/**
+ * Unix-style permission breakdown for a file.
+ */
 export interface FilePermissions {
     readonly mode?: number;
     readonly modeString?: string;
@@ -37,17 +46,26 @@ export interface FilePermissions {
     readonly others?: { read: boolean; write: boolean; execute: boolean };
 }
 
+/**
+ * Basic text statistics for a text-like file.
+ */
 export interface TextStats {
     readonly lines: number;
     readonly words: number;
     readonly characters: number;
 }
 
+/**
+ * Width and height of an image file.
+ */
 export interface ImageDimensions {
     readonly width: number;
     readonly height: number;
 }
 
+/**
+ * Git metadata for a tracked file.
+ */
 export interface GitFileInfo {
     readonly lastCommitHash: string;
     readonly lastCommitMessage: string;
@@ -56,6 +74,9 @@ export interface GitFileInfo {
     readonly lastCommitRelativeDate: string;
 }
 
+/**
+ * Aggregated detailed metadata returned by the backend for a single file.
+ */
 export interface DetailedFileProperties {
     readonly mimeType: string;
     readonly permissions: FilePermissions;
@@ -68,24 +89,37 @@ export interface DetailedFileProperties {
     readonly gitInfo?: GitFileInfo;
 }
 
+/**
+ * Result of a checksum computation.
+ */
 export interface ChecksumResult {
     readonly algorithm: 'md5' | 'sha256';
     readonly hash: string;
 }
 
+/**
+ * RPC service that provides detailed file metadata and utilities.
+ *
+ * Implemented on the backend by {@link FilePropertiesBackendService}
+ * and exposed to the frontend via {@link FilePropertiesFrontendService}.
+ */
 export interface FilePropertiesService {
     /**
      * Get detailed properties that require backend fs access.
+     * @param filePath - Absolute file path or file:// URI.
      */
     getDetailedProperties(filePath: string): Promise<DetailedFileProperties>;
 
     /**
      * Compute MD5 or SHA-256 checksum for a file.
+     * @param filePath - Absolute file path or file:// URI.
+     * @param algorithm - Hash algorithm to use.
      */
     computeChecksum(filePath: string, algorithm: 'md5' | 'sha256'): Promise<ChecksumResult>;
 
     /**
      * Calculate total recursive size of a directory.
+     * @param folderPath - Absolute folder path or file:// URI.
      */
     calculateFolderSize(folderPath: string): Promise<number>;
 }

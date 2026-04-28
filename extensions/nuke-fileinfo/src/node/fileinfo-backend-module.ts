@@ -25,6 +25,14 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+/**
+ * Backend DI module for the file properties extension.
+ *
+ * Binds the {@link FilePropertiesBackendService} and registers the
+ * JSON-RPC connection handler at {@link FilePropertiesServicePath}.
+ *
+ * @see src/browser/fileinfo-frontend-module.ts
+ */
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging';
 import {

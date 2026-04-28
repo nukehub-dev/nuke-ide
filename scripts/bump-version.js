@@ -15,6 +15,7 @@ const PACKAGES = [
   'extensions/nukelab-menu/package.json',
   'extensions/nukelab-pwa/package.json',
   'extensions/nuke-sysmon/package.json',
+  'extensions/nuke-fileinfo/package.json',
   'extensions/nuke-visualizer/package.json',
   'extensions/openmc-studio/package.json',
 ];
@@ -26,6 +27,7 @@ const PACKAGE_NAMES = [
   'nukelab-menu',
   'nukelab-pwa',
   'nuke-sysmon',
+  'nuke-fileinfo',
   'nuke-visualizer',
   'openmc-studio',
   'nuke-ide',
