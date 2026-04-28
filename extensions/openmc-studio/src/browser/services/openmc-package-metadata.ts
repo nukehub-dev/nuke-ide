@@ -52,6 +52,7 @@ export function getOpenMCHealthPackages(): PackageDependency[] {
         { name: 'numpy', required: true },
         { name: 'mpi4py', required: false },
         { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
-        { name: 'moab', required: false, extraIndexUrl: OPENMC_EXTRA_INDEX_URL }
+        { name: 'moab', required: false, extraIndexUrl: OPENMC_EXTRA_INDEX_URL },
+        { name: 'OCP', required: false }
     ];
 }

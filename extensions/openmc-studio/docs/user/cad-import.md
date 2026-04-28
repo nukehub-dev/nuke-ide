@@ -54,7 +54,7 @@ The import process runs through several stages. You can monitor progress in the 
 
 ### Stage 1: Geometry Loading
 
-The file is parsed using OpenCASCADE and Gmsh. The importer extracts:
+The file is parsed using **OpenCASCADE**. The importer extracts:
 
 - Solid volumes
 - Bounding faces and edges
@@ -192,10 +192,9 @@ For models that cannot be expressed in pure CSG, OpenMC Studio supports DAGMC `.
 
 When the importer detects NURBS, B-Spline, or Bezier surfaces that cannot be expressed as OpenMC CSG primitives, it **automatically converts the model to DAGMC `.h5m` format** instead of failing or producing poor approximations. You will see a notification in the CAD Import output channel when this happens.
 
-The DAGMC conversion uses a **native H5M writer** built on `pymoab` and `h5py`. This writer handles:
+The DAGMC conversion uses a **native H5M writer** built on `pymoab`. This writer handles:
 
-- Triangle mesh extraction from Gmsh
-- Automatic quadrilateral splitting
+- Tessellation via **OpenCASCADE BRepMesh_IncrementalMesh** with user-defined linear deflection
 - Full DAGMC tagging (`CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`, material groups)
 - Graceful handling of empty element lists
 

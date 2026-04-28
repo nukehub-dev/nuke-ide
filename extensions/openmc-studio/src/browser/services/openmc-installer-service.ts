@@ -107,8 +107,8 @@ export class OpenMCInstallerService {
         {
             id: 'dagmc',
             label: 'DAGMC Tools',
-            description: 'CAD-based geometry support (moab, pydagmc) — conda only',
-            packages: ['moab', 'pydagmc'],
+            description: 'CAD-based geometry support (moab, pydagmc, ocp) — conda only',
+            packages: ['moab', 'pydagmc', 'ocp'],
             useConda: true,
             channels: ['conda-forge']
         },

@@ -145,7 +145,7 @@ This guide covers the most common issues encountered when building, running, and
 
 1. **Install DAGMC dependencies:**
    ```bash
-   conda install -c conda-forge pydagmc moab
+   conda install -c conda-forge pydagmc moab ocp
    ```
 
 2. **Verify the file:**
@@ -202,19 +202,26 @@ This guide covers the most common issues encountered when building, running, and
 
 **Fixes:**
 
-1. **Adjust the default faceting tolerance:**
+1. **Use the Faceting tab to re-export with a new tolerance:**
+   - Open the DAGMC Editor, switch to the **Faceting** tab.
+   - Select the original source CAD file (STEP/IGES).
+   - Choose a preset: **Draft (1 cm)** for fast previews, **Standard (0.5 cm)** for balanced quality, **Fine (0.1 cm)** for production, or **Ultra (0.01 cm)** for high fidelity.
+   - Review the triangle estimate in the impact preview gauge.
+   - Click **Generate Re-faceted H5M**.
+
+2. **Adjust the default faceting tolerance for future imports:**
    - Open `Settings → Extensions → OpenMC Studio → Default Faceting Tolerance`
    - Lower values = finer mesh, larger file; higher values = coarser mesh, smaller file
    - Default is `0.001` cm. Try `0.01` for faster draft conversions, `0.0001` for high-fidelity final meshes.
 
-2. **Disable auto-adjustment for precise control:**
+3. **Disable auto-adjustment for precise control:**
    - Uncheck `Settings → Extensions → OpenMC Studio → Auto-Adjust Faceting Tolerance`
    - This prevents the importer from raising the tolerance for large models.
    - Useful when you need consistent mesh density regardless of model size.
 
-3. **For very large models (tokamaks, vessels):**
+4. **For very large models (tokamaks, vessels):**
    - Keep auto-adjustment **enabled** (default). The importer automatically scales tolerance to `bbox_diagonal / 500`.
-   - If the mesh is still too dense, manually set tolerance to `0.1` or higher.
+   - If the mesh is still too dense, use the **Draft** preset in the Faceting tab.
 
 ---
 
@@ -256,6 +263,7 @@ The environment health check (`Tools → OpenMC Studio → Environment → Run H
 | `numpy` outdated | Some features rely on newer NumPy APIs | `pip install -U numpy` |
 | `pydagmc` missing | DAGMC geometry features are disabled | Install only if you work with `.h5m` files |
 | `moab` missing | CAD import and DAGMC conversion are limited | Install only if you need CAD → DAGMC workflows |
+| `OCP` missing | Refacet and CAD import fallback are unavailable | Install if you need to re-facet or convert STEP/IGES to DAGMC |
 | `mpi4py` missing | MPI parallel execution is unavailable | Install only if you plan to run multi-process simulations |
 | Cross-section path invalid | `nuke.openmcCrossSections` points to a missing file | Update the path in settings to a valid `cross_sections.xml` |
 | Python path not set | NukeIDE does not know which interpreter to use | Set `Settings → Nuke Utils → Python Path` |

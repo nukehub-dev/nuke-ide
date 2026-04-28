@@ -231,16 +231,24 @@ async startSimulation(request: SimulationRunRequest): Promise<StartSimulationRes
 
 ### Native DAGMC Writer
 
-The CAD import pipeline uses a **native DAGMC H5M writer**. This avoids dependency fragility and handles edge cases (empty element lists, invalid topology) gracefully.
+The CAD import and refacet pipelines use a **native DAGMC H5M writer** built on `pymoab`. This avoids external meshing dependencies and handles edge cases (empty element lists, invalid topology) gracefully.
 
 **Key features:**
-- Extracts triangle meshes from Gmsh via `gmsh.model.mesh`
-- Splits quadrilateral elements into triangles automatically
-- Writes full DAGMC tag schema: `tstt/nodes`, `tstt/elements/Tri3`, `tstt/sets` with `CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`
-- Material groups written as `mat:...` tags under `tstt/tags`
-- Supports both `pymoab` and `h5py` fallback writing
+- Tessellation via **OpenCASCADE BRepMesh_IncrementalMesh** with user-defined linear deflection
+- Direct STEP/IGES loading through `STEPControl_Reader` / `IGESControl_Reader`
+- Face-to-volume sense mapping via `TopExp_Explorer` and `BRep_Tool.Triangulation`
+- Writes full DAGMC tag schema: `CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`
+- Material groups written as `mat:...` tags
+- Triangle count scales predictably with faceting tolerance
 
-**Mesh algorithm:** Uses Gmsh Frontal-Delaunay (`Mesh.Algorithm = 6`) with `Mesh.Optimize = 1` for high-quality facetation that matches nuke-visualizer output.
+**Pipeline (`dagmc_editor_service.py` → `_step_to_dagmc_ocp`):**
+1. Load the source CAD with `STEPControl_Reader` or `IGESControl_Reader`
+2. Compute bounding-box diagonal; auto-adjust tolerance for very large models
+3. Tessellate with `BRepMesh_IncrementalMesh(shape, tolerance, parallel=True)`
+4. Iterate solids → faces → `Poly_Triangulation`; transform vertices and extract triangle indices
+5. Build MOAB entity sets with proper DAGMC tags and write H5M via `pymoab`
+
+**Why OpenCASCADE instead of Gmsh:** BRepMesh tessellates based on linear deflection from the true CAD surface, so triangle count scales correctly with tolerance. This produces meshes that are both faster to generate and more predictable in size.
 
 ---
 
