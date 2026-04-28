@@ -1724,3 +1724,283 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================================================
+   Faceting Tab
+   ============================================================================ */
+
+.dagmc-editor .faceting-tab .tab-subtitle {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dagmc-editor .faceting-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    padding: 16px;
+    animation: dagmc-slide-up 0.3s ease;
+}
+
+.dagmc-editor .faceting-card {
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dagmc-editor .faceting-card .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.dagmc-editor .faceting-card .card-title i {
+    color: var(--theia-focusBorder);
+}
+
+/* Current Parameters */
+.dagmc-editor .faceting-card .params-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.dagmc-editor .faceting-card .param-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dagmc-editor .faceting-card .param-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.dagmc-editor .faceting-card .param-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+}
+
+/* Tolerance Slider */
+.dagmc-editor .tolerance-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.dagmc-editor .tolerance-slider-row .slider-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    min-width: 40px;
+    text-align: center;
+}
+
+.dagmc-editor .tolerance-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: var(--theia-panel-border);
+    border-radius: 3px;
+    outline: none;
+}
+
+.dagmc-editor .tolerance-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--theia-focusBorder);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid var(--theia-input-background);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.dagmc-editor .tolerance-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--theia-focusBorder);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid var(--theia-input-background);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.dagmc-editor .tolerance-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dagmc-editor .tolerance-input-row label {
+    font-size: 12px;
+    color: var(--theia-foreground);
+    text-wrap: nowrap;
+}
+
+.dagmc-editor .tolerance-number-input {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    color: var(--theia-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: 13px;
+}
+
+.dagmc-editor .tolerance-number-input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+/* Estimate Card */
+.dagmc-editor .estimate-comparison {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dagmc-editor .estimate-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dagmc-editor .estimate-bar .bar-label {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    min-width: 60px;
+}
+
+.dagmc-editor .estimate-bar .bar-track {
+    flex: 1;
+    height: 10px;
+    background: var(--theia-input-background);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.dagmc-editor .estimate-bar .bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.4s ease;
+}
+
+.dagmc-editor .estimate-bar .bar-fill.current-fill {
+    background: var(--theia-focusBorder);
+}
+
+.dagmc-editor .estimate-bar .bar-fill.estimated-fill {
+    background: var(--theia-statusBarItem-remoteBackground, var(--theia-focusBorder));
+    opacity: 0.8;
+}
+
+.dagmc-editor .estimate-bar .bar-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    min-width: 70px;
+    text-align: right;
+    font-family: var(--theia-code-font-family);
+}
+
+.dagmc-editor .estimate-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--theia-inputValidation-warningForeground);
+    margin-top: 4px;
+}
+
+.dagmc-editor .estimate-warning i {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+/* Source CAD */
+.dagmc-editor .source-cad-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 6px;
+}
+
+.dagmc-editor .source-cad-info i {
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.dagmc-editor .source-cad-info .source-path {
+    flex: 1;
+    font-size: 12px;
+    color: var(--theia-foreground);
+    word-break: break-all;
+    font-family: var(--theia-code-font-family);
+}
+
+.dagmc-editor .source-cad-search .source-cad-actions {
+    margin-top: 10px;
+}
+
+/* Re-export */
+.dagmc-editor .re-export-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.dagmc-editor .re-export-header .disabled-reason {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.dagmc-editor .refacet-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--theia-inputValidation-errorBackground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--theia-inputValidation-errorForeground);
+    margin-top: 8px;
+}
+
+.dagmc-editor .refacet-error i {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+/* Responsive adjustments for Faceting tab */
+@media (max-width: 1000px) {
+    .dagmc-editor .faceting-panel {
+        grid-template-columns: 1fr;
+    }
+    
+    .dagmc-editor .faceting-card .params-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

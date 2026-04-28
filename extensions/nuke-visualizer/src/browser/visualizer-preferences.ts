@@ -39,13 +39,19 @@ export const VisualizerPreferenceSchema: PreferenceSchema = {
         'nukeVisualizer.serverTimeout': {
             type: 'number',
             default: 30,
-            description: 'Timeout in seconds to wait for visualizer server to start.'
+            description: 'Base timeout in seconds to wait for visualizer server to start.'
+        },
+        'nukeVisualizer.serverTimeoutPerMB': {
+            type: 'number',
+            default: 0.5,
+            description: 'Additional timeout per MB of file size for large DAGMC/CAD files.'
         }
     }
 };
 
 export interface VisualizerConfiguration {
     'nukeVisualizer.serverTimeout': number;
+    'nukeVisualizer.serverTimeoutPerMB': number;
 }
 
 export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceContribution');

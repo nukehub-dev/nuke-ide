@@ -12,13 +12,16 @@ When pydagmc is available, it also supports:
 """
 
 import os
+import sys
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Tuple, List, Any
 import hashlib
 
 
-def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
+def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None,
+                       return_count: bool = False) -> str | Tuple[str, int]:
     """
     Convert DAGMC .h5m file to VTK using pymoab.
     
@@ -29,11 +32,12 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     Args:
         h5m_path: Path to the input .h5m file
         output_dir: Optional directory for output file. If None, uses the same directory as input.
+        return_count: If True, also return the number of triangles.
         
     Returns:
-        Path to the generated .vtk file
+        Path to the generated .vtk file, or (path, triangle_count) if return_count=True.
     """
-    from pymoab import core
+    from pymoab import core, types
     
     h5m_path = Path(h5m_path)
     if not h5m_path.exists():
@@ -52,10 +56,106 @@ def convert_h5m_to_vtk(h5m_path: str, output_dir: str = None) -> str:
     print(f"[DAGMC] Converting {h5m_path.name} to VTK...")
     mb = core.Core()
     mb.load_file(str(h5m_path))
+
+    # Count triangles from MOAB directly
+    triangles = mb.get_entities_by_type(0, types.MBTRI)
+    n_cells = len(triangles)
+
     mb.write_file(str(output_path))
     
-    print(f"[DAGMC] Created: {output_path}")
+    print(f"[DAGMC] Created: {output_path} ({n_cells} triangles)")
+    if return_count:
+        return str(output_path), n_cells
     return str(output_path)
+
+
+def _volume_to_grid_numpy(volume, model, types, group_map):
+    """
+    Convert a single pydagmc volume to a VTK unstructured grid using numpy.
+    
+    Uses bulk MOAB queries and numpy vectorized deduplication instead of
+    per-triangle Python loops for much better performance.
+    
+    Returns:
+        (vtkUnstructuredGrid, num_unique_vertices, num_triangles) or None if empty.
+    """
+    import numpy as np
+    import vtk
+    from vtk.util import numpy_support
+
+    # Collect all triangle handles for this volume
+    all_tris = []
+    for surf in volume.surfaces:
+        tris = model.mb.get_entities_by_type(surf.handle, types.MBTRI)
+        if tris:
+            all_tris.extend(tris)
+
+    n_tris = len(all_tris)
+    if n_tris == 0:
+        return None
+
+    # Batch-fetch all vertex coordinates (shape: [n_tris, 3, 3])
+    verts = model.mb.get_connectivity(all_tris)
+    coords = model.mb.get_coords(verts).reshape(n_tris, 3, 3)
+
+    # Deduplicate vertices using numpy structured view
+    coords_flat = coords.reshape(-1, 3)
+    dtype = coords_flat.dtype
+    coords_view = coords_flat.view(np.dtype((np.void, dtype.itemsize * 3)))
+    _, unique_idx, inverse = np.unique(coords_view, return_index=True, return_inverse=True)
+
+    unique_coords = coords_flat[unique_idx]
+    tri_indices = inverse.reshape(n_tris, 3)
+
+    # Build VTK points array from numpy (zero-copy where possible)
+    points = vtk.vtkPoints()
+    points.SetData(numpy_support.numpy_to_vtk(unique_coords.astype(np.float64), deep=False))
+
+    # Build VTK cell array from numpy
+    cells_np = np.empty((n_tris, 4), dtype=np.int64)
+    cells_np[:, 0] = 3
+    cells_np[:, 1:4] = tri_indices
+
+    cells_vtk = numpy_support.numpy_to_vtk(cells_np.ravel(), deep=False,
+                                           array_type=vtk.VTK_ID_TYPE)
+    cell_array = vtk.vtkCellArray()
+    cell_array.SetCells(n_tris, cells_vtk)
+
+    # Assemble grid
+    grid = vtk.vtkUnstructuredGrid()
+    grid.SetPoints(points)
+    grid.SetCells(vtk.VTK_TRIANGLE, cell_array)
+
+    # Add metadata arrays using numpy bulk creation
+    vol_id = int(volume.id)
+    material = volume.material or 'void'
+
+    # volume_id array
+    vol_id_array = numpy_support.numpy_to_vtk(
+        np.full(n_tris, vol_id, dtype=np.int32), deep=False)
+    vol_id_array.SetName("volume_id")
+    grid.GetCellData().AddArray(vol_id_array)
+
+    # material string array
+    mat_array = vtk.vtkStringArray()
+    mat_array.SetName("material")
+    mat_array.SetNumberOfValues(n_tris)
+    mat_str = str(material)
+    for i in range(n_tris):
+        mat_array.SetValue(i, mat_str)
+    grid.GetCellData().AddArray(mat_array)
+
+    # groups string array
+    group_names = [g for g, vids in group_map.items() if vol_id in vids]
+    group_str = ','.join(group_names) if group_names else ''
+    group_array = vtk.vtkStringArray()
+    group_array.SetName("groups")
+    group_array.SetNumberOfValues(n_tris)
+    for i in range(n_tris):
+        group_array.SetValue(i, group_str)
+    grid.GetCellData().AddArray(group_array)
+
+    return grid, len(unique_coords), n_tris
 
 
 def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = None) -> str:
@@ -73,8 +173,6 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
     Returns:
         Path to the generated .vtk file
     """
-    import numpy as np
-    
     h5m_path = Path(h5m_path)
     if not h5m_path.exists():
         raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
@@ -94,50 +192,20 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
         raise ValueError(f"Volume {volume_id} not found in {h5m_path}")
     
     print(f"[DAGMC] Extracting volume {volume_id} ({volume.num_triangles} triangles)...")
-    
-    # Collect all triangles and vertices
-    triangles = []
-    vertex_map = {}
-    vertices = []
-    
-    for surf in volume.surfaces:
-        tris = model.mb.get_entities_by_type(surf.handle, types.MBTRI)
-        for tri in tris:
-            tri_verts = model.mb.get_connectivity(tri)
-            coords = model.mb.get_coords(tri_verts).reshape(-1, 3)
-            
-            # Map vertices to indices (deduplicate)
-            tri_indices = []
-            for coord in coords:
-                key = tuple(coord)
-                if key not in vertex_map:
-                    vertex_map[key] = len(vertices)
-                    vertices.append(coord)
-                tri_indices.append(vertex_map[key])
-            
-            triangles.append(tri_indices)
-    
-    if not triangles:
+
+    group_map = {}
+    for group in model.groups:
+        group_name = group.name
+        group_volumes = [int(v.id) for v in group.volumes]
+        if group_volumes:
+            group_map[group_name] = group_volumes
+
+    result = _volume_to_grid_numpy(volume, model, types, group_map)
+    if result is None:
         raise ValueError(f"Volume {volume_id} has no triangles")
-    
-    print(f"[DAGMC]   Unique vertices: {len(vertices)}, Triangles: {len(triangles)}")
-    
-    # Create VTK unstructured grid
-    import vtk
-    
-    points = vtk.vtkPoints()
-    for v in vertices:
-        points.InsertNextPoint(v)
-    
-    grid = vtk.vtkUnstructuredGrid()
-    grid.SetPoints(points)
-    
-    # Add triangles
-    for tri in triangles:
-        triangle = vtk.vtkTriangle()
-        for i, idx in enumerate(tri):
-            triangle.GetPointIds().SetId(i, idx)
-        grid.InsertNextCell(triangle.GetCellType(), triangle.GetPointIds())
+
+    grid, n_verts, n_tris = result
+    print(f"[DAGMC]   Unique vertices: {n_verts}, Triangles: {n_tris}")
     
     # Determine output path
     if output_path is None:
@@ -149,12 +217,13 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
             output_path = output_path.with_suffix('.vtu')
     
     # Write to file
+    import vtk
     writer = vtk.vtkXMLUnstructuredGridWriter()
     writer.SetFileName(str(output_path))
     writer.SetInputData(grid)
     writer.Write()
     
-    print(f"[DAGMC] Volume {volume_id} ({len(triangles)} triangles) -> {output_path}")
+    print(f"[DAGMC] Volume {volume_id} ({n_tris} triangles) -> {output_path}")
     return str(output_path)
 
 
@@ -175,7 +244,6 @@ def convert_h5m_to_multiblock_vtk(h5m_path: str, output_dir: str = None,
     Returns:
         Dict with 'vtm_path', 'volume_info', 'materials', 'groups'
     """
-    import numpy as np
     import vtk
     
     h5m_path = Path(h5m_path)
@@ -224,84 +292,23 @@ def convert_h5m_to_multiblock_vtk(h5m_path: str, output_dir: str = None,
         
         print(f"[DAGMC] Processing volume {vol_id} ({material}, {num_triangles} triangles)...")
         
-        # Collect triangles and vertices for this volume
-        triangles = []
-        vertex_map = {}
-        vertices = []
-        
-        for surf in volume.surfaces:
-            tris = model.mb.get_entities_by_type(surf.handle, types.MBTRI)
-            for tri in tris:
-                tri_verts = model.mb.get_connectivity(tri)
-                coords = model.mb.get_coords(tri_verts).reshape(-1, 3)
-                
-                tri_indices = []
-                for coord in coords:
-                    key = tuple(coord)
-                    if key not in vertex_map:
-                        vertex_map[key] = len(vertices)
-                        vertices.append(coord)
-                    tri_indices.append(vertex_map[key])
-                
-                triangles.append(tri_indices)
-        
-        if not triangles:
+        result = _volume_to_grid_numpy(volume, model, types, group_map)
+        if result is None:
             continue
-        
-        # Build VTK unstructured grid for this volume
-        points = vtk.vtkPoints()
-        for v in vertices:
-            points.InsertNextPoint(v)
-        
-        grid = vtk.vtkUnstructuredGrid()
-        grid.SetPoints(points)
-        
-        # Add triangles as cells
-        for tri in triangles:
-            triangle = vtk.vtkTriangle()
-            for i, idx in enumerate(tri):
-                triangle.GetPointIds().SetId(i, idx)
-            grid.InsertNextCell(triangle.GetCellType(), triangle.GetPointIds())
-        
-        # Add cell data arrays
-        n_cells = grid.GetNumberOfCells()
-        
-        # volume_id array
-        vol_id_array = vtk.vtkIntArray()
-        vol_id_array.SetName("volume_id")
-        vol_id_array.SetNumberOfValues(n_cells)
-        for i in range(n_cells):
-            vol_id_array.SetValue(i, vol_id)
-        grid.GetCellData().AddArray(vol_id_array)
-        
-        # material array (as string)
-        mat_array = vtk.vtkStringArray()
-        mat_array.SetName("material")
-        mat_array.SetNumberOfValues(n_cells)
-        for i in range(n_cells):
-            mat_array.SetValue(i, str(material))
-        grid.GetCellData().AddArray(mat_array)
-        
-        # group membership array (comma-separated group names)
-        group_names = [g for g, vids in group_map.items() if vol_id in vids]
-        group_str = ','.join(group_names) if group_names else ''
-        group_array = vtk.vtkStringArray()
-        group_array.SetName("groups")
-        group_array.SetNumberOfValues(n_cells)
-        for i in range(n_cells):
-            group_array.SetValue(i, group_str)
-        grid.GetCellData().AddArray(group_array)
+
+        grid, n_verts, n_tris = result
         
         # Add to multi-block
         multi_block.SetBlock(block_index, grid)
         multi_block.GetMetaData(block_index).Set(vtk.vtkCompositeDataSet.NAME(), f"Volume_{vol_id}")
         
         # Track volume info
+        group_names = [g for g, vids in group_map.items() if vol_id in vids]
         volume_info.append({
             'id': vol_id,
             'material': material,
             'numTriangles': num_triangles,
-            'numVertices': len(vertices),
+            'numVertices': n_verts,
             'groups': group_names,
             'blockIndex': block_index,
             'selector': f"/Root/Volume_{vol_id}"
@@ -441,18 +448,14 @@ def _compute_cell_surface_area(cell, points) -> float:
         return 0.0
     
     total_area = 0.0
-    
-    # Get all point coordinates
-    pts = []
-    for i in range(n_pts):
-        pt_id = cell.GetPointId(i)
-        pt = points.GetPoint(pt_id)
-        pts.append([pt[0], pt[1], pt[2]])
+    pt0 = np.array(points.GetPoint(cell.GetPointId(0)))
     
     # For a polygon with n vertices, triangulate as fan from vertex 0
     # Triangle fan: (0, 1, 2), (0, 2, 3), (0, 3, 4), ...
     for i in range(1, n_pts - 1):
-        total_area += _compute_triangle_area(pts[0], pts[i], pts[i + 1])
+        pt1 = np.array(points.GetPoint(cell.GetPointId(i)))
+        pt2 = np.array(points.GetPoint(cell.GetPointId(i + 1)))
+        total_area += _compute_triangle_area(pt0, pt1, pt2)
     
     return total_area
 
@@ -467,119 +470,146 @@ def _compute_max_edge_length(cell, points) -> float:
     
     max_length = 0.0
     
-    # Get all vertex coordinates
-    vertices = []
     for i in range(n_pts):
-        pt_id = cell.GetPointId(i)
-        pt = points.GetPoint(pt_id)
-        vertices.append(np.array([pt[0], pt[1], pt[2]]))
-    
-    # For polygon, check all edges
-    for i in range(n_pts):
-        pt1 = vertices[i]
-        pt2 = vertices[(i + 1) % n_pts]
+        pt1 = np.array(points.GetPoint(cell.GetPointId(i)))
+        pt2 = np.array(points.GetPoint(cell.GetPointId((i + 1) % n_pts)))
         length = np.linalg.norm(pt1 - pt2)
-        max_length = max(max_length, length)
+        if length > max_length:
+            max_length = length
     
     return max_length
 
 
-def filter_graveyard(vtk_path: str, output_path: str = None, 
+def filter_graveyard(vtk_path: str, output_path: str = None,
                      max_edge_length: float = 25.0,
                      max_cell_area: float = 1000.0) -> str:
     """
     Filter graveyard cells from a VTK file.
-    
+
     Graveyard surfaces are typically very large bounding boxes used in DAGMC
     for particle termination. They can obscure the actual geometry in visualization.
-    
+
     This function filters based on:
     1. Cell edge length - graveyard cells have very long edges (>40cm)
     2. Cell surface area - graveyard surfaces are very large
-    
+
+    Uses numpy vectorized operations for high performance on large meshes.
+
     Args:
         vtk_path: Path to the input VTK file
         output_path: Path for the filtered output. If None, appends '_filtered' to input name.
         max_edge_length: Maximum edge length to keep (default 25.0 cm)
         max_cell_area: Maximum cell surface area to keep (default 1000.0)
-        
+
     Returns:
         Path to the filtered VTK file
     """
     import vtk
     from vtk.util import numpy_support
     import numpy as np
-    
+
     vtk_path = Path(vtk_path)
     if not vtk_path.exists():
         raise FileNotFoundError(f"VTK file not found: {vtk_path}")
-    
+
     if output_path is None:
         output_path = vtk_path.parent / f"{vtk_path.stem}_filtered.vtk"
     else:
         output_path = Path(output_path)
-    
+
     print(f"[DAGMC] Loading VTK for graveyard filtering...")
-    
+
     reader = vtk.vtkUnstructuredGridReader()
     reader.SetFileName(str(vtk_path))
     reader.Update()
-    
+
     mesh = reader.GetOutput()
     n_cells = mesh.GetNumberOfCells()
     n_points = mesh.GetNumberOfPoints()
-    
+
     print(f"[DAGMC] Original: {n_cells} cells, {n_points} points")
-    
-    # Create filtered mesh
-    filtered = vtk.vtkUnstructuredGrid()
-    points = vtk.vtkPoints()
-    points.DeepCopy(mesh.GetPoints())
-    filtered.SetPoints(points)
-    
-    # Copy point data
-    point_data = mesh.GetPointData()
-    filtered.GetPointData().DeepCopy(point_data)
-    
-    # Filter cells
-    kept_cells = 0
-    skipped_line = 0
-    skipped_area = 0
-    
-    for i in range(n_cells):
-        cell = mesh.GetCell(i)
-        cell_type = cell.GetCellType()
-        
-        # Compute surface area
-        area = _compute_cell_surface_area(cell, points)
-        
-        # Different filtering strategy based on cell type:
-        # - LINE cells (edges): filter by edge length (graveyard edges are long)
-        # - TRIANGLE cells (surfaces): filter by area (side walls are large edges but small area)
-        
-        if cell_type == 3:  # VTK_LINE
-            max_edge = _compute_max_edge_length(cell, points)
-            if max_edge > max_edge_length:
-                skipped_line += 1
-                continue
-        elif cell_type == 5:  # VTK_TRIANGLE
-            if area > max_cell_area:
-                skipped_area += 1
-                continue
-        
-        # Keep this cell
-        filtered.InsertNextCell(cell.GetCellType(), cell.GetPointIds())
-        kept_cells += 1
-    
-    print(f"[DAGMC] Filtered: kept {kept_cells}, skipped {skipped_line + skipped_area} "
+
+    if n_cells == 0:
+        if str(output_path) != str(vtk_path):
+            shutil.copy2(vtk_path, output_path)
+        return str(output_path)
+
+    # Vectorized cell filtering using numpy
+    points = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())  # (n_points, 3)
+    cell_types = numpy_support.vtk_to_numpy(mesh.GetCellTypesArray())  # (n_cells,)
+
+    cell_array = mesh.GetCells()
+    offsets = numpy_support.vtk_to_numpy(cell_array.GetOffsetsArray())  # (n_cells + 1,)
+    connectivity = numpy_support.vtk_to_numpy(cell_array.GetConnectivityArray())  # flat
+
+    keep = np.ones(n_cells, dtype=bool)
+
+    # Process triangles (type 5) in bulk
+    tri_mask = cell_types == 5
+    n_tris = int(tri_mask.sum())
+    if n_tris > 0:
+        tri_offsets = offsets[:-1][tri_mask]
+        tri_idx = tri_offsets[:, None] + np.arange(3, dtype=np.int64)
+        tri_pts = connectivity[tri_idx]  # (n_tris, 3)
+
+        p0 = points[tri_pts[:, 0]]
+        p1 = points[tri_pts[:, 1]]
+        p2 = points[tri_pts[:, 2]]
+
+        areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+        keep[tri_mask] = areas <= max_cell_area
+
+    # Process lines (type 3) in bulk
+    line_mask = cell_types == 3
+    n_lines = int(line_mask.sum())
+    if n_lines > 0:
+        line_offsets = offsets[:-1][line_mask]
+        line_idx = line_offsets[:, None] + np.arange(2, dtype=np.int64)
+        line_pts = connectivity[line_idx]  # (n_lines, 2)
+
+        p0 = points[line_pts[:, 0]]
+        p1 = points[line_pts[:, 1]]
+
+        lengths = np.linalg.norm(p1 - p0, axis=1)
+        keep[line_mask] = lengths <= max_edge_length
+
+    skipped_area = int((tri_mask & ~keep).sum())
+    skipped_line = int((line_mask & ~keep).sum())
+    kept_cells = int(keep.sum())
+
+    print(f"[DAGMC] Filtered: keeping {kept_cells}, skipping {skipped_line + skipped_area} "
           f"({skipped_line} lines by edge, {skipped_area} triangles by area)")
-    
+
+    if kept_cells == n_cells:
+        # Nothing was filtered; just copy to output path
+        if str(output_path) != str(vtk_path):
+            shutil.copy2(vtk_path, output_path)
+        return str(output_path)
+
+    # Use vtkExtractCells for efficient bulk extraction (avoids DeepCopy + per-cell InsertNextCell)
+    kept_ids = np.nonzero(keep)[0].astype(np.int64)
+
+    selection = vtk.vtkSelection()
+    node = vtk.vtkSelectionNode()
+    node.SetFieldType(vtk.vtkSelectionNode.CELL)
+    node.SetContentType(vtk.vtkSelectionNode.INDICES)
+    id_array = numpy_support.numpy_to_vtk(kept_ids, deep=False)
+    node.SetSelectionList(id_array)
+    selection.AddNode(node)
+
+    extract = vtk.vtkExtractSelection()
+    extract.SetInputData(0, mesh)
+    extract.SetInputData(1, selection)
+    extract.Update()
+
+    filtered = vtk.vtkUnstructuredGrid.SafeDownCast(extract.GetOutput())
+
     # Write filtered mesh
     writer = vtk.vtkUnstructuredGridWriter()
     writer.SetFileName(str(output_path))
     writer.SetInputData(filtered)
     writer.Write()
-    
+
     print(f"[DAGMC] Created: {output_path}")
     return str(output_path)
 
@@ -633,6 +663,7 @@ def convert_h5m_to_vtk_cached(h5m_path: str, use_cache: bool = True,
         cache_dir: Optional cache directory. Uses system temp dir if None.
         do_filter_graveyard: Whether to filter out graveyard surfaces (default True)
         max_cell_area: Maximum cell surface area to keep (default 1000.0)
+        max_edge_length: Maximum edge length to keep (default 35.0)
         
     Returns:
         Dict with 'vtk_path', 'from_cache', and 'original_cells', 'filtered_cells' info
@@ -657,18 +688,13 @@ def convert_h5m_to_vtk_cached(h5m_path: str, use_cache: bool = True,
     else:
         cache_path = None
     
-    # Convert H5M to VTK
+    # Convert H5M to VTK (returns path + triangle count from MOAB)
     if cache_path:
-        vtk_path = convert_h5m_to_vtk(str(h5m_path), output_dir=Path(cache_path).parent)
+        vtk_path, n_cells = convert_h5m_to_vtk(str(h5m_path), output_dir=Path(cache_path).parent, return_count=True)
     else:
-        vtk_path = convert_h5m_to_vtk(str(h5m_path))
+        vtk_path, n_cells = convert_h5m_to_vtk(str(h5m_path), return_count=True)
     
-    # Count original cells
-    import vtk
-    reader = vtk.vtkUnstructuredGridReader()
-    reader.SetFileName(vtk_path)
-    reader.Update()
-    result['original_cells'] = reader.GetOutput().GetNumberOfCells()
+    result['original_cells'] = n_cells
     
     # Filter graveyard if requested
     if do_filter_graveyard:
@@ -677,15 +703,15 @@ def convert_h5m_to_vtk_cached(h5m_path: str, use_cache: bool = True,
                                          max_edge_length=max_edge_length)
         result['vtk_path'] = filtered_path
         
-        # Count filtered cells
-        reader2 = vtk.vtkUnstructuredGridReader()
-        reader2.SetFileName(filtered_path)
-        reader2.Update()
-        result['filtered_cells'] = reader2.GetOutput().GetNumberOfCells()
+        # Count filtered cells using VTK (much smaller dataset after filtering)
+        import vtk
+        reader = vtk.vtkUnstructuredGridReader()
+        reader.SetFileName(filtered_path)
+        reader.Update()
+        result['filtered_cells'] = reader.GetOutput().GetNumberOfCells()
     else:
         # Copy to cache location for unfiltered version
-        if cache_path and vtk_path != cache_path:
-            import shutil
+        if cache_path and str(vtk_path) != str(cache_path):
             shutil.copy2(vtk_path, cache_path)
             result['vtk_path'] = cache_path
         else:

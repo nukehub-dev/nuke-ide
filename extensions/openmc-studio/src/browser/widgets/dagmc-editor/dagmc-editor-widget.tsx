@@ -117,7 +117,7 @@ interface DAGMCModelData {
 }
 
 /** Active tab in the DAGMC editor. */
-type EditorTab = 'volumes' | 'materials' | 'groups' | 'properties';
+type EditorTab = 'volumes' | 'materials' | 'groups' | 'properties' | 'faceting';
 
 /**
  * Visual editor for DAGMC faceted geometry files.
@@ -178,6 +178,14 @@ export class DAGMCEditorWidget extends ReactWidget {
     private newGroupName = '';
     private showCreateGroup = false;
 
+    // Faceting state
+    private facetingParams: { facetingTolerance: number; totalTriangles: number; volumeCount: number } | null = null;
+    private facetingToleranceInput = 0.001;
+    private estimatedTriangles: number | null = null;
+    private sourceCadPath = '';
+    private isRefaceting = false;
+    private refacetError?: string;
+
     /**
      * Initialize widget id, title, and state change listeners.
      */
@@ -210,6 +218,31 @@ export class DAGMCEditorWidget extends ReactWidget {
     protected onAfterShow(msg: any): void {
         super.onAfterShow(msg);
         this.visibilityHandle = this.statusBarVisibility.requestVisibility('openmc-studio');
+    }
+
+    /**
+     * Intercept close request to cancel any running re-faceting operation.
+     */
+    protected async onCloseRequest(msg: any): Promise<void> {
+        if (this.isRefaceting) {
+            const confirmed = await new ConfirmDialog({
+                title: 'Re-faceting in Progress',
+                msg: 'A re-faceting operation is currently running. Closing the editor will cancel it.\n\nClose anyway?',
+                ok: 'Close and Cancel',
+                cancel: 'Keep Open'
+            }).open();
+            if (!confirmed) {
+                return; // Don't close
+            }
+            // Kill the Python process
+            try {
+                await this.backendService.dagmcCancelRefacet();
+            } catch {
+                // ignore
+            }
+            this.isRefaceting = false;
+        }
+        super.onCloseRequest(msg);
     }
 
     /**
@@ -400,7 +433,8 @@ export class DAGMCEditorWidget extends ReactWidget {
             { id: 'volumes', label: 'Volumes', icon: 'package', count: this.modelData?.volumeCount },
             { id: 'materials', label: 'Materials', icon: 'symbol-color', count: Object.keys(this.modelData?.materials || {}).length },
             { id: 'groups', label: 'Groups', icon: 'folder', count: this.modelData?.groups.length },
-            { id: 'properties', label: 'Properties', icon: 'info' }
+            { id: 'properties', label: 'Properties', icon: 'info' },
+            { id: 'faceting', label: 'Faceting', icon: 'settings-gear' }
         ];
 
         return (
@@ -472,6 +506,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     {this.activeTab === 'materials' && this.renderMaterialsTab()}
                     {this.activeTab === 'groups' && this.renderGroupsTab()}
                     {this.activeTab === 'properties' && this.renderPropertiesTab()}
+                    {this.activeTab === 'faceting' && this.renderFacetingTab()}
                 </div>
             </div>
         );
@@ -1147,6 +1182,340 @@ export class DAGMCEditorWidget extends ReactWidget {
     }
 
     /**
+     * Render the faceting tab with tolerance controls and re-export.
+     * @returns Faceting tab React node.
+     */
+    private renderFacetingTab(): React.ReactNode {
+        if (!this.modelData) return null;
+
+        const currentTol = this.facetingParams?.facetingTolerance ?? 0.001;
+        const currentTri = this.facetingParams?.totalTriangles ?? this.modelData.vertices;
+        const estimatedTri = this.estimatedTriangles ?? currentTri;
+        const canRefacet = !!this.sourceCadPath && !this.isRefaceting;
+
+        return (
+            <div className='faceting-tab dagmc-tab-content'>
+                <div className='dagmc-tab-header'>
+                    <h3><i className='codicon codicon-settings-gear'></i> Faceting Parameters</h3>
+                    <p className='tab-subtitle'>Control mesh density by adjusting the faceting tolerance</p>
+                </div>
+
+                <div className='faceting-panel'>
+                    {/* Current Parameters Card */}
+                    <div className='faceting-card current-params'>
+                        <div className='card-title'><i className='codicon codicon-info'></i> Current Parameters</div>
+                        <div className='params-grid'>
+                            <div className='param-item'>
+                                <span className='param-label'>Faceting Tolerance</span>
+                                <span className='param-value'>{currentTol.toFixed(4)} cm</span>
+                            </div>
+                            <div className='param-item'>
+                                <span className='param-label'>Total Triangles</span>
+                                <span className='param-value'>{this.formatNumberCompact(currentTri)}</span>
+                            </div>
+                            <div className='param-item'>
+                                <span className='param-label'>Volumes</span>
+                                <span className='param-value'>{this.modelData.volumeCount}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tolerance Adjustment */}
+                    <div className='faceting-card tolerance-control'>
+                        <div className='card-title'><i className='codicon codicon-settings'></i> Adjust Tolerance</div>
+                        <div className='tolerance-slider-row'>
+                            <span className='slider-label'>Coarse</span>
+                            <input
+                                type='range'
+                                className='tolerance-slider'
+                                min={-4}
+                                max={1}
+                                step={0.1}
+                                value={Math.log10(this.facetingToleranceInput)}
+                                onChange={e => this.handleToleranceChange(Math.pow(10, parseFloat(e.target.value)))}
+                            />
+                            <span className='slider-label'>Fine</span>
+                        </div>
+                        <div className='tolerance-input-row'>
+                            <label>Tolerance (cm):</label>
+                            <input
+                                type='number'
+                                className='tolerance-number-input'
+                                value={this.facetingToleranceInput}
+                                min={0.0001}
+                                max={10.0}
+                                step={0.0001}
+                                onChange={e => this.handleToleranceChange(parseFloat(e.target.value))}
+                            />
+                        </div>
+                        <p className='hint'>Smaller tolerance = more triangles = finer mesh</p>
+                    </div>
+
+                    {/* Estimate Card */}
+                    <div className='faceting-card estimate-card'>
+                        <div className='card-title'><i className='codicon codicon-graph'></i> Triangle Estimate</div>
+                        <div className='estimate-comparison'>
+                            <div className='estimate-bar current'>
+                                <span className='bar-label'>Current</span>
+                                <div className='bar-track'>
+                                    <div
+                                        className='bar-fill current-fill'
+                                        style={{ width: `${Math.min(100, (currentTri / Math.max(currentTri, estimatedTri)) * 100)}%` }}
+                                    />
+                                </div>
+                                <span className='bar-value'>{this.formatNumberCompact(currentTri)}</span>
+                            </div>
+                            <div className='estimate-bar estimated'>
+                                <span className='bar-label'>Estimated</span>
+                                <div className='bar-track'>
+                                    <div
+                                        className='bar-fill estimated-fill'
+                                        style={{ width: `${Math.min(100, (estimatedTri / Math.max(currentTri, estimatedTri)) * 100)}%` }}
+                                    />
+                                </div>
+                                <span className='bar-value'>{this.formatNumberCompact(estimatedTri)}</span>
+                            </div>
+                        </div>
+                        {this.estimatedTriangles !== null && this.estimatedTriangles > currentTri * 5 && (
+                            <div className='estimate-warning'>
+                                <i className='codicon codicon-warning'></i>
+                                Very fine mesh may take a long time to generate and use significant memory.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Source CAD Section */}
+                    <div className='faceting-card source-cad'>
+                        <div className='card-title'><i className='codicon codicon-file-code'></i> Source CAD File</div>
+                        {this.sourceCadPath ? (
+                            <div className='source-cad-info'>
+                                <i className='codicon codicon-check'></i>
+                                <span className='source-path'>{this.sourceCadPath}</span>
+                                <Tooltip content='Remove selected source CAD' position='top'>
+                                    <button
+                                        className='theia-button secondary small'
+                                        onClick={() => { this.sourceCadPath = ''; this.update(); }}
+                                    >
+                                        Clear
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        ) : (
+                            <div className='source-cad-search'>
+                                <p className='hint'>
+                                    Re-faceting requires the original CAD source file (STEP, IGES, etc.).
+                                </p>
+                                <div className='source-cad-actions'>
+                                    <Tooltip content='Select original STEP/IGES/BREP file' position='top'>
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={() => this.browseForSourceCad()}
+                                        >
+                                            <i className='codicon codicon-folder-opened'></i> Browse for CAD File
+                                        </button>
+                                    </Tooltip>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Re-export Action */}
+                    <div className='faceting-card re-export'>
+                        <div className='re-export-header'>
+                            <div>
+                                <Tooltip
+                                    content={canRefacet ? 'Generate new H5M from source CAD' : 'Select a source CAD file first'}
+                                    position='top'
+                                >
+                                    <button
+                                        className='theia-button primary'
+                                        disabled={!canRefacet}
+                                        onClick={() => this.handleRefacet()}
+                                    >
+                                        {this.isRefaceting ? (
+                                            <><i className='codicon codicon-loading codicon-modifier-spin'></i> Re-exporting...</>
+                                        ) : (
+                                            <><i className='codicon codicon-export'></i> Re-export with New Tolerance</>
+                                        )}
+                                    </button>
+                                </Tooltip>
+                                {!this.sourceCadPath && (
+                                    <span className='disabled-reason'>Select a source CAD file to enable re-export</span>
+                                )}
+                            </div>
+                        </div>
+                        {this.refacetError && (
+                            <div className='refacet-error'>
+                                <i className='codicon codicon-error'></i> {this.refacetError}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * Auto-detect a source CAD file with the same basename as the current H5M.
+     */
+    private async autoDetectSourceCad(): Promise<void> {
+        if (!this.modelData) return;
+        const baseName = this.modelData.fileName.replace(/\.h5m$/i, '');
+        const dir = this.modelData.filePath.substring(0, this.modelData.filePath.lastIndexOf('/'));
+        const cadExtensions = ['.stp', '.step', '.brep', '.iges', '.igs'];
+
+        for (const ext of cadExtensions) {
+            const candidate = `${dir}/${baseName}${ext}`;
+            try {
+                const exists = await this.fileService.exists(new URI(candidate));
+                if (exists) {
+                    this.sourceCadPath = candidate;
+                    this.update();
+                    return;
+                }
+            } catch {
+                // Ignore errors
+            }
+        }
+        // Also try common naming patterns (e.g., tokamak.h5m -> tokamak_with_divertor.step)
+        // by listing files in the directory
+        try {
+            const dirUri = new URI(dir);
+            const entries = await this.fileService.resolve(dirUri);
+            if (entries.children) {
+                for (const child of entries.children) {
+                    const name = child.resource.path.base;
+                    const lowerName = name.toLowerCase();
+                    if (cadExtensions.some(ext => lowerName.endsWith(ext))) {
+                        // Check if the CAD file name contains the H5M basename
+                        if (lowerName.includes(baseName.toLowerCase()) || baseName.toLowerCase().includes(name.replace(/\.[^.]+$/, '').toLowerCase())) {
+                            this.sourceCadPath = child.resource.path.toString();
+                            this.update();
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Ignore errors
+        }
+    }
+
+    /**
+     * Load faceting parameters from the current DAGMC file.
+     */
+    private async loadFacetingParams(): Promise<void> {
+        if (!this.modelData?.filePath) return;
+        try {
+            const result = await this.backendService.dagmcGetFacetingParams(this.modelData.filePath);
+            if (result.success && result.data) {
+                this.facetingParams = result.data;
+                // Default the new-tolerance input to a practical value.
+                // For large models (>100K triangles) with very fine stored tolerance,
+                // default to 1.0 cm to avoid suggesting an impossibly fine mesh.
+                const storedTol = result.data.facetingTolerance;
+                const isLargeModel = result.data.totalTriangles > 100000;
+                const defaultTol = (storedTol < 1.0 && isLargeModel) ? 1.0 : storedTol;
+                this.facetingToleranceInput = defaultTol;
+                // Compute estimate for the defaulted tolerance
+                this.estimatedTriangles = Math.round(
+                    result.data.totalTriangles * Math.pow(storedTol / defaultTol, 2)
+                );
+                this.update();
+            }
+        } catch (e) {
+            console.error('Failed to load faceting params:', e);
+        }
+    }
+
+    /**
+     * Handle tolerance input change and update the estimate.
+     * @param value - New tolerance value.
+     */
+    private async handleToleranceChange(value: number): Promise<void> {
+        if (isNaN(value) || value <= 0) return;
+        this.facetingToleranceInput = value;
+
+        if (this.modelData?.filePath) {
+            try {
+                const result = await this.backendService.dagmcGetFacetingParams(this.modelData.filePath);
+                if (result.success && result.data) {
+                    const currentTol = result.data.facetingTolerance;
+                    const currentTri = result.data.totalTriangles;
+                    this.estimatedTriangles = Math.round(currentTri * Math.pow(currentTol / value, 2));
+                }
+            } catch (e) {
+                // Fallback: use cached params
+                const currentTol = this.facetingParams?.facetingTolerance ?? 0.001;
+                const currentTri = this.facetingParams?.totalTriangles ?? this.modelData.vertices;
+                this.estimatedTriangles = Math.round(currentTri * Math.pow(currentTol / value, 2));
+            }
+        }
+        this.update();
+    }
+
+    /**
+     * Browse for a source CAD file.
+     */
+    private async browseForSourceCad(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Select Source CAD File',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: {
+                'CAD Files': ['stp', 'step', 'brep', 'iges', 'igs'],
+                'All Files': ['*']
+            }
+        };
+
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (uri) {
+            this.sourceCadPath = uri.path.toString();
+            this.update();
+        }
+    }
+
+    /**
+     * Trigger re-faceting with the current tolerance and source CAD.
+     */
+    private async handleRefacet(): Promise<void> {
+        if (!this.modelData?.filePath || !this.sourceCadPath) return;
+
+        this.isRefaceting = true;
+        this.refacetError = undefined;
+        this.update();
+
+        try {
+            const result = await this.backendService.dagmcRefacet(
+                this.modelData.filePath,
+                this.sourceCadPath,
+                this.facetingToleranceInput
+            );
+
+            if (result.success && result.data) {
+                this.messageService.info(`Re-faceted geometry saved to ${result.data.outputPath}`);
+                // Optionally load the new file
+                const loadNew = await new ConfirmDialog({
+                    title: 'Re-faceting Complete',
+                    msg: `New file created: ${result.data.outputPath}\n\nLoad the re-faceted file in the editor?`,
+                    ok: 'Yes, Load It',
+                    cancel: 'Keep Current'
+                }).open();
+                if (loadNew) {
+                    await this.loadDagmcFile(result.data.outputPath);
+                }
+            } else {
+                this.refacetError = result.error || 'Re-faceting failed';
+            }
+        } catch (e) {
+            this.refacetError = String(e);
+        } finally {
+            this.isRefaceting = false;
+            this.update();
+        }
+    }
+
+    /**
      * Format a large number with compact suffix (k, M).
      * @param num - Number to format.
      * @returns Formatted string.
@@ -1268,6 +1637,8 @@ export class DAGMCEditorWidget extends ReactWidget {
                     }
                 };
                 this.messageService.info(`Loaded ${result.data.volumeCount} volumes from ${result.data.fileName}`);
+                this.loadFacetingParams();
+                this.autoDetectSourceCad();
             } else {
                 // If we already have model data from state, show a warning instead
                 // of blocking the entire UI with an error page.

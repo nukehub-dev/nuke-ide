@@ -8,13 +8,14 @@ OpenCASCADE kernel. It generates a 2D surface mesh (suitable for visualization).
 import os
 import sys
 import tempfile
+import multiprocessing
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import hashlib
 
 
 def convert_step_to_vtk(step_path: str, output_dir: str = None,
-                        mesh_size_max: float = 10.0) -> str:
+                        mesh_size_max: float = 10.0) -> Dict:
     """
     Convert a STEP/STP/BREP file to VTK using gmsh.
 
@@ -27,7 +28,7 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
         mesh_size_max: Maximum mesh element size (default 10.0)
 
     Returns:
-        Path to the generated .vtk file
+        Dict with 'vtk_path', 'num_nodes', 'num_elements'
     """
     try:
         import gmsh
@@ -57,6 +58,7 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
         gmsh.option.setNumber("Mesh.MeshSizeMin", mesh_size_max * 0.05)
         gmsh.option.setNumber("Mesh.Optimize", 1)
         gmsh.option.setNumber("Mesh.QualityType", 2)
+        gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
 
         # Load the STEP file
         gmsh.open(str(step_path))
@@ -69,7 +71,7 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
         # Generate 2D surface mesh
         gmsh.model.mesh.generate(2)
 
-        # Get mesh stats
+        # Get mesh stats before clearing
         nodes = gmsh.model.mesh.getNodes()
         num_nodes = len(nodes[0])
         elems = gmsh.model.mesh.getElements()
@@ -80,10 +82,17 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
         gmsh.write(str(output_path))
         print(f"[STEP] Created: {output_path}")
 
+        # Clear mesh from gmsh memory immediately
+        gmsh.model.mesh.clear()
+
     finally:
         gmsh.finalize()
 
-    return str(output_path)
+    return {
+        'vtk_path': str(output_path),
+        'num_nodes': num_nodes,
+        'num_elements': num_elems
+    }
 
 
 def get_cache_path(step_path: str, cache_dir: str = None) -> Tuple[str, bool]:
@@ -106,7 +115,7 @@ def get_cache_path(step_path: str, cache_dir: str = None) -> Tuple[str, bool]:
 
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Compute hash based on file content (first 1MB) + modification time
+    # Compute hash based on file name + size + modification time
     stat = step_path.stat()
     hash_input = f"{step_path.name}:{stat.st_size}:{stat.st_mtime}"
     file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
@@ -147,34 +156,36 @@ def convert_step_to_vtk_cached(step_path: str, use_cache: bool = True,
             print(f"[STEP] Using cached VTK: {cache_path}")
             result['vtk_path'] = cache_path
             result['from_cache'] = True
+            # Count nodes/elements from cached file using VTK (only when needed)
+            try:
+                import vtk as vtk_module
+                reader = vtk_module.vtkUnstructuredGridReader()
+                reader.SetFileName(cache_path)
+                reader.Update()
+                mesh = reader.GetOutput()
+                result['num_nodes'] = mesh.GetNumberOfPoints()
+                result['num_elements'] = mesh.GetNumberOfCells()
+            except Exception:
+                pass
             return result
     else:
         cache_path = None
 
     # Convert STEP to VTK
-    if cache_path:
-        vtk_path = convert_step_to_vtk(str(step_path), output_dir=Path(cache_path).parent,
-                                       mesh_size_max=mesh_size_max)
-        # Move/rename to cache path if different
-        if Path(vtk_path) != Path(cache_path):
-            import shutil
-            shutil.move(vtk_path, cache_path)
-            result['vtk_path'] = cache_path
-        else:
-            result['vtk_path'] = vtk_path
-    else:
-        result['vtk_path'] = convert_step_to_vtk(str(step_path), mesh_size_max=mesh_size_max)
+    conv = convert_step_to_vtk(str(step_path),
+                               output_dir=Path(cache_path).parent if cache_path else None,
+                               mesh_size_max=mesh_size_max)
 
-    # Count mesh stats from output
-    try:
-        import vtk as vtk_module
-        reader = vtk_module.vtkUnstructuredGridReader()
-        reader.SetFileName(result['vtk_path'])
-        reader.Update()
-        mesh = reader.GetOutput()
-        result['num_nodes'] = mesh.GetNumberOfPoints()
-        result['num_elements'] = mesh.GetNumberOfCells()
-    except Exception:
-        pass
+    vtk_path = conv['vtk_path']
+    result['num_nodes'] = conv['num_nodes']
+    result['num_elements'] = conv['num_elements']
+
+    # Move/rename to cache path if different
+    if cache_path and Path(vtk_path) != Path(cache_path):
+        import shutil
+        shutil.move(vtk_path, cache_path)
+        result['vtk_path'] = cache_path
+    else:
+        result['vtk_path'] = vtk_path
 
     return result

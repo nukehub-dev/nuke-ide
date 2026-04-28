@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import vtk
 
 from plugins.base.lib.common import (
-    find_free_port, check_trame_dependencies,
+    find_free_port, verify_or_find_port, check_trame_dependencies,
     hex_to_rgb, get_data_bounds, calculate_camera_position,
     create_update_view, create_reset_camera_controller,
     create_set_camera_view_controller,
@@ -110,6 +110,8 @@ def visualize_dagmc(h5m_file: str, port: int = None, theme: str = 'dark',
 
     # Create trame server
     actual_port = port or find_free_port()
+    actual_port = verify_or_find_port(actual_port)
+    print(f"ACTUAL_PORT: {actual_port}")
     server = get_server(client_type="vue2", port=actual_port)
     state = server.state
     ctrl = server.controller

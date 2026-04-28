@@ -684,6 +684,30 @@ export interface OpenMCStudioBackendService {
         message?: string;
         error?: string;
     }>;
+
+    /** Get faceting parameters from a DAGMC file */
+    dagmcGetFacetingParams(filePath: string): Promise<{
+        success: boolean;
+        data?: {
+            facetingTolerance: number;
+            totalTriangles: number;
+            volumeCount: number;
+        };
+        error?: string;
+    }>;
+
+    /** Re-export a DAGMC file from source CAD with new faceting tolerance */
+    dagmcRefacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<{
+        success: boolean;
+        data?: {
+            outputPath: string;
+            message?: string;
+        };
+        error?: string;
+    }>;
+
+    /** Cancel any active re-faceting operation */
+    dagmcCancelRefacet(): Promise<void>;
     
     // === Optimization Framework ===
     

@@ -276,6 +276,16 @@ def find_free_port(start_port: int = 8080, max_port: int = 9000) -> int:
     raise RuntimeError(f"No free port found in range {start_port}-{max_port}")
 
 
+def verify_or_find_port(preferred_port: int, fallback_start: int = 8080, fallback_max: int = 9000) -> int:
+    """Verify a preferred port is free; if not, find an alternative."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('', preferred_port))
+            return preferred_port
+        except OSError:
+            return find_free_port(fallback_start, fallback_max)
+
+
 def hex_to_rgb(hex_color: str) -> Optional[List[float]]:
     """Convert hex color to RGB list [r, g, b] with values 0-1."""
     try:

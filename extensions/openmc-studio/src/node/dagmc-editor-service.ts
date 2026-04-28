@@ -74,6 +74,31 @@ export interface DAGMCEditorOperationResult {
     error?: string;
 }
 
+export interface DAGMCFacetingParamsResult {
+    success: boolean;
+    data?: {
+        facetingTolerance: number;
+        totalTriangles: number;
+        volumeCount: number;
+    };
+    error?: string;
+}
+
+export interface DAGMCRefacetResult {
+    success: boolean;
+    data?: {
+        outputPath: string;
+        message?: string;
+    };
+    error?: string;
+}
+
+/** Child process reference for active re-faceting operation */
+export interface RefacetJob {
+    process: any;
+    startTime: number;
+}
+
 /**
  * DAGMC Editor Backend Service
  *
@@ -91,6 +116,7 @@ export class DAGMCEditorService {
 
     private pythonPath?: string;
     private scriptPath?: string;
+    private activeRefacetJob?: RefacetJob;
 
     /**
      * Initialize the service by finding Python and the dagmc_editor_service.py script.
@@ -375,6 +401,150 @@ export class DAGMCEditorService {
                 resolve({ success: false, error: `Process error: ${error.message}` });
             });
         });
+    }
+
+    /**
+     * Get faceting parameters from a DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Faceting tolerance and triangle count
+     */
+    async getFacetingParams(filePath: string): Promise<DAGMCFacetingParamsResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'get_faceting_params', filePath];
+            
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                if (code !== 0) {
+                    resolve({ success: false, error: `Process exited with code ${code}` });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
+                    
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCFacetingParamsResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Re-export a DAGMC file from source CAD with a new faceting tolerance.
+     * @param filePath - Path to existing DAGMC .h5m file
+     * @param sourceCadPath - Path to source CAD file (STEP/STP/etc.)
+     * @param tolerance - Desired faceting tolerance
+     * @returns Operation result with output file path
+     */
+    async refacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<DAGMCRefacetResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        // Kill any previous refacet job
+        this.cancelRefacet();
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'refacet', filePath, sourceCadPath, String(tolerance)];
+            
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            this.activeRefacetJob = {
+                process: childProcess,
+                startTime: Date.now()
+            };
+
+            let stdout = '';
+            let stderr = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                this.activeRefacetJob = undefined;
+                if (code !== 0) {
+                    resolve({
+                        success: false,
+                        error: `Process exited with code ${code}: ${stderr || stdout}`
+                    });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
+                    
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCRefacetResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                this.activeRefacetJob = undefined;
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Cancel any active re-faceting operation by killing the child process.
+     */
+    cancelRefacet(): void {
+        if (this.activeRefacetJob) {
+            try {
+                this.activeRefacetJob.process.kill('SIGTERM');
+            } catch {
+                // ignore kill errors
+            }
+            this.activeRefacetJob = undefined;
+        }
     }
 
     /**

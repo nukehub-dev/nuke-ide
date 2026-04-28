@@ -30,6 +30,8 @@ import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process
 import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
 import * as fs from 'fs';
 import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
 import { execSync } from 'child_process';
 import { 
     VisualizerBackendService, 
@@ -85,6 +87,25 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         this.client?.error(message);
     }
 
+    /**
+     * Read a user preference from Theia's settings file (~/.theia/settings.json).
+     * Falls back to defaultValue if the file or preference is not found.
+     */
+    private getUserPreference<T>(name: string, defaultValue: T): T {
+        try {
+            const settingsPath = path.join(os.homedir(), '.theia', 'settings.json');
+            if (!fs.existsSync(settingsPath)) {
+                return defaultValue;
+            }
+            const content = fs.readFileSync(settingsPath, 'utf-8');
+            const settings = JSON.parse(content);
+            const value = settings[name];
+            return value !== undefined ? value : defaultValue;
+        } catch {
+            return defaultValue;
+        }
+    }
+
     async onStop?(): Promise<void> {
         console.log('[VisualizerBackend] Shutting down, cleaning up all processes...');
         const ports = Array.from(this.processes.keys());
@@ -96,15 +117,17 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
     async startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
         const port = await this.findFreePort(8080);
         this.reservedPorts.add(port);
-        
+        // Capture process.env before local 'process' variable shadows it
+        const nodeEnv = process.env;
+
         try {
             // Find the Python script
             const pythonScript = this.pythonHelper.findScript('server.py');
-            
+
             // Detect Python command
             const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
             const warning = pythonInfo.warning;
-            
+
             const args: string[] = [pythonScript, 'base.serve', '--port', port.toString()];
             if (filePath) {
                 args.push('--file', filePath);
@@ -119,42 +142,70 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             const processOptions: RawProcessOptions = {
                 command: pythonInfo.command,
                 args,
+                options: {
+                    env: { ...nodeEnv, PYTHONUNBUFFERED: '1' }
+                }
             };
 
             this.log(`Starting server on port ${port} for ${filePath || 'default'}`);
-            const process = this.rawProcessFactory(processOptions);
-            
-            // Track the process
-            this.processes.set(port, process);
-            
+            const proc = this.rawProcessFactory(processOptions);
+
+            // Use a mutable port label so log messages and cleanup stay correct
+            // if Python falls back to a different port.
+            const portLabel = { value: port };
+            this.processes.set(port, proc);
+
             this.log(`[Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
 
             // Collect output for logging/debugging
-            process.outputStream.on('data', (data: Buffer) => {
+            proc.outputStream.on('data', (data: Buffer) => {
                 const line = data.toString().trim();
-                this.log(`[Server ${port}] ${line}`);
+                this.log(`[Server ${portLabel.value}] ${line}`);
             });
 
-            process.errorStream.on('data', (data: Buffer) => {
+            proc.errorStream.on('data', (data: Buffer) => {
                 const line = data.toString().trim();
-                this.errorLog(`[Server ${port}] ERROR: ${line}`);
+                this.errorLog(`[Server ${portLabel.value}] ERROR: ${line}`);
             });
 
-            process.onExit((event: { code?: number; signal?: string }) => {
-                this.log(`[Server ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
-                this.client?.onServerStop(port);
-            });
+            const exitHandler = (event: { code?: number; signal?: string }) => {
+                this.log(`[Server ${portLabel.value}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(portLabel.value);
+                this.reservedPorts.delete(portLabel.value);
+                this.client?.onServerStop(portLabel.value);
+            };
+            const exitDisposable = proc.onExit(exitHandler);
 
             // Wait for server to be ready
             try {
-                await this.waitForServer(port, process);
-                return { port, url: `http://127.0.0.1:${port}`, warning };
+                // Compute timeout from user preferences + file size
+                const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
+                const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
+                let timeoutMs = baseTimeoutSec * 1000;
+                if (filePath && fs.existsSync(filePath)) {
+                    const stats = fs.statSync(filePath);
+                    const fileSizeMB = stats.size / (1024 * 1024);
+                    timeoutMs = Math.max(
+                        baseTimeoutSec * 1000,
+                        Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+                    );
+                    this.log(`[Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
+                }
+                const actualPort = await this.waitForServer(port, proc, timeoutMs);
+                if (actualPort !== port) {
+                    this.log(`Server fell back from requested port ${port} to actual port ${actualPort}`);
+                    portLabel.value = actualPort;
+                    this.processes.delete(port);
+                    this.processes.set(actualPort, proc);
+                    this.reservedPorts.delete(port);
+                    this.reservedPorts.add(actualPort);
+                }
+                return { port: actualPort, url: `http://127.0.0.1:${actualPort}`, warning };
             } catch (error) {
-                process.kill();
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
+                proc.kill();
+                exitDisposable.dispose();
+                this.processes.delete(portLabel.value);
+                this.reservedPorts.delete(portLabel.value);
                 throw error;
             }
         } finally {
@@ -163,17 +214,27 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
-    private async waitForServer(port: number, process: RawProcess): Promise<void> {
+    private async waitForServer(expectedPort: number, process: RawProcess, timeoutMs: number = 30000): Promise<number> {
         return new Promise((resolve, reject) => {
+            let actualPort = expectedPort;
+
             const timeout = setTimeout(() => {
                 cleanup();
-                reject(new Error(`Server startup timeout on port ${port}`));
-            }, 30000);
+                reject(new Error(`Server startup timeout on port ${actualPort}`));
+            }, timeoutMs);
 
             const successListener = (data: Buffer) => {
-                if (data.toString().includes('Starting visualizer server on')) {
+                const text = data.toString();
+                const match = text.match(/ACTUAL_PORT:\s*(\d+)/);
+                if (match) {
+                    const parsed = parseInt(match[1], 10);
+                    if (!isNaN(parsed)) {
+                        actualPort = parsed;
+                    }
+                }
+                if (text.includes('Starting visualizer server on') || text.includes('Starting DAGMC visualizer server on')) {
                     cleanup();
-                    resolve();
+                    resolve(actualPort);
                 }
             };
 
@@ -183,9 +244,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 socket.on('connect', () => {
                     socket.destroy();
                     cleanup();
-                    resolve();
+                    resolve(actualPort);
                 });
-                socket.connect(port, '127.0.0.1');
+                socket.connect(actualPort, '127.0.0.1');
             }, 1000);
 
             const exitListener = (event: { code?: number; signal?: string }) => {
@@ -245,7 +306,18 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
         this.log(`[Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
 
-        const execResult = await this.pythonHelper.executeScript(serverScript, args);
+        // Compute proportional timeout for large files
+        const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
+        const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
+        const stats = fs.statSync(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+        const timeoutMs = Math.max(
+            baseTimeoutSec * 1000,
+            Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+        );
+        this.log(`[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { timeout: timeoutMs });
         if (execResult.status !== 0) {
             const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
             this.errorLog(`[Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
@@ -358,6 +430,8 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
     async startDagmcServer(filePath: string, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
         const port = await this.findFreePort(8080);
         this.reservedPorts.add(port);
+        // Capture process.env before local 'process' variable shadows it
+        const nodeEnv = process.env;
 
         try {
             const pythonScript = this.pythonHelper.findScript('server.py');
@@ -372,38 +446,63 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             const processOptions: RawProcessOptions = {
                 command: pythonInfo.command,
                 args,
+                options: {
+                    env: { ...nodeEnv, PYTHONUNBUFFERED: '1' }
+                }
             };
 
             this.log(`Starting DAGMC server on port ${port} for ${filePath}`);
-            const process = this.rawProcessFactory(processOptions);
-            this.processes.set(port, process);
+            const proc = this.rawProcessFactory(processOptions);
+
+            const portLabel = { value: port };
+            this.processes.set(port, proc);
 
             this.log(`[DAGMC Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
 
-            process.outputStream.on('data', (data: Buffer) => {
+            proc.outputStream.on('data', (data: Buffer) => {
                 const line = data.toString().trim();
-                this.log(`[DAGMC Server ${port}] ${line}`);
+                this.log(`[DAGMC Server ${portLabel.value}] ${line}`);
             });
 
-            process.errorStream.on('data', (data: Buffer) => {
+            proc.errorStream.on('data', (data: Buffer) => {
                 const line = data.toString().trim();
-                this.errorLog(`[DAGMC Server ${port}] ERROR: ${line}`);
+                this.errorLog(`[DAGMC Server ${portLabel.value}] ERROR: ${line}`);
             });
 
-            process.onExit((event: { code?: number; signal?: string }) => {
-                this.log(`[DAGMC Server ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
-                this.client?.onServerStop(port);
-            });
+            const exitHandler = (event: { code?: number; signal?: string }) => {
+                this.log(`[DAGMC Server ${portLabel.value}] Process exited (code: ${event.code}, signal: ${event.signal})`);
+                this.processes.delete(portLabel.value);
+                this.reservedPorts.delete(portLabel.value);
+                this.client?.onServerStop(portLabel.value);
+            };
+            const exitDisposable = proc.onExit(exitHandler);
 
             try {
-                await this.waitForServer(port, process);
-                return { port, url: `http://127.0.0.1:${port}`, warning };
+                // Compute timeout from user preferences + file size
+                const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
+                const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.2);
+                const stats = fs.statSync(filePath);
+                const fileSizeMB = stats.size / (1024 * 1024);
+                const timeoutMs = Math.max(
+                    baseTimeoutSec * 1000,
+                    Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+                );
+                this.log(`[DAGMC Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
+                const actualPort = await this.waitForServer(port, proc, timeoutMs);
+                if (actualPort !== port) {
+                    this.log(`DAGMC server fell back from requested port ${port} to actual port ${actualPort}`);
+                    portLabel.value = actualPort;
+                    this.processes.delete(port);
+                    this.processes.set(actualPort, proc);
+                    this.reservedPorts.delete(port);
+                    this.reservedPorts.add(actualPort);
+                }
+                return { port: actualPort, url: `http://127.0.0.1:${actualPort}`, warning };
             } catch (error) {
-                process.kill();
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
+                proc.kill();
+                exitDisposable.dispose();
+                this.processes.delete(portLabel.value);
+                this.reservedPorts.delete(portLabel.value);
                 throw error;
             }
         } finally {

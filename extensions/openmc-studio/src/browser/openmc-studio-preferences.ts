@@ -63,7 +63,7 @@ export const OpenMCStudioPreferenceSchema: PreferenceSchema = {
         },
         'openmcStudio.defaultFacetingTolerance': {
             type: 'number',
-            default: 0.001,
+            default: 1.0,
             description: 'Default faceting tolerance (cm) for CAD-to-DAGMC conversion. Smaller values produce finer meshes.'
         },
         'openmcStudio.autoAdjustFacetingTolerance': {

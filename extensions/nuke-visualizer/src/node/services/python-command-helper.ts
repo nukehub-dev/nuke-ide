@@ -149,13 +149,15 @@ export class PythonCommandHelper {
             timeout?: number;
             encoding?: BufferEncoding;
             requirements?: PackageDependency[];
+            env?: NodeJS.ProcessEnv;
         }
     ): Promise<ScriptExecutionResult> {
         const python = await this.detectPython(options?.requirements);
         const result = spawnSync(python.command, [scriptPath, ...args], {
             encoding: options?.encoding ?? 'utf8',
             maxBuffer: options?.maxBuffer ?? 10 * 1024 * 1024,
-            timeout: options?.timeout ?? 60000
+            timeout: options?.timeout ?? 60000,
+            env: options?.env ?? { ...process.env, PYTHONUNBUFFERED: '1' }
         });
 
         return {

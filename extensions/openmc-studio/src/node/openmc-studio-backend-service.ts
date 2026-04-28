@@ -1468,6 +1468,41 @@ export class OpenMCStudioBackendServiceImpl
         return this.dagmcEditorService.deleteGroup(filePath, groupName);
     }
 
+    /**
+     * Get faceting parameters from a DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Faceting tolerance and triangle count
+     */
+    async dagmcGetFacetingParams(filePath: string): Promise<{
+        success: boolean;
+        data?: { facetingTolerance: number; totalTriangles: number; volumeCount: number };
+        error?: string;
+    }> {
+        this.log(`Getting faceting params for ${filePath}`);
+        return this.dagmcEditorService.getFacetingParams(filePath);
+    }
+
+    /**
+     * Re-export a DAGMC file from source CAD with new faceting tolerance.
+     * @param filePath - Path to existing DAGMC .h5m file
+     * @param sourceCadPath - Path to source CAD file
+     * @param tolerance - Desired faceting tolerance
+     * @returns Operation result with output path
+     */
+    async dagmcRefacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<{
+        success: boolean;
+        data?: { outputPath: string; message?: string };
+        error?: string;
+    }> {
+        this.log(`Re-faceting ${filePath} from ${sourceCadPath} with tolerance ${tolerance}`);
+        return this.dagmcEditorService.refacet(filePath, sourceCadPath, tolerance);
+    }
+
+    async dagmcCancelRefacet(): Promise<void> {
+        this.log('Cancelling active re-faceting operation');
+        this.dagmcEditorService.cancelRefacet();
+    }
+
     // ============================================================================
     // WWINP Import/Export
     // ============================================================================

@@ -17,10 +17,10 @@ os.environ['VTK_USE_OFFSCREEN'] = '1'
 # Import common utilities
 from nuke_viz.plugin import command, arg
 from plugins.base.lib.common import (
-    find_free_port, check_trame_dependencies, COLOR_MAPS,
+    find_free_port, verify_or_find_port, check_trame_dependencies, COLOR_MAPS,
     init_common_state, VisualizerState, UIComponents, StateHandlers,
     create_update_view, create_reset_camera_controller,
-    create_set_camera_view_controller, 
+    create_set_camera_view_controller,
     create_pan_camera_controller, create_zoom_camera_controller,
     create_capture_screenshot_controller,
     save_screenshot_with_timestamp, hex_to_rgb, get_available_arrays,
@@ -459,7 +459,11 @@ def cmd_serve(args):
         return 1
     
     port = args.port or find_free_port()
-    
+
+    # Verify the port is still free (race-condition guard)
+    port = verify_or_find_port(port)
+    print(f"ACTUAL_PORT: {port}")
+
     try:
         server, actual_port = create_app(args.file, port, theme=args.theme)
     except Exception as e:
@@ -467,14 +471,14 @@ def cmd_serve(args):
         import traceback
         traceback.print_exc()
         return 1
-    
+
     url = f"http://{args.host}:{port}"
     print("=" * 60)
     print(f"Starting visualizer server on {url}")
     print("=" * 60)
     print(f"Press Ctrl+C to stop")
     print("=" * 60)
-    
+
     try:
         server.start(port=port, host='0.0.0.0', open_browser=False, show_connection_info=False)
     except KeyboardInterrupt:
@@ -484,7 +488,7 @@ def cmd_serve(args):
         import traceback
         traceback.print_exc()
         return 1
-    
+
     return 0
 
 
