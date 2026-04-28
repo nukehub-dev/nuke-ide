@@ -1,0 +1,43 @@
+{
+  "private": true,
+  "name": "nuke-fileinfo",
+  "version": "0.1.2",
+  "description": "File properties and metadata viewer for NukeIDE",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nukeide",
+    "file-manager",
+    "properties"
+  ],
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.70.2",
+    "@theia/filesystem": "1.70.2",
+    "@theia/navigator": "1.70.2",
+    "@theia/workspace": "1.70.2",
+    "mime-types": "^2.1.35",
+    "nuke-essentials": "0.1.2"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^2.1.4",
+    "rimraf": "^5.0.0",
+    "typescript": "~5.4.5"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "node ../../scripts/copy-css.js",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/fileinfo-frontend-module",
+      "backend": "lib/node/fileinfo-backend-module"
+    }
+  ]
+}

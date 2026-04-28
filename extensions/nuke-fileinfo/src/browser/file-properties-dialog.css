@@ -1,0 +1,103 @@
+/* File Properties Dialog Styles */
+
+.nuke-file-properties-dialog {
+    min-width: 520px;
+    max-width: 640px;
+}
+
+.nuke-file-properties-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 4px;
+}
+
+.nuke-file-properties-loading,
+.nuke-file-properties-error {
+    padding: 24px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.nuke-file-properties-error {
+    color: var(--theia-errorForeground);
+}
+
+.nuke-file-properties-row {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.nuke-file-properties-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-file-properties-label {
+    width: 110px;
+    flex-shrink: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 600;
+}
+
+.nuke-file-properties-value {
+    font-size: 13px;
+    color: var(--theia-foreground);
+    word-break: break-all;
+    min-width: 0;
+}
+
+.nuke-file-properties-value.copyable {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.nuke-file-properties-value.copyable:hover {
+    color: var(--theia-textLink-foreground);
+}
+
+.nuke-file-properties-value.copyable .codicon-copy {
+    opacity: 0.6;
+    font-size: 12px;
+}
+
+.nuke-file-properties-value.warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.nuke-file-properties-section {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.nuke-file-properties-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.nuke-file-properties-value.checksum {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.checksum-hash {
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+    background: var(--theia-textCodeBlock-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    word-break: break-all;
+}

@@ -99,6 +99,7 @@
     "@theia/vsx-registry": "1.70.2",
     "@theia/workspace": "1.70.2",
     "nuke-essentials": "0.1.2",
+    "nuke-fileinfo": "0.1.2",
     "nuke-docs": "0.1.2",
     "nuke-sysmon": "0.1.2",
     "nuke-core": "0.1.2",
