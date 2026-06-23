@@ -20,7 +20,7 @@
       }
 
       /* Light theme */
-      body.nukeide-light {
+      html.nukeide-light {
         --theme-accent: #e06010;
         --theme-accent-rgb: 224, 96, 16;
         --theme-accent-light: #ff9500;
@@ -48,7 +48,6 @@
         background: var(--theme-background);
         color: var(--theme-foreground);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-        transition: background-color 0.3s ease, color 0.3s ease;
       }
 
       /* Animated background - Energy Field */
@@ -60,89 +59,7 @@
         height: 100%;
         z-index: 0;
         pointer-events: none;
-      }
-
-      /* Floating energy orbs */
-      .energy-orb {
-        position: absolute;
-        border-radius: 50%;
-        filter: blur(60px);
-        opacity: 0.5;
-        animation: orb-float 20s ease-in-out infinite;
-      }
-
-      .energy-orb:nth-child(1) {
-        width: 500px;
-        height: 500px;
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.4) 0%, transparent 70%);
-        top: -10%;
-        left: -10%;
-        animation-delay: 0s;
-        animation-duration: 25s;
-      }
-
-      .energy-orb:nth-child(2) {
-        width: 400px;
-        height: 400px;
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.35) 0%, transparent 70%);
-        top: 40%;
-        right: -20%;
-        animation-delay: -5s;
-        animation-duration: 20s;
-      }
-
-      .energy-orb:nth-child(3) {
-        width: 350px;
-        height: 350px;
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.3) 0%, transparent 70%);
-        bottom: -15%;
-        left: 30%;
-        animation-delay: -10s;
-        animation-duration: 22s;
-      }
-
-      .energy-orb:nth-child(4) {
-        width: 300px;
-        height: 300px;
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.25) 0%, transparent 70%);
-        top: 20%;
-        left: 50%;
-        animation-delay: -15s;
-        animation-duration: 18s;
-      }
-
-      @keyframes orb-float {
-        0%, 100% {
-          transform: translate(0, 0) scale(1);
-        }
-        25% {
-          transform: translate(30px, -40px) scale(1.1);
-        }
-        50% {
-          transform: translate(-20px, 30px) scale(0.95);
-        }
-        75% {
-          transform: translate(-40px, -20px) scale(1.05);
-        }
-      }
-
-      /* Pulse effect on orbs */
-      .energy-orb::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.6) 0%, transparent 60%);
-        transform: translate(-50%, -50%);
-        animation: orb-pulse 6s ease-in-out infinite;
-      }
-
-      @keyframes orb-pulse {
-        0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(1); }
-        50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.2); }
+        background: var(--theme-background);
       }
 
       /* Particle field */
@@ -207,23 +124,6 @@
       @keyframes grid-pulse {
         0%, 100% { opacity: 0.3; }
         50% { opacity: 0.5; }
-      }
-
-      /* Central glow */
-      .center-glow {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 600px;
-        height: 600px;
-        transform: translate(-50%, -50%);
-        background: radial-gradient(circle, rgba(var(--theme-accent-rgb), 0.08) 0%, transparent 60%);
-        animation: center-pulse 10s ease-in-out infinite;
-      }
-
-      @keyframes center-pulse {
-        0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-        50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
       }
 
       .spinner-container {
@@ -378,37 +278,97 @@
         font-size: 0.9rem;
       }
 
-      /* Tip Container - bottom centered */
+      /* Tip Container - bottom centered with glassmorphism */
       .tip-container {
         position: absolute;
         bottom: 50px;
         left: 50%;
         transform: translateX(-50%);
-        max-width: 560px;
-        width: 85%;
-        padding: 18px 24px;
-        background: rgba(var(--theme-background), 0.85);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 12px;
-        border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
-        font-size: 0.9rem;
+        max-width: 620px;
+        width: 88%;
+        padding: 20px 26px;
+        background: rgba(var(--theme-background-rgb), 0.45);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border-radius: 16px;
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
+        font-size: 0.95rem;
         color: var(--theme-foreground);
         line-height: 1.6;
         opacity: 0;
-        animation: tip-fade-in 0.5s ease forwards;
+        animation: tip-fade-in 0.6s ease forwards;
         animation-delay: 0.8s;
         cursor: pointer;
-        transition: all 0.3s ease;
+        transition: all 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
         z-index: 10;
-        box-shadow: 0 8px 32px rgba(var(--theme-accent-rgb), 0.1); 
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.25),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 0 0 1px rgba(255, 255, 255, 0.03);
+        overflow: hidden;
+      }
+
+      .tip-container::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(
+          115deg,
+          transparent 40%,
+          rgba(var(--theme-accent-rgb), 0.06) 50%,
+          transparent 60%
+        );
+        transform: translateX(-100%) rotate(25deg);
+        pointer-events: none;
+      }
+
+      .tip-container:hover::before {
+        animation: glass-shine 2s ease-in-out forwards;
+      }
+
+      @keyframes glass-shine {
+        0% { transform: translateX(-100%) rotate(25deg); }
+        100% { transform: translateX(100%) rotate(25deg); }
       }
 
       .tip-container:hover {
-        background: rgba(var(--theme-background), 0.9);
-        border-color: rgba(var(--theme-accent-rgb), 0.4);
-        transform: translateX(-50%) translateY(-3px);
-        box-shadow: 0 12px 40px rgba(var(--theme-accent-rgb), 0.15);
+        background: rgba(var(--theme-background-rgb), 0.58);
+        border-color: rgba(var(--theme-accent-rgb), 0.45);
+        transform: translateX(-50%) translateY(-4px);
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.3),
+          0 0 24px rgba(var(--theme-accent-rgb), 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      }
+
+      /* Light theme glassmorphism adjustments */
+      html.nukeide-light .tip-container {
+        background: rgba(var(--theme-background-rgb), 0.72);
+        border-color: rgba(var(--theme-accent-rgb), 0.18);
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.06),
+          inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      }
+
+      html.nukeide-light .tip-container:hover {
+        background: rgba(var(--theme-background-rgb), 0.86);
+        border-color: rgba(var(--theme-accent-rgb), 0.32);
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.1),
+          0 0 24px rgba(var(--theme-accent-rgb), 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
+      html.nukeide-light .tip-label,
+      html.nukeide-light #tip-content {
+        text-shadow: 0 1px 1px rgba(255, 255, 255, 0.6);
+      }
+
+      html.nukeide-light .tip-emoji {
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
       }
 
       @keyframes tip-fade-in {
@@ -426,23 +386,43 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        font-size: 0.7rem;
+        font-size: 0.72rem;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.8px;
         color: var(--theme-accent);
-        margin-bottom: 8px;
-        font-weight: 600;
+        margin-bottom: 10px;
+        font-weight: 700;
+        position: relative;
+        z-index: 1;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
       }
 
       .tip-icon {
         width: 14px;
         height: 14px;
-        opacity: 0.8;
+        opacity: 0.9;
+      }
+
+      .tip-body {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .tip-emoji {
+        font-size: 1.35rem;
+        line-height: 1.4;
+        flex-shrink: 0;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
       }
 
       #tip-content {
-        color: var(--theme-description);
+        color: var(--theme-foreground);
         transition: opacity 0.3s ease;
+        flex: 1;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
       }
 
       /* Custom tooltip */
@@ -495,46 +475,84 @@
       }
 
       .version-badge-wrapper .version-badge {
-        position: static;
-        padding: 6px 14px;
-        background: rgba(var(--theme-accent-rgb), 0.12);
-        border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
-        border-radius: 20px;
-        font-size: 0.7rem;
-        color: var(--theme-accent);
+        position: relative;
+        padding: 8px 16px;
+        background: rgba(var(--theme-background-rgb), 0.4);
+        backdrop-filter: blur(16px) saturate(160%);
+        -webkit-backdrop-filter: blur(16px) saturate(160%);
+        border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
+        border-radius: 24px;
+        font-size: 0.75rem;
+        color: var(--theme-foreground);
         font-weight: 600;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
         text-decoration: none;
-        transition: all 0.3s ease;
+        transition: all 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 0;
+        gap: 8px;
+        box-shadow:
+          0 6px 20px rgba(0, 0, 0, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .version-badge-wrapper .version-badge::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          115deg,
+          transparent 35%,
+          rgba(var(--theme-accent-rgb), 0.08) 50%,
+          transparent 65%
+        );
+        animation: glass-shine 5s ease-in-out infinite;
+        pointer-events: none;
       }
 
       .version-badge-wrapper:hover .version-badge {
-        background: linear-gradient(135deg, var(--theme-accent), var(--theme-accent-light));
-        border-color: transparent;
-        color: var(--theme-foreground-inverse);
-        transform: scale(1.02);
-        box-shadow: 0 8px 24px var(--theme-accent-glow);
-        gap: 6px;
+        background: rgba(var(--theme-accent-rgb), 0.2);
+        border-color: rgba(var(--theme-accent-rgb), 0.5);
+        color: var(--theme-accent);
+        transform: translateY(-2px);
+        box-shadow:
+          0 12px 32px rgba(0, 0, 0, 0.25),
+          0 0 20px rgba(var(--theme-accent-rgb), 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.12);
       }
 
       .version-badge-wrapper .version-icon {
-        width: 12px;
-        height: 12px;
+        width: 14px;
+        height: 14px;
         flex-shrink: 0;
-        margin-right: -12px;
-        opacity: 0;
-        transform: translateX(-8px);
+        opacity: 0.85;
+        transform: translateX(0);
         transition: all 0.3s ease;
       }
 
       .version-badge-wrapper:hover .version-icon {
         opacity: 1;
-        margin-right: 0;
-        transform: translateX(0);
+        transform: translateX(3px);
+      }
+
+      /* Light theme version badge adjustments */
+      html.nukeide-light .version-badge-wrapper .version-badge {
+        background: rgba(var(--theme-background-rgb), 0.65);
+        border-color: rgba(var(--theme-accent-rgb), 0.18);
+        box-shadow:
+          0 6px 20px rgba(0, 0, 0, 0.05),
+          inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      }
+
+      html.nukeide-light .version-badge-wrapper:hover .version-badge {
+        background: rgba(var(--theme-background-rgb), 0.85);
+        border-color: rgba(var(--theme-accent-rgb), 0.4);
+        box-shadow:
+          0 12px 32px rgba(0, 0, 0, 0.08),
+          0 0 20px rgba(var(--theme-accent-rgb), 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.7);
       }
 
       /* Hide any default Theia spinners */
@@ -568,21 +586,57 @@
 
         .tip-container {
           bottom: 40px;
-          padding: 12px 16px;
-          font-size: 0.8rem;
+          padding: 16px 18px;
+          font-size: 0.85rem;
+          border-radius: 14px;
+        }
+
+        .tip-emoji {
+          font-size: 1.2rem;
         }
       }
     </style>
+    <script>
+      // Early theme detection to prevent dark/light flash before body renders
+      (function() {
+        function hexToRgb(hex) {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '243, 117, 36';
+        }
+        try {
+          const storedTheme = localStorage.getItem('nuke-theme');
+          if (storedTheme) {
+            const theme = JSON.parse(storedTheme);
+            const isLight = theme.id && theme.id.includes('light');
+            const accent = isLight ? theme.accentLight : theme.accentDark;
+            const background = isLight ? theme.backgroundLight : theme.backgroundDark;
+            const accentRgb = isLight ? (theme.accentLightRgb || hexToRgb(accent)) : (theme.accentDarkRgb || hexToRgb(accent));
+            const backgroundRgb = isLight ? (theme.backgroundLightRgb || '255, 255, 255') : (theme.backgroundDarkRgb || '30, 30, 30');
+            document.documentElement.classList.add(isLight ? 'nukeide-light' : 'nukeide-dark');
+            // Apply theme colors as CSS custom properties on <html> before body paints
+            document.documentElement.style.setProperty('--theme-accent-rgb', accentRgb);
+            document.documentElement.style.setProperty('--theme-accent', accent);
+            document.documentElement.style.setProperty('--theme-accent-light', isLight ? (theme.accentLightLight || '#ff9500') : (theme.accentDarkLight || '#ff9500'));
+            document.documentElement.style.setProperty('--theme-accent-dark', isLight ? (theme.accentLightDark || '#f5a623') : (theme.accentDarkDark || '#f5a623'));
+            document.documentElement.style.setProperty('--theme-accent-glow', `rgba(${accentRgb}, 0.5)`);
+            document.documentElement.style.setProperty('--theme-background-rgb', backgroundRgb);
+            document.documentElement.style.setProperty('--theme-background', background);
+            document.documentElement.style.setProperty('--theme-foreground', isLight ? theme.foregroundLight : theme.foregroundDark);
+            document.documentElement.style.setProperty('--theme-foreground-inverse', isLight ? theme.foregroundInverseLight : theme.foregroundInverseDark);
+            document.documentElement.style.setProperty('--theme-description', isLight ? '#5a6c7d' : '#9ca3af');
+          } else {
+            document.documentElement.classList.add('nukeide-dark');
+          }
+        } catch (e) {
+          // CSS :root defaults will apply
+        }
+      })();
+    </script>
   </head>
 
   <body>
     <!-- Background pattern -->
     <div class="bg-pattern">
-      <div class="energy-orb"></div>
-      <div class="energy-orb"></div>
-      <div class="energy-orb"></div>
-      <div class="energy-orb"></div>
-      <div class="center-glow"></div>
       <div class="grid-overlay"></div>
       <div class="particles">
         <div class="particle"></div>
@@ -599,53 +653,6 @@
         <div class="particle"></div>
       </div>
     </div>
-
-    <script>
-      // Theme detection from nuke-theme localStorage with colors
-      function hexToRgb(hex) {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '243, 117, 36';
-      }
-      function setSvgFill(element, color) {
-        if (element) {
-          element.style.fill = color;
-          const children = element.querySelectorAll('*');
-          children.forEach(child => child.style.fill = color);
-        }
-      }
-      (function() {
-        try {
-          const storedTheme = localStorage.getItem('nuke-theme');
-          if (storedTheme) {
-            const theme = JSON.parse(storedTheme);
-            const isLight = theme.id === 'nukeide-light';
-            const accent = isLight ? theme.accentLight : theme.accentDark;
-            const background = isLight ? theme.backgroundLight : theme.backgroundDark;
-            const accentRgb = isLight ? (theme.accentLightRgb || hexToRgb(accent)) : (theme.accentDarkRgb || hexToRgb(accent));
-            document.body.classList.add(isLight ? 'nukeide-light' : 'nukeide-dark');
-            // Apply theme colors as CSS custom properties
-            document.body.style.setProperty('--theme-accent-rgb', accentRgb);
-            document.body.style.setProperty('--theme-accent', accent);
-            document.body.style.setProperty('--theme-accent-light', isLight ? (theme.accentLightLight || '#ff9500') : (theme.accentDarkLight || '#ff9500'));
-            document.body.style.setProperty('--theme-accent-dark', isLight ? (theme.accentLightDark || '#f5a623') : (theme.accentDarkDark || '#f5a623'));
-            document.body.style.setProperty('--theme-accent-glow', `rgba(${accentRgb}, 0.5)`);
-            document.body.style.setProperty('--theme-background-rgb', isLight ? (theme.backgroundLightRgb || '255, 255, 255') : (theme.backgroundDarkRgb || '30, 30, 30'));
-            document.body.style.setProperty('--theme-background', background);
-            document.body.style.setProperty('--theme-foreground', isLight ? theme.foregroundLight : theme.foregroundDark);
-            document.body.style.setProperty('--theme-foreground-inverse', isLight ? theme.foregroundInverseLight : theme.foregroundInverseDark);
-            document.body.style.setProperty('--theme-description', isLight ? '#5a6c7d' : '#9ca3af');
-            // Theme SVG logo
-            setSvgFill(document.querySelector('.custom-spinner svg'), accent);
-          } else {
-            // CSS :root defaults will apply - add dark class for light theme override
-            document.body.classList.add('nukeide-dark');
-          }
-        } catch (e) {
-          console.error('[preload] Theme error:', e.message);
-          // CSS :root defaults will apply
-        }
-      })();
-    </script>
 
     <div class="version-badge-wrapper">
       <a href="{{REPO_URL}}" class="version-badge" target="_blank">
@@ -706,7 +713,10 @@
         </svg>
         Pro Tip
       </div>
-      <div id="tip-content">Click anywhere to see another tip</div>
+      <div class="tip-body">
+        <span class="tip-emoji" id="tip-emoji">💡</span>
+        <span id="tip-content">Click anywhere to see another tip</span>
+      </div>
     </div>
 
     <script>
@@ -716,6 +726,14 @@
         link.type = "image/svg+xml";
         link.href = "logo.svg";
         document.head.appendChild(link);
+      }
+
+      function setSvgFill(element, color) {
+        if (element) {
+          element.style.fill = color;
+          const children = element.querySelectorAll('*');
+          children.forEach(child => child.style.fill = color);
+        }
       }
 
       const loadingStages = [
@@ -754,16 +772,26 @@
 
       function updateTip() {
         const tipContent = document.getElementById('tip-content');
-        if (!tipContent) return;
-        
+        const tipEmoji = document.getElementById('tip-emoji');
+        if (!tipContent || !tipEmoji) return;
+
         currentTipIndex = (currentTipIndex + 1) % tips.length;
-        
+        const tip = tips[currentTipIndex] || { icon: '💡', text: '' };
+
         tipContent.style.opacity = '0';
+        tipEmoji.style.opacity = '0';
         tipContent.style.transition = 'opacity 0.3s ease';
-        
+        tipEmoji.style.transition = 'opacity 0.3s ease';
+
         setTimeout(() => {
           if (tipContent) {
-            tipContent.textContent = tips[currentTipIndex];
+            tipContent.textContent = typeof tip === 'string' ? tip : (tip.text || '');
+          }
+          if (tipEmoji) {
+            tipEmoji.textContent = typeof tip === 'string' ? '💡' : (tip.icon || '💡');
+            tipEmoji.style.opacity = '1';
+          }
+          if (tipContent) {
             tipContent.style.opacity = '1';
           }
         }, 300);
@@ -771,10 +799,28 @@
 
       document.addEventListener('DOMContentLoaded', () => {
         const tipContent = document.getElementById('tip-content');
+        const tipEmoji = document.getElementById('tip-emoji');
         if (tipContent && tips.length > 0) {
-          tipContent.textContent = tips[currentTipIndex];
+          const tip = tips[currentTipIndex];
+          tipContent.textContent = typeof tip === 'string' ? tip : (tip.text || '');
+          if (tipEmoji) {
+            tipEmoji.textContent = typeof tip === 'string' ? '💡' : (tip.icon || '💡');
+          }
         }
-        
+
+        // Theme SVG logo fill
+        try {
+          const storedTheme = localStorage.getItem('nuke-theme');
+          if (storedTheme) {
+            const theme = JSON.parse(storedTheme);
+            const isLight = theme.id && theme.id.includes('light');
+            const accent = isLight ? theme.accentLight : theme.accentDark;
+            setSvgFill(document.querySelector('.custom-spinner svg'), accent);
+          }
+        } catch (e) {
+          // Ignore logo color errors
+        }
+
         setTimeout(updateProgress, 500);
         setInterval(updateTip, TIP_DURATION);
         document.addEventListener('click', updateTip);

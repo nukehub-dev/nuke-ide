@@ -28,13 +28,12 @@ function loadTips() {
             if (tipsData.tips && Array.isArray(tipsData.tips)) {
                 // Support both simple strings and objects with text/icon/category
                 tips = tipsData.tips.map(t => {
-                    if (typeof t === 'string') return t;
+                    if (typeof t === 'string') return { icon: '💡', text: t };
                     if (t.text) {
-                        // Optionally include icon in the tip text
-                        return t.icon ? `${t.icon} ${t.text}` : t.text;
+                        return { icon: t.icon || '💡', text: t.text };
                     }
-                    return '';
-                }).filter(t => t); // Remove empty strings
+                    return null;
+                }).filter(t => t); // Remove empty entries
                 console.log(`[generate-preload] Loaded ${tips.length} tips from tips.yml`);
             }
             
@@ -88,9 +87,9 @@ function main() {
         // Fallback tips if no tips file exists or is empty
         if (tips.length === 0) {
             tips = [
-                "Use keyboard shortcuts to speed up development! Try Ctrl+P for quick file navigation.",
-                "Save your work frequently. Auto-save can be enabled in preferences.",
-                "Press F1 to open the Command Palette for quick access to all commands."
+                { icon: '⌨️', text: 'Use keyboard shortcuts to speed up development! Try Ctrl+P for quick file navigation.' },
+                { icon: '💾', text: 'Save your work frequently. Auto-save can be enabled in preferences.' },
+                { icon: '📜', text: 'Press F1 to open the Command Palette for quick access to all commands.' }
             ];
             console.log(`[generate-preload] Using ${tips.length} fallback tips`);
         }
@@ -106,18 +105,13 @@ function main() {
 
         let template = fs.readFileSync(templatePath, 'utf8');
 
-        // Escape special characters for JavaScript string insertion
-        const escapedTips = tips.map(tip => 
-            tip.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"')
-        );
-
         // Replace placeholders
         template = template
             .replace(/\{\{VERSION\}\}/g, version)
             .replace(/\{\{PRODUCT_NAME\}\}/g, productName)
             .replace(/\{\{REPO_URL\}\}/g, repoUrl)
             .replace(/\{\{TIP_DURATION\}\}/g, tipDuration.toString())
-            .replace(/\{\{TIPS_ARRAY\}\}/g, JSON.stringify(escapedTips))
+            .replace(/\{\{TIPS_ARRAY\}\}/g, JSON.stringify(tips))
             .replace(/\{\{GENERATED_AT\}\}/g, new Date().toISOString());
 
         // Write output
