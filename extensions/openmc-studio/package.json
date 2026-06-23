@@ -28,12 +28,12 @@
     "resources"
   ],
   "dependencies": {
-    "@theia/core": "1.70.2",
-    "@theia/editor": "1.70.2",
-    "@theia/filesystem": "1.70.2",
-    "@theia/navigator": "1.70.2",
-    "@theia/process": "1.70.2",
-    "@theia/workspace": "1.70.2",
+    "@theia/core": "1.72.3",
+    "@theia/editor": "1.72.3",
+    "@theia/filesystem": "1.72.3",
+    "@theia/navigator": "1.72.3",
+    "@theia/process": "1.72.3",
+    "@theia/workspace": "1.72.3",
     "nuke-core": "0.1.2",
     "nuke-essentials": "0.1.2",
     "nuke-visualizer": "0.1.2",

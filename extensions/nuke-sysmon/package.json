@@ -14,7 +14,7 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.70.2",
+    "@theia/core": "1.72.3",
     "systeminformation": "^5.21.0"
   },
   "devDependencies": {
