@@ -49,8 +49,7 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 |-----------|---------|
 | **nuke-essentials** | Common UI components, commands, and utilities shared across NukeIDE extensions |
 | **nuke-sysmon** | System resource monitoring inside the IDE |
-| **nukelab-menu** | Custom menu contributions and command palettes |
-| **nukelab-pwa** | Progressive Web App support for browser deployments |
+| **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, and app install |
 
 ## Adding a New Extension
 

@@ -12,24 +12,22 @@ const PACKAGES = [
   'extensions/nuke-core/package.json',
   'extensions/nuke-docs/package.json',
   'extensions/nuke-essentials/package.json',
-  'extensions/nukelab-menu/package.json',
-  'extensions/nukelab-pwa/package.json',
   'extensions/nuke-sysmon/package.json',
   'extensions/nuke-fileinfo/package.json',
   'extensions/nuke-visualizer/package.json',
   'extensions/openmc-studio/package.json',
+  'extensions/nukelab-integration/package.json',
 ];
 
 const PACKAGE_NAMES = [
   'nuke-core',
   'nuke-docs',
   'nuke-essentials',
-  'nukelab-menu',
-  'nukelab-pwa',
   'nuke-sysmon',
   'nuke-fileinfo',
   'nuke-visualizer',
   'openmc-studio',
+  'nukelab-integration',
   'nuke-ide',
   'nuke-ide-electron',
 ];

@@ -17,8 +17,7 @@ nuke-ide/
 │   ├── openmc-studio/     # No-code OpenMC simulation workspace
 │   ├── nuke-essentials/   # Common UI components and commands
 │   ├── nuke-sysmon/       # System monitoring
-│   ├── nukelab-menu/      # Custom menu contributions
-│   └── nukelab-pwa/       # PWA support
+│   └── nukelab-integration/ # NukeLab gateway integration
 │
 ├── docs/                  # VitePress documentation site (this site)
 ├── resources/             # Static assets (logos, preload templates)

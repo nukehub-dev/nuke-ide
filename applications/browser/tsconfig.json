@@ -22,10 +22,7 @@
       "path": "../../extensions/openmc-studio"
     },
     {
-      "path": "../../extensions/nukelab-menu"
-    },
-    {
-      "path": "../../extensions/nukelab-pwa"
+      "path": "../../extensions/nukelab-integration"
     }
   ]
 }

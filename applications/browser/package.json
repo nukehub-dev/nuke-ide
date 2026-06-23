@@ -104,8 +104,7 @@
     "nuke-core": "0.1.2",
     "nuke-visualizer": "0.1.2",
     "openmc-studio": "0.1.2",
-    "nukelab-menu": "0.1.2",
-    "nukelab-pwa": "0.1.2"
+    "nukelab-integration": "0.1.2"
   },
   "devDependencies": {
     "@theia/cli": "1.70.2"

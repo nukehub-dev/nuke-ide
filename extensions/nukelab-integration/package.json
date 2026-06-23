@@ -1,14 +1,13 @@
 {
-  "name": "nukelab-menu",
+  "name": "nukelab-integration",
   "version": "0.1.2",
-  "description": "A NukeLab extension for NukeIDE, providing an enhanced menu system for seamless workflow navigation.",
+  "description": "Integrates NukeIDE with the NukeLab v2 gateway: account context, back navigation, logout, and app install.",
   "license": "BSD-2-Clause",
   "keywords": [
     "theia-extension",
-    "nuclear",
     "nukelab",
     "nukeide",
-    "simulation"
+    "gateway"
   ],
   "repository": {
     "type": "git",
@@ -17,6 +16,7 @@
   "bugs": {
     "url": "https://github.com/nukehub-dev/nuke-ide/issues"
   },
+  "homepage": "https://github.com/nukehub-dev/nuke-ide",
   "files": [
     "lib",
     "src"
@@ -29,14 +29,15 @@
     "typescript": "~5.4.5"
   },
   "scripts": {
-    "prepare": "yarn run clean && yarn run build",
+    "prepare": "yarn clean && yarn build",
     "clean": "rimraf --glob lib *.tsbuildinfo",
     "build": "tsc",
     "watch": "tsc -w"
   },
   "theiaExtensions": [
     {
-      "frontend": "lib/browser/menu-frontend-module"
+      "frontend": "lib/browser/nukelab-integration-frontend-module",
+      "backend": "lib/node/nukelab-integration-backend-module"
     }
   ]
 }
