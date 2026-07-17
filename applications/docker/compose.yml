@@ -1,0 +1,22 @@
+# NukeIDE all-in-one container.
+# Usage:
+#   docker compose -f applications/docker/compose.yml up --build
+# then open http://localhost:3000
+services:
+  nuke-ide:
+    build:
+      # Build context is the repository root (the Dockerfile needs the sources).
+      context: ../..
+      dockerfile: applications/docker/Dockerfile
+    image: nuke-ide:latest
+    container_name: nuke-ide
+    ports:
+      - "3000:3000"
+    environment:
+      # Headless rendering for the Trame/ParaView Python backends
+      QT_QPA_PLATFORM: offscreen
+      VTK_USE_OFFSCREEN: "1"
+    volumes:
+      # Persistent user workspace (projects created in the IDE land here)
+      - ./workspace:/root/workspace
+    restart: unless-stopped

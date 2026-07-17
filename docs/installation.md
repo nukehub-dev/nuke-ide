@@ -40,6 +40,19 @@ The `yarn` command will:
 
 ## Running
 
+### Docker (all-in-one)
+
+A ready-to-use image with the browser IDE and the full Python backend
+environment (`trame` conda env: OpenMC, Trame/ParaView, CAD toolchain) is
+available:
+
+```bash
+docker compose -f applications/docker/compose.yml up --build
+```
+
+Then open `http://localhost:3000`. See
+[applications/docker/README.md](../applications/docker/README.md) for details.
+
 ### Browser Application
 
 ```bash

@@ -17,3 +17,6 @@ extensions/*/lib/
 
 # Generated files
 resources/preload.html
+
+# Docker compose workspace volume
+applications/docker/workspace/

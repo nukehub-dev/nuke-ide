@@ -343,7 +343,8 @@ export class OpenMCCADImportService {
         const result = await this.coreService.detectPythonWithRequirements({
             requiredPackages: [
                 { name: 'gmsh', required: false },  // Optional but preferred
-                { name: 'OCC', required: false },   // OpenCASCADE (PythonOCC)
+                // OpenCASCADE via the OCC module, provided by the pythonocc-core package
+                { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
                 { name: 'cadquery', required: false }
             ],
             autoDetectEnvs: ['openmc', 'cad', 'gmsh']
@@ -359,7 +360,8 @@ export class OpenMCCADImportService {
         // Now check which specific libraries are available in the detected Python
         const dependencyResult = await this.coreService.checkDependencies([
             { name: 'gmsh', required: false },
-            { name: 'OCC', required: false },
+            // OpenCASCADE via the OCC module, provided by the pythonocc-core package
+            { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
             { name: 'cadquery', required: false }
         ], result.command);
 

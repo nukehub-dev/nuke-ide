@@ -1,0 +1,4 @@
+# Development-only dependencies (Python test suite).
+# Runtime dependencies for the extension backends are documented in
+# docs/installation.md and mirrored in applications/docker/environment.yml.
+pytest>=8

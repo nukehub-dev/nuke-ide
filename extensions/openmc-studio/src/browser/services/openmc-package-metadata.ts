@@ -53,6 +53,7 @@ export function getOpenMCHealthPackages(): PackageDependency[] {
         { name: 'mpi4py', required: false },
         { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
         { name: 'moab', required: false, extraIndexUrl: OPENMC_EXTRA_INDEX_URL },
-        { name: 'OCP', required: false }
+        // OpenCASCADE bindings via the OCP module, provided by the cadquery-ocp package
+        { name: 'OCP', required: false, installCommand: 'pip install cadquery-ocp' }
     ];
 }

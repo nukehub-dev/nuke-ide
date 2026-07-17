@@ -1,0 +1,43 @@
+# Conda environment for NukeIDE's Python backends.
+# Mirrors the 'trame' development environment used by the project
+# (Python 3.13, OpenMC + Trame/ParaView visualization + CAD toolchain).
+#
+# Used by applications/docker/Dockerfile; can also be created locally:
+#   conda env create -f applications/docker/environment.yml
+name: trame
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - nodejs=22
+  - pip
+  # Core scientific stack
+  - numpy
+  - scipy
+  - h5py
+  - matplotlib
+  - pandas
+  - pyyaml
+  # Visualization (served by the nuke-visualizer extension)
+  - paraview
+  - vtk
+  # OpenCASCADE bindings: pythonocc-core provides the OCC module
+  - pythonocc-core
+  - pip:
+      # OpenMC Monte Carlo code (openmc-studio)
+      - openmc
+      # Trame web UI framework for the visualizer backends
+      - trame
+      - trame-vtk
+      - trame-vuetify
+      - trame-components
+      - python-multipart
+      # CAD import/conversion (openmc-studio cad_conversion)
+      - gmsh
+      - cadquery
+      - cadquery-ocp  # provides the OCP module used by cad_conversion
+      # DAGMC workflows
+      - pydagmc @ git+https://github.com/svalinn/pydagmc
+      - moab
+      # Convenience for interactive sessions
+      - ipython

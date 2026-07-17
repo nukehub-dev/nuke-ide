@@ -1,0 +1,12 @@
+.git
+node_modules
+applications/*/node_modules
+extensions/*/node_modules
+plugins
+applications/electron/dist
+applications/electron/out
+applications/docker/workspace
+test_overlap
+**/*.tsbuildinfo
+lerna-debug.log
+*.log
