@@ -34,12 +34,14 @@ class TestGetDagmcInfo:
 
 
 class TestMain:
-    def test_json_output_on_error_prints_json_and_returns(self, monkeypatch, capsys, tmp_path):
-        """--output-json prints the error dict as JSON without sys.exit."""
+    def test_json_output_on_error_prints_json_and_exits_1(self, monkeypatch, capsys, tmp_path):
+        """--output-json prints the error dict as JSON, then exits 1."""
         monkeypatch.setitem(sys.modules, 'pydagmc', types.ModuleType('pydagmc'))
         missing = str(tmp_path / 'nope.h5m')
         monkeypatch.setattr(sys, 'argv', ['dagmc_info.py', missing, '--output-json'])
-        assert dagmc_info.main() is None
+        with pytest.raises(SystemExit) as exc:
+            dagmc_info.main()
+        assert exc.value.code == 1
         out = json.loads(capsys.readouterr().out)
         assert out['success'] is False
         assert 'error' in out

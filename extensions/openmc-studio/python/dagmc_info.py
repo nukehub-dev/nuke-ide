@@ -150,6 +150,8 @@ def main():
     if args.output_json:
         # Output compact JSON on a single line for easy parsing
         print(json.dumps(result))
+        if not result['success']:
+            sys.exit(1)
     else:
         if result['success']:
             print(f"DAGMC File: {result['fileName']}")

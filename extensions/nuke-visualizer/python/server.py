@@ -45,7 +45,9 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.command or args.command not in commands:
+    # No command given: print help. (An unrecognized command never reaches
+    # here — argparse rejects it with exit code 2.)
+    if not args.command:
         parser.print_help()
         return 1
 

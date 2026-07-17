@@ -4,6 +4,7 @@ OpenMC Materials Parser for NukeIDE.
 Parses materials.xml files and extracts material definitions.
 """
 
+import sys
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
@@ -99,13 +100,13 @@ class OpenMCMaterialsParser:
             return True
             
         except ET.ParseError as e:
-            print(f"Error parsing materials.xml: {e}")
+            print(f"Error parsing materials.xml: {e}", file=sys.stderr)
             return False
         except FileNotFoundError:
-            print(f"File not found: {file_path}")
+            print(f"File not found: {file_path}", file=sys.stderr)
             return False
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"Unexpected error: {e}", file=sys.stderr)
             return False
     
     def _parse_material(self, elem: ET.Element) -> Optional[Material]:
@@ -173,7 +174,7 @@ class OpenMCMaterialsParser:
             return material
             
         except Exception as e:
-            print(f"Error parsing material: {e}")
+            print(f"Error parsing material: {e}", file=sys.stderr)
             return None
     
     def _parse_nuclide(self, elem: ET.Element) -> Optional[Nuclide]:
@@ -197,7 +198,7 @@ class OpenMCMaterialsParser:
             return Nuclide(name=name, fraction=fraction, fraction_type=fraction_type)
             
         except Exception as e:
-            print(f"Error parsing nuclide: {e}")
+            print(f"Error parsing nuclide: {e}", file=sys.stderr)
             return None
     
     def _parse_thermal_scattering(self, elem: ET.Element) -> Optional[ThermalScattering]:
@@ -214,7 +215,7 @@ class OpenMCMaterialsParser:
             return ThermalScattering(name=name, fraction=fraction)
             
         except Exception as e:
-            print(f"Error parsing thermal scattering: {e}")
+            print(f"Error parsing thermal scattering: {e}", file=sys.stderr)
             return None
     
     def get_material_summary(self) -> Dict[str, Any]:
@@ -336,11 +337,10 @@ def get_material_cell_linkage(materials_path: str, geometry_path: str) -> Dict[s
 
 
 if __name__ == '__main__':
-    import sys
     import json
     
     if len(sys.argv) < 2:
-        print("Usage: python openmc_materials_parser.py <materials.xml>")
+        print("Usage: python openmc_materials_parser.py <materials.xml>", file=sys.stderr)
         sys.exit(1)
     
     result = parse_materials_file(sys.argv[1])

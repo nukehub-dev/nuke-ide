@@ -152,10 +152,10 @@ def test_parse_materials_file_convenience(materials_path):
 
 
 def test_parse_missing_file_returns_false(tmp_path, capsys):
-    """A missing file logs to stdout and parse() returns False."""
+    """A missing file logs to stderr and parse() returns False."""
     parser = OpenMCMaterialsParser()
     assert parser.parse(str(tmp_path / 'nope.xml')) is False
-    assert 'File not found' in capsys.readouterr().out
+    assert 'File not found' in capsys.readouterr().err
 
 
 def test_parse_invalid_xml_returns_false(tmp_path, capsys):
@@ -164,7 +164,7 @@ def test_parse_invalid_xml_returns_false(tmp_path, capsys):
     bad.write_text('<materials><material id="1">')
     parser = OpenMCMaterialsParser()
     assert parser.parse(str(bad)) is False
-    assert 'Error parsing materials.xml' in capsys.readouterr().out
+    assert 'Error parsing materials.xml' in capsys.readouterr().err
 
     # The convenience wrapper surfaces the failure as an error dict.
     assert parse_materials_file(str(bad)) == {'error': 'Failed to parse materials.xml'}
