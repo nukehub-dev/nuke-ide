@@ -93,7 +93,7 @@
     "@theia/timeline": "1.72.3",
     "@theia/toolbar": "1.72.3",
     "@theia/typehierarchy": "1.72.3",
-    "@theia/userstorage": "1.72.3",
+    "@theia/userstorage": "1.73.1",
     "@theia/variable-resolver": "1.72.3",
     "@theia/vsx-registry": "1.72.3",
     "@theia/workspace": "1.72.3",
