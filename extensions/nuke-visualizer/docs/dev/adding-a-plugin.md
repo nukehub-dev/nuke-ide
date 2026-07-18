@@ -68,7 +68,7 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 
 | Infrastructure                | What It Does                                                       | Your Responsibility                                        |
 | ----------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| **Python detection**          | Finds a Python with your required packages via `nuke-core`         | Define `PackageDependency[]`                               |
+| **Python detection**          | Finds a Python with your required packages via `nuke-core`         | Declare packages in `src/common/packages.json`             |
 | **Health checks**             | Verifies packages in the configured env, suggests install commands | Register requirements with `HealthCheckFramework`          |
 | **Process spawning**          | Finds free ports, starts your Python server, waits for readiness   | Provide `@command` handlers under `python/plugins/<name>/` |
 | **Widget lifecycle**          | Creates iframe widgets, handles open/close, theme propagation      | Create widgets or reuse `VisualizerWidget`                 |
@@ -104,10 +104,22 @@ export interface MooseMeshInfo {
   variables: string[];
 }
 
-export const MOOSE_REQUIREMENTS = [
-  { name: 'moose', required: true },
-  { name: 'vtk', required: true }
-];
+// Package requirements are declared in src/common/packages.json — the single
+// source of truth — and exported from src/common, never inlined in services.
+// See "Python package requirements" in extensions/AGENTS.md.
+import packages from './packages.json';
+
+export const MOOSE_REQUIREMENTS = packages.moose;
+```
+
+```json
+// src/common/packages.json
+{
+  "moose": [
+    { "name": "moose", "required": true },
+    { "name": "vtk", "required": true }
+  ]
+}
 ```
 
 ### Step 2: Create the Python Backend
@@ -546,7 +558,7 @@ Use these to invalidate cached data when the environment changes.
 
 1. Run **Tools → Visualizer → Environment → Run Health Check**
 2. Install missing packages using the suggested commands
-3. Ensure your plugin's `PackageDependency[]` has correct metadata (`condaOnly`, `extraIndexUrl`, etc.)
+3. Ensure your plugin's entries in `src/common/packages.json` have correct metadata (`condaOnly`, `extraIndexUrl`, etc.)
 
 ### Server starts but widget shows blank
 

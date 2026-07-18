@@ -22,9 +22,9 @@ This guide covers the most common issues encountered when building, running, and
    ```bash
    conda install -c conda-forge openmc
    ```
-   Or for a minimal pip install:
+   Or for a minimal pip install (openmc is not on PyPI — use the community wheel index):
    ```bash
-   pip install openmc
+   pip install --extra-index-url https://shimwell.github.io/wheels openmc
    ```
 4. **Restart NukeIDE** after installing packages so the Python environment is re-scanned.
 

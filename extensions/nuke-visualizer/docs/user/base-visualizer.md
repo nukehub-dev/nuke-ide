@@ -143,11 +143,11 @@ You can adjust the server timeout in settings:
 
 ## Troubleshooting
 
-| Symptom                                 | Likely Cause                  | Fix                                                        |
-| --------------------------------------- | ----------------------------- | ---------------------------------------------------------- |
-| "Starting visualizer server..." forever | Python/Trame/ParaView missing | Run health check, install missing packages                 |
-| "Conversion failed" for .h5m            | MOAB not installed            | `conda install moab` or `pip install moab`                 |
-| Blank iframe after loading              | Server crashed                | Check **Nuke Visualizer** output channel for Python errors |
-| Widget shows "No Visualization Loaded"  | No file selected              | Click a supported file or use Browse                       |
+| Symptom                                 | Likely Cause                  | Fix                                                                    |
+| --------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| "Starting visualizer server..." forever | Python/Trame/ParaView missing | Run health check, install missing packages                             |
+| "Conversion failed" for .h5m            | MOAB not installed            | `pip install --extra-index-url https://shimwell.github.io/wheels moab` |
+| Blank iframe after loading              | Server crashed                | Check **Nuke Visualizer** output channel for Python errors             |
+| Widget shows "No Visualization Loaded"  | No file selected              | Click a supported file or use Browse                                   |
 
 See the full [Troubleshooting Guide](troubleshooting.md) for more.

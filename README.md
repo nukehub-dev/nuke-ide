@@ -105,7 +105,7 @@ tsc
 
 ## Contributing
 
-We welcome contributions to NukeIDE! Please refer to our [GitHub Issues](https://github.com/nukehub-dev/nuke-ide/issues) for ongoing tasks and discussions. For contribution guidelines, please see the repository's contributing document (if available).
+We welcome contributions to NukeIDE! Please refer to our [GitHub Issues](https://github.com/nukehub-dev/nuke-ide/issues) for ongoing tasks and discussions. Contribution guidelines, project conventions, and verification commands live in [AGENTS.md](AGENTS.md) — run `yarn lint`, `yarn test:python`, `yarn test:ts`, and `npx lerna run build` before committing.
 
 ## License
 
