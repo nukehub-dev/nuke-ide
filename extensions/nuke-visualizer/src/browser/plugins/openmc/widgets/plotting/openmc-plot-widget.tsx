@@ -83,56 +83,62 @@ export class OpenMCPlotWidget extends ReactWidget {
         this.update();
     }
 
-
-
     protected render(): React.ReactNode {
         if (!this.data && !this.genericFigure) {
             return (
-                <div className="openmc-plot empty" style={{
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'var(--theia-editor-background)'
-                }}>
+                <div
+                    className="openmc-plot empty"
+                    style={{
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'var(--theia-editor-background)'
+                    }}
+                >
                     <LoadingAnimations />
-                    <FancyLoadingSpinner
-                        message="Loading plot data..."
-                        subMessage="Fetching from statepoint"
-                    />
+                    <FancyLoadingSpinner message="Loading plot data..." subMessage="Fetching from statepoint" />
                 </div>
             );
         }
 
         return (
-            <div className="openmc-plot" style={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                backgroundColor: 'var(--theia-editor-background)',
-                color: 'var(--theia-foreground)',
-                fontFamily: 'var(--theia-ui-font-family)',
-                overflow: 'hidden'
-            }}>
-                <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    padding: '10px 20px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}>
+            <div
+                className="openmc-plot"
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    backgroundColor: 'var(--theia-editor-background)',
+                    color: 'var(--theia-foreground)',
+                    fontFamily: 'var(--theia-ui-font-family)',
+                    overflow: 'hidden'
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 20px',
+                        borderBottom: '1px solid var(--theia-panel-border)'
+                    }}
+                >
                     <h3 style={{ margin: 0, color: 'var(--theia-foreground)' }}>{this.titleText}</h3>
                     <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
-                        {this.plotType === 'spectrum' ? 'Log-Log Energy Spectrum' : 
-                         this.plotType === 'spatial' ? 'Linear Spatial Distribution' : 'Plotly Figure'}
+                        {this.plotType === 'spectrum'
+                            ? 'Log-Log Energy Spectrum'
+                            : this.plotType === 'spatial'
+                              ? 'Linear Spatial Distribution'
+                              : 'Plotly Figure'}
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', minHeight: '350px', overflow: 'hidden' }}>
-                    {this.plotType === 'spectrum' ? 
-                        this.renderSpectrum(this.data as OpenMCSpectrumData) : 
-                     this.plotType === 'spatial' ?
-                        this.renderSpatial(this.data as OpenMCSpatialPlotData) :
-                        this.renderGeneric(this.genericFigure!)}
+                    {this.plotType === 'spectrum'
+                        ? this.renderSpectrum(this.data as OpenMCSpectrumData)
+                        : this.plotType === 'spatial'
+                          ? this.renderSpatial(this.data as OpenMCSpatialPlotData)
+                          : this.renderGeneric(this.genericFigure!)}
                 </div>
             </div>
         );

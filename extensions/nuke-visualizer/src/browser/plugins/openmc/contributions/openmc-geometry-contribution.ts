@@ -61,11 +61,11 @@ export class OpenMCGeometryContribution {
         this.widgetManager.onDidCreateWidget(async ({ widget }) => {
             if (widget instanceof OpenMCGeometryTreeWidget) {
                 this.geometryTreeWidget = widget;
-                
+
                 widget.onView3D(async (request: GeometryView3DRequest) => {
                     await this.showGeometry3D(request);
                 });
-                
+
                 widget.onGeometryLoaded(async (event: GeometryLoadedEvent) => {
                     console.log('[OpenMC] Geometry loaded:', event.fileUri.path.toString());
                 });
@@ -75,14 +75,12 @@ export class OpenMCGeometryContribution {
 
     private async getOrCreateGeometryTreeWidget(): Promise<OpenMCGeometryTreeWidget> {
         let widget = this.geometryTreeWidget;
-        
+
         if (!widget || widget.isDisposed) {
-            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(
-                OpenMCGeometryTreeWidget.ID
-            );
+            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometryTreeWidget>(OpenMCGeometryTreeWidget.ID);
             this.geometryTreeWidget = widget;
         }
-        
+
         return widget;
     }
 
@@ -91,32 +89,30 @@ export class OpenMCGeometryContribution {
             text: 'Loading geometry hierarchy...',
             options: { cancelable: false }
         });
-        
+
         try {
             const hierarchy = await this.openmcService.getGeometryHierarchy(uri);
-            
+
             if (hierarchy.error) {
                 this.messageService.error(`Failed to load geometry: ${hierarchy.error}`);
                 return;
             }
-            
+
             // Get or create the geometry tree widget (handlers attached in getOrCreateGeometryTreeWidget)
             const widget = await this.getOrCreateGeometryTreeWidget();
-            
+
             // Update the widget state
             widget.setGeometry(uri, hierarchy);
-            
+
             // Add to right sidebar if not already there
             if (!widget.isAttached) {
                 await this.shell.addWidget(widget, { area: 'right' });
             }
-            
+
             // Activate the widget
             await this.shell.activateWidget(widget.id);
-            
-            this.messageService.info(
-                `Loaded geometry: ${hierarchy.totalCells} cells, ${hierarchy.totalSurfaces} surfaces`
-            );
+
+            this.messageService.info(`Loaded geometry: ${hierarchy.totalCells} cells, ${hierarchy.totalSurfaces} surfaces`);
         } catch (error) {
             this.messageService.error(`Failed to load geometry hierarchy: ${error}`);
         } finally {
@@ -128,10 +124,9 @@ export class OpenMCGeometryContribution {
         // Get or create the 3D widget
         let widget = this.geometry3DWidget;
         if (!widget || widget.isDisposed) {
-            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(
-                OpenMCGeometry3DWidget.ID,
-                { id: `${OpenMCGeometry3DWidget.ID}:${request.fileUri.toString()}` } as any
-            );
+            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget.ID, {
+                id: `${OpenMCGeometry3DWidget.ID}:${request.fileUri.toString()}`
+            } as any);
             this.geometry3DWidget = widget;
         }
 
@@ -140,13 +135,13 @@ export class OpenMCGeometryContribution {
         const treeWidget = await this.getOrCreateGeometryTreeWidget();
         const currentGeometryUri = treeWidget.getCurrentGeometryUri();
         const currentHierarchy = treeWidget.getCurrentHierarchy();
-        
+
         // Show widget even if no geometry (it will show "No geometry loaded" state)
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, { area: 'main' });
         }
         await this.shell.activateWidget(widget.id);
-        
+
         // Check if geometry is loaded and valid
         if (!currentHierarchy) {
             widget.setGeometry(request.fileUri); // Set URI for reference
@@ -157,7 +152,7 @@ export class OpenMCGeometryContribution {
             this.messageService.warn('Cannot visualize: Geometry has no cells. The file may not be a valid geometry file.');
             return;
         }
-        
+
         const geometryUri = currentGeometryUri || request.fileUri;
         const highlightCellId = request.highlightCellId;
 
@@ -192,13 +187,13 @@ export class OpenMCGeometryContribution {
             canSelectFolders: true,
             canSelectMany: false
         });
-        
+
         if (!fileUri) return;
-        
+
         const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
         await this.openGeometryHierarchy(uri);
     }
-    
+
     async viewMaterialsCommand(): Promise<void> {
         // Open file dialog to select materials.xml
         const fileUri = await this.fileDialogService.showOpenDialog({
@@ -212,24 +207,23 @@ export class OpenMCGeometryContribution {
                 'All Files': ['*']
             }
         });
-        
+
         if (!fileUri) return;
-        
+
         const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
         await this.openMaterialsExplorer(uri);
     }
-    
+
     async openMaterialsExplorer(uri: URI): Promise<void> {
         try {
             // Create and open the materials explorer widget
-            const widget = await this.widgetManager.getOrCreateWidget<OpenMCMaterialExplorerWidget>(
-                OpenMCMaterialExplorerWidget.ID,
-                { uri: uri.toString() }
-            );
-            
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCMaterialExplorerWidget>(OpenMCMaterialExplorerWidget.ID, {
+                uri: uri.toString()
+            });
+
             await this.shell.addWidget(widget, { area: 'main' });
             await this.shell.activateWidget(widget.id);
-            
+
             this.messageService.info(`Opened materials from ${uri.path.base}`);
         } catch (error) {
             this.messageService.error(`Failed to open materials: ${error}`);
@@ -250,27 +244,26 @@ export class OpenMCGeometryContribution {
                 'All Files': ['*']
             }
         });
-        
+
         if (!fileUri) return;
-        
+
         const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
         await this.openOverlapChecker(uri);
     }
-    
+
     async openOverlapChecker(uri: URI): Promise<void> {
         try {
             // Create and open the overlap checker widget
-            const widget = await this.widgetManager.getOrCreateWidget<OpenMCOverlapWidget>(
-                OpenMCOverlapWidget.ID,
-                { geometryUri: uri.toString() }
-            );
-            
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCOverlapWidget>(OpenMCOverlapWidget.ID, {
+                geometryUri: uri.toString()
+            });
+
             if (!widget.isAttached) {
                 await this.shell.addWidget(widget, { area: 'main' });
             }
-            
+
             await this.shell.activateWidget(widget.id);
-            
+
             this.messageService.info(`Opened overlap checker for ${uri.path.base}`);
         } catch (error) {
             this.messageService.error(`Failed to open overlap checker: ${error}`);

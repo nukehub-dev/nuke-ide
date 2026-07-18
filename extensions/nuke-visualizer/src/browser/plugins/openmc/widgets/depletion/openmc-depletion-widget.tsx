@@ -29,7 +29,7 @@ import * as React from 'react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { 
+import {
     OpenMCDepletionSummary,
     OpenMCDepletionMaterial,
     OpenMCDepletionNuclideData,
@@ -52,7 +52,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
     // File data
     private fileUri: URI | null = null;
     private fileName: string = '';
-    
+
     // Depletion data
     private summary: OpenMCDepletionSummary | null = null;
     private materials: OpenMCDepletionMaterial[] = [];
@@ -61,14 +61,14 @@ export class OpenMCDepletionWidget extends ReactWidget {
     private activityData: any = null;
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
-    
+
     // Plot settings
     private plotType: DepletionPlotType = 'concentration';
     private scaleType: DepletionScaleType = 'log';
     private xAxisType: DepletionXAxis = 'burnup';
     private selectedNuclides: Set<string> = new Set();
-    private showActivityNuclides: boolean = false;  // Toggle for showing individual activity curves
-    
+    private showActivityNuclides: boolean = false; // Toggle for showing individual activity curves
+
     // UI state
     private showAllNuclides: boolean = false;
     private searchFilter: string = '';
@@ -93,7 +93,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
         this.fileUri = fileUri;
         this.fileName = fileName;
         this.title.label = `Depletion: ${fileName}`;
-        this.selectedMaterialIndex = -1;  // Will be set after loading materials
+        this.selectedMaterialIndex = -1; // Will be set after loading materials
         this.selectedNuclides.clear();
         this.loadData();
     }
@@ -108,10 +108,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
         try {
             // Load summary
             this.summary = await this.openmcService.getDepletionSummary(this.fileUri);
-            
+
             // Load materials
             this.materials = await this.openmcService.getDepletionMaterials(this.fileUri);
-            
+
             // Load data for first material (use actual material index, not array index)
             if (this.materials.length > 0) {
                 this.selectedMaterialIndex = this.materials[0].index;
@@ -135,24 +135,24 @@ export class OpenMCDepletionWidget extends ReactWidget {
             const response = await this.openmcService.getDepletionData(
                 this.fileUri,
                 materialIndex,
-                undefined  // Load all nuclides
+                undefined // Load all nuclides
             );
 
             if (response.materialData) {
                 this.nuclideData = response.materialData.nuclides;
                 this.activityData = response.materialData.activity || null;
-                
+
                 // Auto-select important nuclides if none selected
                 if (this.selectedNuclides.size === 0 && this.nuclideData.length > 0) {
                     const importantNuclides = ['U235', 'U238', 'Pu239', 'Pu240', 'Pu241', 'Xe135', 'Sm149'];
                     for (const nuc of importantNuclides) {
-                        if (this.nuclideData.some(n => n.nuclide === nuc)) {
+                        if (this.nuclideData.some((n) => n.nuclide === nuc)) {
                             this.selectedNuclides.add(nuc);
                         }
                     }
                     // If still none selected, pick first 5
                     if (this.selectedNuclides.size === 0) {
-                        this.nuclideData.slice(0, 5).forEach(n => this.selectedNuclides.add(n.nuclide));
+                        this.nuclideData.slice(0, 5).forEach((n) => this.selectedNuclides.add(n.nuclide));
                     }
                 }
             }
@@ -174,30 +174,34 @@ export class OpenMCDepletionWidget extends ReactWidget {
         }
 
         return (
-            <div style={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                backgroundColor: 'var(--theia-editor-background)'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    backgroundColor: 'var(--theia-editor-background)'
+                }}
+            >
                 {/* Header */}
                 {this.renderHeader()}
-                
+
                 {/* Main Content */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                     {/* Sidebar */}
                     {this.renderSidebar()}
-                    
+
                     {/* Plot Area */}
                     <div style={{ flex: 1, padding: '10px', overflow: 'auto' }}>
                         {this.isLoading ? (
-                            <div style={{
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'var(--theia-descriptionForeground)'
-                            }}>
+                            <div
+                                style={{
+                                    height: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'var(--theia-descriptionForeground)'
+                                }}
+                            >
                                 Loading depletion data...
                             </div>
                         ) : (
@@ -212,20 +216,20 @@ export class OpenMCDepletionWidget extends ReactWidget {
     private renderHeader(): React.ReactNode {
         const bgColor = 'var(--theia-sideBar-background)';
         const textColor = 'var(--theia-foreground)';
-        
+
         return (
-            <div style={{
-                padding: '10px 20px',
-                backgroundColor: bgColor,
-                borderBottom: '1px solid var(--theia-panel-border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '20px'
-            }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', color: textColor }}>
-                    🔥 Depletion: {this.fileName}
-                </div>
-                
+            <div
+                style={{
+                    padding: '10px 20px',
+                    backgroundColor: bgColor,
+                    borderBottom: '1px solid var(--theia-panel-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '20px'
+                }}
+            >
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: textColor }}>🔥 Depletion: {this.fileName}</div>
+
                 {this.summary && (
                     <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', display: 'flex', gap: '15px' }}>
                         <span>{this.summary.nMaterials} materials</span>
@@ -243,14 +247,16 @@ export class OpenMCDepletionWidget extends ReactWidget {
         const textColor = 'var(--theia-foreground)';
 
         return (
-            <div style={{
-                width: '280px',
-                backgroundColor: bgColor,
-                borderRight: `1px solid ${borderColor}`,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden'
-            }}>
+            <div
+                style={{
+                    width: '280px',
+                    backgroundColor: bgColor,
+                    borderRight: `1px solid ${borderColor}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden'
+                }}
+            >
                 {/* Material Selector */}
                 <div style={{ padding: '15px', borderBottom: `1px solid ${borderColor}` }}>
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
@@ -273,9 +279,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             color: textColor
                         }}
                     >
-                        {this.materials.length === 0 && (
-                            <option value="">Loading...</option>
-                        )}
+                        {this.materials.length === 0 && <option value="">Loading...</option>}
                         {this.materials.map((mat) => (
                             <option key={mat.index} value={mat.index}>
                                 {mat.name} (Mat {mat.index})
@@ -291,7 +295,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     </label>
                     <select
                         value={this.plotType}
-                        onChange={(e) => { this.plotType = e.target.value as DepletionPlotType; this.update(); }}
+                        onChange={(e) => {
+                            this.plotType = e.target.value as DepletionPlotType;
+                            this.update();
+                        }}
                         style={{
                             width: '100%',
                             padding: '6px',
@@ -307,8 +314,12 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         <option value="mass">Mass (grams)</option>
                         <option value="normalized">Normalized (% of initial)</option>
                         <option value="stacked">Stacked Composition (%)</option>
-                        <option value="activity" disabled={!this.activityData}>Activity (Ci)</option>
-                        <option value="decay_heat" disabled={!this.activityData}>Decay Heat (Watts)</option>
+                        <option value="activity" disabled={!this.activityData}>
+                            Activity (Ci)
+                        </option>
+                        <option value="decay_heat" disabled={!this.activityData}>
+                            Decay Heat (Watts)
+                        </option>
                     </select>
 
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
@@ -316,7 +327,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     </label>
                     <select
                         value={this.xAxisType}
-                        onChange={(e) => { this.xAxisType = e.target.value as DepletionXAxis; this.update(); }}
+                        onChange={(e) => {
+                            this.xAxisType = e.target.value as DepletionXAxis;
+                            this.update();
+                        }}
                         style={{
                             width: '100%',
                             padding: '6px',
@@ -340,19 +354,24 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         </div>
                     )}
 
-                    <label style={{ 
-                        fontSize: '12px', 
-                        color: this.plotType === 'stacked' ? 'var(--theia-descriptionForeground)' : textColor, 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        cursor: this.plotType === 'stacked' ? 'not-allowed' : 'pointer' 
-                    }}>
+                    <label
+                        style={{
+                            fontSize: '12px',
+                            color: this.plotType === 'stacked' ? 'var(--theia-descriptionForeground)' : textColor,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: this.plotType === 'stacked' ? 'not-allowed' : 'pointer'
+                        }}
+                    >
                         <input
                             type="checkbox"
                             checked={this.scaleType === 'log'}
                             disabled={this.plotType === 'stacked'}
-                            onChange={(e) => { this.scaleType = e.target.checked ? 'log' : 'linear'; this.update(); }}
+                            onChange={(e) => {
+                                this.scaleType = e.target.checked ? 'log' : 'linear';
+                                this.update();
+                            }}
                         />
                         Log Scale {this.plotType === 'stacked' && '(N/A for Stacked)'}
                     </label>
@@ -366,11 +385,9 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                         {DEPLETION_NUCLIDE_PRESETS.map((preset: DepletionNuclidePreset) => {
                             // Check if this preset is active (all available nuclides selected)
-                            const availableNucs = preset.nuclides.filter(nuc => 
-                                this.nuclideData.some(n => n.nuclide === nuc)
-                            );
-                            const isActive = availableNucs.length > 0 && availableNucs.every(nuc => this.selectedNuclides.has(nuc));
-                            
+                            const availableNucs = preset.nuclides.filter((nuc) => this.nuclideData.some((n) => n.nuclide === nuc));
+                            const isActive = availableNucs.length > 0 && availableNucs.every((nuc) => this.selectedNuclides.has(nuc));
+
                             return (
                                 <Tooltip key={preset.id} content={preset.description} position="top">
                                     <button
@@ -380,13 +397,16 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                             fontSize: '10px',
                                             borderRadius: '4px',
                                             border: `1px solid ${isActive ? 'var(--theia-successBackground, #4caf50)' : borderColor}`,
-                                            backgroundColor: isActive ? 'var(--theia-successBackground, #4caf50)' : 'var(--theia-button-secondaryBackground)',
+                                            backgroundColor: isActive
+                                                ? 'var(--theia-successBackground, #4caf50)'
+                                                : 'var(--theia-button-secondaryBackground)',
                                             color: isActive ? 'var(--theia-button-foreground)' : textColor,
                                             cursor: 'pointer',
                                             fontWeight: isActive ? 'bold' : 'normal'
                                         }}
                                     >
-                                        {isActive ? '✓ ' : ''}{preset.label}
+                                        {isActive ? '✓ ' : ''}
+                                        {preset.label}
                                     </button>
                                 </Tooltip>
                             );
@@ -395,17 +415,22 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 </div>
 
                 {/* Nuclide Selector - Hidden for Activity/Decay Heat plots */}
-                {(this.plotType !== 'activity' && this.plotType !== 'decay_heat') ? (
+                {this.plotType !== 'activity' && this.plotType !== 'decay_heat' ? (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <div style={{ padding: '15px 15px 10px' }}>
-                            <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
+                            <label
+                                style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}
+                            >
                                 Nuclides ({this.selectedNuclides.size} selected)
                             </label>
                             <input
                                 type="text"
                                 placeholder="Search nuclides..."
                                 value={this.searchFilter}
-                                onChange={(e) => { this.searchFilter = e.target.value; this.update(); }}
+                                onChange={(e) => {
+                                    this.searchFilter = e.target.value;
+                                    this.update();
+                                }}
                                 style={{
                                     width: '100%',
                                     padding: '6px',
@@ -417,55 +442,68 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                 }}
                             />
                         </div>
-                        
-                        <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
-                            {this.renderNuclideList()}
-                        </div>
+
+                        <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>{this.renderNuclideList()}</div>
                     </div>
                 ) : (
                     /* Activity/Decay Heat Info Panel */
                     <div style={{ flex: 1, padding: '15px', overflow: 'auto' }}>
-                        <div style={{
-                            padding: '12px',
-                            backgroundColor: 'var(--theia-warningBackground)',
-                            borderRadius: '6px',
-                            border: '1px solid var(--theia-warningForeground)',
-                            marginBottom: '15px'
-                        }}>
-                            <div style={{ fontSize: '12px', color: 'var(--theia-warningForeground)', fontWeight: 'bold', marginBottom: '6px' }}>
+                        <div
+                            style={{
+                                padding: '12px',
+                                backgroundColor: 'var(--theia-warningBackground)',
+                                borderRadius: '6px',
+                                border: '1px solid var(--theia-warningForeground)',
+                                marginBottom: '15px'
+                            }}
+                        >
+                            <div
+                                style={{
+                                    fontSize: '12px',
+                                    color: 'var(--theia-warningForeground)',
+                                    fontWeight: 'bold',
+                                    marginBottom: '6px'
+                                }}
+                            >
                                 ℹ️ Total Radioactivity
                             </div>
                             <div style={{ fontSize: '11px', color: textColor, lineHeight: '1.4' }}>
-                                {this.plotType === 'activity' 
-                                    ? 'Activity shows the total radioactivity from ALL nuclides in the material. Individual nuclide selection does not affect the total.' 
+                                {this.plotType === 'activity'
+                                    ? 'Activity shows the total radioactivity from ALL nuclides in the material. Individual nuclide selection does not affect the total.'
                                     : 'Decay Heat shows the total heat generation from radioactive decay of ALL nuclides. Individual nuclide selection does not affect the total.'}
                             </div>
                         </div>
-                        
-                        <label style={{ 
-                            fontSize: '12px', 
-                            color: textColor, 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '8px', 
-                            cursor: 'pointer',
-                            padding: '10px',
-                            backgroundColor: 'var(--theia-input-background)',
-                            borderRadius: '4px'
-                        }}>
+
+                        <label
+                            style={{
+                                fontSize: '12px',
+                                color: textColor,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                cursor: 'pointer',
+                                padding: '10px',
+                                backgroundColor: 'var(--theia-input-background)',
+                                borderRadius: '4px'
+                            }}
+                        >
                             <input
                                 type="checkbox"
                                 checked={this.showActivityNuclides}
-                                onChange={(e) => { this.showActivityNuclides = e.target.checked; this.update(); }}
+                                onChange={(e) => {
+                                    this.showActivityNuclides = e.target.checked;
+                                    this.update();
+                                }}
                             />
                             <span>
-                                Show Individual Nuclide Contributions<br/>
+                                Show Individual Nuclide Contributions
+                                <br />
                                 <span style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
                                     Display breakdown curves for top contributors
                                 </span>
                             </span>
                         </label>
-                        
+
                         {this.showActivityNuclides && this.activityData && (
                             <div style={{ marginTop: '15px' }}>
                                 <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
@@ -482,9 +520,9 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
     private renderNuclideList(): React.ReactNode {
         const textColor = 'var(--theia-foreground)';
-        
+
         // Filter nuclides based on search
-        const filteredNuclides = this.nuclideData.filter(n => {
+        const filteredNuclides = this.nuclideData.filter((n) => {
             if (!this.searchFilter) return true;
             return n.nuclide.toLowerCase().includes(this.searchFilter.toLowerCase());
         });
@@ -499,9 +537,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
         });
 
         // Limit shown nuclides if not showing all
-        const displayNuclides = this.showAllNuclides 
-            ? sortedNuclides 
-            : sortedNuclides.slice(0, 20);
+        const displayNuclides = this.showAllNuclides ? sortedNuclides : sortedNuclides.slice(0, 20);
 
         return (
             <div>
@@ -533,10 +569,13 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         {nuclide.nuclide}
                     </label>
                 ))}
-                
+
                 {!this.showAllNuclides && sortedNuclides.length > 20 && (
                     <button
-                        onClick={() => { this.showAllNuclides = true; this.update(); }}
+                        onClick={() => {
+                            this.showAllNuclides = true;
+                            this.update();
+                        }}
                         style={{
                             width: '100%',
                             padding: '6px',
@@ -558,33 +597,32 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
     private renderActivityNuclideList(): React.ReactNode {
         const textColor = 'var(--theia-foreground)';
-        
+
         if (!this.activityData || !this.activityData.nuclides) {
             return <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>No activity data available</div>;
         }
-        
+
         // Sort nuclides by final activity/decay heat
         const sortedNuclides = [...this.activityData.nuclides].sort((a: any, b: any) => {
-            const aVal = this.plotType === 'activity' 
-                ? (a.activityCi?.[a.activityCi.length - 1] || 0)
-                : (a.decayHeat?.[a.decayHeat.length - 1] || 0);
-            const bVal = this.plotType === 'activity'
-                ? (b.activityCi?.[b.activityCi.length - 1] || 0)
-                : (b.decayHeat?.[b.decayHeat.length - 1] || 0);
+            const aVal =
+                this.plotType === 'activity' ? a.activityCi?.[a.activityCi.length - 1] || 0 : a.decayHeat?.[a.decayHeat.length - 1] || 0;
+            const bVal =
+                this.plotType === 'activity' ? b.activityCi?.[b.activityCi.length - 1] || 0 : b.decayHeat?.[b.decayHeat.length - 1] || 0;
             return bVal - aVal;
         });
-        
+
         // Show top 15 contributors
         const topNuclides = sortedNuclides.slice(0, 15);
-        
+
         return (
             <div>
                 {topNuclides.map((nuc: any, idx: number) => {
-                    const value = this.plotType === 'activity'
-                        ? (nuc.activityCi?.[nuc.activityCi.length - 1] || 0)
-                        : (nuc.decayHeat?.[nuc.decayHeat.length - 1] || 0);
+                    const value =
+                        this.plotType === 'activity'
+                            ? nuc.activityCi?.[nuc.activityCi.length - 1] || 0
+                            : nuc.decayHeat?.[nuc.decayHeat.length - 1] || 0;
                     const unit = this.plotType === 'activity' ? 'Ci' : 'W';
-                    
+
                     return (
                         <div
                             key={nuc.nuclide}
@@ -599,7 +637,9 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                 borderRadius: '3px'
                             }}
                         >
-                            <span>{idx + 1}. {nuc.nuclide}</span>
+                            <span>
+                                {idx + 1}. {nuc.nuclide}
+                            </span>
                             <span style={{ color: 'var(--theia-descriptionForeground)' }}>
                                 {value < 0.01 ? value.toExponential(2) : value.toFixed(2)} {unit}
                             </span>
@@ -617,15 +657,13 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
     private applyPreset(preset: DepletionNuclidePreset): void {
         // Get available nuclides from this preset that exist in the data
-        const availableNucs = preset.nuclides.filter(nuc => 
-            this.nuclideData.some(n => n.nuclide === nuc)
-        );
-        
+        const availableNucs = preset.nuclides.filter((nuc) => this.nuclideData.some((n) => n.nuclide === nuc));
+
         if (availableNucs.length === 0) return;
-        
+
         // Check if all available nuclides are already selected
-        const allSelected = availableNucs.every(nuc => this.selectedNuclides.has(nuc));
-        
+        const allSelected = availableNucs.every((nuc) => this.selectedNuclides.has(nuc));
+
         if (allSelected) {
             // Deselect all nuclides from this preset
             for (const nuc of availableNucs) {
@@ -643,13 +681,15 @@ export class OpenMCDepletionWidget extends ReactWidget {
     private renderPlot(): React.ReactNode {
         if (!this.summary || this.selectedNuclides.size === 0) {
             return (
-                <div style={{
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--theia-descriptionForeground)'
-                }}>
+                <div
+                    style={{
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--theia-descriptionForeground)'
+                    }}
+                >
                     {this.selectedNuclides.size === 0 ? 'Select nuclides to plot' : 'No data available'}
                 </div>
             );
@@ -663,7 +703,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
         // Get x-axis data
         let xValues: number[];
         let xLabel: string;
-        
+
         switch (this.xAxisType) {
             case 'time':
                 xValues = this.summary.timeDays;
@@ -681,20 +721,15 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
         // Prepare traces
         const traces: any[] = [];
-        const colors = [
-            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-        ];
+        const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 
         let colorIndex = 0;
-        
+
         // Handle activity/decay heat plots differently
         if ((this.plotType === 'activity' || this.plotType === 'decay_heat') && this.activityData) {
             // Plot total activity/decay heat as a thick line
-            const totalValues = this.plotType === 'activity' 
-                ? this.activityData.totalActivityCi 
-                : this.activityData.totalDecayHeat;
-            
+            const totalValues = this.plotType === 'activity' ? this.activityData.totalActivityCi : this.activityData.totalDecayHeat;
+
             traces.push({
                 x: xValues,
                 y: totalValues,
@@ -704,14 +739,12 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 line: { color: '#d62728', width: 3 },
                 marker: { size: 8 }
             });
-            
+
             // Optionally show individual nuclide contributions
             if (this.showActivityNuclides && this.activityData.nuclides) {
                 for (const nucActivity of this.activityData.nuclides) {
-                    const values = this.plotType === 'activity' 
-                        ? nucActivity.activityCi 
-                        : nucActivity.decayHeat;
-                    
+                    const values = this.plotType === 'activity' ? nucActivity.activityCi : nucActivity.decayHeat;
+
                     traces.push({
                         x: xValues,
                         y: values,
@@ -729,25 +762,25 @@ export class OpenMCDepletionWidget extends ReactWidget {
             // Calculate percentage contribution of each nuclide to total at each timestep
             const selectedNuclideData: { name: string; values: number[]; percentages: number[] }[] = [];
             let totalPerStep: number[] = new Array(this.summary.nSteps).fill(0);
-            
+
             // First pass: collect data and calculate totals
             for (const nuclideName of this.selectedNuclides) {
-                const nuclide = this.nuclideData.find(n => n.nuclide === nuclideName);
+                const nuclide = this.nuclideData.find((n) => n.nuclide === nuclideName);
                 if (!nuclide) continue;
-                
+
                 const values = nuclide.concentrations;
                 selectedNuclideData.push({
                     name: nuclideName,
                     values: values,
-                    percentages: []  // Will calculate after getting total
+                    percentages: [] // Will calculate after getting total
                 });
-                
+
                 // Add to total per step
                 for (let i = 0; i < this.summary.nSteps; i++) {
                     totalPerStep[i] += values[i];
                 }
             }
-            
+
             // Second pass: calculate percentages
             for (const nucData of selectedNuclideData) {
                 nucData.percentages = nucData.values.map((v, i) => {
@@ -755,20 +788,40 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     return total > 0 ? (v / total) * 100 : 0;
                 });
             }
-            
+
             // Sort by final percentage (largest on bottom)
             selectedNuclideData.sort((a, b) => b.percentages[b.percentages.length - 1] - a.percentages[a.percentages.length - 1]);
-            
+
             // Create stacked traces
             // Use a larger color palette for stacked charts
             const stackedColors = [
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
-                '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
-                '#393b79', '#637939', '#8c6d31', '#843c39', '#7b4173'
+                '#1f77b4',
+                '#ff7f0e',
+                '#2ca02c',
+                '#d62728',
+                '#9467bd',
+                '#8c564b',
+                '#e377c2',
+                '#7f7f7f',
+                '#bcbd22',
+                '#17becf',
+                '#aec7e8',
+                '#ffbb78',
+                '#98df8a',
+                '#ff9896',
+                '#c5b0d5',
+                '#c49c94',
+                '#f7b6d2',
+                '#c7c7c7',
+                '#dbdb8d',
+                '#9edae5',
+                '#393b79',
+                '#637939',
+                '#8c6d31',
+                '#843c39',
+                '#7b4173'
             ];
-            
+
             selectedNuclideData.forEach((nucData, index) => {
                 traces.push({
                     x: xValues,
@@ -783,11 +836,10 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     hovertemplate: `<b>${nucData.name}</b><br>Time: %{x:.1f}<br>Fraction: %{y:.2f}%<extra></extra>`
                 });
             });
-            
         } else {
             // Standard nuclide concentration plots
             for (const nuclideName of this.selectedNuclides) {
-                const nuclide = this.nuclideData.find(n => n.nuclide === nuclideName);
+                const nuclide = this.nuclideData.find((n) => n.nuclide === nuclideName);
                 if (!nuclide) continue;
 
                 let yValues: number[];
@@ -798,7 +850,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         break;
                     case 'normalized':
                         const initial = nuclide.concentrations[0] || 1;
-                        yValues = nuclide.concentrations.map(c => (c / initial) * 100);
+                        yValues = nuclide.concentrations.map((c) => (c / initial) * 100);
                         break;
                     case 'concentration':
                     default:
@@ -872,14 +924,16 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
     private renderEmpty(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--theia-descriptionForeground)',
-                padding: '20px'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--theia-descriptionForeground)',
+                    padding: '20px'
+                }}
+            >
                 <div>No depletion file selected</div>
             </div>
         );
@@ -887,16 +941,18 @@ export class OpenMCDepletionWidget extends ReactWidget {
 
     private renderError(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--theia-errorForeground)',
-                padding: '20px',
-                textAlign: 'center'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--theia-errorForeground)',
+                    padding: '20px',
+                    textAlign: 'center'
+                }}
+            >
                 <div style={{ fontSize: '18px', marginBottom: '10px' }}>Error</div>
                 <div>{this.errorMessage}</div>
             </div>
@@ -911,5 +967,4 @@ export class OpenMCDepletionWidget extends ReactWidget {
         const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
         return computed || fallback;
     }
-
 }

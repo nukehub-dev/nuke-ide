@@ -39,6 +39,7 @@ import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
 import { OpenMCParameterSweep, OpenMCOptimizationRun } from '../../../common/openmc-state-schema';
 import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -2252,7 +2253,7 @@ export class OptimizationWidget extends ReactWidget {
 
             // Pre-flight: detect OpenMC (with fallback) so warning shows immediately
             const openmcCheck = await this.nukeCoreService.detectPythonWithRequirements({
-                requiredPackages: [{ name: 'openmc' }],
+                requiredPackages: STUDIO_CORE_PACKAGES,
                 searchWorkspaceVenvs: true
             });
             if (!openmcCheck.success || !openmcCheck.command) {

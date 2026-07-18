@@ -53,12 +53,12 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     // Two depletion cases to compare
     private caseA: DepletionCase | null = null;
     private caseB: DepletionCase | null = null;
-    
+
     // Plot settings
     private plotType: ComparePlotType = 'concentration';
     private xAxisType: CompareXAxis = 'time';
     private selectedNuclides: Set<string> = new Set();
-    
+
     // UI state
     private isLoading: boolean = false;
     private errorMessage: string | null = null;
@@ -110,10 +110,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
         try {
             // Load both cases
-            await Promise.all([
-                this.loadCase(this.caseA),
-                this.loadCase(this.caseB)
-            ]);
+            await Promise.all([this.loadCase(this.caseA), this.loadCase(this.caseB)]);
 
             // Auto-select common important nuclides
             const commonNuclides = this.getCommonNuclides();
@@ -126,7 +123,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                 }
                 // If still none selected, pick first 5 common
                 if (this.selectedNuclides.size === 0) {
-                    commonNuclides.slice(0, 5).forEach(n => this.selectedNuclides.add(n));
+                    commonNuclides.slice(0, 5).forEach((n) => this.selectedNuclides.add(n));
                 }
             }
         } catch (error) {
@@ -140,17 +137,14 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     private async loadCase(depletionCase: DepletionCase): Promise<void> {
         // Load summary
         depletionCase.summary = await this.openmcService.getDepletionSummary(depletionCase.fileUri);
-        
+
         // Load materials
         depletionCase.materials = await this.openmcService.getDepletionMaterials(depletionCase.fileUri);
-        
+
         // Load data for first material
         if (depletionCase.materials.length > 0) {
             depletionCase.selectedMaterialIndex = depletionCase.materials[0].index;
-            const response = await this.openmcService.getDepletionData(
-                depletionCase.fileUri,
-                depletionCase.selectedMaterialIndex
-            );
+            const response = await this.openmcService.getDepletionData(depletionCase.fileUri, depletionCase.selectedMaterialIndex);
             if (response.materialData) {
                 depletionCase.nuclideData = response.materialData.nuclides;
             }
@@ -159,11 +153,11 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
     private getCommonNuclides(): string[] {
         if (!this.caseA?.nuclideData || !this.caseB?.nuclideData) return [];
-        
-        const nuclidesA = new Set(this.caseA.nuclideData.map(n => n.nuclide));
-        const nuclidesB = new Set(this.caseB.nuclideData.map(n => n.nuclide));
-        
-        return Array.from(nuclidesA).filter(n => nuclidesB.has(n));
+
+        const nuclidesA = new Set(this.caseA.nuclideData.map((n) => n.nuclide));
+        const nuclidesB = new Set(this.caseB.nuclideData.map((n) => n.nuclide));
+
+        return Array.from(nuclidesA).filter((n) => nuclidesB.has(n));
     }
 
     protected render(): React.ReactNode {
@@ -176,30 +170,34 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         }
 
         return (
-            <div style={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                backgroundColor: 'var(--theia-editor-background)'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    backgroundColor: 'var(--theia-editor-background)'
+                }}
+            >
                 {/* Header */}
                 {this.renderHeader()}
-                
+
                 {/* Main Content */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                     {/* Sidebar */}
                     {this.renderSidebar()}
-                    
+
                     {/* Plot Area */}
                     <div style={{ flex: 1, padding: '10px', overflow: 'auto' }}>
                         {this.isLoading ? (
-                            <div style={{
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'var(--theia-descriptionForeground)'
-                            }}>
+                            <div
+                                style={{
+                                    height: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'var(--theia-descriptionForeground)'
+                                }}
+                            >
                                 Loading comparison data...
                             </div>
                         ) : (
@@ -214,22 +212,30 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     private renderHeader(): React.ReactNode {
         const bgColor = 'var(--theia-sideBar-background)';
         const textColor = 'var(--theia-foreground)';
-        
+
         return (
-            <div style={{
-                padding: '10px 20px',
-                backgroundColor: bgColor,
-                borderBottom: '1px solid var(--theia-panel-border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '20px'
-            }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', color: textColor }}>
-                    🔄 Depletion Comparison
-                </div>
-                
+            <div
+                style={{
+                    padding: '10px 20px',
+                    backgroundColor: bgColor,
+                    borderBottom: '1px solid var(--theia-panel-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '20px'
+                }}
+            >
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: textColor }}>🔄 Depletion Comparison</div>
+
                 {this.caseA && this.caseB && (
-                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <div
+                        style={{
+                            fontSize: '12px',
+                            color: 'var(--theia-descriptionForeground)',
+                            display: 'flex',
+                            gap: '15px',
+                            alignItems: 'center'
+                        }}
+                    >
                         <span style={{ color: '#1f77b4', fontWeight: 'bold' }}>Case A: {this.caseA.fileName}</span>
                         <span>vs</span>
                         <span style={{ color: '#ff7f0e', fontWeight: 'bold' }}>Case B: {this.caseB.fileName}</span>
@@ -246,14 +252,16 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         const commonNuclides = this.getCommonNuclides();
 
         return (
-            <div style={{
-                width: '280px',
-                backgroundColor: bgColor,
-                borderRight: `1px solid ${borderColor}`,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden'
-            }}>
+            <div
+                style={{
+                    width: '280px',
+                    backgroundColor: bgColor,
+                    borderRight: `1px solid ${borderColor}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden'
+                }}
+            >
                 {/* Plot Settings */}
                 <div style={{ padding: '15px', borderBottom: `1px solid ${borderColor}` }}>
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
@@ -261,7 +269,10 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     </label>
                     <select
                         value={this.plotType}
-                        onChange={(e) => { this.plotType = e.target.value as ComparePlotType; this.update(); }}
+                        onChange={(e) => {
+                            this.plotType = e.target.value as ComparePlotType;
+                            this.update();
+                        }}
                         style={{
                             width: '100%',
                             padding: '6px',
@@ -283,7 +294,10 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     </label>
                     <select
                         value={this.xAxisType}
-                        onChange={(e) => { this.xAxisType = e.target.value as CompareXAxis; this.update(); }}
+                        onChange={(e) => {
+                            this.xAxisType = e.target.value as CompareXAxis;
+                            this.update();
+                        }}
                         style={{
                             width: '100%',
                             padding: '6px',
@@ -297,35 +311,48 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     >
                         <option value="time">Time (days)</option>
                         <option value="burnup" disabled={!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup}>
-                            Burnup (MWd/kg) {(!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup) ? '(N/A)' : ''}
+                            Burnup (MWd/kg) {!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup ? '(N/A)' : ''}
                         </option>
                     </select>
 
                     {/* Debug info for normalized plots */}
                     {this.plotType === 'normalized' && this.selectedNuclides.size > 0 && (
-                        <div style={{
-                            padding: '10px',
-                            backgroundColor: 'var(--theia-infoBackground, #1e3a5f)',
-                            borderRadius: '4px',
-                            fontSize: '10px',
-                            color: 'var(--theia-infoForeground, #90caf9)'
-                        }}>
+                        <div
+                            style={{
+                                padding: '10px',
+                                backgroundColor: 'var(--theia-infoBackground, #1e3a5f)',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                color: 'var(--theia-infoForeground, #90caf9)'
+                            }}
+                        >
                             <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>ℹ️ Normalized Mode:</div>
                             <div>Each case normalized to its own initial value</div>
-                            {Array.from(this.selectedNuclides).slice(0, 3).map(nuc => {
-                                const nucA = this.caseA!.nuclideData.find(n => n.nuclide === nuc);
-                                const nucB = this.caseB!.nuclideData.find(n => n.nuclide === nuc);
-                                const initA = nucA?.concentrations[0] || 0;
-                                const initB = nucB?.concentrations[0] || 0;
-                                return (
-                                    <div key={nuc} style={{ marginTop: '4px' }}>
-                                        {nuc}: A₀={initA.toExponential(2)}, B₀={initB.toExponential(2)}
-                                        {initA > 0 && initB > 0 && (
-                                            <span> ({Math.abs(initA-initB)/((initA+initB)/2)*100 < 1 ? '~same' : Math.abs(initA-initB)/((initA+initB)/2)*100 < 10 ? 'similar' : 'different'})</span>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                            {Array.from(this.selectedNuclides)
+                                .slice(0, 3)
+                                .map((nuc) => {
+                                    const nucA = this.caseA!.nuclideData.find((n) => n.nuclide === nuc);
+                                    const nucB = this.caseB!.nuclideData.find((n) => n.nuclide === nuc);
+                                    const initA = nucA?.concentrations[0] || 0;
+                                    const initB = nucB?.concentrations[0] || 0;
+                                    return (
+                                        <div key={nuc} style={{ marginTop: '4px' }}>
+                                            {nuc}: A₀={initA.toExponential(2)}, B₀={initB.toExponential(2)}
+                                            {initA > 0 && initB > 0 && (
+                                                <span>
+                                                    {' '}
+                                                    (
+                                                    {(Math.abs(initA - initB) / ((initA + initB) / 2)) * 100 < 1
+                                                        ? '~same'
+                                                        : (Math.abs(initA - initB) / ((initA + initB) / 2)) * 100 < 10
+                                                          ? 'similar'
+                                                          : 'different'}
+                                                    )
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             {this.selectedNuclides.size > 3 && <div>... and {this.selectedNuclides.size - 3} more</div>}
                         </div>
                     )}
@@ -341,10 +368,17 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                             Only nuclides present in both cases are shown
                         </div>
                     </div>
-                    
+
                     <div style={{ flex: 1, overflow: 'auto', padding: '0 15px 15px' }}>
                         {commonNuclides.length === 0 ? (
-                            <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', textAlign: 'center', padding: '20px' }}>
+                            <div
+                                style={{
+                                    fontSize: '11px',
+                                    color: 'var(--theia-descriptionForeground)',
+                                    textAlign: 'center',
+                                    padding: '20px'
+                                }}
+                            >
                                 No common nuclides found
                             </div>
                         ) : (
@@ -386,13 +420,15 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
     private renderPlot(): React.ReactNode {
         if (!this.caseA?.nuclideData || !this.caseB?.nuclideData || this.selectedNuclides.size === 0) {
             return (
-                <div style={{
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--theia-descriptionForeground)'
-                }}>
+                <div
+                    style={{
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--theia-descriptionForeground)'
+                    }}
+                >
                     {this.selectedNuclides.size === 0 ? 'Select nuclides to compare' : 'No data available'}
                 </div>
             );
@@ -406,7 +442,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         // Get x-axis data for both cases
         let xValuesA: number[], xValuesB: number[];
         let xLabel: string;
-        
+
         switch (this.xAxisType) {
             case 'burnup':
                 xValuesA = this.caseA.summary?.burnup || this.caseA.summary?.timeDays || [];
@@ -431,17 +467,14 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
         // Prepare traces
         const traces: any[] = [];
-        const colors = [
-            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-        ];
+        const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 
         let colorIndex = 0;
-        
+
         for (const nuclideName of this.selectedNuclides) {
-            const nucA = this.caseA.nuclideData.find(n => n.nuclide === nuclideName);
-            const nucB = this.caseB.nuclideData.find(n => n.nuclide === nuclideName);
-            
+            const nucA = this.caseA.nuclideData.find((n) => n.nuclide === nuclideName);
+            const nucB = this.caseB.nuclideData.find((n) => n.nuclide === nuclideName);
+
             if (!nucA || !nucB) continue;
 
             if (this.plotType === 'difference') {
@@ -451,7 +484,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                 for (let i = 0; i < minLength; i++) {
                     diffValues.push(nucA.concentrations[i] - nucB.concentrations[i]);
                 }
-                
+
                 traces.push({
                     x: xValuesA.slice(0, minLength),
                     y: diffValues,
@@ -464,7 +497,7 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
             } else {
                 // Overlay both cases
                 let yValuesA: number[], yValuesB: number[];
-                
+
                 switch (this.plotType) {
                     case 'normalized':
                         // Get first non-zero initial value
@@ -479,8 +512,8 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                                 rawConcsB: nucB.concentrations.map((c: number) => c.toExponential(2)),
                                 initA: initA.toExponential(3),
                                 initB: initB.toExponential(3),
-                                finalA: (nucA.concentrations[nucA.concentrations.length-1] / initA * 100).toFixed(1) + '%',
-                                finalB: (nucB.concentrations[nucB.concentrations.length-1] / initB * 100).toFixed(1) + '%'
+                                finalA: ((nucA.concentrations[nucA.concentrations.length - 1] / initA) * 100).toFixed(1) + '%',
+                                finalB: ((nucB.concentrations[nucB.concentrations.length - 1] / initB) * 100).toFixed(1) + '%'
                             });
                         }
                         break;
@@ -564,14 +597,16 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
     private renderEmpty(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--theia-descriptionForeground)',
-                padding: '20px'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--theia-descriptionForeground)',
+                    padding: '20px'
+                }}
+            >
                 <div>No comparison files selected</div>
             </div>
         );
@@ -579,16 +614,18 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
 
     private renderError(): React.ReactNode {
         return (
-            <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--theia-errorForeground)',
-                padding: '20px',
-                textAlign: 'center'
-            }}>
+            <div
+                style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--theia-errorForeground)',
+                    padding: '20px',
+                    textAlign: 'center'
+                }}
+            >
                 <div style={{ fontSize: '18px', marginBottom: '10px' }}>Error</div>
                 <div>{this.errorMessage}</div>
             </div>
@@ -603,5 +640,4 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
         const computed = getComputedStyle(document.body).getPropertyValue(variable.replace('var(', '').replace(')', '')).trim();
         return computed || fallback;
     }
-
 }

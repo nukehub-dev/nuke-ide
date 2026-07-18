@@ -15,6 +15,7 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 - DI wiring uses inversify `ContainerModule`s named `<name>-frontend-module.ts` / `<name>-backend-module.ts`. Frontend↔backend communication is JSON-RPC over WebSocket via `WebSocketConnectionProvider`.
 - Standard npm scripts: `build` (`tsc`, plus `copy-css` when the extension ships CSS), `watch`, `clean`, `prepare` (`clean && build`, run by lerna on install).
 - `lib/` is the tsc output directory — generated, never edited, never committed.
+- **Python package requirements live in `extensions/<name>/src/common/packages.json`** — the single source of truth for dependency health checks and install suggestions, consumed by TS (typed accessor in `src/common/`) and by the Python backends. Never inline package lists in services or widgets. Entry fields follow nuke-core's `PackageDependency`; the checker imports `name[.submodule]` and falls back to `importlib.metadata.version(name)`, so `name` must be the import name or the distribution name (e.g. `moab`, not `pymoab`). Pin external installs (`installCommand` with a commit-pinned URL) and add `extraIndexUrl` for packages not on PyPI.
 - Extensions with Python backends keep them in `python/` (not pip-installed) with pytest suites in `tests/python/`; see the child docs for those extensions.
 - Extension docs live in `<extension>/docs/` (`README.md` landing page, `user/`, `dev/`) and are read in-IDE by `extensions/nuke-docs`; see `docs/AGENTS.md`.
 

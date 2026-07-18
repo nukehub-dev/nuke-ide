@@ -27,9 +27,9 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common';
-import { 
-    QuickInputService, 
-    LabelProvider, 
+import {
+    QuickInputService,
+    LabelProvider,
     ApplicationShell,
     FrontendApplicationContribution,
     OpenHandler,
@@ -103,44 +103,44 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             const [uriA, uriB] = DiffUris.decode(uri);
             const isDepletionA = uriA?.path.base.includes('depletion') && uriA?.path.base.endsWith('.h5');
             const isDepletionB = uriB?.path.base.includes('depletion') && uriB?.path.base.endsWith('.h5');
-            
+
             if (isDepletionA && isDepletionB) {
                 return 1000; // Very high priority to catch and override default text diff
             }
         }
 
         const name = uri.path.base.toLowerCase();
-        
+
         // Handle statepoint files
         if (name.startsWith('statepoint') && name.endsWith('.h5')) {
             return 200;
         }
-        
+
         // Handle source files
         if (name === 'source.h5') {
             return 200;
         }
-        
+
         // Handle depletion results files
         if (name.includes('depletion') && name.endsWith('.h5')) {
             return 200;
         }
-        
+
         // Handle DAGMC geometry files
         if (name.endsWith('.h5m')) {
             return 150;
         }
-        
+
         // Handle OpenMC geometry.xml files
         if (name === 'geometry.xml') {
             return 200;
         }
-        
+
         // Handle OpenMC materials.xml files
         if (name === 'materials.xml') {
             return 200;
         }
-        
+
         return 0;
     }
 
@@ -175,7 +175,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
         }
 
         const name = uri.path.base.toLowerCase();
-        
+
         if (name.startsWith('statepoint') && name.endsWith('.h5')) {
             // Load statepoint and open Statepoint Viewer
             const progress = await this.messageService.showProgress({
@@ -200,14 +200,17 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             const files = await this.openmcService.discoverFilesInDirectory(uri.parent);
             if (files.statepoint) {
                 // Ask user if they want to overlay tally
-                const choice = await this.quickInput.showQuickPick([
-                    { label: '$(graph) Visualize Geometry Only', value: 'geometry' },
-                    { label: '$(layers) Overlay Tally Results', value: 'overlay' },
-                ], {
-                    title: 'OpenMC Geometry',
-                    placeholder: 'Choose visualization option'
-                });
-                
+                const choice = await this.quickInput.showQuickPick(
+                    [
+                        { label: '$(graph) Visualize Geometry Only', value: 'geometry' },
+                        { label: '$(layers) Overlay Tally Results', value: 'overlay' }
+                    ],
+                    {
+                        title: 'OpenMC Geometry',
+                        placeholder: 'Choose visualization option'
+                    }
+                );
+
                 if (choice?.value === 'overlay') {
                     await this.overlay.showTallySelectorForOverlay(uri, files.statepoint);
                 } else {
@@ -229,7 +232,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
             // Open materials explorer
             await this.geometry.openMaterialsExplorer(uri);
         }
-        
+
         // Return a dummy widget - actual visualization is handled by VisualizerWidget
         return new Widget();
     }

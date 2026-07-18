@@ -59,11 +59,15 @@ export class OpenMCOverlayContribution {
     async overlayTallyCommand(): Promise<void> {
         // 1. Get statepoint file first
         const statepointFiles = await this.fileDiscovery.getStatepointFiles();
-        
+
         const statepointOptions: QuickPickValue<string>[] = [
-            { value: '__browse__', label: '$(folder-opened) Browse for statepoint file...', description: 'Select statepoint.h5 file from any location' }
+            {
+                value: '__browse__',
+                label: '$(folder-opened) Browse for statepoint file...',
+                description: 'Select statepoint.h5 file from any location'
+            }
         ];
-        
+
         if (statepointFiles.length > 0) {
             statepointOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...statepointFiles);
         }
@@ -78,7 +82,7 @@ export class OpenMCOverlayContribution {
         let statepointUri: URI;
         if (statepointSelection.value === '__browse__') {
             this.quickInput.hide();
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise((resolve) => setTimeout(resolve, 300));
             try {
                 const fileUri = await this.fileDialogService.showOpenDialog({
                     title: 'Select Statepoint File',
@@ -104,23 +108,30 @@ export class OpenMCOverlayContribution {
         // 2. Auto-detect geometry from statepoint folder
         const spDir = statepointUri.parent;
         let geometryUri = await this.fileDiscovery.autoDetectGeometry(spDir);
-        
+
         // Ask user to confirm or override
         if (geometryUri) {
-            const confirm = await this.quickInput.showQuickPick([
-                { value: 'use', label: `$(check) Use detected: ${geometryUri.path.base}`, description: geometryUri.path.toString() },
-                { value: 'browse', label: '$(folder-opened) Browse for different geometry...', description: 'Select another .h5m or .xml file' }
-            ], {
-                title: 'Geometry File Detected',
-                placeholder: 'Use auto-detected geometry or browse for another'
-            });
-            
+            const confirm = await this.quickInput.showQuickPick(
+                [
+                    { value: 'use', label: `$(check) Use detected: ${geometryUri.path.base}`, description: geometryUri.path.toString() },
+                    {
+                        value: 'browse',
+                        label: '$(folder-opened) Browse for different geometry...',
+                        description: 'Select another .h5m or .xml file'
+                    }
+                ],
+                {
+                    title: 'Geometry File Detected',
+                    placeholder: 'Use auto-detected geometry or browse for another'
+                }
+            );
+
             if (!confirm) return;
             if (confirm.value === 'browse') {
                 geometryUri = undefined;
             }
         }
-        
+
         // If no auto-detected geometry, browse
         if (!geometryUri) {
             const fileUri = await this.fileDialogService.showOpenDialog({
@@ -173,7 +184,7 @@ export class OpenMCOverlayContribution {
         }
 
         const tallies = this.openmcService.getCurrentTallies();
-        console.log(`[OpenMC] Found ${tallies.length} tallies:`, tallies.map(t => `Tally ${t.id}`).join(', '));
+        console.log(`[OpenMC] Found ${tallies.length} tallies:`, tallies.map((t) => `Tally ${t.id}`).join(', '));
 
         if (tallies.length === 0) {
             this.messageService.warn('No tallies found in statepoint file');
@@ -185,9 +196,11 @@ export class OpenMCOverlayContribution {
 
         if (selection) {
             // Validate tally exists
-            const tallyExists = tallies.some(t => t.id === selection.tallyId);
+            const tallyExists = tallies.some((t) => t.id === selection.tallyId);
             if (!tallyExists) {
-                this.messageService.error(`Tally ${selection.tallyId} not found in statepoint. Available: ${tallies.map(t => t.id).join(', ')}`);
+                this.messageService.error(
+                    `Tally ${selection.tallyId} not found in statepoint. Available: ${tallies.map((t) => t.id).join(', ')}`
+                );
                 return;
             }
 
@@ -223,7 +236,11 @@ export class OpenMCOverlayContribution {
                 // Fall back to manual selection
                 const geometryFiles = await this.fileDiscovery.getGeometryFiles();
                 const geometryOptions: QuickPickValue<string>[] = [
-                    { value: '__browse__', label: '$(folder-opened) Browse for geometry file...', description: 'Select .h5m or .xml file from any location' }
+                    {
+                        value: '__browse__',
+                        label: '$(folder-opened) Browse for geometry file...',
+                        description: 'Select .h5m or .xml file from any location'
+                    }
                 ];
                 if (geometryFiles.length > 0) {
                     geometryOptions.push({ type: 'separator', label: 'Workspace Files' } as any, ...geometryFiles);
@@ -235,7 +252,7 @@ export class OpenMCOverlayContribution {
                 if (!geometrySelection) return;
                 if (geometrySelection.value === '__browse__') {
                     this.quickInput.hide();
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await new Promise((resolve) => setTimeout(resolve, 300));
                     try {
                         const fileUri = await this.fileDialogService.showOpenDialog({
                             title: 'Select Geometry File',

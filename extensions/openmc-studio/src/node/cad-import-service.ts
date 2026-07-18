@@ -41,6 +41,8 @@ import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 import * as fs from 'fs';
 
+import { CAD_PACKAGES, DAGMC_PACKAGES } from '../common/packages';
+
 // Use CommonJS require for Node.js modules to ensure proper externalization by webpack
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cp = require('child_process');
@@ -342,12 +344,7 @@ export class OpenMCCADImportService {
         // Use nuke-core's detectPythonWithRequirements to find a Python with CAD libraries
         // This is more robust than manual checking as it tries multiple environments
         const result = await this.coreService.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'gmsh', required: false }, // Optional but preferred
-                // OpenCASCADE via the OCC module, provided by the pythonocc-core package
-                { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
-                { name: 'cadquery', required: false }
-            ],
+            requiredPackages: CAD_PACKAGES,
             autoDetectEnvs: ['openmc', 'cad', 'gmsh']
         });
 
@@ -359,15 +356,7 @@ export class OpenMCCADImportService {
         }
 
         // Now check which specific libraries are available in the detected Python
-        const dependencyResult = await this.coreService.checkDependencies(
-            [
-                { name: 'gmsh', required: false },
-                // OpenCASCADE via the OCC module, provided by the pythonocc-core package
-                { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
-                { name: 'cadquery', required: false }
-            ],
-            result.command
-        );
+        const dependencyResult = await this.coreService.checkDependencies(CAD_PACKAGES, result.command);
 
         const libraries = {
             openCascade: !!dependencyResult.versions['OCC'],
@@ -395,18 +384,15 @@ export class OpenMCCADImportService {
         const warnings: string[] = [];
 
         try {
-            // Find Python with pydagmc/pymoab
+            // Find Python with pydagmc/moab
             const result = await this.coreService.detectPythonWithRequirements({
-                requiredPackages: [
-                    { name: 'pymoab', required: false },
-                    { name: 'pydagmc', required: false }
-                ]
+                requiredPackages: DAGMC_PACKAGES
             });
 
             if (!result.success || !result.command) {
                 return {
                     success: false,
-                    error: 'DAGMC import requires pydagmc and pymoab.'
+                    error: 'DAGMC import requires pydagmc and moab.'
                 };
             }
 

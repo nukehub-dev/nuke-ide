@@ -37,6 +37,8 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 
+import { DAGMC_PACKAGES } from '../common/packages';
+
 // Use CommonJS require for Node.js modules
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cp = require('child_process');
@@ -124,12 +126,9 @@ export class DAGMCEditorService {
      */
     async initialize(): Promise<boolean> {
         try {
-            // Find Python with pydagmc (and pymoab which it depends on)
+            // Find Python with pydagmc (and moab which it depends on)
             const result = await this.coreService.detectPythonWithRequirements({
-                requiredPackages: [
-                    { name: 'pydagmc', required: true },
-                    { name: 'pymoab', required: false }
-                ],
+                requiredPackages: DAGMC_PACKAGES,
                 searchWorkspaceVenvs: true
             });
 

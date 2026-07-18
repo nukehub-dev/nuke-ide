@@ -43,9 +43,7 @@ export interface TallySelection {
 
 @injectable()
 export class OpenMCTallySelector {
-    constructor(
-        private readonly quickInput: QuickInputService
-    ) {}
+    constructor(private readonly quickInput: QuickInputService) {}
 
     /**
      * Show a multi-step quick pick to select tally and options.
@@ -94,19 +92,19 @@ export class OpenMCTallySelector {
     }
 
     private async selectTally(tallies: OpenMCTallyInfo[]): Promise<OpenMCTallyInfo | undefined> {
-        const items: QuickPickValue<OpenMCTallyInfo>[] = tallies.map(tally => {
+        const items: QuickPickValue<OpenMCTallyInfo>[] = tallies.map((tally) => {
             // Create description based on tally properties
             const parts: string[] = [];
-            
+
             if (tally.scores.length > 0) {
                 parts.push(`Scores: ${tally.scores.join(', ')}`);
             }
-            
+
             if (tally.nuclides.length > 0 && !tally.nuclides.includes('total')) {
                 parts.push(`Nuclides: ${tally.nuclides.join(', ')}`);
             }
-            
-            const meshFilters = tally.filters.filter(f => f.type === 'mesh');
+
+            const meshFilters = tally.filters.filter((f) => f.type === 'mesh');
             if (meshFilters.length > 0) {
                 const mesh = meshFilters[0];
                 if (mesh.meshDimensions) {
@@ -114,7 +112,7 @@ export class OpenMCTallySelector {
                 }
             }
 
-            const filterTypes = tally.filters.map(f => f.type).filter(t => t !== 'mesh');
+            const filterTypes = tally.filters.map((f) => f.type).filter((t) => t !== 'mesh');
             if (filterTypes.length > 0) {
                 parts.push(`Filters: ${filterTypes.join(', ')}`);
             }
@@ -139,7 +137,7 @@ export class OpenMCTallySelector {
     }
 
     private async selectScore(scores: string[]): Promise<string | undefined> {
-        const items: QuickPickValue<string>[] = scores.map(score => ({
+        const items: QuickPickValue<string>[] = scores.map((score) => ({
             label: score,
             description: this.getScoreDescription(score),
             value: score
@@ -155,7 +153,7 @@ export class OpenMCTallySelector {
     }
 
     private async selectNuclide(nuclides: string[]): Promise<string | undefined> {
-        const items: QuickPickValue<string>[] = nuclides.map(nuclide => ({
+        const items: QuickPickValue<string>[] = nuclides.map((nuclide) => ({
             label: nuclide,
             description: nuclide === 'total' ? 'All nuclides combined' : undefined,
             value: nuclide
@@ -171,7 +169,7 @@ export class OpenMCTallySelector {
     }
 
     private async selectColorMap(): Promise<string | undefined> {
-        const items: QuickPickValue<string>[] = COLOR_MAP_PRESETS.map(preset => ({
+        const items: QuickPickValue<string>[] = COLOR_MAP_PRESETS.map((preset) => ({
             label: preset,
             value: preset
         }));
@@ -187,16 +185,16 @@ export class OpenMCTallySelector {
 
     private getScoreDescription(score: string): string | undefined {
         const descriptions: Record<string, string> = {
-            'flux': 'Neutron flux (particles/cm²/s)',
-            'absorption': 'Absorption rate',
-            'fission': 'Fission rate',
-            'scatter': 'Scattering rate',
-            'total': 'Total reaction rate',
-            'heating': 'Heating rate (MeV/source)',
+            flux: 'Neutron flux (particles/cm²/s)',
+            absorption: 'Absorption rate',
+            fission: 'Fission rate',
+            scatter: 'Scattering rate',
+            total: 'Total reaction rate',
+            heating: 'Heating rate (MeV/source)',
             'heating-local': 'Local heating rate',
             'damage-energy': 'Damage energy deposition',
-            'elastic': 'Elastic scattering',
-            'capture': 'Radiative capture',
+            elastic: 'Elastic scattering',
+            capture: 'Radiative capture'
         };
 
         return descriptions[score.toLowerCase()];
@@ -223,7 +221,7 @@ export class TallyQuickPickItem implements QuickPickItem {
 
     get detail(): string | undefined {
         if (this.tally.hasMesh) {
-            const meshFilter = this.tally.filters.find(f => f.type === 'mesh');
+            const meshFilter = this.tally.filters.find((f) => f.type === 'mesh');
             if (meshFilter?.meshDimensions) {
                 return `Mesh dimensions: ${meshFilter.meshDimensions.join(' × ')}`;
             }
@@ -245,12 +243,12 @@ export class ScoreQuickPickItem implements QuickPickItem {
 
     get description(): string | undefined {
         const descriptions: Record<string, string> = {
-            'flux': 'Neutron flux',
-            'absorption': 'Absorption rate',
-            'fission': 'Fission rate',
-            'scatter': 'Scattering rate',
-            'total': 'Total reaction rate',
-            'heating': 'Heating rate',
+            flux: 'Neutron flux',
+            absorption: 'Absorption rate',
+            fission: 'Fission rate',
+            scatter: 'Scattering rate',
+            total: 'Total reaction rate',
+            heating: 'Heating rate'
         };
         return descriptions[this.score.toLowerCase()];
     }

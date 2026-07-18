@@ -67,9 +67,15 @@ export class OpenMCXSService {
         if (request.libraryComparison) {
             args.push('--library-comparison', JSON.stringify(request.libraryComparison));
         }
-        if (request.includeUncertainty) { args.push('--include-uncertainty'); }
-        if (request.includeIntegrals) { args.push('--include-integrals'); }
-        if (request.includeDerivative) { args.push('--include-derivative'); }
+        if (request.includeUncertainty) {
+            args.push('--include-uncertainty');
+        }
+        if (request.includeIntegrals) {
+            args.push('--include-integrals');
+        }
+        if (request.includeDerivative) {
+            args.push('--include-derivative');
+        }
         if (request.groupStructure && request.groupStructure !== 'continuous') {
             args.push('--group-structure', request.groupStructure);
         }
@@ -93,20 +99,36 @@ export class OpenMCXSService {
 
     async getAvailableNuclides(crossSectionsPath?: string): Promise<string[]> {
         const args = ['openmc.list-nuclides'];
-        if (crossSectionsPath) { args.push('--cross-sections', crossSectionsPath); }
+        if (crossSectionsPath) {
+            args.push('--cross-sections', crossSectionsPath);
+        }
 
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, { timeout: 30000 });
-        if (result.status !== 0) { return []; }
-        try { return JSON.parse(result.stdout).nuclides || []; } catch { return []; }
+        if (result.status !== 0) {
+            return [];
+        }
+        try {
+            return JSON.parse(result.stdout).nuclides || [];
+        } catch {
+            return [];
+        }
     }
 
     async getAvailableThermalMaterials(crossSectionsPath?: string): Promise<string[]> {
         const args = ['openmc.list-thermal-materials'];
-        if (crossSectionsPath) { args.push('--cross-sections', crossSectionsPath); }
+        if (crossSectionsPath) {
+            args.push('--cross-sections', crossSectionsPath);
+        }
 
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, { timeout: 30000 });
-        if (result.status !== 0) { return []; }
-        try { return JSON.parse(result.stdout).materials || []; } catch { return []; }
+        if (result.status !== 0) {
+            return [];
+        }
+        try {
+            return JSON.parse(result.stdout).materials || [];
+        } catch {
+            return [];
+        }
     }
 
     async getGroupStructures(): Promise<XSGroupStructuresResponse> {

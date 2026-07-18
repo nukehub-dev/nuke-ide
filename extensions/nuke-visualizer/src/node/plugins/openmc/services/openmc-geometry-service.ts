@@ -49,7 +49,9 @@ export class OpenMCGeometryService {
 
         try {
             const parsed = JSON.parse(result.stdout);
-            if (parsed.error) { return parsed; }
+            if (parsed.error) {
+                return parsed;
+            }
             return parsed;
         } catch (e) {
             throw new Error('Failed to parse geometry data. The file may be corrupted or not a valid geometry file.');
@@ -57,15 +59,17 @@ export class OpenMCGeometryService {
     }
 
     async getMaterials(filePath: string): Promise<any> {
-        return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['openmc.materials', filePath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-        );
+        return this.pythonHelper.executeScriptJson<any>(this.scriptPath, ['openmc.materials', filePath], {
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024
+        });
     }
 
     async getMaterialCellLinkage(materialsPath: string, geometryPath: string): Promise<any> {
-        return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['openmc.material-cell-linkage', materialsPath, geometryPath], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-        );
+        return this.pythonHelper.executeScriptJson<any>(this.scriptPath, ['openmc.material-cell-linkage', materialsPath, geometryPath], {
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024
+        });
     }
 
     async mixMaterials(request: {
@@ -77,13 +81,21 @@ export class OpenMCGeometryService {
         id?: number;
     }): Promise<any> {
         const args = [
-            'openmc.mix-materials', request.filePath,
-            '--material-ids', request.materialIds.join(','),
-            '--fractions', request.fractions.join(','),
-            '--percent-type', request.percentType
+            'openmc.mix-materials',
+            request.filePath,
+            '--material-ids',
+            request.materialIds.join(','),
+            '--fractions',
+            request.fractions.join(','),
+            '--percent-type',
+            request.percentType
         ];
-        if (request.name) { args.push('--name', request.name); }
-        if (request.id !== undefined) { args.push('--id', request.id.toString()); }
+        if (request.name) {
+            args.push('--name', request.name);
+        }
+        if (request.id !== undefined) {
+            args.push('--id', request.id.toString());
+        }
 
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, { timeout: 30000 });
 
@@ -97,16 +109,16 @@ export class OpenMCGeometryService {
                 if (result.status === 0) {
                     return { material: data };
                 }
-            } catch { /* not JSON */ }
+            } catch {
+                /* not JSON */
+            }
         }
 
         throw new Error(result.stderr || 'Failed to mix materials');
     }
 
     async addMaterialToFile(filePath: string, materialXml: string): Promise<void> {
-        await this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, ['openmc.add-material', filePath, materialXml], { timeout: 30000 }
-        );
+        await this.pythonHelper.executeScriptJson<any>(this.scriptPath, ['openmc.add-material', filePath, materialXml], { timeout: 30000 });
     }
 
     async checkOverlaps(request: {
@@ -117,16 +129,21 @@ export class OpenMCGeometryService {
         parallel?: boolean;
     }): Promise<any> {
         const args: string[] = [
-            'openmc.check-overlaps', request.geometryPath,
-            '--samples', (request.samplePoints || 100000).toString(),
-            '--tolerance', (request.tolerance || 1e-6).toString()
+            'openmc.check-overlaps',
+            request.geometryPath,
+            '--samples',
+            (request.samplePoints || 100000).toString(),
+            '--tolerance',
+            (request.tolerance || 1e-6).toString()
         ];
-        if (request.bounds) { args.push('--bounds', JSON.stringify(request.bounds)); }
-        if (request.parallel) { args.push('--parallel'); }
+        if (request.bounds) {
+            args.push('--bounds', JSON.stringify(request.bounds));
+        }
+        if (request.parallel) {
+            args.push('--parallel');
+        }
 
-        return this.pythonHelper.executeScriptJson<any>(
-            this.scriptPath, args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 }
-        );
+        return this.pythonHelper.executeScriptJson<any>(this.scriptPath, args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
     }
 
     async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {

@@ -52,10 +52,10 @@ export class OpenMCWidgetFactory {
     ): Promise<VisualizerWidget> {
         const finalWidgetId = widgetId || `${VisualizerWidget.ID}:${fileUri.path.toString()}`;
 
-        const widget = await this.widgetManager.getOrCreateWidget<VisualizerWidget>(
-            VisualizerWidget.ID,
-            { uri: fileUri.toString(), id: finalWidgetId }
-        );
+        const widget = await this.widgetManager.getOrCreateWidget<VisualizerWidget>(VisualizerWidget.ID, {
+            uri: fileUri.toString(),
+            id: finalWidgetId
+        });
 
         widget.id = finalWidgetId;
         widget.setUri(fileUri);
@@ -89,13 +89,7 @@ export class OpenMCWidgetFactory {
         widgetId: string,
         loadingMessage: string
     ): Promise<{ widget: VisualizerWidget; completeLoading: (port: number, url: string) => void }> {
-        const widget = await this.createVisualizerWidget(
-            fileUri,
-            label,
-            widgetId,
-            undefined,
-            loadingMessage
-        );
+        const widget = await this.createVisualizerWidget(fileUri, label, widgetId, undefined, loadingMessage);
 
         const completeLoading = (port: number, url: string) => {
             widget.setServerUrl(url, port);

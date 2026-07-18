@@ -68,25 +68,22 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
         }
     }, [result]);
 
-    const filteredMaterials = materials.filter(m =>
-        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.id.toString().includes(searchQuery)
+    const filteredMaterials = materials.filter(
+        (m) => m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toString().includes(searchQuery)
     );
 
     const addMaterial = (mat: OpenMCMaterial) => {
-        if (selectedMats.some(s => s.material.id === mat.id)) return;
+        if (selectedMats.some((s) => s.material.id === mat.id)) return;
         setSelectedMats([...selectedMats, { material: mat, fraction: 0.0 }]);
     };
 
     const removeMaterial = (id: number) => {
-        setSelectedMats(selectedMats.filter(s => s.material.id !== id));
+        setSelectedMats(selectedMats.filter((s) => s.material.id !== id));
     };
 
     const updateFraction = (id: number, val: string) => {
         const fraction = parseFloat(val) || 0.0;
-        setSelectedMats(selectedMats.map(s =>
-            s.material.id === id ? { ...s, fraction } : s
-        ));
+        setSelectedMats(selectedMats.map((s) => (s.material.id === id ? { ...s, fraction } : s)));
     };
 
     const handleMix = async () => {
@@ -98,8 +95,8 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
         try {
             const request = {
                 filePath,
-                materialIds: selectedMats.map(s => s.material.id),
-                fractions: selectedMats.map(s => s.fraction),
+                materialIds: selectedMats.map((s) => s.material.id),
+                fractions: selectedMats.map((s) => s.fraction),
                 percentType,
                 name: newName,
                 id: newId
@@ -142,67 +139,61 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
     const isValid = selectedMats.length >= 2 && (percentType === 'vo' || Math.abs(totalFraction - 1.0) < 1e-6);
 
     return (
-        <div className='material-mixer-modal-overlay' onClick={onClose}>
-            <div className='material-mixer-modal' onClick={e => e.stopPropagation()}>
-                <div className='material-mixer-header'>
-                    <h3><i className='fa fa-blender'></i> Material Homogenizer</h3>
-                    <div className='header-actions'>
+        <div className="material-mixer-modal-overlay" onClick={onClose}>
+            <div className="material-mixer-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="material-mixer-header">
+                    <h3>
+                        <i className="fa fa-blender"></i> Material Homogenizer
+                    </h3>
+                    <div className="header-actions">
                         {result && (
-                            <Tooltip content='Save mixed material to materials.xml' position='bottom'>
-                                <button 
-                                    className='header-btn'
-                                    onClick={handleSaveToFile}
-                                    disabled={isSaving}
-                                >
-                                    {isSaving ? <i className='fa fa-spinner fa-spin'></i> : <i className='fa fa-save'></i>}
+                            <Tooltip content="Save mixed material to materials.xml" position="bottom">
+                                <button className="header-btn" onClick={handleSaveToFile} disabled={isSaving}>
+                                    {isSaving ? <i className="fa fa-spinner fa-spin"></i> : <i className="fa fa-save"></i>}
                                     {isSaving ? 'Saving...' : 'Save to File'}
                                 </button>
                             </Tooltip>
                         )}
-                        <Tooltip content='Close mixer' position='bottom'>
-                            <button className='close-btn' onClick={onClose}>
-                                <i className='fa fa-times'></i>
+                        <Tooltip content="Close mixer" position="bottom">
+                            <button className="close-btn" onClick={onClose}>
+                                <i className="fa fa-times"></i>
                             </button>
                         </Tooltip>
                     </div>
                 </div>
 
-                <div className='material-mixer-content'>
+                <div className="material-mixer-content">
                     {/* Left Panel: Source Library */}
-                    <aside className='material-mixer-source-panel'>
+                    <aside className="material-mixer-source-panel">
                         <h4>Source Materials</h4>
-                        <div className='material-mixer-search-container'>
-                            <div className='material-mixer-search'>
-                                <i className='fa fa-search'></i>
+                        <div className="material-mixer-search-container">
+                            <div className="material-mixer-search">
+                                <i className="fa fa-search"></i>
                                 <input
-                                    type='text'
-                                    placeholder='Search materials...'
+                                    type="text"
+                                    placeholder="Search materials..."
                                     value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
                                 />
                             </div>
                         </div>
-                        <div className='material-mixer-available-list'>
-                            {filteredMaterials.map(m => (
-                                <Tooltip 
-                                    key={m.id}
-                                    content={`Add ${m.name || `Material ${m.id}`} to mixture`}
-                                    position='right'
-                                >
-                                    <div
-                                        className='material-mixer-available-item'
-                                        onClick={() => addMaterial(m)}
-                                    >
-                                        <span className='mat-id'>#{m.id}</span>
-                                        <span className='mat-name'>
+                        <div className="material-mixer-available-list">
+                            {filteredMaterials.map((m) => (
+                                <Tooltip key={m.id} content={`Add ${m.name || `Material ${m.id}`} to mixture`} position="right">
+                                    <div className="material-mixer-available-item" onClick={() => addMaterial(m)}>
+                                        <span className="mat-id">#{m.id}</span>
+                                        <span className="mat-name">
                                             {m.name || `Material ${m.id}`}
                                             {m.thermalScattering && m.thermalScattering.length > 0 && (
-                                                <Tooltip content='Contains S(a,b) thermal scattering data' position='right'>
-                                                    <i className='fa fa-thermometer-half' style={{ marginLeft: '8px', color: '#e67e22', cursor: 'help' }}></i>
+                                                <Tooltip content="Contains S(a,b) thermal scattering data" position="right">
+                                                    <i
+                                                        className="fa fa-thermometer-half"
+                                                        style={{ marginLeft: '8px', color: '#e67e22', cursor: 'help' }}
+                                                    ></i>
                                                 </Tooltip>
                                             )}
                                         </span>
-                                        <i className='fa fa-plus-circle'></i>
+                                        <i className="fa fa-plus-circle"></i>
                                     </div>
                                 </Tooltip>
                             ))}
@@ -210,37 +201,54 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                     </aside>
 
                     {/* Right Panel: Main Content */}
-                    <main className='material-mixer-main-panel'>
-                        <div className='material-mixer-scroll-area'>
+                    <main className="material-mixer-main-panel">
+                        <div className="material-mixer-scroll-area">
                             {/* Fraction Type */}
-                            <div className='material-mixer-section'>
-                                <div className='material-mixer-section-title'>
-                                    <i className='fa fa-cog'></i> Fraction Type
+                            <div className="material-mixer-section">
+                                <div className="material-mixer-section-title">
+                                    <i className="fa fa-cog"></i> Fraction Type
                                 </div>
-                                <div className='material-mixer-type-selector'>
+                                <div className="material-mixer-type-selector">
                                     <label className={`material-mixer-type-option ${percentType === 'ao' ? 'active' : ''}`}>
-                                        <input type='radio' name='percentType' checked={percentType === 'ao'} onChange={() => setPercentType('ao')} />
+                                        <input
+                                            type="radio"
+                                            name="percentType"
+                                            checked={percentType === 'ao'}
+                                            onChange={() => setPercentType('ao')}
+                                        />
                                         Atom % (ao)
                                     </label>
                                     <label className={`material-mixer-type-option ${percentType === 'wo' ? 'active' : ''}`}>
-                                        <input type='radio' name='percentType' checked={percentType === 'wo'} onChange={() => setPercentType('wo')} />
+                                        <input
+                                            type="radio"
+                                            name="percentType"
+                                            checked={percentType === 'wo'}
+                                            onChange={() => setPercentType('wo')}
+                                        />
                                         Weight % (wo)
                                     </label>
                                     <label className={`material-mixer-type-option ${percentType === 'vo' ? 'active' : ''}`}>
-                                        <input type='radio' name='percentType' checked={percentType === 'vo'} onChange={() => setPercentType('vo')} />
+                                        <input
+                                            type="radio"
+                                            name="percentType"
+                                            checked={percentType === 'vo'}
+                                            onChange={() => setPercentType('vo')}
+                                        />
                                         Volume % (vo)
                                     </label>
                                 </div>
                             </div>
 
                             {/* Selected Components */}
-                            <div className='material-mixer-section'>
-                                <div className='material-mixer-section-title' style={{ justifyContent: 'space-between' }}>
-                                    <span><i className='fa fa-list-ul'></i> Selected Components ({selectedMats.length})</span>
+                            <div className="material-mixer-section">
+                                <div className="material-mixer-section-title" style={{ justifyContent: 'space-between' }}>
+                                    <span>
+                                        <i className="fa fa-list-ul"></i> Selected Components ({selectedMats.length})
+                                    </span>
                                     {selectedMats.length > 0 && (
-                                        <Tooltip content='Remove all selected materials' position='left'>
-                                            <button 
-                                                className='clear-all-btn'
+                                        <Tooltip content="Remove all selected materials" position="left">
+                                            <button
+                                                className="clear-all-btn"
                                                 onClick={() => {
                                                     setSelectedMats([]);
                                                     setResult(null);
@@ -251,39 +259,52 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                                         </Tooltip>
                                     )}
                                 </div>
-                                <div className='material-mixer-mix-list'>
-                                    {selectedMats.map(s => (
-                                        <div key={s.material.id} className='material-mixer-mix-item'>
-                                            <div className='mat-info'>
-                                                <Tooltip content={s.material.name || `Material ${s.material.id}`} position='top'>
-                                                    <div className='mat-name'>
-                                                        {s.material.name || `Material ${s.material.id}`}
-                                                    </div>
+                                <div className="material-mixer-mix-list">
+                                    {selectedMats.map((s) => (
+                                        <div key={s.material.id} className="material-mixer-mix-item">
+                                            <div className="mat-info">
+                                                <Tooltip content={s.material.name || `Material ${s.material.id}`} position="top">
+                                                    <div className="mat-name">{s.material.name || `Material ${s.material.id}`}</div>
                                                 </Tooltip>
-                                                <div className='mat-density'>{s.material.density.toFixed(4)} {s.material.densityUnit}</div>
+                                                <div className="mat-density">
+                                                    {s.material.density.toFixed(4)} {s.material.densityUnit}
+                                                </div>
                                             </div>
-                                            <Tooltip content={`Fraction of ${s.material.name || `Material ${s.material.id}`}`} position='top'>
-                                                <div className='fraction-input-wrapper'>
+                                            <Tooltip
+                                                content={`Fraction of ${s.material.name || `Material ${s.material.id}`}`}
+                                                position="top"
+                                            >
+                                                <div className="fraction-input-wrapper">
                                                     <input
-                                                        type='number'
-                                                        step='0.001'
-                                                        min='0'
-                                                        max='1'
+                                                        type="number"
+                                                        step="0.001"
+                                                        min="0"
+                                                        max="1"
                                                         value={s.fraction}
-                                                        onChange={e => updateFraction(s.material.id, e.target.value)}
+                                                        onChange={(e) => updateFraction(s.material.id, e.target.value)}
                                                     />
                                                 </div>
                                             </Tooltip>
-                                            <Tooltip content='Remove from mixture' position='left'>
-                                                <button className='remove-btn' onClick={() => removeMaterial(s.material.id)}>
-                                                    <i className='fa fa-trash'></i>
+                                            <Tooltip content="Remove from mixture" position="left">
+                                                <button className="remove-btn" onClick={() => removeMaterial(s.material.id)}>
+                                                    <i className="fa fa-trash"></i>
                                                 </button>
                                             </Tooltip>
                                         </div>
                                     ))}
                                     {selectedMats.length === 0 && (
-                                        <div className='no-results' style={{ padding: '30px', border: '2px dashed var(--theia-panel-border)', borderRadius: '8px', textAlign: 'center', fontSize: '13px', color: 'var(--theia-description-foreground)' }}>
-                                            <i className='fa fa-arrow-left' style={{ marginRight: '8px' }}></i> 
+                                        <div
+                                            className="no-results"
+                                            style={{
+                                                padding: '30px',
+                                                border: '2px dashed var(--theia-panel-border)',
+                                                borderRadius: '8px',
+                                                textAlign: 'center',
+                                                fontSize: '13px',
+                                                color: 'var(--theia-description-foreground)'
+                                            }}
+                                        >
+                                            <i className="fa fa-arrow-left" style={{ marginRight: '8px' }}></i>
                                             Select materials from the library to begin
                                         </div>
                                     )}
@@ -305,30 +326,35 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                             )}
 
                             {/* Metadata */}
-                            <div className='material-mixer-section'>
-                                <div className='material-mixer-section-title'>
-                                    <i className='fa fa-tag'></i> Output Properties
+                            <div className="material-mixer-section">
+                                <div className="material-mixer-section-title">
+                                    <i className="fa fa-tag"></i> Output Properties
                                 </div>
-                                <div className='material-mixer-metadata'>
-                                    <div className='material-mixer-field'>
+                                <div className="material-mixer-metadata">
+                                    <div className="material-mixer-field">
                                         <label>Material Name</label>
-                                        <input type='text' value={newName} onChange={e => setNewName(e.target.value)} placeholder='e.g. MOX Fuel' />
+                                        <input
+                                            type="text"
+                                            value={newName}
+                                            onChange={(e) => setNewName(e.target.value)}
+                                            placeholder="e.g. MOX Fuel"
+                                        />
                                     </div>
-                                    <div className='material-mixer-field'>
+                                    <div className="material-mixer-field">
                                         <label>Material ID</label>
-                                        <input type='number' value={newId} onChange={e => setNewId(parseInt(e.target.value) || 0)} />
+                                        <input type="number" value={newId} onChange={(e) => setNewId(parseInt(e.target.value) || 0)} />
                                     </div>
                                 </div>
                             </div>
 
                             {/* Warnings for S(a,b) */}
                             {result?.warnings && result.warnings.length > 0 && (
-                                <div className='material-mixer-warnings'>
-                                    <div className='material-mixer-warnings-title'>
-                                        <i className='fa fa-exclamation-triangle'></i>
+                                <div className="material-mixer-warnings">
+                                    <div className="material-mixer-warnings-title">
+                                        <i className="fa fa-exclamation-triangle"></i>
                                         Thermal Scattering Notice
                                     </div>
-                                    <ul className='material-mixer-warnings-list'>
+                                    <ul className="material-mixer-warnings-list">
                                         {result.warnings.map((w: string, i: number) => (
                                             <li key={i}>{w}</li>
                                         ))}
@@ -338,43 +364,42 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
 
                             {/* Result Card */}
                             {result && (
-                                <div className='material-mixer-result-card' ref={resultRef}>
-                                    <div className='material-mixer-result-header'>
-                                        <span><i className='fa fa-check-circle'></i> Generated Material</span>
-                                        <Tooltip content='Copy XML to clipboard' position='left'>
-                                            <button 
-                                                className='header-btn'
-                                                onClick={() => navigator.clipboard.writeText(result.xml)}
-                                            >
-                                                <i className='fa fa-copy'></i> Copy XML
+                                <div className="material-mixer-result-card" ref={resultRef}>
+                                    <div className="material-mixer-result-header">
+                                        <span>
+                                            <i className="fa fa-check-circle"></i> Generated Material
+                                        </span>
+                                        <Tooltip content="Copy XML to clipboard" position="left">
+                                            <button className="header-btn" onClick={() => navigator.clipboard.writeText(result.xml)}>
+                                                <i className="fa fa-copy"></i> Copy XML
                                             </button>
                                         </Tooltip>
                                     </div>
-                                    <div className='material-mixer-result-body'>
-                                        <div className='material-mixer-stats-grid'>
-                                            <div className='material-mixer-stat-item'>
+                                    <div className="material-mixer-result-body">
+                                        <div className="material-mixer-stats-grid">
+                                            <div className="material-mixer-stat-item">
                                                 <label>Density</label>
-                                                <span>{result.density.toFixed(6)} {result.densityUnit}</span>
+                                                <span>
+                                                    {result.density.toFixed(6)} {result.densityUnit}
+                                                </span>
                                             </div>
-                                            <div className='material-mixer-stat-item'>
+                                            <div className="material-mixer-stat-item">
                                                 <label>Nuclides</label>
                                                 <span>{result.totalNuclides}</span>
                                             </div>
-                                            <div className='material-mixer-stat-item'>
+                                            <div className="material-mixer-stat-item">
                                                 <label>Depletable</label>
                                                 <span>{result.isDepletable ? 'Yes' : 'No'}</span>
                                             </div>
                                         </div>
-                                        <div className='material-mixer-xml-box'>
-                                            {result.xml}
-                                        </div>
+                                        <div className="material-mixer-xml-box">{result.xml}</div>
                                     </div>
                                 </div>
                             )}
 
                             {savedMessage && (
-                                <div className='material-mixer-success-message'>
-                                    <i className='fa fa-check-circle'></i>
+                                <div className="material-mixer-success-message">
+                                    <i className="fa fa-check-circle"></i>
                                     {savedMessage}
                                 </div>
                             )}
@@ -383,20 +408,18 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                 </div>
 
                 {error && (
-                    <div className='material-mixer-error-banner'>
-                        <i className='fa fa-exclamation-triangle'></i>
+                    <div className="material-mixer-error-banner">
+                        <i className="fa fa-exclamation-triangle"></i>
                         <span>{error}</span>
                     </div>
                 )}
 
-                <div className='material-mixer-footer'>
-                    <button className='material-mixer-btn material-mixer-btn-secondary' onClick={onClose}>Cancel</button>
-                    <button
-                        className='material-mixer-btn material-mixer-btn-primary'
-                        disabled={!isValid || isMixing}
-                        onClick={handleMix}
-                    >
-                        {isMixing ? <i className='fa fa-sync fa-spin'></i> : <i className='fa fa-cogs'></i>}
+                <div className="material-mixer-footer">
+                    <button className="material-mixer-btn material-mixer-btn-secondary" onClick={onClose}>
+                        Cancel
+                    </button>
+                    <button className="material-mixer-btn material-mixer-btn-primary" disabled={!isValid || isMixing} onClick={handleMix}>
+                        {isMixing ? <i className="fa fa-sync fa-spin"></i> : <i className="fa fa-cogs"></i>}
                         {isMixing ? 'Calculating Mixture...' : 'Generate Mixture'}
                     </button>
                 </div>

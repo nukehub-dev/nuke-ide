@@ -12,28 +12,58 @@
 }
 
 @keyframes statepoint-fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes statepoint-header-slide-down {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes statepoint-content-fade-in {
-    from { opacity: 0; transform: translateY(15px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes statepoint-section-slide-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes statepoint-card-fade-in {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 .statepoint-viewer.statepoint-viewer--empty {
@@ -230,8 +260,12 @@
 
 /* Loading State */
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Overview Tab - Modern Design */
@@ -247,8 +281,14 @@
 }
 
 @keyframes statepoint-hero-fade-in {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 .statepoint-viewer .hero-content {
@@ -1180,32 +1220,32 @@
     .statepoint-viewer .metrics-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .statepoint-viewer .details-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .statepoint-viewer .tabs {
         overflow-x: auto;
         padding: 0 10px;
     }
-    
+
     .statepoint-viewer .tab {
         padding: 10px 12px;
         font-size: 11px;
         white-space: nowrap;
     }
-    
+
     .statepoint-viewer .overview-hero {
         flex-direction: column;
         text-align: center;
         gap: 20px;
     }
-    
+
     .statepoint-viewer .overview-metrics {
         grid-template-columns: 1fr;
     }
-    
+
     .statepoint-viewer .overview-grid {
         grid-template-columns: 1fr;
     }

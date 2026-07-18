@@ -41,7 +41,8 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { QuickPickService } from '@theia/core/lib/browser/quick-input';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
-import { OpenMCEnvironmentService, OPENMC_EXTRA_INDEX_URL } from './openmc-environment-service';
+import { OpenMCEnvironmentService } from './openmc-environment-service';
+import { OPENMC_EXTRA_INDEX_URL } from '../../common/packages';
 import { getOpenMCHealthPackages } from './openmc-package-metadata';
 
 /** Predefined installation option that maps a user-facing label to a set of packages. */

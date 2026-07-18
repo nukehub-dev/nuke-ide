@@ -48,6 +48,7 @@ import {
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 interface RunningSimulation {
@@ -245,7 +246,7 @@ export class OpenMCRunnerService {
         // Get OpenMC version
         let version: string | undefined;
         try {
-            const depCheck = await this.nukeCoreService.checkDependencies([{ name: 'openmc' }], validation.pythonCommand);
+            const depCheck = await this.nukeCoreService.checkDependencies(STUDIO_CORE_PACKAGES, validation.pythonCommand);
             version = depCheck.versions['openmc'];
         } catch {
             // Version check failed but OpenMC is available
@@ -316,7 +317,7 @@ export class OpenMCRunnerService {
         }
 
         // Check for openmc using nuke-core
-        const depCheck = await this.nukeCoreService.checkDependencies([{ name: 'openmc' }], pythonCommand);
+        const depCheck = await this.nukeCoreService.checkDependencies(STUDIO_CORE_PACKAGES, pythonCommand);
 
         if (!depCheck.available) {
             return {

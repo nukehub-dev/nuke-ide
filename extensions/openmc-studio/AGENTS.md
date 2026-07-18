@@ -18,6 +18,7 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   - `python/statepoint_reader.py` — statepoint parsing/comparison.
   - `python/validation/` — validation helpers.
 - Python runtime dependencies (openmc, numpy, gmsh/CadQuery/`OCP`, pythonocc-core/`OCC`, pydagmc/moab) are provided by the `ide` conda environment — see `applications/docker/environment.yml` and `docs/installation.md`. Tests must not require them: the test environment only has `pytest` + `numpy`, so guard heavy imports.
+- Python package requirements live in `src/common/packages.json` (single source consumed via `src/common/packages.ts`); never inline package lists in services/widgets; `pydagmc`'s installCommand must stay pinned.
 - Tests: `tests/python/` runs from the repo root via `yarn test:python`; `conftest.py` puts `python/` on `sys.path` so `cad_conversion` and the top-level service modules are importable.
 - Python style: ruff (config at repo root) — width 100, double quotes.
 

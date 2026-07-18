@@ -1,0 +1,33 @@
+{
+  "core": [
+    { "name": "h5py", "required": true },
+    { "name": "openmc", "required": true, "extraIndexUrl": "https://shimwell.github.io/wheels" },
+    { "name": "numpy", "required": true }
+  ],
+  "dagmc": [
+    {
+      "name": "pydagmc",
+      "required": true,
+      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+    },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" }
+  ],
+  "cad": [
+    { "name": "gmsh", "required": false },
+    { "name": "OCC", "required": false, "installCommand": "conda install -c conda-forge pythonocc-core" },
+    { "name": "cadquery", "required": false }
+  ],
+  "health": [
+    { "name": "h5py", "required": true },
+    { "name": "openmc", "required": true, "extraIndexUrl": "https://shimwell.github.io/wheels" },
+    { "name": "numpy", "required": true },
+    { "name": "mpi4py", "required": false },
+    {
+      "name": "pydagmc",
+      "required": false,
+      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+    },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
+    { "name": "OCP", "required": false, "installCommand": "pip install cadquery-ocp" }
+  ]
+}

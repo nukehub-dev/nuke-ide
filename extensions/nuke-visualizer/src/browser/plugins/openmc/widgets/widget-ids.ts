@@ -29,5 +29,5 @@
 export const WIDGET_IDS = {
     OPENMC_PLOT: 'openmc-plot-widget',
     OPENMC_HEATMAP: 'openmc-heatmap-widget',
-    XS_PLOT: 'xs-plot-widget',
+    XS_PLOT: 'xs-plot-widget'
 } as const;

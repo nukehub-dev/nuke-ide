@@ -103,7 +103,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                 }
                 // If previously selected material still exists, keep it selected
                 if (this.selectedMaterial) {
-                    const stillExists = this.materials.find(m => m.id === this.selectedMaterial!.id);
+                    const stillExists = this.materials.find((m) => m.id === this.selectedMaterial!.id);
                     if (!stillExists) {
                         this.selectedMaterial = this.materials[0] || null;
                     }
@@ -123,19 +123,19 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             this.update();
         }
     }
-    
+
     private async loadCellLinkage(): Promise<void> {
         if (!this.fileUri || !this.geometryUri) {
             return;
         }
-        
+
         try {
             // Check if geometry.xml exists
             const exists = await this.openmcService.checkFileExists(this.geometryUri);
             if (!exists) {
                 return;
             }
-            
+
             const result = await this.openmcService.getMaterialCellLinkage(this.fileUri, this.geometryUri);
             if (!result.error) {
                 this.materialCells = result.linkage || {};
@@ -154,10 +154,11 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
 
         if (this.searchQuery) {
             const query = this.searchQuery.toLowerCase();
-            filtered = filtered.filter(m =>
-                m.name.toLowerCase().includes(query) ||
-                m.id.toString().includes(query) ||
-                m.nuclides.some(n => n.name.toLowerCase().includes(query))
+            filtered = filtered.filter(
+                (m) =>
+                    m.name.toLowerCase().includes(query) ||
+                    m.id.toString().includes(query) ||
+                    m.nuclides.some((n) => n.name.toLowerCase().includes(query))
             );
         }
 
@@ -196,7 +197,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             this.messageService.warn('No geometry.xml found. Cannot highlight cell.');
             return;
         }
-        
+
         try {
             // Check if geometry file exists
             const exists = await this.openmcService.checkFileExists(this.geometryUri);
@@ -204,10 +205,10 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                 this.messageService.warn('geometry.xml not found.');
                 return;
             }
-            
+
             // Open the geometry viewer with the cell highlighted
             const widget = await this.openmcService.openGeometryViewer(this.geometryUri, [cellId]);
-            
+
             if (!widget) {
                 this.messageService.error('Failed to open Geometry Viewer');
             }
@@ -220,28 +221,34 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
 
     private renderToolbar(): React.ReactNode {
         return (
-            <div className='material-explorer-toolbar'>
-                <div className='search-box'>
-                    <i className='fa fa-search'></i>
+            <div className="material-explorer-toolbar">
+                <div className="search-box">
+                    <i className="fa fa-search"></i>
                     <input
-                        type='text'
-                        placeholder='Search materials or nuclides...'
+                        type="text"
+                        placeholder="Search materials or nuclides..."
                         value={this.searchQuery}
-                        onChange={e => {
+                        onChange={(e) => {
                             this.searchQuery = e.target.value;
                             this.update();
                         }}
                     />
                 </div>
-                <div className='stats'>
-                    <span><i className='fa fa-cubes'></i> {this.materials.length} Materials</span>
-                    <span><i className='fa fa-atom'></i> {this.materials.reduce((sum, m) => sum + m.nuclides.length, 0)} Nuclides</span>
-                    {this.materials.some(m => m.isDepletable) && (
-                        <span className='depletable-stat'><i className='fa fa-fire'></i> {this.materials.filter(m => m.isDepletable).length} Depletable</span>
+                <div className="stats">
+                    <span>
+                        <i className="fa fa-cubes"></i> {this.materials.length} Materials
+                    </span>
+                    <span>
+                        <i className="fa fa-atom"></i> {this.materials.reduce((sum, m) => sum + m.nuclides.length, 0)} Nuclides
+                    </span>
+                    {this.materials.some((m) => m.isDepletable) && (
+                        <span className="depletable-stat">
+                            <i className="fa fa-fire"></i> {this.materials.filter((m) => m.isDepletable).length} Depletable
+                        </span>
                     )}
                 </div>
-                <div className='toolbar-actions' style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                    <Tooltip content='Mix multiple materials into a new one' position='bottom'>
+                <div className="toolbar-actions" style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <Tooltip content="Mix multiple materials into a new one" position="bottom">
                         <button
                             className={`theia-button ${this.showMixer ? 'primary' : 'secondary'}`}
                             onClick={() => {
@@ -249,7 +256,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                                 this.update();
                             }}
                         >
-                            <i className='fa fa-blender'></i> {this.showMixer ? 'Close Mixer' : 'Mix Materials'}
+                            <i className="fa fa-blender"></i> {this.showMixer ? 'Close Mixer' : 'Mix Materials'}
                         </button>
                     </Tooltip>
                 </div>
@@ -261,29 +268,20 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         const filtered = this.getFilteredMaterials();
 
         return (
-            <div className='material-list'>
-                <div className='material-list-header'>
-                    <div
-                        className={`sortable ${this.sortBy === 'id' ? 'active' : ''}`}
-                        onClick={() => this.handleSort('id')}
-                    >
+            <div className="material-list">
+                <div className="material-list-header">
+                    <div className={`sortable ${this.sortBy === 'id' ? 'active' : ''}`} onClick={() => this.handleSort('id')}>
                         ID {this.sortBy === 'id' && <i className={`fa fa-sort-${this.sortAsc ? 'asc' : 'desc'}`}></i>}
                     </div>
-                    <div
-                        className={`sortable ${this.sortBy === 'name' ? 'active' : ''}`}
-                        onClick={() => this.handleSort('name')}
-                    >
+                    <div className={`sortable ${this.sortBy === 'name' ? 'active' : ''}`} onClick={() => this.handleSort('name')}>
                         Name {this.sortBy === 'name' && <i className={`fa fa-sort-${this.sortAsc ? 'asc' : 'desc'}`}></i>}
                     </div>
-                    <div
-                        className={`sortable ${this.sortBy === 'density' ? 'active' : ''}`}
-                        onClick={() => this.handleSort('density')}
-                    >
+                    <div className={`sortable ${this.sortBy === 'density' ? 'active' : ''}`} onClick={() => this.handleSort('density')}>
                         Density {this.sortBy === 'density' && <i className={`fa fa-sort-${this.sortAsc ? 'asc' : 'desc'}`}></i>}
                     </div>
                 </div>
-                <div className='material-list-body'>
-                    {filtered.map(material => (
+                <div className="material-list-body">
+                    {filtered.map((material) => (
                         <div
                             key={material.id}
                             className={`material-item ${this.selectedMaterial?.id === material.id ? 'selected' : ''}`}
@@ -294,30 +292,28 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                                 this.update();
                             }}
                         >
-                            <div className='material-id'>#{material.id}</div>
-                            <div className='material-info'>
-                                <div className='material-name'>
+                            <div className="material-id">#{material.id}</div>
+                            <div className="material-info">
+                                <div className="material-name">
                                     {material.name || `Material ${material.id}`}
                                     {material.isDepletable && (
-                                        <Tooltip content='Depletable material' position='right'>
-                                            <span className='depletable-badge'>D</span>
+                                        <Tooltip content="Depletable material" position="right">
+                                            <span className="depletable-badge">D</span>
                                         </Tooltip>
                                     )}
                                 </div>
-                                <div className='material-meta'>
+                                <div className="material-meta">
                                     {material.nuclides.length} nuclides
                                     {material.thermalScattering.length > 0 && ` • ${material.thermalScattering.length} S(α,β)`}
                                 </div>
                             </div>
-                            <div className='material-density'>
+                            <div className="material-density">
                                 {material.density > 0 ? `${material.density.toFixed(3)}` : '—'}
-                                <span className='density-unit'>{material.densityUnit}</span>
+                                <span className="density-unit">{material.densityUnit}</span>
                             </div>
                         </div>
                     ))}
-                    {filtered.length === 0 && (
-                        <div className='no-results'>No materials found</div>
-                    )}
+                    {filtered.length === 0 && <div className="no-results">No materials found</div>}
                 </div>
             </div>
         );
@@ -326,24 +322,21 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     private renderNuclideBarChart(nuclides: OpenMCMaterialNuclide[]): React.ReactNode {
         if (nuclides.length === 0) return null;
 
-        const maxFraction = Math.max(...nuclides.map(n => n.fraction));
+        const maxFraction = Math.max(...nuclides.map((n) => n.fraction));
 
         return (
-            <div className='nuclide-chart'>
+            <div className="nuclide-chart">
                 <h4>Nuclide Composition</h4>
-                {nuclides.map(nuclide => {
+                {nuclides.map((nuclide) => {
                     const percentage = (nuclide.fraction / maxFraction) * 100;
                     return (
-                        <Tooltip key={nuclide.name} content={`${nuclide.fraction.toFixed(6)} ${nuclide.fractionType}`} position='top'>
-                            <div className='nuclide-bar-row'>
-                                <div className='nuclide-name'>{nuclide.name}</div>
-                                <div className='nuclide-bar-container'>
-                                    <div
-                                        className='nuclide-bar'
-                                        style={{ width: `${percentage}%` }}
-                                    ></div>
+                        <Tooltip key={nuclide.name} content={`${nuclide.fraction.toFixed(6)} ${nuclide.fractionType}`} position="top">
+                            <div className="nuclide-bar-row">
+                                <div className="nuclide-name">{nuclide.name}</div>
+                                <div className="nuclide-bar-container">
+                                    <div className="nuclide-bar" style={{ width: `${percentage}%` }}></div>
                                 </div>
-                                <div className='nuclide-fraction'>
+                                <div className="nuclide-fraction">
                                     {nuclide.fraction.toFixed(6)} {nuclide.fractionType}
                                 </div>
                             </div>
@@ -358,42 +351,35 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         if (!this.selectedMaterial) return null;
 
         return (
-            <div className='cell-linkage-section'>
-                <h4>📦 Cell Usage
-                    {this.linkedCells.length > 0 && (
-                        <span className='cell-count-badge'>{this.linkedCells.length}</span>
-                    )}
+            <div className="cell-linkage-section">
+                <h4>
+                    📦 Cell Usage
+                    {this.linkedCells.length > 0 && <span className="cell-count-badge">{this.linkedCells.length}</span>}
                 </h4>
                 {this.linkedCells.length === 0 ? (
-                    <div className='no-cells-message'>
+                    <div className="no-cells-message">
                         {this.geometryUri ? (
                             <span>No cells found using this material</span>
                         ) : (
-                            <span className='geometry-not-found'>
-                                <i className='fa fa-info-circle'></i>
-                                {' '}Open geometry.xml to see cell usage
+                            <span className="geometry-not-found">
+                                <i className="fa fa-info-circle"></i> Open geometry.xml to see cell usage
                             </span>
                         )}
                     </div>
                 ) : (
-                    <div className='material-cell-list'>
-                        {this.linkedCells.map(cell => (
-                            <div key={cell.id} className='material-cell-item'>
-                                <div className='material-cell-info'>
-                                    <span className='material-cell-id'>#{cell.id}</span>
-                                    <Tooltip content={cell.name || `Cell ${cell.id}`} position='top'>
-                                        <span className='material-cell-name'>
-                                            {cell.name}
-                                        </span>
+                    <div className="material-cell-list">
+                        {this.linkedCells.map((cell) => (
+                            <div key={cell.id} className="material-cell-item">
+                                <div className="material-cell-info">
+                                    <span className="material-cell-id">#{cell.id}</span>
+                                    <Tooltip content={cell.name || `Cell ${cell.id}`} position="top">
+                                        <span className="material-cell-name">{cell.name}</span>
                                     </Tooltip>
-                                    <span className='material-cell-universe'>U:{cell.universe}</span>
+                                    <span className="material-cell-universe">U:{cell.universe}</span>
                                 </div>
-                                <Tooltip content='Highlight cell in Geometry Viewer' position='left'>
-                                    <button
-                                        className='material-cell-highlight-btn'
-                                        onClick={() => this.highlightCell(cell.id)}
-                                    >
-                                        <i className='fa fa-crosshairs'></i>
+                                <Tooltip content="Highlight cell in Geometry Viewer" position="left">
+                                    <button className="material-cell-highlight-btn" onClick={() => this.highlightCell(cell.id)}>
+                                        <i className="fa fa-crosshairs"></i>
                                     </button>
                                 </Tooltip>
                             </div>
@@ -407,8 +393,8 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
     private renderMaterialDetails(): React.ReactNode {
         if (!this.selectedMaterial) {
             return (
-                <div className='material-details empty'>
-                    <i className='fa fa-flask'></i>
+                <div className="material-details empty">
+                    <i className="fa fa-flask"></i>
                     <p>Select a material to view details</p>
                 </div>
             );
@@ -417,54 +403,50 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         const m = this.selectedMaterial;
 
         return (
-            <div className='material-details'>
-                <div className='material-header'>
+            <div className="material-details">
+                <div className="material-header">
                     <h3>{m.name || `Material ${m.id}`}</h3>
-                    <div className='material-badges'>
-                        {m.isDepletable && <span className='badge depletable'>Depletable</span>}
-                        {m.thermalScattering.length > 0 && (
-                            <span className='badge thermal'>S(α,β): {m.thermalScattering.length}</span>
-                        )}
+                    <div className="material-badges">
+                        {m.isDepletable && <span className="badge depletable">Depletable</span>}
+                        {m.thermalScattering.length > 0 && <span className="badge thermal">S(α,β): {m.thermalScattering.length}</span>}
                     </div>
                 </div>
 
-                <div className='properties-grid'>
-                    <div className='property'>
+                <div className="properties-grid">
+                    <div className="property">
                         <label>ID</label>
-                        <span className='property-value'>{m.id}</span>
+                        <span className="property-value">{m.id}</span>
                     </div>
-                    <div className='property'>
+                    <div className="property">
                         <label>Density</label>
-                        <span className='property-value'>
-                            {m.density > 0 ? `${m.density.toFixed(6)} ${m.densityUnit}` : m.densityUnit}
-                        </span>
+                        <span className="property-value">{m.density > 0 ? `${m.density.toFixed(6)} ${m.densityUnit}` : m.densityUnit}</span>
                     </div>
                     {m.temperature && (
-                        <div className='property'>
+                        <div className="property">
                             <label>Temperature</label>
-                            <span className='property-value'>{m.temperature} K</span>
+                            <span className="property-value">{m.temperature} K</span>
                         </div>
                     )}
                     {m.volume && (
-                        <div className='property'>
+                        <div className="property">
                             <label>Volume</label>
-                            <span className='property-value'>{m.volume.toExponential(4)} cm³</span>
+                            <span className="property-value">{m.volume.toExponential(4)} cm³</span>
                         </div>
                     )}
-                    <div className='property'>
+                    <div className="property">
                         <label>Nuclides</label>
-                        <span className='property-value'>{m.nuclides.length}</span>
+                        <span className="property-value">{m.nuclides.length}</span>
                     </div>
                 </div>
 
                 {m.thermalScattering.length > 0 && (
-                    <div className='thermal-scattering-section'>
+                    <div className="thermal-scattering-section">
                         <h4>Thermal Scattering (S(α,β))</h4>
-                        <div className='thermal-list'>
-                            {m.thermalScattering.map(ts => (
-                                <div key={ts.name} className='thermal-item'>
-                                    <span className='thermal-name'>{ts.name}</span>
-                                    <span className='thermal-fraction'>{ts.fraction}</span>
+                        <div className="thermal-list">
+                            {m.thermalScattering.map((ts) => (
+                                <div key={ts.name} className="thermal-item">
+                                    <span className="thermal-name">{ts.name}</span>
+                                    <span className="thermal-fraction">{ts.fraction}</span>
                                 </div>
                             ))}
                         </div>
@@ -475,9 +457,9 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
 
                 {this.renderNuclideBarChart(m.nuclides)}
 
-                <div className='nuclide-table-section'>
+                <div className="nuclide-table-section">
                     <h4>Nuclide Table</h4>
-                    <table className='nuclide-table'>
+                    <table className="nuclide-table">
                         <thead>
                             <tr>
                                 <th>Nuclide</th>
@@ -486,7 +468,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                             </tr>
                         </thead>
                         <tbody>
-                            {m.nuclides.map(n => (
+                            {m.nuclides.map((n) => (
                                 <tr key={n.name}>
                                     <td>{n.name}</td>
                                     <td>{n.fraction.toExponential(6)}</td>
@@ -505,49 +487,46 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
             return (
                 <>
                     <LoadingAnimations />
-                    <SimpleLoadingSpinner message='Loading materials...' />
+                    <SimpleLoadingSpinner message="Loading materials..." />
                 </>
             );
         }
 
         if (this.error) {
             return (
-                <div className='material-explorer-container error'>
-                    <i className='fa fa-exclamation-triangle'></i>
+                <div className="material-explorer-container error">
+                    <i className="fa fa-exclamation-triangle"></i>
                     <p>Error loading materials:</p>
-                    <p className='error-message'>{this.error}</p>
+                    <p className="error-message">{this.error}</p>
                 </div>
             );
         }
 
         // Render modal outside the container using portal-like behavior
-        const mixerModal = this.showMixer && this.fileUri ? (
-            <OpenMCMaterialMixer
-                materials={this.materials}
-                filePath={this.fileUri.path.toString()}
-                openmcService={this.openmcService}
-                onClose={() => {
-                    this.showMixer = false;
-                    this.update();
-                }}
-                onMaterialAdded={() => {
-                    // Reload materials after adding a new one (without full loading screen)
-                    this.loadMaterials(false);
-                }}
-            />
-        ) : null;
+        const mixerModal =
+            this.showMixer && this.fileUri ? (
+                <OpenMCMaterialMixer
+                    materials={this.materials}
+                    filePath={this.fileUri.path.toString()}
+                    openmcService={this.openmcService}
+                    onClose={() => {
+                        this.showMixer = false;
+                        this.update();
+                    }}
+                    onMaterialAdded={() => {
+                        // Reload materials after adding a new one (without full loading screen)
+                        this.loadMaterials(false);
+                    }}
+                />
+            ) : null;
 
         return (
             <>
-                <div className='material-explorer-container'>
+                <div className="material-explorer-container">
                     {this.renderToolbar()}
-                    <div className='material-explorer-content'>
-                        <div className='material-list-panel'>
-                            {this.renderMaterialList()}
-                        </div>
-                        <div className='material-details-panel'>
-                            {this.renderMaterialDetails()}
-                        </div>
+                    <div className="material-explorer-content">
+                        <div className="material-list-panel">{this.renderMaterialList()}</div>
+                        <div className="material-details-panel">{this.renderMaterialDetails()}</div>
                     </div>
                 </div>
                 {mixerModal}

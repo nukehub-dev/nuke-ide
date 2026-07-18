@@ -53,6 +53,7 @@ import {
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
 import { OpenMCParameterSweep, OpenMCState } from '../common/openmc-state-schema';
+import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { XMLGenerationService } from './xml-generation-service';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 
@@ -760,7 +761,7 @@ export class OptimizationBackendService {
 
         // Otherwise use direct OpenMC CLI
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: STUDIO_CORE_PACKAGES,
             autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer']
         });
 
@@ -905,7 +906,7 @@ export class OptimizationBackendService {
         }
 
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: STUDIO_CORE_PACKAGES,
             autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
         });
 
@@ -1049,7 +1050,7 @@ export class OptimizationBackendService {
 
         // Detect Python with OpenMC
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: STUDIO_CORE_PACKAGES,
             autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
         });
 

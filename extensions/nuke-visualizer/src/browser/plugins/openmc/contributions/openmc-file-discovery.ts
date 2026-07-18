@@ -46,23 +46,20 @@ export class OpenMCFileDiscovery {
     /**
      * Generic file discovery method that recursively searches workspace for files matching criteria.
      */
-    private async discoverFiles(
-        matcher: (name: string) => boolean,
-        maxFiles: number = 20
-    ): Promise<QuickPickValue<string>[]> {
+    private async discoverFiles(matcher: (name: string) => boolean, maxFiles: number = 20): Promise<QuickPickValue<string>[]> {
         const workspace = this.workspaceService.workspace;
         if (!workspace) {
             return [];
         }
 
         const files: QuickPickValue<string>[] = [];
-        
+
         try {
             const rootUri = workspace.resource;
-            
+
             const collectFiles = async (uri: URI): Promise<void> => {
                 if (files.length >= maxFiles) return;
-                
+
                 try {
                     const dirStat = await this.fileService.resolve(uri);
                     if (dirStat.children) {
@@ -94,13 +91,11 @@ export class OpenMCFileDiscovery {
     }
 
     async getStatepointFiles(): Promise<QuickPickValue<string>[]> {
-        return this.discoverFiles(
-            name => name.startsWith('statepoint') && name.endsWith('.h5')
-        );
+        return this.discoverFiles((name) => name.startsWith('statepoint') && name.endsWith('.h5'));
     }
 
     async getSourceFiles(): Promise<QuickPickValue<string>[]> {
-        return this.discoverFiles(name => name === 'source.h5');
+        return this.discoverFiles((name) => name === 'source.h5');
     }
 
     async getGeometryFiles(): Promise<QuickPickValue<string>[]> {
@@ -111,13 +106,13 @@ export class OpenMCFileDiscovery {
 
         const dagmcFiles: QuickPickValue<string>[] = [];
         const geometryXmlFiles: QuickPickValue<string>[] = [];
-        
+
         try {
             const rootUri = workspace.resource;
-            
+
             const collectGeometryFiles = async (uri: URI): Promise<void> => {
                 if (dagmcFiles.length >= 20 && geometryXmlFiles.length >= 20) return;
-                
+
                 try {
                     const dirStat = await this.fileService.resolve(uri);
                     if (dirStat.children) {
@@ -153,34 +148,28 @@ export class OpenMCFileDiscovery {
 
         // Combine DAGMC and geometry.xml files
         const files: QuickPickValue<string>[] = [];
-        
+
         if (dagmcFiles.length > 0) {
             files.push({ type: 'separator', label: 'DAGMC Files (.h5m)' } as any, ...dagmcFiles);
         }
-        
+
         if (geometryXmlFiles.length > 0) {
             if (files.length > 0) {
                 files.push({ type: 'separator', label: 'OpenMC Geometry (.xml)' } as any);
             }
             files.push(...geometryXmlFiles);
         }
-        
+
         return files;
     }
 
     async getDepletionFiles(): Promise<QuickPickValue<string>[]> {
-        return this.discoverFiles(
-            name => name.includes('depletion') && name.endsWith('.h5')
-        );
+        return this.discoverFiles((name) => name.includes('depletion') && name.endsWith('.h5'));
     }
 
     async autoDetectGeometry(directory: URI): Promise<URI | undefined> {
-        const candidates = [
-            directory.resolve('geometry.h5m'),
-            directory.resolve('dagmc.h5m'),
-            directory.resolve('geometry.xml')
-        ];
-        
+        const candidates = [directory.resolve('geometry.h5m'), directory.resolve('dagmc.h5m'), directory.resolve('geometry.xml')];
+
         for (const uri of candidates) {
             try {
                 const stat = await this.fileService.resolve(uri);

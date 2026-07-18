@@ -197,7 +197,7 @@
     opacity: 0.6;
 }
 
-.openmc-heatmap-checkbox-label input[type="checkbox"] {
+.openmc-heatmap-checkbox-label input[type='checkbox'] {
     accent-color: var(--theia-button-background);
 }
 
@@ -287,7 +287,7 @@
     font-weight: bold;
 }
 
-.openmc-heatmap-difference-badge label input[type="checkbox"] {
+.openmc-heatmap-difference-badge label input[type='checkbox'] {
     accent-color: var(--theia-warningForeground);
 }
 
@@ -424,11 +424,11 @@
         gap: 10px;
         padding: 8px 12px;
     }
-    
+
     .openmc-heatmap-slider-group {
         min-width: 180px;
     }
-    
+
     .openmc-heatmap-header {
         padding: 8px 12px;
     }

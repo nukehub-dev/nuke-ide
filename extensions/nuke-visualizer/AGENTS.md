@@ -20,6 +20,7 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `plugins/base/lib/dagmc_viz.py`); they carry `# noqa: F401` — do not remove them.
 - Error paths and argument handling are covered by `tests/python/test_command_error_paths.py`; keep that contract green when adding commands.
 - Tests: `tests/python/` runs from the repo root via `yarn test:python`; `conftest.py` puts `python/` on `sys.path` and isolates the global command registry between tests.
+- Python package requirements live in `src/common/packages.json` (single source for TS health checks and the Python `check_*_dependencies` functions in `python/plugins/base/lib/common.py`); never inline package lists in services; keep `pydagmc`'s installCommand pinned.
 
 ## Work Guidance
 

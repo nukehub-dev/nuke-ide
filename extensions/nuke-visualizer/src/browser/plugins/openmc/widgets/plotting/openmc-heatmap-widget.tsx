@@ -56,23 +56,23 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     // Interactive controls
     private currentPlane: OpenMCHeatmapPlane = 'xy';
-    private pendingSliceIndex: number = 0;  // Track user's selection during loading
+    private pendingSliceIndex: number = 0; // Track user's selection during loading
     private isLoading: boolean = false;
-    private isLoadingAllSlices: boolean = false;  // Loading all slices for animation
+    private isLoadingAllSlices: boolean = false; // Loading all slices for animation
     private errorMessage: string | null = null;
-    private loadSliceTimeout: number | null = null;  // Debounce timer
-    private colormap: string = 'Jet';  // Default colormap
-    private useLogScale: boolean = false;  // Toggle for log/linear scale
-    private isAutoPlaying: boolean = false;  // Animation state
-    private autoPlayInterval: number | null = null;  // Animation timer
-    private autoPlaySpeed: number = 200;  // Speed in milliseconds (default faster for smooth animation)
-    private cachedSlices: OpenMCHeatmapData[] | null = null;  // All slices cached for animation
-    private hasLoadedAllSlices: boolean = false;  // Whether all slices are loaded
+    private loadSliceTimeout: number | null = null; // Debounce timer
+    private colormap: string = 'Jet'; // Default colormap
+    private useLogScale: boolean = false; // Toggle for log/linear scale
+    private isAutoPlaying: boolean = false; // Animation state
+    private autoPlayInterval: number | null = null; // Animation timer
+    private autoPlaySpeed: number = 200; // Speed in milliseconds (default faster for smooth animation)
+    private cachedSlices: OpenMCHeatmapData[] | null = null; // All slices cached for animation
+    private hasLoadedAllSlices: boolean = false; // Whether all slices are loaded
 
     // Difference view mode
-    private isDifferenceMode: boolean = false;  // Show difference between slices
-    private referenceSliceIndex: number = 0;  // Reference slice for comparison
-    private differenceData: OpenMCHeatmapData | null = null;  // Computed difference data
+    private isDifferenceMode: boolean = false; // Show difference between slices
+    private referenceSliceIndex: number = 0; // Reference slice for comparison
+    private differenceData: OpenMCHeatmapData | null = null; // Computed difference data
 
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
@@ -130,7 +130,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     private async loadAllSlices(): Promise<void> {
         if (!this.statepointUri || this.hasLoadedAllSlices) return;
-        
+
         this.isLoadingAllSlices = true;
         this.errorMessage = null;
         this.update();
@@ -221,19 +221,19 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             this.update();
             return;
         }
-        
+
         // Otherwise, load from server
         // Update immediately for responsive UI
         this.pendingSliceIndex = sliceIndex;
-        this.update();  // Re-render to show the new slider position immediately
-        
+        this.update(); // Re-render to show the new slider position immediately
+
         // Debounce the actual data loading to avoid rapid-fire requests while dragging
         if (this.loadSliceTimeout) {
             window.clearTimeout(this.loadSliceTimeout);
         }
         this.loadSliceTimeout = window.setTimeout(() => {
             this.loadSlice(this.currentPlane, sliceIndex);
-        }, 100);  // 100ms debounce
+        }, 100); // 100ms debounce
     };
 
     private async toggleAutoPlay(): Promise<void> {
@@ -252,14 +252,14 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     private startAutoPlay(): void {
         if (!this.data || !this.cachedSlices) return;
-        
+
         this.isAutoPlaying = true;
         this.update();
-        
+
         // Start animation loop using cached slices
         this.autoPlayInterval = window.setInterval(() => {
             if (!this.cachedSlices) return;
-            
+
             const nextIndex = (this.pendingSliceIndex + 1) % this.cachedSlices.length;
             this.pendingSliceIndex = nextIndex;
             this.data = this.cachedSlices[nextIndex];
@@ -294,12 +294,12 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
     private calculateDifference(): void {
         if (!this.data || !this.cachedSlices) return;
-        
+
         const currentSlice = this.cachedSlices[this.pendingSliceIndex];
         const referenceSlice = this.cachedSlices[this.referenceSliceIndex];
-        
+
         if (!currentSlice || !referenceSlice) return;
-        
+
         // Calculate difference: current - reference
         const diffValues: number[][] = [];
         for (let i = 0; i < currentSlice.values.length; i++) {
@@ -309,7 +309,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             }
             diffValues.push(row);
         }
-        
+
         this.differenceData = {
             ...currentSlice,
             values: diffValues,
@@ -324,8 +324,6 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         }
         this.update();
     };
-
-
 
     protected render(): React.ReactNode {
         if (this.errorMessage) {
@@ -352,13 +350,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 {/* Plot Area */}
                 <div className="openmc-heatmap-plot-area">
                     {this.isLoading ? (
-                        <div className="openmc-heatmap-loading">
-                            Loading...
-                        </div>
+                        <div className="openmc-heatmap-loading">Loading...</div>
                     ) : (
-                        this.renderHeatmap(
-                            this.isDifferenceMode && this.differenceData ? this.differenceData : this.data
-                        )
+                        this.renderHeatmap(this.isDifferenceMode && this.differenceData ? this.differenceData : this.data)
                     )}
                 </div>
             </div>
@@ -369,10 +363,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
         return (
             <div className="openmc-heatmap-empty">
                 <LoadingAnimations />
-                <FancyLoadingSpinner
-                    message="Loading heatmap data..."
-                    subMessage="Fetching slice from statepoint"
-                />
+                <FancyLoadingSpinner message="Loading heatmap data..." subMessage="Fetching slice from statepoint" />
             </div>
         );
     }
@@ -442,7 +433,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                     <span className="openmc-heatmap-select-label">Colormap:</span>
                     <select
                         value={this.colormap}
-                        onChange={(e) => { this.colormap = e.target.value; this.update(); }}
+                        onChange={(e) => {
+                            this.colormap = e.target.value;
+                            this.update();
+                        }}
                         disabled={this.isLoading}
                         className="openmc-heatmap-select"
                     >
@@ -469,7 +463,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                     <input
                         type="checkbox"
                         checked={this.useLogScale}
-                        onChange={() => { this.useLogScale = !this.useLogScale; this.update(); }}
+                        onChange={() => {
+                            this.useLogScale = !this.useLogScale;
+                            this.update();
+                        }}
                         disabled={this.isLoading}
                     />
                     Log Scale
@@ -497,7 +494,9 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                                     className="openmc-heatmap-select"
                                 >
                                     {Array.from({ length: this.data?.total_slices || 0 }, (_, i) => (
-                                        <option key={i} value={i}>Slice {i + 1}</option>
+                                        <option key={i} value={i}>
+                                            Slice {i + 1}
+                                        </option>
                                     ))}
                                 </select>
                             </>
@@ -506,28 +505,25 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 )}
 
                 {/* Statistics */}
-                {this.data && (() => {
-                    const dataToUse = this.isDifferenceMode && this.differenceData ? this.differenceData : this.data;
-                    const allValues = dataToUse.values.flat();
-                    const minVal = Math.min(...allValues);
-                    const maxVal = Math.max(...allValues);
-                    const meanVal = allValues.reduce((a, b) => a + b, 0) / allValues.length;
-                    return (
-                        <div className={`openmc-heatmap-stats ${this.isDifferenceMode ? 'openmc-heatmap-stats--difference' : ''}`}>
-                            {this.isDifferenceMode && (
-                                <span className="openmc-heatmap-stat-label">Δ:</span>
-                            )}
-                            <span className="openmc-heatmap-stat-min">Min: {minVal.toExponential(3)}</span>
-                            <span className="openmc-heatmap-stat-max">Max: {maxVal.toExponential(3)}</span>
-                            <span className="openmc-heatmap-stat-mean">Mean: {meanVal.toExponential(3)}</span>
-                            {this.data?.mesh_dimensions && (
-                                <span className="openmc-heatmap-stat-mesh">
-                                    Mesh: {this.data.mesh_dimensions.join(' × ')}
-                                </span>
-                            )}
-                        </div>
-                    );
-                })()}
+                {this.data &&
+                    (() => {
+                        const dataToUse = this.isDifferenceMode && this.differenceData ? this.differenceData : this.data;
+                        const allValues = dataToUse.values.flat();
+                        const minVal = Math.min(...allValues);
+                        const maxVal = Math.max(...allValues);
+                        const meanVal = allValues.reduce((a, b) => a + b, 0) / allValues.length;
+                        return (
+                            <div className={`openmc-heatmap-stats ${this.isDifferenceMode ? 'openmc-heatmap-stats--difference' : ''}`}>
+                                {this.isDifferenceMode && <span className="openmc-heatmap-stat-label">Δ:</span>}
+                                <span className="openmc-heatmap-stat-min">Min: {minVal.toExponential(3)}</span>
+                                <span className="openmc-heatmap-stat-max">Max: {maxVal.toExponential(3)}</span>
+                                <span className="openmc-heatmap-stat-mean">Mean: {meanVal.toExponential(3)}</span>
+                                {this.data?.mesh_dimensions && (
+                                    <span className="openmc-heatmap-stat-mesh">Mesh: {this.data.mesh_dimensions.join(' × ')}</span>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                 {/* Playback Controls */}
                 <div className="openmc-heatmap-playback">
@@ -543,9 +539,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         </Tooltip>
                     )}
                     {this.isLoadingAllSlices && (
-                        <span className="openmc-heatmap-loading-text">
-                            Loading {this.data?.total_slices} slices...
-                        </span>
+                        <span className="openmc-heatmap-loading-text">Loading {this.data?.total_slices} slices...</span>
                     )}
                     {this.hasLoadedAllSlices && (
                         <>
@@ -558,7 +552,10 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             </button>
                             <select
                                 value={this.autoPlaySpeed}
-                                onChange={(e) => { this.autoPlaySpeed = parseInt(e.target.value); this.update(); }}
+                                onChange={(e) => {
+                                    this.autoPlaySpeed = parseInt(e.target.value);
+                                    this.update();
+                                }}
                                 disabled={this.isAutoPlaying}
                                 className="openmc-heatmap-select"
                             >
@@ -584,7 +581,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
 
         // Calculate value range for color scale
         const allValues = values.flat();
-        const minValue = Math.min(...allValues.filter(v => v > 0)) || 1e-10;
+        const minValue = Math.min(...allValues.filter((v) => v > 0)) || 1e-10;
         const maxValue = Math.max(...allValues) || 1;
 
         // Determine effective colormap - use diverging for difference mode
@@ -605,9 +602,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             hoverTemplate = `<b>${x_label.split(' ')[0]}:</b> %{x:.3f} cm<br><b>${y_label.split(' ')[0]}:</b> %{y:.3f} cm<br><b>Diff:</b> %{z:.6e}<extra></extra>`;
         } else if (this.useLogScale) {
             // Transform values to log10, handling zeros/negatives
-            displayValues = values.map(row => 
-                row.map(v => v > 0 ? Math.log10(v) : Math.log10(minValue))
-            );
+            displayValues = values.map((row) => row.map((v) => (v > 0 ? Math.log10(v) : Math.log10(minValue))));
             zMin = Math.log10(minValue);
             zMax = Math.log10(maxValue);
             colorbarTitle = 'log₁₀(Tally Value)';
@@ -623,7 +618,7 @@ export class OpenMCHeatmapWidget extends ReactWidget {
             colorscale: effectiveColormap as Plotly.ColorScale,
             zmin: zMin,
             zmax: zMax,
-            customdata: this.useLogScale ? values : undefined,  // Original values for hover
+            customdata: this.useLogScale ? values : undefined, // Original values for hover
             colorbar: {
                 title: {
                     text: colorbarTitle,
@@ -646,27 +641,29 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 tickfont: { color: fgColor },
                 gridcolor: gridColor,
                 zerolinecolor: gridColor,
-                scaleanchor: 'x',  // Keep aspect ratio square
+                scaleanchor: 'x', // Keep aspect ratio square
                 scaleratio: 1
             },
             paper_bgcolor: bgColor,
             plot_bgcolor: bgColor,
             margin: { t: 50, r: 30, b: 50, l: 60 },
-            annotations: [{
-                x: 0.5,
-                y: 1.08,
-                xref: 'paper',
-                yref: 'paper',
-                text: this.isDifferenceMode 
-                    ? `Difference: Slice ${(this.pendingSliceIndex + 1)} − Slice ${(this.referenceSliceIndex + 1)} (${slice_label} = ${slice_position.toFixed(3)} cm)`
-                    : `${slice_label} = ${slice_position.toFixed(3)} cm`,
-                showarrow: false,
-                font: {
-                    size: this.isDifferenceMode ? 13 : 14,
-                    color: this.isDifferenceMode ? warningColor : fgColor,
-                    weight: this.isDifferenceMode ? 700 : 400
+            annotations: [
+                {
+                    x: 0.5,
+                    y: 1.08,
+                    xref: 'paper',
+                    yref: 'paper',
+                    text: this.isDifferenceMode
+                        ? `Difference: Slice ${this.pendingSliceIndex + 1} − Slice ${this.referenceSliceIndex + 1} (${slice_label} = ${slice_position.toFixed(3)} cm)`
+                        : `${slice_label} = ${slice_position.toFixed(3)} cm`,
+                    showarrow: false,
+                    font: {
+                        size: this.isDifferenceMode ? 13 : 14,
+                        color: this.isDifferenceMode ? warningColor : fgColor,
+                        weight: this.isDifferenceMode ? 700 : 400
+                    }
                 }
-            }],
+            ],
             hovermode: 'closest'
         };
 

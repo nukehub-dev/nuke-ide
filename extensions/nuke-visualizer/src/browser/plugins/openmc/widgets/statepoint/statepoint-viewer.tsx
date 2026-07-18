@@ -35,12 +35,12 @@ import { Emitter, Event } from '@theia/core';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { QuickInputService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCService } from '../../openmc-service';
-import { 
-    OpenMCStatepointFullInfo, 
-    OpenMCTallyInfo, 
+import {
+    OpenMCStatepointFullInfo,
+    OpenMCTallyInfo,
     OpenMCKGenerationData,
     HDF5_FILE_FILTER,
-    GEOMETRY_FILE_FILTER,
+    GEOMETRY_FILE_FILTER
 } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
@@ -131,7 +131,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     }
 
     private async getOrCreatePlotWidget(widgetId: string): Promise<any> {
-        const existingWidget = this.shell.widgets.find(w => w.id === widgetId);
+        const existingWidget = this.shell.widgets.find((w) => w.id === widgetId);
         if (existingWidget) {
             return existingWidget;
         }
@@ -140,23 +140,23 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     }
 
     private async getOrCreateHeatmapWidget(widgetId: string): Promise<any> {
-        const existingWidget = this.shell.widgets.find(w => w.id === widgetId);
+        const existingWidget = this.shell.widgets.find((w) => w.id === widgetId);
         if (existingWidget) {
             return existingWidget;
         }
         const { OpenMCHeatmapWidget } = await import('../plotting/openmc-heatmap-widget');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCHeatmapWidget.ID, { id: widgetId } as any);
     }
-    
+
     private async getOrCreateTallyTreeWidget(): Promise<any> {
-        const existingWidget = this.shell.widgets.find(w => w.id === 'openmc-tally-tree-widget');
+        const existingWidget = this.shell.widgets.find((w) => w.id === 'openmc-tally-tree-widget');
         if (existingWidget) {
             return existingWidget;
         }
         const { OpenMCTallyTreeWidget } = await import('./openmc-tally-tree');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCTallyTreeWidget.ID);
     }
-    
+
     private async openWidgetInMainArea(widget: any, widgetId: string): Promise<void> {
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, { area: 'main' });
@@ -184,7 +184,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.title.caption = OpenMCStatepointViewerWidget.LABEL;
         this.title.iconClass = codicon('database');
         this.title.closable = true;
-        
+
         this.node.tabIndex = 0;
         this.update();
     }
@@ -219,17 +219,21 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 canSelectMany: false,
                 filters: HDF5_FILE_FILTER
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-                                
-const handlers = {
+
+                const handlers = {
                     onTallySelected: async (selection: StatepointTallySelection) => {
                         const statepointUri = this.statepointUri;
                         if (!statepointUri) return;
-                        
-                        const options = { tallyId: selection.tallyId, score: selection.score || 'total', nuclide: selection.nuclide || 'total' };
-                        
+
+                        const options = {
+                            tallyId: selection.tallyId,
+                            score: selection.score || 'total',
+                            nuclide: selection.nuclide || 'total'
+                        };
+
                         if (selection.action === 'view-3d') {
                             await this.openmcService.visualizeMeshTally(statepointUri, options);
                         } else if (selection.action === 'overlay-geometry') {
@@ -242,7 +246,7 @@ const handlers = {
                                 canSelectMany: false,
                                 filters: GEOMETRY_FILE_FILTER
                             });
-                            
+
                             if (fileUri) {
                                 const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                                 // Validate the URI has a valid path
@@ -250,7 +254,7 @@ const handlers = {
                                     console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
                                     return;
                                 }
-                                
+
                                 // Use shared prompt for overlay options
                                 const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
                                 if (!overlayOptions) return;
@@ -263,7 +267,12 @@ const handlers = {
                                 };
 
                                 if (overlayOptions.mode === 'slice') {
-                                    await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, baseOptions, overlayOptions.sliceOptions!);
+                                    await this.openmcService.visualizeTallySlice(
+                                        geometryUri,
+                                        statepointUri,
+                                        baseOptions,
+                                        overlayOptions.sliceOptions!
+                                    );
                                 } else {
                                     await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
                                 }
@@ -277,14 +286,14 @@ const handlers = {
                                 canSelectMany: false,
                                 filters: GEOMETRY_FILE_FILTER
                             });
-                            
+
                             if (fileUri) {
                                 const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                                 if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
                                     console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
                                     return;
                                 }
-                                
+
                                 // Source overlay uses defaults directly, no prompts needed
                                 const baseOptions: any = {
                                     tallyId: selection.tallyId,
@@ -296,7 +305,7 @@ const handlers = {
                                 await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
                             }
                         } else if (selection.action === 'heatmap') {
-                            const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
+                            const tallyInfo = this.openmcService.getCurrentTallies().find((t) => t.id === selection.tallyId);
                             if (tallyInfo) {
                                 let scoreIdx = 0;
                                 let nuclideIdx = 0;
@@ -310,7 +319,14 @@ const handlers = {
                                 const heatmapWidgetId = `${(await import('../plotting/openmc-heatmap-widget')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
                                 const heatmapWidget = await this.getOrCreateHeatmapWidget(heatmapWidgetId);
                                 await this.openWidgetInMainArea(heatmapWidget, heatmapWidgetId);
-                                const data = await this.openmcService.getHeatmapSlice(statepointUri, selection.tallyId, 'xy', 0, scoreIdx, nuclideIdx);
+                                const data = await this.openmcService.getHeatmapSlice(
+                                    statepointUri,
+                                    selection.tallyId,
+                                    'xy',
+                                    0,
+                                    scoreIdx,
+                                    nuclideIdx
+                                );
                                 heatmapWidget.setData(
                                     data,
                                     statepointUri,
@@ -323,7 +339,7 @@ const handlers = {
                                 );
                             }
                         } else if (selection.action === 'spectrum') {
-                            const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
+                            const tallyInfo = this.openmcService.getCurrentTallies().find((t) => t.id === selection.tallyId);
                             if (tallyInfo) {
                                 let scoreIdx = 0;
                                 let nuclideIdx = 0;
@@ -338,11 +354,16 @@ const handlers = {
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spectrum`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
-                                const data = await this.openmcService.getEnergySpectrum(statepointUri, selection.tallyId, scoreIdx, nuclideIdx);
+                                const data = await this.openmcService.getEnergySpectrum(
+                                    statepointUri,
+                                    selection.tallyId,
+                                    scoreIdx,
+                                    nuclideIdx
+                                );
                                 (plotWidget as any).setData(data, 'spectrum', `Tally ${selection.tallyId} Energy Spectrum`);
                             }
                         } else if (selection.action === 'spatial') {
-                            const tallyInfo = this.openmcService.getCurrentTallies().find(t => t.id === selection.tallyId);
+                            const tallyInfo = this.openmcService.getCurrentTallies().find((t) => t.id === selection.tallyId);
                             if (tallyInfo) {
                                 let scoreIdx = 0;
                                 let nuclideIdx = 0;
@@ -357,7 +378,13 @@ const handlers = {
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spatial`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
-                                const data = await this.openmcService.getSpatialPlot(statepointUri, selection.tallyId, 'z', scoreIdx, nuclideIdx);
+                                const data = await this.openmcService.getSpatialPlot(
+                                    statepointUri,
+                                    selection.tallyId,
+                                    'z',
+                                    scoreIdx,
+                                    nuclideIdx
+                                );
                                 (plotWidget as any).setData(data, 'spatial', `Tally ${selection.tallyId} Spatial Plot (Z-axis)`);
                             }
                         }
@@ -365,11 +392,11 @@ const handlers = {
                     onViewTallyTree: async () => {
                         // Fire event for external listeners
                         this._onViewTallyTree.fire();
-                        
+
                         // Also directly handle - get or create tally tree widget
                         const statepointUri = this.statepointUri;
                         if (!statepointUri) return;
-                        
+
                         // Load statepoint first (like tally-tree does)
                         await this.openmcService.loadStatepoint(statepointUri);
                         const info = this.openmcService.getCurrentStatepoint();
@@ -389,7 +416,7 @@ const handlers = {
                         }
                     }
                 };
-                
+
                 await this.loadStatepoint(uri, handlers);
             }
         } catch (error) {
@@ -397,13 +424,16 @@ const handlers = {
         }
     }
 
-    protected async loadStatepoint(uri: URI, handlers?: {
-        onTallySelected?: (selection: StatepointTallySelection) => void;
-        onViewTallyTree?: () => void;
-        onViewSource?: () => void;
-    }): Promise<void> {
+    protected async loadStatepoint(
+        uri: URI,
+        handlers?: {
+            onTallySelected?: (selection: StatepointTallySelection) => void;
+            onViewTallyTree?: () => void;
+            onViewSource?: () => void;
+        }
+    ): Promise<void> {
         this.setLoading(true);
-        
+
         if (handlers) {
             this.setEventHandlers(
                 handlers.onTallySelected || (() => {}),
@@ -411,7 +441,7 @@ const handlers = {
                 handlers.onViewSource || (() => {})
             );
         }
-        
+
         try {
             await this.openmcService.loadStatepointFull(uri);
             const info = this.openmcService.getCurrentStatepointFull();
@@ -450,7 +480,7 @@ const handlers = {
         if (!this.statepointInfo) {
             return (
                 <div className="statepoint-viewer statepoint-viewer--empty">
-                    <EmptyState 
+                    <EmptyState
                         icon="database"
                         message="No statepoint file loaded"
                         actionLabel="Browse Statepoint File"
@@ -484,31 +514,31 @@ const handlers = {
                             </Tooltip>
                         </div>
                     </div>
-                    
+
                     {/* Tab Navigation */}
                     <div className="tabs">
-                        <button 
+                        <button
                             className={`tab ${this.activeTab === 'overview' ? 'active' : ''}`}
                             onClick={() => this.setActiveTab('overview')}
                         >
                             <i className={codicon('dashboard')}></i>
                             Overview
                         </button>
-                        <button 
+                        <button
                             className={`tab ${this.activeTab === 'kinetics' ? 'active' : ''}`}
                             onClick={() => this.setActiveTab('kinetics')}
                         >
                             <i className={codicon('flame')}></i>
                             K-Effective
                         </button>
-                        <button 
+                        <button
                             className={`tab ${this.activeTab === 'tallies' ? 'active' : ''}`}
                             onClick={() => this.setActiveTab('tallies')}
                         >
                             <i className={codicon('graph')}></i>
                             Tallies ({this.tallies.length})
                         </button>
-                        <button 
+                        <button
                             className={`tab ${this.activeTab === 'performance' ? 'active' : ''}`}
                             onClick={() => this.setActiveTab('performance')}
                         >
@@ -531,10 +561,10 @@ const handlers = {
 
     private renderOverview(): React.ReactNode {
         const info = this.statepointInfo!;
-        
+
         const activeBatches = info.nBatches - info.nInactive;
         const totalParticles = info.nParticles * activeBatches;
-        
+
         return (
             <div className="tab-content">
                 {/* Hero Section - k-effective highlight */}
@@ -553,7 +583,9 @@ const handlers = {
                                         <span className="hero-stat-label">Generations</span>
                                     </div>
                                     <div className="hero-stat">
-                                        <span className="hero-stat-value">{(info.kCombined[1] / info.kCombined[0] * 100).toFixed(2)}%</span>
+                                        <span className="hero-stat-value">
+                                            {((info.kCombined[1] / info.kCombined[0]) * 100).toFixed(2)}%
+                                        </span>
                                         <span className="hero-stat-label">Relative Error</span>
                                     </div>
                                 </div>
@@ -665,9 +697,7 @@ const handlers = {
                             <div className="config-item">
                                 <div className="config-label">Run Mode</div>
                                 <div className="config-value">
-                                    <span className={`config-badge config-badge--${info.runMode.toLowerCase()}`}>
-                                        {info.runMode}
-                                    </span>
+                                    <span className={`config-badge config-badge--${info.runMode.toLowerCase()}`}>{info.runMode}</span>
                                 </div>
                             </div>
                             <div className="config-item">
@@ -694,7 +724,7 @@ const handlers = {
                     </div>
 
                     {/* k-Estimators */}
-{(info.kColAbs !== undefined || info.kColTra !== undefined || info.kAbsTra !== undefined) && (
+                    {(info.kColAbs !== undefined || info.kColTra !== undefined || info.kAbsTra !== undefined) && (
                         <div className="overview-section">
                             <div className="overview-section-header">
                                 <i className={codicon('math-formula')}></i>
@@ -721,7 +751,7 @@ const handlers = {
                                 )}
                             </div>
                         </div>
-                        )}
+                    )}
                 </div>
             </div>
         );
@@ -729,7 +759,7 @@ const handlers = {
 
     private renderKinetics(): React.ReactNode {
         const info = this.statepointInfo!;
-        
+
         return (
             <div className="tab-content">
                 {info.kCombined ? (
@@ -749,7 +779,9 @@ const handlers = {
                                             <span className="kinetics-stat-label">Generations</span>
                                         </div>
                                         <div className="kinetics-stat">
-                                            <span className="kinetics-stat-value">{(info.kCombined[1] / info.kCombined[0] * 100).toFixed(2)}%</span>
+                                            <span className="kinetics-stat-value">
+                                                {((info.kCombined[1] / info.kCombined[0]) * 100).toFixed(2)}%
+                                            </span>
                                             <span className="kinetics-stat-label">Rel. Error</span>
                                         </div>
                                     </div>
@@ -772,38 +804,38 @@ const handlers = {
 
                         {/* k-Estimators */}
                         {(info.kColAbs !== undefined || info.kColTra !== undefined || info.kAbsTra !== undefined) && (
-                        <div className="kinetics-section">
-                            <div className="kinetics-section-header">
-                                <i className={codicon('math-formula')}></i>
-                                <h3>k-Estimators</h3>
+                            <div className="kinetics-section">
+                                <div className="kinetics-section-header">
+                                    <i className={codicon('math-formula')}></i>
+                                    <h3>k-Estimators</h3>
+                                </div>
+                                <div className="kinetics-estimators-grid">
+                                    {info.kCombined && (
+                                        <div className="kinetics-estimator-row">
+                                            <span className="kinetics-estimator-label">k-combined</span>
+                                            <span className="kinetics-estimator-value">{info.kCombined[0].toFixed(5)}</span>
+                                        </div>
+                                    )}
+                                    {info.kColAbs && (
+                                        <div className="kinetics-estimator-row">
+                                            <span className="kinetics-estimator-label">Collision/Absorption</span>
+                                            <span className="kinetics-estimator-value">{info.kColAbs.toFixed(5)}</span>
+                                        </div>
+                                    )}
+                                    {info.kColTra && (
+                                        <div className="kinetics-estimator-row">
+                                            <span className="kinetics-estimator-label">Collision/Transport</span>
+                                            <span className="kinetics-estimator-value">{info.kColTra.toFixed(5)}</span>
+                                        </div>
+                                    )}
+                                    {info.kAbsTra && (
+                                        <div className="kinetics-estimator-row">
+                                            <span className="kinetics-estimator-label">Absorption/Transport</span>
+                                            <span className="kinetics-estimator-value">{info.kAbsTra.toFixed(5)}</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <div className="kinetics-estimators-grid">
-                                {info.kCombined && (
-                                    <div className="kinetics-estimator-row">
-                                        <span className="kinetics-estimator-label">k-combined</span>
-                                        <span className="kinetics-estimator-value">{info.kCombined[0].toFixed(5)}</span>
-                                    </div>
-                                )}
-                                {info.kColAbs && (
-                                    <div className="kinetics-estimator-row">
-                                        <span className="kinetics-estimator-label">Collision/Absorption</span>
-                                        <span className="kinetics-estimator-value">{info.kColAbs.toFixed(5)}</span>
-                                    </div>
-                                )}
-                                {info.kColTra && (
-                                    <div className="kinetics-estimator-row">
-                                        <span className="kinetics-estimator-label">Collision/Transport</span>
-                                        <span className="kinetics-estimator-value">{info.kColTra.toFixed(5)}</span>
-                                    </div>
-                                )}
-                                {info.kAbsTra && (
-                                    <div className="kinetics-estimator-row">
-                                        <span className="kinetics-estimator-label">Absorption/Transport</span>
-                                        <span className="kinetics-estimator-value">{info.kAbsTra.toFixed(5)}</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
                         )}
                     </>
                 ) : (
@@ -832,19 +864,17 @@ const handlers = {
                         </button>
                     </Tooltip>
                 </div>
-                
-                <div className="tallies-grid">
-                    {this.tallies.map(tally => this.renderTallyCard(tally))}
-                </div>
+
+                <div className="tallies-grid">{this.tallies.map((tally) => this.renderTallyCard(tally))}</div>
             </div>
         );
     }
 
     private renderTallyCard(tally: OpenMCTallyInfo): React.ReactNode {
-        const meshFilter = tally.filters.find(f => f.type === 'mesh');
-        const energyFilter = tally.filters.find(f => f.type === 'energy');
-        const cellFilter = tally.filters.find(f => f.type === 'cell');
-        
+        const meshFilter = tally.filters.find((f) => f.type === 'mesh');
+        const energyFilter = tally.filters.find((f) => f.type === 'energy');
+        const cellFilter = tally.filters.find((f) => f.type === 'cell');
+
         return (
             <div key={tally.id} className="tally-card">
                 <div className="tally-card-header">
@@ -855,9 +885,9 @@ const handlers = {
                         {energyFilter && <span className="tally-card-badge tally-card-badge--energy">Energy</span>}
                     </div>
                 </div>
-                
+
                 <div className="tally-card-name">{tally.name}</div>
-                
+
                 <div className="tally-card-details">
                     <div className="tally-card-row">
                         <span className="tally-card-label">Scores</span>
@@ -866,10 +896,9 @@ const handlers = {
                     <div className="tally-card-row">
                         <span className="tally-card-label">Nuclides</span>
                         <span className="tally-card-value">
-                            {tally.nuclides.length > 3 
+                            {tally.nuclides.length > 3
                                 ? `${tally.nuclides.slice(0, 3).join(', ')} +${tally.nuclides.length - 3}`
-                                : tally.nuclides.join(', ')
-                            }
+                                : tally.nuclides.join(', ')}
                         </span>
                     </div>
                     {meshFilter?.meshDimensions && (
@@ -879,69 +908,79 @@ const handlers = {
                         </div>
                     )}
                 </div>
-                
+
                 <div className="tally-card-actions">
                     {tally.hasMesh && (
                         <>
                             <Tooltip content="View tally in 3D visualization" position="top">
-                                <button 
+                                <button
                                     className="tally-card-btn tally-card-btn--primary"
-                                    onClick={() => this.fireTallySelected({ 
-                                        tallyId: tally.id, 
-                                        action: 'view-3d',
-                                        score: tally.scores[0]
-                                    })}
+                                    onClick={() =>
+                                        this.fireTallySelected({
+                                            tallyId: tally.id,
+                                            action: 'view-3d',
+                                            score: tally.scores[0]
+                                        })
+                                    }
                                 >
                                     <i className={codicon('globe')}></i>
                                     3D
                                 </button>
                             </Tooltip>
                             <Tooltip content="Overlay tally on geometry" position="top">
-                                <button 
+                                <button
                                     className="tally-card-btn"
-                                    onClick={() => this.fireTallySelected({ 
-                                        tallyId: tally.id, 
-                                        action: 'overlay-geometry',
-                                        score: tally.scores[0]
-                                    })}
+                                    onClick={() =>
+                                        this.fireTallySelected({
+                                            tallyId: tally.id,
+                                            action: 'overlay-geometry',
+                                            score: tally.scores[0]
+                                        })
+                                    }
                                 >
                                     <i className={codicon('layers')}></i>
                                 </button>
                             </Tooltip>
                             {this.statepointInfo?.hasSourceBank && (
                                 <Tooltip content="Overlay tally on geometry with source particles" position="top">
-                                    <button 
+                                    <button
                                         className="tally-card-btn tally-card-btn--accent"
-                                        onClick={() => this.fireTallySelected({ 
-                                            tallyId: tally.id, 
-                                            action: 'overlay-source',
-                                            score: tally.scores[0]
-                                        })}
+                                        onClick={() =>
+                                            this.fireTallySelected({
+                                                tallyId: tally.id,
+                                                action: 'overlay-source',
+                                                score: tally.scores[0]
+                                            })
+                                        }
                                     >
                                         <i className={codicon('activate-breakpoints')}></i>
                                     </button>
                                 </Tooltip>
                             )}
                             <Tooltip content="View tally as 2D heatmap" position="top">
-                                <button 
+                                <button
                                     className="tally-card-btn"
-                                    onClick={() => this.fireTallySelected({ 
-                                        tallyId: tally.id, 
-                                        action: 'heatmap',
-                                        score: tally.scores[0]
-                                    })}
+                                    onClick={() =>
+                                        this.fireTallySelected({
+                                            tallyId: tally.id,
+                                            action: 'heatmap',
+                                            score: tally.scores[0]
+                                        })
+                                    }
                                 >
                                     <i className={codicon('table')}></i>
                                 </button>
                             </Tooltip>
                             <Tooltip content="View spatial distribution" position="top">
-                                <button 
+                                <button
                                     className="tally-card-btn"
-                                    onClick={() => this.fireTallySelected({ 
-                                        tallyId: tally.id, 
-                                        action: 'spatial',
-                                        score: tally.scores[0]
-                                    })}
+                                    onClick={() =>
+                                        this.fireTallySelected({
+                                            tallyId: tally.id,
+                                            action: 'spatial',
+                                            score: tally.scores[0]
+                                        })
+                                    }
                                 >
                                     <i className={codicon('map')}></i>
                                 </button>
@@ -950,13 +989,15 @@ const handlers = {
                     )}
                     {energyFilter && (
                         <Tooltip content="View energy spectrum" position="top">
-                            <button 
+                            <button
                                 className="tally-card-btn"
-                                onClick={() => this.fireTallySelected({ 
-                                    tallyId: tally.id, 
-                                    action: 'spectrum',
-                                    score: tally.scores[0]
-                                })}
+                                onClick={() =>
+                                    this.fireTallySelected({
+                                        tallyId: tally.id,
+                                        action: 'spectrum',
+                                        score: tally.scores[0]
+                                    })
+                                }
                             >
                                 <i className={codicon('graph-line')}></i>
                             </button>
@@ -970,7 +1011,7 @@ const handlers = {
     private renderPerformance(): React.ReactNode {
         const info = this.statepointInfo!;
         const runtime = info.runtime;
-        
+
         if (!runtime || Object.keys(runtime).length === 0) {
             return (
                 <div className="tab-content">
@@ -992,16 +1033,14 @@ const handlers = {
             { name: 'Fission Bank Sync', value: runtime.synchronizingFissionBank || 0 },
             { name: 'Source Sampling', value: runtime.samplingSourceSites || 0 },
             { name: 'Tally Accumulation', value: runtime.accumulatingTallies || 0 },
-            { name: 'Statepoint Write', value: runtime.writingStatepoints || 0 },
-        ].filter(item => item.value > 0);
+            { name: 'Statepoint Write', value: runtime.writingStatepoints || 0 }
+        ].filter((item) => item.value > 0);
 
         let total = runtime.total;
         if (!total || total === 0) {
-            total = runtimeData.length > 0 
-                ? runtimeData.reduce((sum, item) => sum + item.value, 0)
-                : 0;
+            total = runtimeData.length > 0 ? runtimeData.reduce((sum, item) => sum + item.value, 0) : 0;
         }
-        
+
         if (runtimeData.length === 0 && total && total > 0) {
             runtimeData.push({ name: 'Total Runtime', value: total });
         }
@@ -1118,34 +1157,36 @@ interface RuntimePlotProps {
 
 const RuntimePlot: React.FC<RuntimePlotProps> = ({ data }) => {
     const sortedData = [...data].sort((a, b) => b.value - a.value);
-    
-    const traces: Partial<Plotly.Data>[] = [{
-        x: sortedData.map(d => d.name),
-        y: sortedData.map(d => d.value),
-        type: 'bar',
-        marker: {
-            color: sortedData.map((_, i) => {
-                const colors = ['#f37524', '#4a9eff', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
-                return colors[i % colors.length];
-            })
-        },
-        text: sortedData.map(d => {
-            if (d.value < 60) return `${d.value.toFixed(1)}s`;
-            if (d.value < 3600) return `${(d.value / 60).toFixed(1)}m`;
-            return `${(d.value / 3600).toFixed(2)}h`;
-        }),
-        textposition: 'outside',
-        hovertemplate: '%{x}: %{y:.2f}s<extra></extra>'
-    }];
+
+    const traces: Partial<Plotly.Data>[] = [
+        {
+            x: sortedData.map((d) => d.name),
+            y: sortedData.map((d) => d.value),
+            type: 'bar',
+            marker: {
+                color: sortedData.map((_, i) => {
+                    const colors = ['#f37524', '#4a9eff', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+                    return colors[i % colors.length];
+                })
+            },
+            text: sortedData.map((d) => {
+                if (d.value < 60) return `${d.value.toFixed(1)}s`;
+                if (d.value < 3600) return `${(d.value / 60).toFixed(1)}m`;
+                return `${(d.value / 3600).toFixed(2)}h`;
+            }),
+            textposition: 'outside',
+            hovertemplate: '%{x}: %{y:.2f}s<extra></extra>'
+        }
+    ];
 
     const barHeight = Math.max(350, sortedData.length * 40);
-    
+
     const layout: Partial<Plotly.Layout> = {
-        xaxis: { 
+        xaxis: {
             type: 'category',
             tickangle: -45
         },
-        yaxis: { 
+        yaxis: {
             title: { text: 'Time (seconds)' },
             rangemode: 'tozero'
         },
@@ -1159,4 +1200,3 @@ const RuntimePlot: React.FC<RuntimePlotProps> = ({ data }) => {
 
     return <PlotlyComponent data={traces} layout={layout} config={config} style={{ width: '100%', height: `${barHeight}px` }} />;
 };
-

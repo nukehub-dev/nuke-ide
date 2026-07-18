@@ -657,27 +657,40 @@ def test_check_trame_dependencies_missing_in_this_env():
 
 
 def test_check_trame_dependencies_with_fakes(monkeypatch):
-    """With trame and paraview importable, the check passes."""
+    """With trame.app and paraview.simple importable, the check passes."""
     fake_trame = types.ModuleType("trame")
+    fake_trame_app = types.ModuleType("trame.app")
+    fake_trame.app = fake_trame_app
     fake_paraview = types.ModuleType("paraview")
-    fake_paraview.simple = types.ModuleType("paraview.simple")
+    fake_paraview_simple = types.ModuleType("paraview.simple")
+    fake_paraview.simple = fake_paraview_simple
     monkeypatch.setitem(sys.modules, "trame", fake_trame)
+    monkeypatch.setitem(sys.modules, "trame.app", fake_trame_app)
     monkeypatch.setitem(sys.modules, "paraview", fake_paraview)
+    monkeypatch.setitem(sys.modules, "paraview.simple", fake_paraview_simple)
 
     ok, errors = check_trame_dependencies()
     assert ok is True
     assert errors == []
 
 
-def test_check_openmc_dependencies_missing_h5py():
+def test_check_openmc_dependencies_missing_in_this_env():
+    """Missing packages of the "openmc" group are reported with their install hints."""
     ok, message = check_openmc_dependencies()
-    if "h5py" not in sys.modules:
+    missing = [name for name in ("h5py", "openmc", "numpy") if name not in sys.modules]
+    if missing:
         assert ok is False
-        assert "h5py" in message
+        for name in missing:
+            assert name in message
+    if "openmc" not in sys.modules:
+        assert "https://shimwell.github.io/wheels" in message
 
 
-def test_check_openmc_dependencies_with_fake_h5py(monkeypatch):
-    monkeypatch.setitem(sys.modules, "h5py", types.ModuleType("h5py"))
+def test_check_openmc_dependencies_with_fakes(monkeypatch):
+    """With h5py, openmc and numpy importable, the check passes."""
+    for name in ("h5py", "openmc", "numpy"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+
     ok, message = check_openmc_dependencies()
     assert ok is True
     assert "available" in message

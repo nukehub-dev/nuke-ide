@@ -25,37 +25,32 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-import { injectable, inject } from '@theia/core/shared/inversify';
-import { PythonCommandHelper } from '../../../services/python-command-helper';
+/**
+ * OpenMC Studio Package Requirements
+ *
+ * Single source of truth for Python package dependencies, consumed by health
+ * checks, installation, and environment validation across the extension.
+ * The package lists live in `./packages.json`; never inline them elsewhere.
+ *
+ * @module openmc-studio/common
+ * @see {@link ./packages.json} for the underlying package definitions
+ */
 
-@injectable()
-export class OpenMCDepletionService {
-    @inject(PythonCommandHelper)
-    protected readonly pythonHelper: PythonCommandHelper;
+import { PackageDependency } from 'nuke-core/lib/common';
 
-    private get scriptPath(): string {
-        return this.pythonHelper.findScript('server.py');
-    }
+import * as packages from './packages.json';
 
-    async getDepletionSummary(filePath: string): Promise<any> {
-        return this.pythonHelper.executeScriptJson<any>(this.scriptPath, ['openmc.depletion-summary', filePath], { timeout: 30000 });
-    }
+/** Shared extra index URL hosting the OpenMC and moab wheels (not on PyPI). */
+export const OPENMC_EXTRA_INDEX_URL = 'https://shimwell.github.io/wheels';
 
-    async getDepletionMaterials(filePath: string): Promise<any[]> {
-        const result = await this.pythonHelper.executeScriptJson<any>(this.scriptPath, ['openmc.depletion-materials', filePath], {
-            timeout: 30000
-        });
-        return result.materials || [];
-    }
+/** Core packages required to run OpenMC simulations. */
+export const STUDIO_CORE_PACKAGES: PackageDependency[] = packages.core;
 
-    async getDepletionData(filePath: string, materialIndex: number, nuclides?: string[], includeActivity?: boolean): Promise<any> {
-        const args = ['openmc.depletion-data', filePath, materialIndex.toString()];
-        if (nuclides && nuclides.length > 0) {
-            args.push('--nuclides', nuclides.join(','));
-        }
-        if (includeActivity) {
-            args.push('--include-activity');
-        }
-        return this.pythonHelper.executeScriptJson<any>(this.scriptPath, args, { timeout: 60000, maxBuffer: 50 * 1024 * 1024 });
-    }
-}
+/** DAGMC geometry toolchain. The `pydagmc` installCommand must stay pinned. */
+export const DAGMC_PACKAGES: PackageDependency[] = packages.dagmc;
+
+/** CAD import libraries (gmsh, OpenCASCADE via `OCC`, CadQuery). */
+export const CAD_PACKAGES: PackageDependency[] = packages.cad;
+
+/** Full package set verified by the OpenMC health check. */
+export const OPENMC_HEALTH_PACKAGES: PackageDependency[] = packages.health;

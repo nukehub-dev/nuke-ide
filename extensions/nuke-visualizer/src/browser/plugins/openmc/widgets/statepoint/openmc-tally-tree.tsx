@@ -43,7 +43,16 @@ export interface TallySelection {
     tallyId: number;
     score?: string;
     nuclide?: string;
-    action?: 'visualize' | 'spectrum' | 'spatial' | 'heatmap' | 'spectrum-all-scores' | 'spatial-all-scores' | 'spectrum-all-nuclides' | 'overlay-geometry' | 'overlay-source';
+    action?:
+        | 'visualize'
+        | 'spectrum'
+        | 'spatial'
+        | 'heatmap'
+        | 'spectrum-all-scores'
+        | 'spatial-all-scores'
+        | 'spectrum-all-nuclides'
+        | 'overlay-geometry'
+        | 'overlay-source';
     geometryUri?: string;
 }
 
@@ -82,7 +91,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.title.caption = OpenMCTallyTreeWidget.LABEL;
         this.title.iconClass = codicon('list-tree');
         this.title.closable = false; // Don't allow closing the widget itself
-        
+
         this.node.tabIndex = 0;
         this.update();
     }
@@ -116,7 +125,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                 canSelectMany: false,
                 filters: HDF5_FILE_FILTER
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                 await this.loadStatepoint(uri);
@@ -161,7 +170,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         if (!this.statepointInfo) {
             return (
                 <div className="openmc-tally-tree empty">
-                    <EmptyState 
+                    <EmptyState
                         icon="database"
                         message="No statepoint file loaded"
                         actionLabel="Browse Statepoint File"
@@ -184,55 +193,44 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                             </span>
                         </Tooltip>
                         <Tooltip content="Close Statepoint" position="left">
-                            <button 
-                                className="close-btn" 
-                                onClick={() => this.handleClose()}
-                            >
+                            <button className="close-btn" onClick={() => this.handleClose()}>
                                 <i className={codicon('close')}></i>
                             </button>
                         </Tooltip>
                     </div>
-                    
+
                     {this.statepointInfo.kEff !== undefined && (
                         <span className="keff-badge">
-                            <i className={codicon('flame')}></i>
-                            k<sub>eff</sub> = {this.statepointInfo.kEff.toFixed(5)} ± {this.statepointInfo.kEffStd?.toFixed(5)}
+                            <i className={codicon('flame')}></i>k<sub>eff</sub> = {this.statepointInfo.kEff.toFixed(5)} ±{' '}
+                            {this.statepointInfo.kEffStd?.toFixed(5)}
                         </span>
                     )}
-                    
+
                     <div className="batches-info">
                         {this.statepointInfo.batches} batches · {this.tallies.length} tallies
                     </div>
                 </div>
-                
-                <div className="tree-content">
-                    {this.tallies.map(tally => this.renderTallyCard(tally))}
-                </div>
+
+                <div className="tree-content">{this.tallies.map((tally) => this.renderTallyCard(tally))}</div>
             </div>
         );
     }
 
     private renderTallyCard(tally: OpenMCTallyInfo): React.ReactNode {
         const isExpanded = this.expandedTallies.has(tally.id);
-        const meshFilter = tally.filters.find(f => f.type === 'mesh');
-        const energyFilter = tally.filters.find(f => f.type === 'energy');
-        const cellFilter = tally.filters.find(f => f.type === 'cell');
-        
+        const meshFilter = tally.filters.find((f) => f.type === 'mesh');
+        const energyFilter = tally.filters.find((f) => f.type === 'energy');
+        const cellFilter = tally.filters.find((f) => f.type === 'cell');
+
         return (
-            <div 
-                key={tally.id} 
-                className={`tally-card ${isExpanded ? 'expanded' : ''}`}
-            >
-                <div 
-                    className="tally-header"
-                    onClick={() => this.toggleTally(tally.id)}
-                >
+            <div key={tally.id} className={`tally-card ${isExpanded ? 'expanded' : ''}`}>
+                <div className="tally-header" onClick={() => this.toggleTally(tally.id)}>
                     <i className={`${codicon('chevron-right')} tally-expand-icon`}></i>
                     <span className="tally-id-badge">Tally {tally.id}</span>
                     <Tooltip content={tally.name} position="top">
                         <span className="tally-name">{tally.name}</span>
                     </Tooltip>
-                    
+
                     <div className="tally-badges">
                         {meshFilter && (
                             <Tooltip content="Mesh Tally" position="top">
@@ -257,7 +255,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                         )}
                     </div>
                 </div>
-                
+
                 {isExpanded && (
                     <div className="tally-details">
                         {/* Info Grid */}
@@ -265,26 +263,25 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                             <div className="info-item">
                                 <span className="info-label">Scores</span>
                                 <span className="info-value scores">
-                                    {tally.scores.slice(0, 3).map(s => (
-                                        <span key={s} className="score-tag">{s}</span>
+                                    {tally.scores.slice(0, 3).map((s) => (
+                                        <span key={s} className="score-tag">
+                                            {s}
+                                        </span>
                                     ))}
-                                    {tally.scores.length > 3 && (
-                                        <span className="score-tag">+{tally.scores.length - 3}</span>
-                                    )}
+                                    {tally.scores.length > 3 && <span className="score-tag">+{tally.scores.length - 3}</span>}
                                 </span>
                             </div>
-                            
+
                             <div className="info-item">
                                 <span className="info-label">Nuclides</span>
                                 <span className="info-value">
-                                    {tally.nuclides.length > 0 && tally.nuclides[0] !== 'total' 
+                                    {tally.nuclides.length > 0 && tally.nuclides[0] !== 'total'
                                         ? `${tally.nuclides.length} nuclides`
-                                        : 'Total'
-                                    }
+                                        : 'Total'}
                                 </span>
                             </div>
                         </div>
-                        
+
                         {/* Mesh Info */}
                         {meshFilter?.meshDimensions && (
                             <div className="mesh-info-card">
@@ -297,27 +294,24 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                         <div key={idx} className="mesh-dim-item">
                                             <div className="mesh-dim-value">{dim}</div>
                                             <div className="mesh-dim-label">
-                                                {meshFilter.meshType === 'cylindrical' 
-                                                    ? ['R', 'φ', 'Z'][idx] 
-                                                    : ['X', 'Y', 'Z'][idx]
-                                                }
+                                                {meshFilter.meshType === 'cylindrical' ? ['R', 'φ', 'Z'][idx] : ['X', 'Y', 'Z'][idx]}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
-                        
+
                         {/* Actions */}
                         <div className="actions-section">
                             <div className="actions-label">Visualizations</div>
-                            
+
                             {tally.hasMesh && (
                                 <>
                                     {/* Primary Visualizations */}
                                     <div className="action-group">
                                         <Tooltip content="Visualize 3D Mesh Tally" position="top">
-                                            <button 
+                                            <button
                                                 className="action-btn primary"
                                                 onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'visualize')}
                                             >
@@ -325,9 +319,9 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 <span>3D View</span>
                                             </button>
                                         </Tooltip>
-                                        
+
                                         <Tooltip content="Overlay on DAGMC Geometry" position="top">
-                                            <button 
+                                            <button
                                                 className="action-btn accent"
                                                 onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-geometry')}
                                             >
@@ -335,9 +329,9 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 <span>Overlay</span>
                                             </button>
                                         </Tooltip>
-                                        
+
                                         <Tooltip content="Overlay on Geometry with Source Particles" position="top">
-                                            <button 
+                                            <button
                                                 className="action-btn accent"
                                                 style={{ background: '#2a5f3f', borderColor: '#3a7f4f' }}
                                                 onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'overlay-source')}
@@ -346,9 +340,9 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 <span>+ Source</span>
                                             </button>
                                         </Tooltip>
-                                        
+
                                         <Tooltip content="2D Heatmap Slices" position="top">
-                                            <button 
+                                            <button
                                                 className="action-btn info"
                                                 onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'heatmap')}
                                             >
@@ -357,13 +351,13 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                             </button>
                                         </Tooltip>
                                     </div>
-                                    
+
                                     {/* Plot Actions */}
                                     <div className="actions-label">Plots</div>
                                     <div className="action-group small">
                                         <div className="action-btn-group">
                                             <Tooltip content="Plot 1D Spatial Distribution" position="top">
-                                                <button 
+                                                <button
                                                     className="action-btn"
                                                     onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spatial')}
                                                 >
@@ -373,7 +367,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                             </Tooltip>
                                             {tally.scores.length > 1 && (
                                                 <Tooltip content="Plot All Scores" position="top">
-                                                    <button 
+                                                    <button
                                                         className="action-btn"
                                                         onClick={() => this.selectTally(tally.id, undefined, 'total', 'spatial-all-scores')}
                                                     >
@@ -382,11 +376,11 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 </Tooltip>
                                             )}
                                         </div>
-                                        
+
                                         {energyFilter && (
                                             <div className="action-btn-group">
                                                 <Tooltip content="Plot Energy Spectrum" position="top">
-                                                    <button 
+                                                    <button
                                                         className="action-btn"
                                                         onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
                                                     >
@@ -396,9 +390,11 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 </Tooltip>
                                                 {tally.scores.length > 1 && (
                                                     <Tooltip content="Plot All Scores" position="top">
-                                                        <button 
+                                                        <button
                                                             className="action-btn"
-                                                            onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
+                                                            onClick={() =>
+                                                                this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')
+                                                            }
                                                         >
                                                             <i className={codicon('add')}></i>
                                                         </button>
@@ -406,9 +402,16 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                                 )}
                                                 {tally.nuclides.length > 1 && (
                                                     <Tooltip content="Plot All Nuclides" position="top">
-                                                        <button 
+                                                        <button
                                                             className="action-btn"
-                                                            onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                            onClick={() =>
+                                                                this.selectTally(
+                                                                    tally.id,
+                                                                    tally.scores[0],
+                                                                    undefined,
+                                                                    'spectrum-all-nuclides'
+                                                                )
+                                                            }
                                                         >
                                                             <i className={codicon('organization')}></i>
                                                         </button>
@@ -419,13 +422,13 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                     </div>
                                 </>
                             )}
-                            
+
                             {/* Non-mesh tallies with only energy filter */}
                             {!tally.hasMesh && energyFilter && (
                                 <div className="action-group small">
                                     <div className="action-btn-group">
                                         <Tooltip content="Plot Energy Spectrum" position="top">
-                                            <button 
+                                            <button
                                                 className="action-btn"
                                                 onClick={() => this.selectTally(tally.id, tally.scores[0], 'total', 'spectrum')}
                                             >
@@ -435,7 +438,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                         </Tooltip>
                                         {tally.scores.length > 1 && (
                                             <Tooltip content="Plot All Scores" position="top">
-                                                <button 
+                                                <button
                                                     className="action-btn"
                                                     onClick={() => this.selectTally(tally.id, undefined, 'total', 'spectrum-all-scores')}
                                                 >
@@ -445,9 +448,11 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                                         )}
                                         {tally.nuclides.length > 1 && (
                                             <Tooltip content="Plot All Nuclides" position="top">
-                                                <button 
+                                                <button
                                                     className="action-btn"
-                                                    onClick={() => this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')}
+                                                    onClick={() =>
+                                                        this.selectTally(tally.id, tally.scores[0], undefined, 'spectrum-all-nuclides')
+                                                    }
                                                 >
                                                     <i className="fa fa-users"></i>
                                                 </button>

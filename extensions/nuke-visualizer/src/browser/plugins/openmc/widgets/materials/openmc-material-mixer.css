@@ -20,13 +20,23 @@
 }
 
 @keyframes mixer-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes mixer-scale-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 /* Modal Dialog */
@@ -209,7 +219,9 @@
     color: var(--theia-input-foreground);
     font-size: 13px;
     outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
 }
 
 .material-mixer-modal .material-mixer-search input:focus {
@@ -399,7 +411,9 @@
     background: var(--theia-panel-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
 }
 
 .material-mixer-modal .material-mixer-mix-item:hover {
@@ -444,7 +458,9 @@
     text-align: right;
     font-size: 14px;
     font-weight: 600;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
 }
 
 .material-mixer-modal .material-mixer-mix-item input:focus {
@@ -460,7 +476,7 @@
     margin: 0;
 }
 
-.material-mixer-modal .material-mixer-mix-item input[type=number] {
+.material-mixer-modal .material-mixer-mix-item input[type='number'] {
     -moz-appearance: textfield;
 }
 
@@ -551,8 +567,14 @@
 }
 
 @keyframes mixer-slide-up {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .material-mixer-modal .material-mixer-result-header {
