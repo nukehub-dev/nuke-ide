@@ -45,7 +45,7 @@
     "@theia/ai-huggingface": "1.72.3",
     "@theia/ai-ide": "1.72.3",
     "@theia/ai-llamafile": "1.72.3",
-    "@theia/ai-ollama": "1.72.3",
+    "@theia/ai-ollama": "1.73.1",
     "@theia/ai-openai": "1.72.3",
     "@theia/ai-scanoss": "1.72.3",
     "@theia/ai-terminal": "1.72.3",
