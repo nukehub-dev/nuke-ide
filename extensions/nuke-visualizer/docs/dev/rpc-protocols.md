@@ -28,14 +28,18 @@ export interface MyData {
   label: string;
 }
 
-export const MY_REQUIREMENTS: PackageDependency[] = [{ name: 'my-package', required: true }];
+// Declare entries in src/common/packages.json and export from src/common;
+// never inline package lists. See extensions/AGENTS.md for the contract.
+import packages from './packages.json';
+
+export const MY_REQUIREMENTS: PackageDependency[] = packages.myPlugin;
 ```
 
 **Rules:**
 
 - Use `Symbol('Name')` for the service token.
 - Export a constant path string starting with `/services/`.
-- Export requirements as `PackageDependency[]`.
+- Export requirements as `PackageDependency[]` backed by `src/common/packages.json`.
 - Keep interfaces serializable (no functions, no class instances).
 
 ---

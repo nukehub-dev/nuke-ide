@@ -351,6 +351,21 @@ python server.py base.serve --file /path/to/mesh.vtk --port 8080
 
 This is useful for debugging without starting the full Theia application.
 
+### Unit tests
+
+The pytest suite lives in `tests/python/` and runs from the repo root:
+
+```bash
+yarn test:python        # run the suite
+yarn test:python:cov    # run with the coverage report
+```
+
+Tests must pass with only `pytest` + `numpy` installed — guard heavy imports
+and use `pytest.importorskip` for optional dependencies. Coverage of the
+logic layer is ratcheted in CI (see "Coverage" in the root `AGENTS.md`); the
+trame/ParaView rendering modules are excluded by design and covered by
+error-path contract tests instead.
+
 ---
 
 ## File Converters

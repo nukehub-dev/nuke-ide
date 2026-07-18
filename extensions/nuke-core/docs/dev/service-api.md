@@ -225,12 +225,14 @@ Set global defaults in **Settings → Nuke Utils**, or override per-package in `
 const result = await this.nukeCore.detectPythonWithRequirements({
   requiredPackages: [
     { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
-    { name: 'openmc', condaOnly: true },
+    { name: 'paraview', condaOnly: true },
     { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
+    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
   ]
 });
 ```
+
+Note: external `installCommand` URLs must be pinned to a commit or tag — never track a moving branch.
 
 Per-override at install time:
 
@@ -255,6 +257,12 @@ const result = await this.envActions.installPackages({
 | `channels`       | Conda channels for this package                             |
 | `extraIndexUrl`  | Extra pip index URL                                         |
 | `installCommand` | Explicit install command override (highest priority)        |
+
+> **Where package lists live:** extensions declare their canonical requirements
+> in `extensions/<ext>/src/common/packages.json` and export them from
+> `src/common/` — do not inline `PackageDependency[]` literals in services or
+> widgets. The examples on this page illustrate API usage; in repository code,
+> import the shared lists instead. See `extensions/AGENTS.md`.
 
 ### Automatic Package Installation Suggestions
 

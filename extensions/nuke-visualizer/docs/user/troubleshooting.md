@@ -144,7 +144,7 @@ Health checks verify the **currently configured** environment, not fallback envi
 ### "OpenMC integration not available"
 
 - `openmc` or `h5py` is not installed in the active Python environment.
-- Run: `pip install openmc h5py numpy` or `conda install -c conda-forge openmc`
+- Run: `pip install --extra-index-url https://shimwell.github.io/wheels openmc h5py numpy` or `conda install -c conda-forge openmc`
 
 ### Statepoint file won't open
 

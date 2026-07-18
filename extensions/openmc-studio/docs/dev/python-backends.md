@@ -362,3 +362,4 @@ When writing a new Python backend script:
 - [ ] Wrap optional heavy dependencies in `try/except ImportError`
 - [ ] Do not hardcode Python interpreter paths
 - [ ] Test standalone: `python python/my_script.py --help`
+- [ ] Add pytest coverage in `tests/python/` (runs via `yarn test:python` from the repo root; must pass with only `pytest` + `numpy` — use `pytest.importorskip` for heavy deps). Logic-layer coverage is ratcheted in CI; see "Coverage" in the root `AGENTS.md`.
