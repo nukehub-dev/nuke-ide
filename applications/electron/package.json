@@ -95,7 +95,7 @@
     "@theia/toolbar": "1.72.3",
     "@theia/typehierarchy": "1.72.3",
     "@theia/userstorage": "1.72.3",
-    "@theia/variable-resolver": "1.72.3",
+    "@theia/variable-resolver": "1.73.1",
     "@theia/vsx-registry": "1.72.3",
     "@theia/workspace": "1.72.3",
     "nuke-essentials": "0.1.2",
