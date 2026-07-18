@@ -4,7 +4,7 @@
 #
 # Used by applications/docker/Dockerfile; can also be created locally:
 #   conda env create -f applications/docker/environment.yml
-name: trame
+name: ide
 channels:
   - conda-forge
 dependencies:

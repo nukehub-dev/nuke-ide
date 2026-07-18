@@ -36,16 +36,16 @@ WORKDIR /opt/nuke-ide
 COPY --from=build /opt/nuke-ide /opt/nuke-ide
 
 # Headless VTK/ParaView + unbuffered Python output for backend log scraping.
-# The trame env's bin dir provides both `python` and `node`.
+# The ide env's bin dir provides both `python` and `node`.
 ENV QT_QPA_PLATFORM=offscreen \
     VTK_USE_OFFSCREEN=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/conda/envs/trame/bin:${PATH}"
+    PATH="/opt/conda/envs/ide/bin:${PATH}"
 
 EXPOSE 3000
 
 WORKDIR /opt/nuke-ide/applications/browser
-# nuke-core auto-detects the 'trame' conda env (it satisfies all package
+# nuke-core auto-detects the 'ide' conda env (it satisfies all package
 # requirements), so no IDE configuration is needed inside the container.
 CMD ["node", "../../node_modules/.bin/theia", "start", \
      "--plugins=local-dir:../../plugins", \

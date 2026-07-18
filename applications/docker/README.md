@@ -1,6 +1,6 @@
 # NukeIDE Docker
 
-All-in-one container for NukeIDE: the Theia browser IDE plus the `trame`
+All-in-one container for NukeIDE: the Theia browser IDE plus the `ide`
 conda environment with every Python backend the extensions need
 (OpenMC, Trame/ParaView, gmsh/CadQuery/pythonocc-core CAD toolchain, DAGMC).
 
@@ -28,7 +28,7 @@ yarn docker:up
   gmsh, CadQuery (`OCP`), `pythonocc-core` (`OCC`), pydagmc/moab.
   VTK runs headless (`QT_QPA_PLATFORM=offscreen`, `VTK_USE_OFFSCREEN=1`).
 
-The IDE's environment auto-detection finds the `trame` conda env because it
+The IDE's environment auto-detection finds the `ide` conda env because it
 satisfies all package requirements — no in-container configuration needed.
 
 ## Workspace
