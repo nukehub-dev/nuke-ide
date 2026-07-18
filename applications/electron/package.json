@@ -53,7 +53,7 @@
     "@theia/bulk-edit": "1.72.3",
     "@theia/callhierarchy": "1.72.3",
     "@theia/collaboration": "1.72.3",
-    "@theia/console": "1.72.3",
+    "@theia/console": "1.73.1",
     "@theia/core": "1.72.3",
     "@theia/debug": "1.72.3",
     "@theia/dev-container": "1.72.3",
