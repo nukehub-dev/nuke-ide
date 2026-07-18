@@ -185,7 +185,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 if (filePath && fs.existsSync(filePath)) {
                     const stats = fs.statSync(filePath);
                     const fileSizeMB = stats.size / (1024 * 1024);
-                    timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+                    timeoutMs = Math.round(
+                        Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
+                    );
                     this.log(
                         `[Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
                     );
@@ -310,7 +312,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
         const stats = fs.statSync(filePath);
         const fileSizeMB = stats.size / (1024 * 1024);
-        const timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+        const timeoutMs = Math.round(
+            Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
+        );
         this.log(
             `[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
         );
@@ -476,7 +480,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.2);
                 const stats = fs.statSync(filePath);
                 const fileSizeMB = stats.size / (1024 * 1024);
-                const timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+                const timeoutMs = Math.round(
+                    Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
+                );
                 this.log(
                     `[DAGMC Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
                 );

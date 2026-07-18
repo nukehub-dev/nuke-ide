@@ -72,6 +72,29 @@ export async function getPythonInfo(pythonPath: string, type: NukeEnvironment['t
 
         const envPath = path.dirname(path.dirname(pythonPath));
 
+        // A "system" Python that actually lives inside a conda environment
+        // (e.g. a prefix env like /opt/nuke whose env was created by another
+        // user, so `conda env list` does not report it) must be reclassified,
+        // otherwise it shows up as a bare 'system' interpreter.
+        if (type === 'system') {
+            const fs = await import('fs');
+            try {
+                await fs.promises.access(path.join(envPath, 'conda-meta'));
+                type = 'conda';
+                // The conda root prefix (base) has an `envs` subdirectory;
+                // named/prefix envs do not.
+                let isRootPrefix = false;
+                try {
+                    isRootPrefix = (await fs.promises.stat(path.join(envPath, 'envs'))).isDirectory();
+                } catch {
+                    // no envs dir — not the root prefix
+                }
+                name = isRootPrefix ? 'base' : path.basename(envPath);
+            } catch {
+                // no conda-meta — genuinely a system interpreter
+            }
+        }
+
         return {
             name,
             pythonPath,

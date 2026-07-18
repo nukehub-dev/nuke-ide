@@ -231,9 +231,15 @@ export class SysmonBackendService {
         try {
             const fsSize = await si.fsSize();
 
-            // Store all physical disks for selection
+            // Pseudo/ephemeral filesystems that are never useful disk entries
+            // (container tmpfs mounts, CD-ROMs, loop-mounted squashfs images).
+            const excludedFsTypes = new Set(['tmpfs', 'devtmpfs', 'ramfs', 'squashfs', 'iso9660']);
+
+            // Store all real filesystems for selection: any non-pseudo mount
+            // of at least 1 GiB — this covers container roots (overlay) as
+            // well as separately mounted volumes (e.g. /home/<user> on LVM).
             this.allDisks = fsSize
-                .filter((fs) => fs.size > 10 * 1024 * 1024 * 1024) // > 10GB
+                .filter((fs) => fs.size >= 1024 * 1024 * 1024 && !excludedFsTypes.has((fs.type || '').toLowerCase()))
                 .map((fs) => ({
                     fs: fs.fs,
                     type: fs.type,
