@@ -51,7 +51,6 @@ export namespace FilePropertiesCommands {
  */
 @injectable()
 export class FilePropertiesContribution implements CommandContribution, MenuContribution {
-
     @inject(SelectionService)
     protected readonly selectionService: SelectionService;
 

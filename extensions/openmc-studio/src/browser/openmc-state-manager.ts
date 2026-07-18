@@ -61,11 +61,7 @@ import {
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
-import {
-    StateChangeEvent,
-    ValidationResult,
-    OpenMCStudioBackendService
-} from '../common/openmc-studio-protocol';
+import { StateChangeEvent, ValidationResult, OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
 
 /**
  * Create a default empty {@link OpenMCState} with sensible initial values.
@@ -87,12 +83,14 @@ export function createDefaultState(): OpenMCState {
         geometry: {
             surfaces: [],
             cells: [],
-            universes: [{
-                id: 0,
-                name: 'root',
-                cellIds: [],
-                isRoot: true
-            }],
+            universes: [
+                {
+                    id: 0,
+                    name: 'root',
+                    cellIds: [],
+                    isRoot: true
+                }
+            ],
             lattices: [],
             rootUniverseId: 0
         },
@@ -104,18 +102,20 @@ export function createDefaultState(): OpenMCState {
                 inactive: 10,
                 batches: 100
             },
-            sources: [{
-                spatial: {
-                    type: 'box',
-                    lowerLeft: [-5, -5, -5],
-                    upperRight: [5, 5, 5]
-                },
-                energy: {
-                    type: 'discrete',
-                    energies: [1e6]
+            sources: [
+                {
+                    spatial: {
+                        type: 'box',
+                        lowerLeft: [-5, -5, -5],
+                        upperRight: [5, 5, 5]
+                    },
+                    energy: {
+                        type: 'discrete',
+                        energies: [1e6]
+                    }
                 }
-            }],
-            sourceRejectionFraction: 0.0  // Allow sources to be placed anywhere
+            ],
+            sourceRejectionFraction: 0.0 // Allow sources to be placed anywhere
         },
         tallies: [],
         meshes: []
@@ -124,7 +124,6 @@ export function createDefaultState(): OpenMCState {
 
 @injectable()
 export class OpenMCStateManager {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -247,7 +246,7 @@ export class OpenMCStateManager {
      * @param updates - Partial material object with the new values.
      */
     updateMaterial(id: number, updates: Partial<OpenMCMaterial>): void {
-        const index = this._state.materials.findIndex(m => m.id === id);
+        const index = this._state.materials.findIndex((m) => m.id === id);
         if (index >= 0) {
             const oldValue = this._state.materials[index];
             this._state.materials[index] = { ...oldValue, ...updates };
@@ -268,7 +267,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the material to remove.
      */
     removeMaterial(id: number): void {
-        const index = this._state.materials.findIndex(m => m.id === id);
+        const index = this._state.materials.findIndex((m) => m.id === id);
         if (index >= 0) {
             const oldValue = this._state.materials[index];
             this._state.materials.splice(index, 1);
@@ -305,7 +304,7 @@ export class OpenMCStateManager {
      * @param updates - Partial surface object with the new values.
      */
     updateSurface(id: number, updates: Partial<OpenMCSurface>): void {
-        const index = this._state.geometry.surfaces.findIndex(s => s.id === id);
+        const index = this._state.geometry.surfaces.findIndex((s) => s.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.surfaces[index];
             this._state.geometry.surfaces[index] = { ...oldValue, ...updates };
@@ -326,7 +325,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the surface to remove.
      */
     removeSurface(id: number): void {
-        const index = this._state.geometry.surfaces.findIndex(s => s.id === id);
+        const index = this._state.geometry.surfaces.findIndex((s) => s.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.surfaces[index];
             this._state.geometry.surfaces.splice(index, 1);
@@ -363,7 +362,7 @@ export class OpenMCStateManager {
      * @param updates - Partial cell object with the new values.
      */
     updateCell(id: number, updates: Partial<OpenMCCell>): void {
-        const index = this._state.geometry.cells.findIndex(c => c.id === id);
+        const index = this._state.geometry.cells.findIndex((c) => c.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.cells[index];
             this._state.geometry.cells[index] = { ...oldValue, ...updates };
@@ -384,7 +383,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the cell to remove.
      */
     removeCell(id: number): void {
-        const index = this._state.geometry.cells.findIndex(c => c.id === id);
+        const index = this._state.geometry.cells.findIndex((c) => c.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.cells[index];
             this._state.geometry.cells.splice(index, 1);
@@ -437,7 +436,7 @@ export class OpenMCStateManager {
      * @param updates - Partial tally object with the new values.
      */
     updateTally(id: number, updates: Partial<OpenMCTally>): void {
-        const index = this._state.tallies.findIndex(t => t.id === id);
+        const index = this._state.tallies.findIndex((t) => t.id === id);
         if (index >= 0) {
             const oldValue = this._state.tallies[index];
             this._state.tallies[index] = { ...oldValue, ...updates };
@@ -458,7 +457,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the tally to remove.
      */
     removeTally(id: number): void {
-        const index = this._state.tallies.findIndex(t => t.id === id);
+        const index = this._state.tallies.findIndex((t) => t.id === id);
         if (index >= 0) {
             const oldValue = this._state.tallies[index];
             this._state.tallies.splice(index, 1);
@@ -495,7 +494,7 @@ export class OpenMCStateManager {
      * @param updates - Partial mesh object with the new values.
      */
     updateMesh(id: number, updates: Partial<OpenMCMesh>): void {
-        const index = this._state.meshes.findIndex(m => m.id === id);
+        const index = this._state.meshes.findIndex((m) => m.id === id);
         if (index >= 0) {
             const oldValue = this._state.meshes[index];
             this._state.meshes[index] = { ...oldValue, ...updates } as OpenMCMesh;
@@ -516,7 +515,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the mesh to remove.
      */
     removeMesh(id: number): void {
-        const index = this._state.meshes.findIndex(m => m.id === id);
+        const index = this._state.meshes.findIndex((m) => m.id === id);
         if (index >= 0) {
             const oldValue = this._state.meshes[index];
             this._state.meshes.splice(index, 1);
@@ -622,7 +621,7 @@ export class OpenMCStateManager {
      * @param updates - Partial universe object with the new values.
      */
     updateUniverse(id: number, updates: Partial<OpenMCUniverse>): void {
-        const index = this._state.geometry.universes.findIndex(u => u.id === id);
+        const index = this._state.geometry.universes.findIndex((u) => u.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.universes[index];
             this._state.geometry.universes[index] = { ...oldValue, ...updates };
@@ -649,7 +648,7 @@ export class OpenMCStateManager {
             throw new Error('Cannot remove root universe');
         }
 
-        const index = this._state.geometry.universes.findIndex(u => u.id === id);
+        const index = this._state.geometry.universes.findIndex((u) => u.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.universes[index];
             this._state.geometry.universes.splice(index, 1);
@@ -671,13 +670,13 @@ export class OpenMCStateManager {
      * @throws Error if the target universe does not exist.
      */
     assignCellToUniverse(cellId: number, universeId: number): void {
-        const universe = this._state.geometry.universes.find(u => u.id === universeId);
+        const universe = this._state.geometry.universes.find((u) => u.id === universeId);
         if (!universe) {
             throw new Error(`Universe ${universeId} not found`);
         }
 
         // Remove cell from all other universes first
-        this._state.geometry.universes.forEach(u => {
+        this._state.geometry.universes.forEach((u) => {
             const idx = u.cellIds.indexOf(cellId);
             if (idx >= 0) {
                 u.cellIds.splice(idx, 1);
@@ -704,7 +703,7 @@ export class OpenMCStateManager {
      * @param universeId - The universe ID to remove the cell from.
      */
     removeCellFromUniverse(cellId: number, universeId: number): void {
-        const universe = this._state.geometry.universes.find(u => u.id === universeId);
+        const universe = this._state.geometry.universes.find((u) => u.id === universeId);
         if (universe) {
             const idx = universe.cellIds.indexOf(cellId);
             if (idx >= 0) {
@@ -746,7 +745,7 @@ export class OpenMCStateManager {
      * @param updates - Partial lattice object with the new values.
      */
     updateLattice(id: number, updates: Partial<OpenMCLattice>): void {
-        const index = this._state.geometry.lattices.findIndex(l => l.id === id);
+        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.lattices[index];
             this._state.geometry.lattices[index] = { ...oldValue, ...updates } as OpenMCLattice;
@@ -767,7 +766,7 @@ export class OpenMCStateManager {
      * @param id - The ID of the lattice to remove.
      */
     removeLattice(id: number): void {
-        const index = this._state.geometry.lattices.findIndex(l => l.id === id);
+        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
         if (index >= 0) {
             const oldValue = this._state.geometry.lattices[index];
             this._state.geometry.lattices.splice(index, 1);
@@ -858,7 +857,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for materials.
      */
     getNextMaterialId(): number {
-        const ids = this._state.materials.map(m => m.id);
+        const ids = this._state.materials.map((m) => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -868,7 +867,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for surfaces.
      */
     getNextSurfaceId(): number {
-        const ids = this._state.geometry.surfaces.map(s => s.id);
+        const ids = this._state.geometry.surfaces.map((s) => s.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -878,7 +877,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for cells.
      */
     getNextCellId(): number {
-        const ids = this._state.geometry.cells.map(c => c.id);
+        const ids = this._state.geometry.cells.map((c) => c.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -888,7 +887,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for universes.
      */
     getNextUniverseId(): number {
-        const ids = this._state.geometry.universes.map(u => u.id);
+        const ids = this._state.geometry.universes.map((u) => u.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -898,7 +897,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for lattices.
      */
     getNextLatticeId(): number {
-        const ids = this._state.geometry.lattices.map(l => l.id);
+        const ids = this._state.geometry.lattices.map((l) => l.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -908,7 +907,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for tallies.
      */
     getNextTallyId(): number {
-        const ids = this._state.tallies.map(t => t.id);
+        const ids = this._state.tallies.map((t) => t.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -918,7 +917,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for meshes.
      */
     getNextMeshId(): number {
-        const ids = this._state.meshes.map(m => m.id);
+        const ids = this._state.meshes.map((m) => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -977,7 +976,7 @@ export class OpenMCStateManager {
     updateParameterSweep(id: number, updates: Partial<OpenMCParameterSweep>): void {
         this.ensureOptimizationState();
         const sweeps = this._state.optimization!.parameterSweeps;
-        const index = sweeps.findIndex(s => s.id === id);
+        const index = sweeps.findIndex((s) => s.id === id);
         if (index >= 0) {
             const oldValue = sweeps[index];
             sweeps[index] = { ...oldValue, ...updates };
@@ -1000,7 +999,7 @@ export class OpenMCStateManager {
     removeParameterSweep(id: number): void {
         this.ensureOptimizationState();
         const sweeps = this._state.optimization!.parameterSweeps;
-        const index = sweeps.findIndex(s => s.id === id);
+        const index = sweeps.findIndex((s) => s.id === id);
         if (index >= 0) {
             const oldValue = sweeps[index];
             sweeps.splice(index, 1);
@@ -1036,7 +1035,8 @@ export class OpenMCStateManager {
             for (let i = 0; i < numPoints; i++) {
                 values.push(startValue + step * i);
             }
-        } else { // logarithmic
+        } else {
+            // logarithmic
             if (startValue <= 0 || endValue <= 0) {
                 console.warn('Logarithmic range requires positive values');
                 return [];
@@ -1059,7 +1059,7 @@ export class OpenMCStateManager {
      */
     getNextParameterSweepId(): number {
         this.ensureOptimizationState();
-        const ids = this._state.optimization!.parameterSweeps.map(s => s.id);
+        const ids = this._state.optimization!.parameterSweeps.map((s) => s.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1077,8 +1077,8 @@ export class OpenMCStateManager {
         const warnings: string[] = [];
 
         // Check for batches vs inactive conflicts
-        const batchesSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.batches');
-        const inactiveSweep = sweeps.find(s => s.enabled && s.parameterPath === 'settings.inactive');
+        const batchesSweep = sweeps.find((s) => s.enabled && s.parameterPath === 'settings.batches');
+        const inactiveSweep = sweeps.find((s) => s.enabled && s.parameterPath === 'settings.inactive');
 
         // Get base settings values (only relevant for eigenvalue mode)
         const runSettings = this._state.settings?.run;
@@ -1097,12 +1097,12 @@ export class OpenMCStateManager {
             if (minBatches <= maxInactive) {
                 errors.push(
                     `Invalid sweep combination: 'batches' minimum (${minBatches}) must be greater than 'inactive' maximum (${maxInactive}). ` +
-                    `Adjust sweeps so that batches > inactive for all combinations.`
+                        `Adjust sweeps so that batches > inactive for all combinations.`
                 );
             } else if (minBatches <= maxInactive + 5) {
                 warnings.push(
                     `Warning: Low active batch count. Minimum batches (${minBatches}) is close to maximum inactive (${maxInactive}). ` +
-                    `Consider increasing batches or decreasing inactive for better statistics.`
+                        `Consider increasing batches or decreasing inactive for better statistics.`
                 );
             }
         } else if (batchesSweep && !inactiveSweep) {
@@ -1113,12 +1113,12 @@ export class OpenMCStateManager {
             if (minBatches <= baseInactive) {
                 errors.push(
                     `Invalid sweep: 'batches' minimum (${minBatches}) must be greater than base 'inactive' (${baseInactive}). ` +
-                    `Either increase batches start value, or decrease base inactive in Settings.`
+                        `Either increase batches start value, or decrease base inactive in Settings.`
                 );
             } else if (minBatches <= baseInactive + 5) {
                 warnings.push(
                     `Warning: Low active batch count. Minimum batches (${minBatches}) is close to base inactive (${baseInactive}). ` +
-                    `Consider increasing batches or decreasing base inactive for better statistics.`
+                        `Consider increasing batches or decreasing base inactive for better statistics.`
                 );
             }
         } else if (!batchesSweep && inactiveSweep) {
@@ -1129,23 +1129,25 @@ export class OpenMCStateManager {
             if (maxInactive >= baseBatches) {
                 errors.push(
                     `Invalid sweep: 'inactive' maximum (${maxInactive}) must be less than base 'batches' (${baseBatches}). ` +
-                    `Either decrease inactive end value, or increase base batches in Settings.`
+                        `Either decrease inactive end value, or increase base batches in Settings.`
                 );
             } else if (maxInactive >= baseBatches - 5) {
                 warnings.push(
                     `Warning: Low active batch count. Maximum inactive (${maxInactive}) is close to base batches (${baseBatches}). ` +
-                    `Consider decreasing inactive or increasing base batches for better statistics.`
+                        `Consider decreasing inactive or increasing base batches for better statistics.`
                 );
             }
         }
 
         // Check for single-point sweeps (pointless but not an error)
-        sweeps.filter(s => s.enabled).forEach(sweep => {
-            const values = this.computeSweepValues(sweep);
-            if (values.length < 2) {
-                warnings.push(`Sweep "${sweep.name}" has only 1 point. Consider increasing numPoints for a meaningful sweep.`);
-            }
-        });
+        sweeps
+            .filter((s) => s.enabled)
+            .forEach((sweep) => {
+                const values = this.computeSweepValues(sweep);
+                if (values.length < 2) {
+                    warnings.push(`Sweep "${sweep.name}" has only 1 point. Consider increasing numPoints for a meaningful sweep.`);
+                }
+            });
 
         return {
             valid: errors.length === 0,
@@ -1176,7 +1178,7 @@ export class OpenMCStateManager {
      */
     getOptimizationRun(runId: string): OpenMCOptimizationRun | undefined {
         this.ensureOptimizationState();
-        return this._state.optimization!.optimizationRuns.find(r => r.id === runId);
+        return this._state.optimization!.optimizationRuns.find((r) => r.id === runId);
     }
 
     /**
@@ -1205,7 +1207,7 @@ export class OpenMCStateManager {
     updateOptimizationRun(runId: string, updates: Partial<OpenMCOptimizationRun>): void {
         this.ensureOptimizationState();
         const runs = this._state.optimization!.optimizationRuns;
-        const index = runs.findIndex(r => r.id === runId);
+        const index = runs.findIndex((r) => r.id === runId);
         if (index >= 0) {
             const oldValue = runs[index];
             runs[index] = { ...oldValue, ...updates };
@@ -1228,7 +1230,7 @@ export class OpenMCStateManager {
     removeOptimizationRun(runId: string): void {
         this.ensureOptimizationState();
         const runs = this._state.optimization!.optimizationRuns;
-        const index = runs.findIndex(r => r.id === runId);
+        const index = runs.findIndex((r) => r.id === runId);
         if (index >= 0) {
             const oldValue = runs[index];
             runs.splice(index, 1);
@@ -1250,7 +1252,7 @@ export class OpenMCStateManager {
      */
     addOptimizationResult(runId: string, result: OptimizationResult): void {
         this.ensureOptimizationState();
-        const run = this._state.optimization!.optimizationRuns.find(r => r.id === runId);
+        const run = this._state.optimization!.optimizationRuns.find((r) => r.id === runId);
         if (run) {
             run.results.push(result);
             run.currentIteration = result.iteration;

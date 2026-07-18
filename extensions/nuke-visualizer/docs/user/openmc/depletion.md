@@ -7,12 +7,15 @@ The Depletion Viewer analyzes `depletion_results.h5` files produced by OpenMC's 
 ## Opening Depletion Results
 
 ### Method 1: Click
+
 Click `depletion_results.h5` in the Explorer.
 
 ### Method 2: Menu
+
 `Tools → Visualizer → OpenMC → Depletion → View Depletion Results...`
 
 ### Method 3: Command Palette
+
 `Ctrl+Shift+P` → **"View Depletion Results"**
 
 ---
@@ -23,24 +26,24 @@ The Depletion Viewer has three main areas:
 
 ### 1. Summary Panel (Top)
 
-| Metric | Description |
-|--------|-------------|
-| **Materials** | Number of burnable materials |
-| **Time Steps** | Number of depletion steps |
-| **Nuclides** | Total nuclides tracked |
+| Metric         | Description                             |
+| -------------- | --------------------------------------- |
+| **Materials**  | Number of burnable materials            |
+| **Time Steps** | Number of depletion steps               |
+| **Nuclides**   | Total nuclides tracked                  |
 | **Time Range** | From 0 to final time (seconds and days) |
-| **Burnup** | Final burnup in MWd/kg (if available) |
+| **Burnup**     | Final burnup in MWd/kg (if available)   |
 
 ### 2. Material Selector (Left)
 
 A list of all burnable materials. Click one to analyze it.
 
-| Column | Description |
-|--------|-------------|
-| **Index** | Material index in the depletion file |
-| **Name** | Material name (from OpenMC model) |
-| **Initial Mass** | Starting mass in grams |
-| **Volume** | Material volume in cm³ |
+| Column           | Description                          |
+| ---------------- | ------------------------------------ |
+| **Index**        | Material index in the depletion file |
+| **Name**         | Material name (from OpenMC model)    |
+| **Initial Mass** | Starting mass in grams               |
+| **Volume**       | Material volume in cm³               |
 
 ### 3. Plot Area (Center/Right)
 
@@ -52,15 +55,15 @@ Interactive Plotly charts showing the selected material's evolution.
 
 Use the toolbar above the plot to switch types:
 
-| Plot Type | Y-Axis | Use Case |
-|-----------|--------|----------|
-| **Concentration** | atoms/barn-cm | Raw nuclide density |
-| **Mass** | grams | Total mass per nuclide |
-| **Mass Fraction** | % of total | Relative composition change |
-| **Activity** | Bq or Ci | Radioactivity for decay analysis |
-| **Decay Heat** | Watts | Thermal power from radioactive decay |
-| **Normalized** | fraction of initial | Relative change from start |
-| **Stacked** | cumulative mass/concentration | Overall composition pie-over-time |
+| Plot Type         | Y-Axis                        | Use Case                             |
+| ----------------- | ----------------------------- | ------------------------------------ |
+| **Concentration** | atoms/barn-cm                 | Raw nuclide density                  |
+| **Mass**          | grams                         | Total mass per nuclide               |
+| **Mass Fraction** | % of total                    | Relative composition change          |
+| **Activity**      | Bq or Ci                      | Radioactivity for decay analysis     |
+| **Decay Heat**    | Watts                         | Thermal power from radioactive decay |
+| **Normalized**    | fraction of initial           | Relative change from start           |
+| **Stacked**       | cumulative mass/concentration | Overall composition pie-over-time    |
 
 ### X-Axis Options
 
@@ -73,17 +76,19 @@ Use the toolbar above the plot to switch types:
 ## Nuclide Selection
 
 ### Manual
+
 Type nuclide names in the filter box (e.g., `U235 U238 Pu239 Xe135`).
 
 ### Presets
+
 Quick-select important groups:
 
-| Preset | Nuclides | Use Case |
-|--------|----------|----------|
-| **Major Actinides** | U234–U238, Pu238–Pu242, Am241 | Burnup credit, criticality safety |
-| **Fission Products** | Xe135, Sm149, Cs137, I135 | Reactivity poisons, dosimetry |
-| **Burnable Poisons** | B10, Gd155, Gd157 | Control rod / poison analysis |
-| **Noble Gases** | Kr83, Kr85, Xe131, Xe133, Xe135 | Gap release, pressure buildup |
+| Preset               | Nuclides                        | Use Case                          |
+| -------------------- | ------------------------------- | --------------------------------- |
+| **Major Actinides**  | U234–U238, Pu238–Pu242, Am241   | Burnup credit, criticality safety |
+| **Fission Products** | Xe135, Sm149, Cs137, I135       | Reactivity poisons, dosimetry     |
+| **Burnable Poisons** | B10, Gd155, Gd157               | Control rod / poison analysis     |
+| **Noble Gases**      | Kr83, Kr85, Xe131, Xe133, Xe135 | Gap release, pressure buildup     |
 
 ---
 
@@ -121,13 +126,13 @@ If you enable **"Include Activity"** when loading data:
 
 Below the plot, a sortable table shows the numerical values at the **final time step**:
 
-| Column | Description |
-|--------|-------------|
-| Nuclide | Name |
-| Final Concentration | atoms/barn-cm |
-| Final Mass | grams |
-| Mass Fraction | % of total mass |
-| Half-life | seconds (if known) |
+| Column              | Description        |
+| ------------------- | ------------------ |
+| Nuclide             | Name               |
+| Final Concentration | atoms/barn-cm      |
+| Final Mass          | grams              |
+| Mass Fraction       | % of total mass    |
+| Half-life           | seconds (if known) |
 
 Click a column header to sort. Use the search box to filter nuclides.
 

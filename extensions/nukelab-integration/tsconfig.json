@@ -6,11 +6,6 @@
     "rootDir": "src",
     "strictPropertyInitialization": false
   },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "lib",
-    "node_modules"
-  ]
+  "include": ["src"],
+  "exclude": ["lib", "node_modules"]
 }

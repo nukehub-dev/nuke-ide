@@ -3,6 +3,7 @@
 `openmc-studio` uses **InversifyJS** (via Theia) for dependency injection. Understanding how the container modules work is essential for adding widgets, services, or new backend capabilities.
 
 For the full module definitions, see:
+
 - Frontend: [`src/browser/openmc-studio-frontend-module.ts`](../../src/browser/openmc-studio-frontend-module.ts)
 - Backend: [`src/node/openmc-studio-backend-module.ts`](../../src/node/openmc-studio-backend-module.ts)
 
@@ -51,24 +52,30 @@ This is the entry point for the browser side. It exports a `ContainerModule` tha
 ### 1. Backend RPC Proxy
 
 ```typescript
-bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
+bind(OpenMCStudioBackendService)
+  .toDynamicValue((ctx) => {
     const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
 
     const client: OpenMCStudioClient = {
-        log: (message) => {
-            window.dispatchEvent(new CustomEvent('openmc-output', {
-                detail: { type: 'stdout', data: message }
-            }));
-        },
-        onSimulationStatus: (event) => { /* ... */ },
-        onOptimizationProgress: (event) => { /* ... */ },
-        // ...
+      log: (message) => {
+        window.dispatchEvent(
+          new CustomEvent('openmc-output', {
+            detail: { type: 'stdout', data: message }
+          })
+        );
+      },
+      onSimulationStatus: (event) => {
+        /* ... */
+      },
+      onOptimizationProgress: (event) => {
+        /* ... */
+      }
+      // ...
     };
 
-    return connectionProvider.createProxy<OpenMCStudioBackendService>(
-        OPENMC_STUDIO_BACKEND_PATH, client
-    );
-}).inSingletonScope();
+    return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
+  })
+  .inSingletonScope();
 ```
 
 The proxy is a **dynamic value** because it needs to capture the `client` object at creation time. The `client` converts backend push events into DOM `CustomEvent`s so that widgets can subscribe without importing the RPC layer directly.
@@ -83,13 +90,13 @@ bind(OpenMCSimulationRunner).toSelf().inSingletonScope();
 bind(OpenMCPythonExporter).toSelf().inSingletonScope();
 ```
 
-| Service | Responsibility |
-|---------|----------------|
-| `OpenMCStudioService` | High-level orchestration: new project, open project, run simulation, export Python script. |
-| `OpenMCStateManager` | Central reactive store for `OpenMCState`. CRUD for geometry, materials, tallies, meshes, settings, depletion, variance reduction, and optimization. |
-| `OpenMCXMLGenerationService` | Frontend-side XML generation helpers (complements the backend service). |
-| `OpenMCSimulationRunner` | Widget-facing simulation controller: starts runs, polls progress, handles cancellation. |
-| `OpenMCPythonExporter` | Generates standalone Python scripts from the current state for users who want to leave the GUI. |
+| Service                      | Responsibility                                                                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OpenMCStudioService`        | High-level orchestration: new project, open project, run simulation, export Python script.                                                          |
+| `OpenMCStateManager`         | Central reactive store for `OpenMCState`. CRUD for geometry, materials, tallies, meshes, settings, depletion, variance reduction, and optimization. |
+| `OpenMCXMLGenerationService` | Frontend-side XML generation helpers (complements the backend service).                                                                             |
+| `OpenMCSimulationRunner`     | Widget-facing simulation controller: starts runs, polls progress, handles cancellation.                                                             |
+| `OpenMCPythonExporter`       | Generates standalone Python scripts from the current state for users who want to leave the GUI.                                                     |
 
 ### 3. Environment & Health Services
 
@@ -99,11 +106,11 @@ bind(OpenMCHealthService).toSelf().inSingletonScope();
 bind(OpenMCInstallerService).toSelf().inSingletonScope();
 ```
 
-| Service | Responsibility |
-|---------|----------------|
+| Service                    | Responsibility                                                               |
+| -------------------------- | ---------------------------------------------------------------------------- |
 | `OpenMCEnvironmentService` | Detects Python environments, OpenMC installations, and cross-sections paths. |
-| `OpenMCHealthService` | Runs diagnostic checks and reports environment issues to the user. |
-| `OpenMCInstallerService` | Guides users through installing missing dependencies (OpenMC, MPI, etc.). |
+| `OpenMCHealthService`      | Runs diagnostic checks and reports environment issues to the user.           |
+| `OpenMCInstallerService`   | Guides users through installing missing dependencies (OpenMC, MPI, etc.).    |
 
 ### 4. Command Modules
 
@@ -133,24 +140,27 @@ bind(OpenHandler).toService(OpenMCOpenHandlerContribution);
 bind(FrontendApplicationContribution).toService(OpenMCOpenHandlerContribution);
 ```
 
-| Contribution | Purpose |
-|--------------|---------|
-| `OpenMCCommandContribution` | Registers all domain commands (project, simulation, view, environment). |
-| `OpenMCMenuContribution` | Adds menu items under the Theia menu bar (e.g., OpenMC → Run Simulation). |
-| `OpenMCToolbarContribution` | Adds toolbar buttons to widget tab bars (e.g., play/stop icons). |
+| Contribution                    | Purpose                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `OpenMCCommandContribution`     | Registers all domain commands (project, simulation, view, environment).       |
+| `OpenMCMenuContribution`        | Adds menu items under the Theia menu bar (e.g., OpenMC → Run Simulation).     |
+| `OpenMCToolbarContribution`     | Adds toolbar buttons to widget tab bars (e.g., play/stop icons).              |
 | `OpenMCOpenHandlerContribution` | Intercepts file double-clicks for `.nuke-openmc` files and opens the project. |
 
 ### 6. Widget Factories
 
 ```typescript
 bind(SimulationDashboardWidget).toSelf();
-bind(WidgetFactory).toDynamicValue(({ container }) => ({
+bind(WidgetFactory)
+  .toDynamicValue(({ container }) => ({
     id: SimulationDashboardWidget.ID,
     createWidget: () => container.get(SimulationDashboardWidget)
-})).inSingletonScope();
+  }))
+  .inSingletonScope();
 ```
 
 The pattern is repeated for each widget:
+
 - `SimulationDashboardWidget`
 - `CSGBuilderWidget`
 - `DAGMCEditorWidget`
@@ -179,14 +189,14 @@ bind(OptimizationBackendService).toSelf().inSingletonScope();
 bind(OpenMCValidationBackendService).toSelf().inSingletonScope();
 ```
 
-| Service | Responsibility |
-|---------|----------------|
-| `XMLGenerationService` | Converts `OpenMCState` into OpenMC XML files. |
-| `OpenMCRunnerService` | Spawns `openmc` and `mpiexec`, manages process lifecycle, streams logs. |
-| `OpenMCCADImportService` | Imports STEP/IGES/BREP/STL and converts to CSG or DAGMC. |
-| `DAGMCEditorService` | Reads and modifies DAGMC `.h5m` files via `pydagmc`. |
-| `OptimizationBackendService` | Executes parameter sweeps by mutating state clones and running OpenMC per iteration. |
-| `OpenMCValidationBackendService` | Environment detection and deep state validation. |
+| Service                          | Responsibility                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `XMLGenerationService`           | Converts `OpenMCState` into OpenMC XML files.                                        |
+| `OpenMCRunnerService`            | Spawns `openmc` and `mpiexec`, manages process lifecycle, streams logs.              |
+| `OpenMCCADImportService`         | Imports STEP/IGES/BREP/STL and converts to CSG or DAGMC.                             |
+| `DAGMCEditorService`             | Reads and modifies DAGMC `.h5m` files via `pydagmc`.                                 |
+| `OptimizationBackendService`     | Executes parameter sweeps by mutating state clones and running OpenMC per iteration. |
+| `OpenMCValidationBackendService` | Environment detection and deep state validation.                                     |
 
 ### 2. Orchestrator Service
 
@@ -202,15 +212,16 @@ bind(OpenMCStudioBackendService).toService(OpenMCStudioBackendServiceImpl);
 ### 3. JSON-RPC Connection Handler
 
 ```typescript
-bind<ConnectionHandler>(ConnectionHandler).toDynamicValue(({ container }) =>
-    new JsonRpcConnectionHandler<OpenMCStudioClient>(OPENMC_STUDIO_BACKEND_PATH, client => {
-        const backendService = container.get<OpenMCStudioBackendServiceImpl>(
-            OpenMCStudioBackendServiceImpl
-        );
+bind<ConnectionHandler>(ConnectionHandler)
+  .toDynamicValue(
+    ({ container }) =>
+      new JsonRpcConnectionHandler<OpenMCStudioClient>(OPENMC_STUDIO_BACKEND_PATH, (client) => {
+        const backendService = container.get<OpenMCStudioBackendServiceImpl>(OpenMCStudioBackendServiceImpl);
         backendService.setClient(client);
         return backendService;
-    })
-).inSingletonScope();
+      })
+  )
+  .inSingletonScope();
 ```
 
 **Concept:** Theia creates one `JsonRpcConnectionHandler` per WebSocket path. When a frontend connects, Theia instantiates a handler, passes the frontend's `client` object to `setClient()`, and returns the backend service implementation as the RPC target. Because the backend service is a singleton, its internal state (running simulations, optimization runs) is shared across all connections.
@@ -219,9 +230,9 @@ bind<ConnectionHandler>(ConnectionHandler).toDynamicValue(({ container }) =>
 
 ```typescript
 bind(BackendApplicationContribution).to(RpcBufferConfiguration).inSingletonScope();
-bind(BackendApplicationContribution).toDynamicValue(({ container }) =>
-    container.get(OpenMCStudioBackendServiceImpl)
-).inSingletonScope();
+bind(BackendApplicationContribution)
+  .toDynamicValue(({ container }) => container.get(OpenMCStudioBackendServiceImpl))
+  .inSingletonScope();
 ```
 
 - `RpcBufferConfiguration` increases WebSocket buffer limits to prevent "Max disconnected buffer size exceeded" errors during large simulation log streaming.
@@ -231,13 +242,13 @@ bind(BackendApplicationContribution).toDynamicValue(({ container }) =>
 
 ## Scope Reference
 
-| Scope | Meaning | When to Use |
-|-------|---------|-------------|
-| `inSingletonScope()` | One instance per container | Services, frameworks, factories, state manager |
-| `inTransientScope()` | New instance every time | Widgets (each tab must be independent) |
-| default (no scope) | New instance per injection | Widget classes when `inTransientScope()` is not explicit |
-| `toDynamicValue()` | Factory function | RPC proxies that need client setup at creation time |
-| `toService()` | Alias one symbol to another | Binding interface tokens to their implementations |
+| Scope                | Meaning                     | When to Use                                              |
+| -------------------- | --------------------------- | -------------------------------------------------------- |
+| `inSingletonScope()` | One instance per container  | Services, frameworks, factories, state manager           |
+| `inTransientScope()` | New instance every time     | Widgets (each tab must be independent)                   |
+| default (no scope)   | New instance per injection  | Widget classes when `inTransientScope()` is not explicit |
+| `toDynamicValue()`   | Factory function            | RPC proxies that need client setup at creation time      |
+| `toService()`        | Alias one symbol to another | Binding interface tokens to their implementations        |
 
 ---
 
@@ -249,16 +260,18 @@ bind(BackendApplicationContribution).toDynamicValue(({ container }) =>
 // 1. Define the widget class
 @injectable()
 export class MyWidget extends ReactWidget {
-    static readonly ID = 'my-widget';
-    // ...
+  static readonly ID = 'my-widget';
+  // ...
 }
 
 // 2. Bind in frontend module
 bind(MyWidget).toSelf();
-bind(WidgetFactory).toDynamicValue(({ container }) => ({
+bind(WidgetFactory)
+  .toDynamicValue(({ container }) => ({
     id: MyWidget.ID,
     createWidget: () => container.get(MyWidget)
-})).inSingletonScope();
+  }))
+  .inSingletonScope();
 
 // 3. Open it
 const widget = await widgetManager.getOrCreateWidget(MyWidget.ID);
@@ -307,11 +320,11 @@ No additional wiring is required — Theia's `JsonRpcConnectionHandler` exposes 
 
 ## Troubleshooting DI Issues
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| "No matching bindings found" | Symbol not bound in module | Add `bind(MyService).toSelf()` to the appropriate module |
-| Widget not created | `WidgetFactory` missing or wrong ID | Check `id` matches `WidgetFactory.id` exactly |
-| Command not in palette | `CommandContribution` not bound | `bind(CommandContribution).toService(...)` |
-| RPC call fails | Path mismatch or handler not bound | Verify `OPENMC_STUDIO_BACKEND_PATH` matches both frontend and backend |
-| Singleton state leaks | Widget in singleton scope | Use default scope or `inTransientScope()` for widgets |
-| Backend events not received | Client not passed to `createProxy` | Ensure the second argument to `createProxy` is the `OpenMCStudioClient` object |
+| Symptom                      | Cause                               | Fix                                                                            |
+| ---------------------------- | ----------------------------------- | ------------------------------------------------------------------------------ |
+| "No matching bindings found" | Symbol not bound in module          | Add `bind(MyService).toSelf()` to the appropriate module                       |
+| Widget not created           | `WidgetFactory` missing or wrong ID | Check `id` matches `WidgetFactory.id` exactly                                  |
+| Command not in palette       | `CommandContribution` not bound     | `bind(CommandContribution).toService(...)`                                     |
+| RPC call fails               | Path mismatch or handler not bound  | Verify `OPENMC_STUDIO_BACKEND_PATH` matches both frontend and backend          |
+| Singleton state leaks        | Widget in singleton scope           | Use default scope or `inTransientScope()` for widgets                          |
+| Backend events not received  | Client not passed to `createProxy`  | Ensure the second argument to `createProxy` is the `OpenMCStudioClient` object |

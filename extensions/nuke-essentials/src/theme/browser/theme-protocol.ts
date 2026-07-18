@@ -130,9 +130,9 @@ export const THEME_CONFIGS: ThemeConfig[] = [
 ];
 
 export function getThemeConfig(themeId: string): ThemeConfig | undefined {
-    return THEME_CONFIGS.find(t => t.id === themeId);
+    return THEME_CONFIGS.find((t) => t.id === themeId);
 }
 
 export function getThemeForType(type: 'dark' | 'light'): ThemeConfig | undefined {
-    return THEME_CONFIGS.find(t => t.type === type);
+    return THEME_CONFIGS.find((t) => t.type === type);
 }

@@ -30,13 +30,16 @@ import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/
 import { QuoteService, QuoteServicePath } from '../common/quote-protocol';
 import { QuoteBackendService } from './quote-backend-service';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     bind(QuoteBackendService).toSelf().inSingletonScope();
     bind(QuoteService).toService(QuoteBackendService);
 
-    bind(ConnectionHandler).toDynamicValue(ctx =>
-        new RpcConnectionHandler(QuoteServicePath, () => {
-            return ctx.container.get<QuoteService>(QuoteService);
-        })
-    ).inSingletonScope();
+    bind(ConnectionHandler)
+        .toDynamicValue(
+            (ctx) =>
+                new RpcConnectionHandler(QuoteServicePath, () => {
+                    return ctx.container.get<QuoteService>(QuoteService);
+                })
+        )
+        .inSingletonScope();
 });

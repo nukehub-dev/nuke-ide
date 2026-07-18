@@ -20,22 +20,21 @@ import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 
 
 @injectable()
 export class MyWidget {
+  @inject(NukeCoreStatusBarVisibility)
+  private readonly visibilityService: NukeCoreStatusBarVisibilityService;
 
-    @inject(NukeCoreStatusBarVisibility)
-    private readonly visibilityService: NukeCoreStatusBarVisibilityService;
+  private visibilityHandle?: { dispose: () => void };
 
-    private visibilityHandle?: { dispose: () => void };
+  // When your widget opens
+  onAfterShow(): void {
+    this.visibilityHandle = this.visibilityService.requestVisibility('my-extension');
+  }
 
-    // When your widget opens
-    onAfterShow(): void {
-        this.visibilityHandle = this.visibilityService.requestVisibility('my-extension');
-    }
-
-    // When your widget closes
-    onBeforeHide(): void {
-        this.visibilityHandle?.dispose();
-        this.visibilityHandle = undefined;
-    }
+  // When your widget closes
+  onBeforeHide(): void {
+    this.visibilityHandle?.dispose();
+    this.visibilityHandle = undefined;
+  }
 }
 ```
 
@@ -50,26 +49,25 @@ import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 
 
 @injectable()
 export class MyWidgetContribution extends AbstractViewContribution<MyWidget> {
+  @inject(NukeCoreStatusBarVisibility)
+  private readonly visibilityService: NukeCoreStatusBarVisibilityService;
 
-    @inject(NukeCoreStatusBarVisibility)
-    private readonly visibilityService: NukeCoreStatusBarVisibilityService;
+  private visibilityHandle?: { dispose: () => void };
 
-    private visibilityHandle?: { dispose: () => void };
+  async openView(args?: Partial<OpenViewArguments>): Promise<MyWidget> {
+    const widget = await super.openView(args);
 
-    async openView(args?: Partial<OpenViewArguments>): Promise<MyWidget> {
-        const widget = await super.openView(args);
+    // Request visibility when view opens
+    this.visibilityHandle = this.visibilityService.requestVisibility('my-extension');
 
-        // Request visibility when view opens
-        this.visibilityHandle = this.visibilityService.requestVisibility('my-extension');
+    // Release when the widget is disposed
+    widget.disposed.connect(() => {
+      this.visibilityHandle?.dispose();
+      this.visibilityHandle = undefined;
+    });
 
-        // Release when the widget is disposed
-        widget.disposed.connect(() => {
-            this.visibilityHandle?.dispose();
-            this.visibilityHandle = undefined;
-        });
-
-        return widget;
-    }
+    return widget;
+  }
 }
 ```
 
@@ -77,22 +75,22 @@ export class MyWidgetContribution extends AbstractViewContribution<MyWidget> {
 
 ## How It Works
 
-| Behavior | Description |
-|----------|-------------|
-| **Reference counting** | Each `requestVisibility(ownerId)` increments an internal counter and returns a disposable handle. Multiple extensions can hold requests at the same time. |
-| **Auto-hide** | When all handles are disposed, the counter reaches zero and the status bar reverts to normal `auto` mode behavior (hides if an environment is configured). |
-| **Seamless integration** | Works alongside the existing `auto` mode without requiring the user to change `nuke.showStatusBar` from its default. |
+| Behavior                 | Description                                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Reference counting**   | Each `requestVisibility(ownerId)` increments an internal counter and returns a disposable handle. Multiple extensions can hold requests at the same time.  |
+| **Auto-hide**            | When all handles are disposed, the counter reaches zero and the status bar reverts to normal `auto` mode behavior (hides if an environment is configured). |
+| **Seamless integration** | Works alongside the existing `auto` mode without requiring the user to change `nuke.showStatusBar` from its default.                                       |
 
 ---
 
 ## When to Use It
 
-| Scenario | Recommendation |
-|----------|----------------|
-| Your extension has a persistent widget that needs to show the active Python environment | Request visibility on open, release on close. |
-| Your extension runs background tasks that depend on the environment | Consider using status messages or custom indicators instead of keeping the status bar visible indefinitely. |
-| Your extension only needs the environment for a one-shot command | Do not request visibility; use `NukeCoreService` APIs directly. |
-| You want the status bar always visible regardless of your extension | Encourage the user to set `nuke.showStatusBar` to `"always"`. |
+| Scenario                                                                                | Recommendation                                                                                              |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Your extension has a persistent widget that needs to show the active Python environment | Request visibility on open, release on close.                                                               |
+| Your extension runs background tasks that depend on the environment                     | Consider using status messages or custom indicators instead of keeping the status bar visible indefinitely. |
+| Your extension only needs the environment for a one-shot command                        | Do not request visibility; use `NukeCoreService` APIs directly.                                             |
+| You want the status bar always visible regardless of your extension                     | Encourage the user to set `nuke.showStatusBar` to `"always"`.                                               |
 
 ---
 
@@ -104,9 +102,9 @@ The extension provides a **Tools** menu in the main menu bar. Other extensions c
 import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
 
 menus.registerMenuAction(NukeMenus.TOOLS, {
-    commandId: 'my-extension.command',
-    label: 'My Command',
-    order: 'a'
+  commandId: 'my-extension.command',
+  label: 'My Command',
+  order: 'a'
 });
 ```
 

@@ -43,7 +43,6 @@ export interface PlotlyService {
 
 @injectable()
 export class PlotlyServiceImpl implements PlotlyService {
-
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
@@ -53,13 +52,13 @@ export class PlotlyServiceImpl implements PlotlyService {
     async showPlot(figure: PlotlyFigure, widgetId: string = OpenMCPlotWidget.ID): Promise<void> {
         // For now, we reuse OpenMCPlotWidget but we might want a more generic one later.
         // If widgetId is provided and different from default, we can support multiple plot instances.
-        
+
         const widget = await this.widgetManager.getOrCreateWidget<OpenMCPlotWidget>(OpenMCPlotWidget.ID, { id: widgetId });
-        
+
         // We need a way to set generic PlotlyFigure data on OpenMCPlotWidget
         if (widget instanceof OpenMCPlotWidget) {
             widget.setFigure(figure);
-            
+
             if (!widget.isAttached) {
                 this.shell.addWidget(widget, { area: 'main' });
             }

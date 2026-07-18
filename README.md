@@ -23,26 +23,26 @@ To set up and run NukeIDE locally, follow these steps:
 
 1. **Clone the repository:**
 
-    ```bash
-    git clone https://github.com/nukehub-dev/nuke-ide.git
-    cd nuke-ide
-    ```
+   ```bash
+   git clone https://github.com/nukehub-dev/nuke-ide.git
+   cd nuke-ide
+   ```
 
 2. **Install dependencies and build the project:**
 
-    ```bash
-    yarn
-    ```
+   ```bash
+   yarn
+   ```
 
-    This command will install all root dependencies, hoist them, and then use Lerna to install dependencies and run `prepare` scripts for all workspaces (applications and extensions).
+   This command will install all root dependencies, hoist them, and then use Lerna to install dependencies and run `prepare` scripts for all workspaces (applications and extensions).
 
 3. **Download Theia plugins:**
 
-    ```bash
-    yarn download:plugins
-    ```
+   ```bash
+   yarn download:plugins
+   ```
 
-    This command downloads pre-configured Theia plugins required for NukeIDE.
+   This command downloads pre-configured Theia plugins required for NukeIDE.
 
 ## Running the Application
 
@@ -76,15 +76,15 @@ lerna run build
 
 - **Browser:**
 
-    ```bash
-    yarn build:browser
-    ```
+  ```bash
+  yarn build:browser
+  ```
 
 - **Electron:**
 
-    ```bash
-    yarn build:electron
-    ```
+  ```bash
+  yarn build:electron
+  ```
 
 ### Build Individual Extensions
 

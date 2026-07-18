@@ -37,8 +37,8 @@ import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
 export class MyExtension {
-    @inject(NukeCoreService)
-    private readonly nukeCore: NukeCoreService;
+  @inject(NukeCoreService)
+  private readonly nukeCore: NukeCoreService;
 }
 ```
 
@@ -49,7 +49,7 @@ export class MyExtension {
 ```typescript
 // Check if Python is configured
 if (this.nukeCore.isConfigured()) {
-    // Python path or conda env is set
+  // Python path or conda env is set
 }
 
 // Get a human-readable configuration error, if any
@@ -64,22 +64,22 @@ Smart auto-detection searches **all** available environments for one that satisf
 
 ```typescript
 const result = await this.nukeCore.detectPythonWithRequirements({
-    requiredPackages: [
-        { name: 'openmc', required: true },
-        { name: 'numpy', required: true, minVersion: '1.20.0' },
-        { name: 'paraview', condaOnly: true }
-    ],
-    // Optional: prefer these environment names if multiple match
-    autoDetectEnvs: ['openmc', 'nuke-ide'],
-    // Also search for venvs in the workspace
-    searchWorkspaceVenvs: true
+  requiredPackages: [
+    { name: 'openmc', required: true },
+    { name: 'numpy', required: true, minVersion: '1.20.0' },
+    { name: 'paraview', condaOnly: true }
+  ],
+  // Optional: prefer these environment names if multiple match
+  autoDetectEnvs: ['openmc', 'nuke-ide'],
+  // Also search for venvs in the workspace
+  searchWorkspaceVenvs: true
 });
 
 if (result.success) {
-    console.log('Found environment:', result.command);
-    console.log('Environment info:', result.environment);
+  console.log('Found environment:', result.command);
+  console.log('Environment info:', result.environment);
 } else {
-    console.log('Missing packages:', result.missingPackages);
+  console.log('Missing packages:', result.missingPackages);
 }
 ```
 
@@ -122,29 +122,29 @@ import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 
 @injectable()
 export class MyExtension {
-    @inject(EnvironmentActionsHelper)
-    private readonly envActions: EnvironmentActionsHelper;
+  @inject(EnvironmentActionsHelper)
+  private readonly envActions: EnvironmentActionsHelper;
 
-    async setup() {
-        const result = await this.envActions.ensurePackages({
-            requiredPackages: [
-                { name: 'openmc', required: true },
-                { name: 'numpy', required: true }
-            ],
-            title: 'Install OpenMC dependencies'
-        });
+  async setup() {
+    const result = await this.envActions.ensurePackages({
+      requiredPackages: [
+        { name: 'openmc', required: true },
+        { name: 'numpy', required: true }
+      ],
+      title: 'Install OpenMC dependencies'
+    });
 
-        if (result.success) {
-            console.log('Ready:', result.environment?.name);
-            console.log('Python:', result.command);
-        } else if (result.installed === false) {
-            console.log('User declined installation');
-        } else if (!result.environment) {
-            console.log('No configured environment');
-        } else {
-            console.log('Failed to install:', result.missingPackages);
-        }
+    if (result.success) {
+      console.log('Ready:', result.environment?.name);
+      console.log('Python:', result.command);
+    } else if (result.installed === false) {
+      console.log('User declined installation');
+    } else if (!result.environment) {
+      console.log('No configured environment');
+    } else {
+      console.log('Failed to install:', result.missingPackages);
     }
+  }
 }
 ```
 
@@ -166,17 +166,17 @@ One-shot install into a specific environment with live terminal output.
 
 ```typescript
 const result = await this.envActions.installPackages({
-    packages: ['openmc', 'numpy'],
-    title: 'Install OpenMC dependencies',
-    useConda: false,  // use pip (set true for conda/mamba)
-    channels: ['conda-forge'],
-    extraIndexUrl: 'https://shimwell.github.io/wheels'
+  packages: ['openmc', 'numpy'],
+  title: 'Install OpenMC dependencies',
+  useConda: false, // use pip (set true for conda/mamba)
+  channels: ['conda-forge'],
+  extraIndexUrl: 'https://shimwell.github.io/wheels'
 });
 
 if (result.success) {
-    console.log(result.message);
+  console.log(result.message);
 } else {
-    console.log(result.message);
+  console.log(result.message);
 }
 ```
 
@@ -197,23 +197,23 @@ import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-servi
 
 @injectable()
 export class MyExtension {
-    @inject(TerminalService)
-    private readonly terminalService: TerminalService;
+  @inject(TerminalService)
+  private readonly terminalService: TerminalService;
 
-    async customInstall() {
-        // 1. Prepare the command
-        const { command, cwd } = await this.nukeCore.prepareInstallPackagesCommand({
-            packages: ['openmc', 'numpy'],
-            useConda: false,
-            pythonPath: '/home/user/.conda/envs/dev/bin/python'
-        });
+  async customInstall() {
+    // 1. Prepare the command
+    const { command, cwd } = await this.nukeCore.prepareInstallPackagesCommand({
+      packages: ['openmc', 'numpy'],
+      useConda: false,
+      pythonPath: '/home/user/.conda/envs/dev/bin/python'
+    });
 
-        // 2. Create and run in your own terminal
-        const terminal = await this.terminalService.newTerminal({ title: 'Custom Install', cwd });
-        await terminal.start();
-        this.terminalService.open(terminal, { mode: 'reveal' });
-        await terminal.executeCommand({ cwd, args: command.split(' ') });
-    }
+    // 2. Create and run in your own terminal
+    const terminal = await this.terminalService.newTerminal({ title: 'Custom Install', cwd });
+    await terminal.start();
+    this.terminalService.open(terminal, { mode: 'reveal' });
+    await terminal.executeCommand({ cwd, args: command.split(' ') });
+  }
 }
 ```
 
@@ -223,12 +223,12 @@ Set global defaults in **Settings → Nuke Utils**, or override per-package in `
 
 ```typescript
 const result = await this.nukeCore.detectPythonWithRequirements({
-    requiredPackages: [
-        { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
-        { name: 'openmc', condaOnly: true },
-        { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-        { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
-    ]
+  requiredPackages: [
+    { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
+    { name: 'openmc', condaOnly: true },
+    { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
+    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
+  ]
 });
 ```
 
@@ -236,25 +236,25 @@ Per-override at install time:
 
 ```typescript
 const result = await this.envActions.installPackages({
-    packages: ['pytorch', 'cuda-toolkit'],
-    useConda: true,
-    channels: ['pytorch', 'nvidia', 'conda-forge'],
-    extraIndexUrl: 'https://my-index.example.com/simple'
+  packages: ['pytorch', 'cuda-toolkit'],
+  useConda: true,
+  channels: ['pytorch', 'nvidia', 'conda-forge'],
+  extraIndexUrl: 'https://my-index.example.com/simple'
 });
 ```
 
 ### `PackageDependency` Fields
 
-| Field | Description |
-|-------|-------------|
-| `name` | Package name to import |
-| `submodule` | Submodule for version check (e.g., `'app'` for `trame.app`) |
-| `required` | Whether this package is required or optional |
-| `minVersion` | Minimum version required |
-| `condaOnly` | Use `conda install` instead of `pip` (e.g., `paraview`) |
-| `channels` | Conda channels for this package |
-| `extraIndexUrl` | Extra pip index URL |
-| `installCommand` | Explicit install command override (highest priority) |
+| Field            | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| `name`           | Package name to import                                      |
+| `submodule`      | Submodule for version check (e.g., `'app'` for `trame.app`) |
+| `required`       | Whether this package is required or optional                |
+| `minVersion`     | Minimum version required                                    |
+| `condaOnly`      | Use `conda install` instead of `pip` (e.g., `paraview`)     |
+| `channels`       | Conda channels for this package                             |
+| `extraIndexUrl`  | Extra pip index URL                                         |
+| `installCommand` | Explicit install command override (highest priority)        |
 
 ### Automatic Package Installation Suggestions
 
@@ -262,32 +262,32 @@ When detecting Python with requirements, you can get automatic suggestions for i
 
 ```typescript
 const result = await this.nukeCore.detectWithInstallSuggestion({
-    requiredPackages: [
-        { name: 'openmc', required: true },
-        { name: 'numpy', required: true }
-    ]
+  requiredPackages: [
+    { name: 'openmc', required: true },
+    { name: 'numpy', required: true }
+  ]
 });
 
 if (!result.success && result.suggestInstall) {
-    console.log('Missing packages:', result.missingPackages);
-    console.log('Suggested command:', result.installCommand);
+  console.log('Missing packages:', result.missingPackages);
+  console.log('Suggested command:', result.installCommand);
 
-    const installResult = await this.envActions.installPackages({
-        packages: result.missingPackages!,
-        title: 'Install missing dependencies'
+  const installResult = await this.envActions.installPackages({
+    packages: result.missingPackages!,
+    title: 'Install missing dependencies'
+  });
+
+  if (installResult.success) {
+    const retry = await this.nukeCore.detectPythonWithRequirements({
+      requiredPackages: [
+        { name: 'openmc', required: true },
+        { name: 'numpy', required: true }
+      ]
     });
-
-    if (installResult.success) {
-        const retry = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [
-                { name: 'openmc', required: true },
-                { name: 'numpy', required: true }
-            ]
-        });
-        if (retry.success) {
-            console.log('Environment ready:', retry.environment?.name);
-        }
+    if (retry.success) {
+      console.log('Environment ready:', retry.environment?.name);
     }
+  }
 }
 ```
 
@@ -298,29 +298,29 @@ If you need custom UI or logic, use the lower-level APIs directly:
 ```typescript
 // 1. Detect
 const result = await this.nukeCore.detectPythonWithRequirements({
-    requiredPackages: [{ name: 'openmc', required: true }]
+  requiredPackages: [{ name: 'openmc', required: true }]
 });
 
 if (result.success) {
-    return result.command;
+  return result.command;
 }
 
 // 2. Prompt yourself
 if (result.missingPackages) {
-    const installResult = await this.envActions.installPackages({
-        packages: result.missingPackages,
-        title: 'Install missing dependencies'
-    });
+  const installResult = await this.envActions.installPackages({
+    packages: result.missingPackages,
+    title: 'Install missing dependencies'
+  });
 
-    if (installResult.success) {
-        // 3. Retry detection
-        const retry = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc', required: true }]
-        });
-        if (retry.success) {
-            return retry.command;
-        }
+  if (installResult.success) {
+    // 3. Retry detection
+    const retry = await this.nukeCore.detectPythonWithRequirements({
+      requiredPackages: [{ name: 'openmc', required: true }]
+    });
+    if (retry.success) {
+      return retry.command;
     }
+  }
 }
 ```
 
@@ -332,17 +332,17 @@ Check whether specific packages are installed in the currently configured enviro
 
 ```typescript
 const result = await this.nukeCore.checkDependencies([
-    { name: 'openmc', required: true, minVersion: '0.14.0' },
-    { name: 'numpy', required: true },
-    { name: 'trame', submodule: 'app', required: false },
-    { name: 'paraview', condaOnly: true, required: true }
+  { name: 'openmc', required: true, minVersion: '0.14.0' },
+  { name: 'numpy', required: true },
+  { name: 'trame', submodule: 'app', required: false },
+  { name: 'paraview', condaOnly: true, required: true }
 ]);
 
 if (result.available) {
-    console.log('All packages available:', result.versions);
+  console.log('All packages available:', result.versions);
 } else {
-    console.log('Missing:', result.missing);
-    console.log('Version mismatches:', result.versionMismatches);
+  console.log('Missing:', result.missing);
+  console.log('Version mismatches:', result.versionMismatches);
 }
 ```
 
@@ -358,17 +358,17 @@ const health = await this.nukeCore.healthCheck();
 
 // Health check with packages
 const health = await this.nukeCore.healthCheck([
-    { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-    { name: 'paraview', condaOnly: true },
-    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
+  { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
+  { name: 'paraview', condaOnly: true },
+  { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
 ]);
 
 console.log('Healthy:', health.healthy);
 for (const check of health.checks) {
-    console.log(`${check.name}: ${check.passed ? '✓' : '✗'} ${check.message}`);
-    if (check.suggestion) {
-        console.log(`  → ${check.suggestion}`);
-    }
+  console.log(`${check.name}: ${check.passed ? '✓' : '✗'} ${check.message}`);
+  if (check.suggestion) {
+    console.log(`  → ${check.suggestion}`);
+  }
 }
 ```
 
@@ -399,13 +399,13 @@ for (const check of health.checks) {
 const validation = await this.nukeCore.validateConfig();
 
 if (!validation.valid) {
-    for (const error of validation.errors) {
-        console.error(`Error in ${error.field}: ${error.message}`);
-    }
+  for (const error of validation.errors) {
+    console.error(`Error in ${error.field}: ${error.message}`);
+  }
 }
 
 for (const warning of validation.warnings) {
-    console.warn(`Warning in ${warning.field}: ${warning.message}`);
+  console.warn(`Warning in ${warning.field}: ${warning.message}`);
 }
 ```
 
@@ -443,26 +443,26 @@ await this.nukeCore.setChainFilePath('/path/to/chain.xml');
 ## Listen for Environment Changes
 
 ```typescript
-this.nukeCore.onEnvironmentChanged(event => {
-    console.log('Environment changed from', event.previous, 'to', event.current);
-    console.log('Previous env:', event.previousEnv);
-    console.log('New env:', event.currentEnv);
+this.nukeCore.onEnvironmentChanged((event) => {
+  console.log('Environment changed from', event.previous, 'to', event.current);
+  console.log('Previous env:', event.previousEnv);
+  console.log('New env:', event.currentEnv);
 });
 
 // Listen for status changes
-this.nukeCore.onStatusChanged(status => {
-    console.log('Status:', status.message);
-    console.log('Ready:', status.ready);
+this.nukeCore.onStatusChanged((status) => {
+  console.log('Status:', status.message);
+  console.log('Ready:', status.ready);
 });
 
 // Listen for environment fallback (configured env lacks required packages)
-this.nukeCore.onEnvironmentFallback(event => {
-    console.log('Requested env:', event.requestedEnv);
-    console.log('Fallback env:', event.fallbackEnv.name);
-    console.log('Warning:', event.warning);
+this.nukeCore.onEnvironmentFallback((event) => {
+  console.log('Requested env:', event.requestedEnv);
+  console.log('Fallback env:', event.fallbackEnv.name);
+  console.log('Warning:', event.warning);
 
-    // Show user notification
-    this.messageService.warn(event.warning, { timeout: 10000 });
+  // Show user notification
+  this.messageService.warn(event.warning, { timeout: 10000 });
 });
 ```
 
@@ -476,9 +476,9 @@ const isReady = await this.nukeCore.isReady();
 
 // Require Python (throws helpful error if not available)
 try {
-    const pythonPath = await this.nukeCore.requirePython();
+  const pythonPath = await this.nukeCore.requirePython();
 } catch (error) {
-    // Shows user-friendly error message
+  // Shows user-friendly error message
 }
 
 // Get current status
@@ -497,49 +497,49 @@ import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-co
 
 @injectable()
 export class MyExtension {
-    @inject(NukeCoreBackendService)
-    private readonly backend: NukeCoreBackendServiceInterface;
+  @inject(NukeCoreBackendService)
+  private readonly backend: NukeCoreBackendServiceInterface;
 
-    async example() {
-        // Set configuration
-        await this.backend.setConfig({
-            pythonPath: '/path/to/python',
-            condaEnv: 'my-env'
-        });
+  async example() {
+    // Set configuration
+    await this.backend.setConfig({
+      pythonPath: '/path/to/python',
+      condaEnv: 'my-env'
+    });
 
-        // Get current config
-        const config = await this.backend.getConfig();
+    // Get current config
+    const config = await this.backend.getConfig();
 
-        // Detect Python with requirements
-        const result = await this.backend.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
-            autoDetectEnvs: ['openmc', 'nuke-ide'],
-            searchWorkspaceVenvs: true
-        });
+    // Detect Python with requirements
+    const result = await this.backend.detectPythonWithRequirements({
+      requiredPackages: [{ name: 'openmc' }],
+      autoDetectEnvs: ['openmc', 'nuke-ide'],
+      searchWorkspaceVenvs: true
+    });
 
-        // Prepare install command (returns shell command for terminal execution)
-        const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
-            packages: ['numpy', 'scipy'],
-            useConda: false,
-            cwd: '/workspace/root'
-        });
+    // Prepare install command (returns shell command for terminal execution)
+    const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
+      packages: ['numpy', 'scipy'],
+      useConda: false,
+      cwd: '/workspace/root'
+    });
 
-        // Prepare environment creation command
-        const cmdInfo = await this.backend.prepareCreateEnvironmentCommand({
-            type: 'conda',
-            name: 'my-env',
-            pythonSpecifier: '3.11'
-        });
+    // Prepare environment creation command
+    const cmdInfo = await this.backend.prepareCreateEnvironmentCommand({
+      type: 'conda',
+      name: 'my-env',
+      pythonSpecifier: '3.11'
+    });
 
-        // Create with custom channels and additional packages
-        const cmdInfo2 = await this.backend.prepareCreateEnvironmentCommand({
-            type: 'conda',
-            name: 'moose',
-            pythonSpecifier: '3.11',
-            channels: ['https://conda.software.inl.gov/public'],
-            packages: ['moose']
-        });
-    }
+    // Create with custom channels and additional packages
+    const cmdInfo2 = await this.backend.prepareCreateEnvironmentCommand({
+      type: 'conda',
+      name: 'moose',
+      pythonSpecifier: '3.11',
+      channels: ['https://conda.software.inl.gov/public'],
+      packages: ['moose']
+    });
+  }
 }
 ```
 
@@ -550,8 +550,8 @@ The backend exposes `prepare*Command()` methods that return shell commands inste
 ```typescript
 // Backend returns the command string
 const { command, cwd } = await this.backend.prepareInstallPackagesCommand({
-    packages: ['openmc'],
-    useConda: true
+  packages: ['openmc'],
+  useConda: true
 });
 
 // Frontend opens a terminal and executes the command

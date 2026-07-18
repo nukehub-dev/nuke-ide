@@ -7,12 +7,15 @@ The Geometry Viewer lets you inspect OpenMC's constructive solid geometry (CSG) 
 ## Opening Geometry
 
 ### Method 1: Click
+
 Click `geometry.xml` in the Explorer.
 
 ### Method 2: Menu
+
 `Tools → Visualizer → OpenMC → Geometry → View Geometry Hierarchy`
 
 ### Method 3: Command Palette
+
 `Ctrl+Shift+P` → **"View Geometry Hierarchy"**
 
 ---
@@ -38,12 +41,12 @@ Root Universe (ID: 0)
 
 ### Tree Nodes
 
-| Node Type | What It Shows |
-|-----------|--------------|
-| **Universe** | ID, name, whether it's the root universe |
-| **Cell** | ID, name, fill type (material/universe/lattice/void), region expression |
-| **Surface** | ID, type (sphere, plane, cylinder, etc.), coefficients, boundary condition |
-| **Lattice** | ID, name, type (rect/hex), dimensions, pitch, universe map |
+| Node Type    | What It Shows                                                              |
+| ------------ | -------------------------------------------------------------------------- |
+| **Universe** | ID, name, whether it's the root universe                                   |
+| **Cell**     | ID, name, fill type (material/universe/lattice/void), region expression    |
+| **Surface**  | ID, type (sphere, plane, cylinder, etc.), coefficients, boundary condition |
+| **Lattice**  | ID, name, type (rect/hex), dimensions, pitch, universe map                 |
 
 ### Selection Actions
 
@@ -68,6 +71,7 @@ Click **"View 3D"** on any universe or cell to launch the 3D viewer.
 ### Highlighting
 
 In the tree, click the **highlight icon** next to a cell:
+
 - The cell is emphasized in the 3D view.
 - Other cells become semi-transparent.
 - Useful for isolating specific components (e.g., control rods, fuel pins).
@@ -75,6 +79,7 @@ In the tree, click the **highlight icon** next to a cell:
 ### From Material Explorer
 
 In the [Material Explorer](materials.md), click **"Highlight Cells"** next to a material:
+
 - All cells using that material are highlighted in the 3D view.
 
 ---
@@ -91,12 +96,12 @@ Detect overlapping cells — a common source of simulation errors.
 
 ### Settings
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Sample Points** | 100,000 | Random points to test |
-| **Tolerance** | 1e-6 cm | Numerical tolerance |
-| **Bounding Box** | Auto | Limit check to a region |
-| **Parallel** | On | Use multi-core processing |
+| Parameter         | Default | Description               |
+| ----------------- | ------- | ------------------------- |
+| **Sample Points** | 100,000 | Random points to test     |
+| **Tolerance**     | 1e-6 cm | Numerical tolerance       |
+| **Bounding Box**  | Auto    | Limit check to a region   |
+| **Parallel**      | On      | Use multi-core processing |
 
 ### Results
 
@@ -110,6 +115,7 @@ Detect overlapping cells — a common source of simulation errors.
 ### Overlap Visualization
 
 If overlaps are found:
+
 1. Click **"Visualize Overlaps"**.
 2. The 3D viewer opens with **red spheres** marking overlap locations.
 3. Overlapping cells are highlighted in red.

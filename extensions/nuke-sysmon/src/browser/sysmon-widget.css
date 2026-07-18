@@ -9,42 +9,42 @@
     --sysmon-border: var(--theia-panel-border);
     --sysmon-text-primary: var(--theia-foreground);
     --sysmon-text-secondary: var(--theia-descriptionForeground);
-    
+
     /* Adaptable glass effects using color-mix */
     --sysmon-glass-bg: color-mix(in srgb, var(--theia-foreground), transparent 96%);
     --sysmon-glass-border: color-mix(in srgb, var(--theia-foreground), transparent 92%);
-    
+
     /* Accents - using color-mix with primary theme color where possible, or keeping standard metric colors if preferred */
     --sysmon-accent-cpu: #10b981;
     --sysmon-accent-memory: #3b82f6;
     --sysmon-accent-disk: #8b5cf6;
     --sysmon-accent-network: #f59e0b;
-    
+
     --sysmon-warning: var(--theia-inputValidation-warningBorder);
     --sysmon-danger: var(--theia-inputValidation-errorBorder);
     --sysmon-success: var(--theia-inputValidation-successBorder);
-    
+
     --sysmon-shadow-sm: 0 1px 2px var(--theia-scrollbar-shadow);
     --sysmon-shadow-md: 0 4px 12px var(--theia-scrollbar-shadow);
     --sysmon-shadow-lg: 0 8px 30px var(--theia-scrollbar-shadow);
-    
+
     --sysmon-radius-sm: var(--nuke-radius-sm);
     --sysmon-radius-md: var(--nuke-radius-md);
     --sysmon-radius-lg: var(--nuke-radius-lg);
     --sysmon-radius-xl: var(--nuke-radius-xl);
-    
+
     /* Force overflow visible for scrolling */
     overflow: auto !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
-    
+
     /* Fill container */
     height: 100% !important;
     width: 100% !important;
-    
+
     /* Prevent Theia's contain from clipping */
     contain: none !important;
-    
+
     background: var(--sysmon-bg-primary);
     font-family: var(--theia-ui-font-family);
 }
@@ -70,7 +70,9 @@
 }
 
 @keyframes sysmon-spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .sysmon-container {
@@ -138,8 +140,13 @@
 }
 
 @keyframes sysmon-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
 }
 
 .sysmon-dashboard {
@@ -179,10 +186,18 @@
     border-color: var(--card-accent);
 }
 
-.sysmon-metric-card.cpu { --card-accent: var(--sysmon-accent-cpu); }
-.sysmon-metric-card.memory { --card-accent: var(--sysmon-accent-memory); }
-.sysmon-metric-card.disk { --card-accent: var(--sysmon-accent-disk); }
-.sysmon-metric-card.network { --card-accent: var(--sysmon-accent-network); }
+.sysmon-metric-card.cpu {
+    --card-accent: var(--sysmon-accent-cpu);
+}
+.sysmon-metric-card.memory {
+    --card-accent: var(--sysmon-accent-memory);
+}
+.sysmon-metric-card.disk {
+    --card-accent: var(--sysmon-accent-disk);
+}
+.sysmon-metric-card.network {
+    --card-accent: var(--sysmon-accent-network);
+}
 
 .sysmon-metric-header {
     display: flex;
@@ -341,13 +356,17 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
     animation: sysmon-shimmer 2s infinite;
 }
 
 @keyframes sysmon-shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 .sysmon-disk-selector {
@@ -733,8 +752,12 @@
     font-weight: 700;
 }
 
-.sysmon-graph-current.cpu { color: var(--sysmon-accent-cpu); }
-.sysmon-graph-current.memory { color: var(--sysmon-accent-memory); }
+.sysmon-graph-current.cpu {
+    color: var(--sysmon-accent-cpu);
+}
+.sysmon-graph-current.memory {
+    color: var(--sysmon-accent-memory);
+}
 
 .sysmon-graph-container {
     flex: 1;
@@ -813,15 +836,29 @@
     }
 }
 
-.sysmon-text-success { color: var(--sysmon-success) !important; }
-.sysmon-text-warning { color: var(--sysmon-warning) !important; }
-.sysmon-text-danger { color: var(--sysmon-danger) !important; }
-.sysmon-text-muted { color: var(--sysmon-text-secondary) !important; }
+.sysmon-text-success {
+    color: var(--sysmon-success) !important;
+}
+.sysmon-text-warning {
+    color: var(--sysmon-warning) !important;
+}
+.sysmon-text-danger {
+    color: var(--sysmon-danger) !important;
+}
+.sysmon-text-muted {
+    color: var(--sysmon-text-secondary) !important;
+}
 
 @keyframes sysmon-value-update {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
 }
 
 .sysmon-value-updating {

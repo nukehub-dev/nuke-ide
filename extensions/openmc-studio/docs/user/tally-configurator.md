@@ -7,12 +7,15 @@ The Tally Configurator is the dedicated widget for defining OpenMC tallies — w
 ## Opening the Tally Configurator
 
 ### Method 1: Dashboard
+
 In the Simulation Dashboard, go to the **Tallies** tab and click **"Open Tally Configurator"**.
 
 ### Method 2: Command Palette
+
 `Ctrl+Shift+P` → **"OpenMC Studio: Open Tally Configurator"**
 
 ### Method 3: Menu
+
 `Tools → OpenMC Studio → Advanced → Tally Configurator`
 
 ---
@@ -21,12 +24,12 @@ In the Simulation Dashboard, go to the **Tallies** tab and click **"Open Tally C
 
 The left panel shows all tallies in the project. Click a tally to edit it, or click **"Add Tally"** to create a new one.
 
-| Column | Description |
-|--------|-------------|
-| **ID** | Unique tally identifier |
-| **Name** | Descriptive label |
-| **Score Count** | Number of scores assigned |
-| **Filter Count** | Number of filters applied |
+| Column            | Description                |
+| ----------------- | -------------------------- |
+| **ID**            | Unique tally identifier    |
+| **Name**          | Descriptive label          |
+| **Score Count**   | Number of scores assigned  |
+| **Filter Count**  | Number of filters applied  |
 | **Nuclide Count** | Number of nuclides tracked |
 
 ---
@@ -45,25 +48,25 @@ Scores define the physical quantity to compute.
 
 Click **"Add Score"** and select from the list:
 
-| Score | Description | Units |
-|-------|-------------|-------|
-| `flux` | Neutron or photon flux | particles/cm² |
-| `absorption` | Absorption rate | reactions |
-| `elastic` | Elastic scattering rate | reactions |
-| `fission` | Fission rate | reactions |
-| `scatter` | Total scattering rate | reactions |
-| `total` | Total reaction rate | reactions |
-| `heating` | Heating (energy deposition) | eV/source particle |
-| `heating-local` | Local heating (excluding neutrinos) | eV/source particle |
-| `kappa-fission` | Fission energy production | eV/source particle |
-| `inverse-velocity` | 1/velocity for reactor kinetics | s/cm |
-| `nu-fission` | Neutron production from fission | neutrons |
-| `nu-scatter` | Neutron production from scattering | neutrons |
-| `delay-nu-fission` | Delayed neutron production | neutrons |
-| `prompt-nu-fission` | Prompt neutron production | neutrons |
-| `decay-rate` | Delayed neutron precursor decay rate | reactions |
-| `damage-energy` | Damage energy deposition | eV/source particle |
-| `micro` | Any reaction from cross-section MT numbers | reactions |
+| Score               | Description                                | Units              |
+| ------------------- | ------------------------------------------ | ------------------ |
+| `flux`              | Neutron or photon flux                     | particles/cm²      |
+| `absorption`        | Absorption rate                            | reactions          |
+| `elastic`           | Elastic scattering rate                    | reactions          |
+| `fission`           | Fission rate                               | reactions          |
+| `scatter`           | Total scattering rate                      | reactions          |
+| `total`             | Total reaction rate                        | reactions          |
+| `heating`           | Heating (energy deposition)                | eV/source particle |
+| `heating-local`     | Local heating (excluding neutrinos)        | eV/source particle |
+| `kappa-fission`     | Fission energy production                  | eV/source particle |
+| `inverse-velocity`  | 1/velocity for reactor kinetics            | s/cm               |
+| `nu-fission`        | Neutron production from fission            | neutrons           |
+| `nu-scatter`        | Neutron production from scattering         | neutrons           |
+| `delay-nu-fission`  | Delayed neutron production                 | neutrons           |
+| `prompt-nu-fission` | Prompt neutron production                  | neutrons           |
+| `decay-rate`        | Delayed neutron precursor decay rate       | reactions          |
+| `damage-energy`     | Damage energy deposition                   | eV/source particle |
+| `micro`             | Any reaction from cross-section MT numbers | reactions          |
 
 > **Tip:** Multiple scores can be added to a single tally. They are computed simultaneously, which is more efficient than creating separate tallies.
 
@@ -73,27 +76,27 @@ Filters restrict scoring to specific regions of phase space.
 
 Click **"Add Filter"** and choose a filter type:
 
-| Filter | Description | Parameters |
-|--------|-------------|------------|
-| `energy` | Energy bins | Lower/upper bounds (eV) |
-| `energyout` | Outgoing energy bins | Lower/upper bounds (eV) |
-| `mu` | Cosine of scattering angle | Bin edges (−1 to 1) |
-| `polar` | Polar angle | Bin edges (0 to π radians) |
-| `azimuthal` | Azimuthal angle | Bin edges (0 to 2π radians) |
-| `cell` | Specific cells | List of cell IDs |
-| `cellborn` | Cell where particle was born | List of cell IDs |
-| `cellfrom` | Cell particle just left | List of cell IDs |
-| `surface` | Surface crossings | List of surface IDs |
-| `material` | Specific materials | List of material IDs |
-| `universe` | Specific universes | List of universe IDs |
-| `distribcell` | Instances of a cell in a lattice | Cell ID |
-| `mesh` | Structured mesh bins | Mesh definition (see below) |
-| `delayedgroup` | Delayed neutron precursor group | Group numbers (1–6) |
-| `energyfunction` | Functional energy filter | Energy-response pairs |
-| `legendre` | Legendre scattering moments | Order (P0, P1, P2, ...) |
-| `spatiallegendre` | Spatial Legendre expansion | Axis, order |
-| `sphericalharmonics` | Spherical harmonics moments | Order |
-| `particle` | Particle type | `neutron`, `photon` |
+| Filter               | Description                      | Parameters                  |
+| -------------------- | -------------------------------- | --------------------------- |
+| `energy`             | Energy bins                      | Lower/upper bounds (eV)     |
+| `energyout`          | Outgoing energy bins             | Lower/upper bounds (eV)     |
+| `mu`                 | Cosine of scattering angle       | Bin edges (−1 to 1)         |
+| `polar`              | Polar angle                      | Bin edges (0 to π radians)  |
+| `azimuthal`          | Azimuthal angle                  | Bin edges (0 to 2π radians) |
+| `cell`               | Specific cells                   | List of cell IDs            |
+| `cellborn`           | Cell where particle was born     | List of cell IDs            |
+| `cellfrom`           | Cell particle just left          | List of cell IDs            |
+| `surface`            | Surface crossings                | List of surface IDs         |
+| `material`           | Specific materials               | List of material IDs        |
+| `universe`           | Specific universes               | List of universe IDs        |
+| `distribcell`        | Instances of a cell in a lattice | Cell ID                     |
+| `mesh`               | Structured mesh bins             | Mesh definition (see below) |
+| `delayedgroup`       | Delayed neutron precursor group  | Group numbers (1–6)         |
+| `energyfunction`     | Functional energy filter         | Energy-response pairs       |
+| `legendre`           | Legendre scattering moments      | Order (P0, P1, P2, ...)     |
+| `spatiallegendre`    | Spatial Legendre expansion       | Axis, order                 |
+| `sphericalharmonics` | Spherical harmonics moments      | Order                       |
+| `particle`           | Particle type                    | `neutron`, `photon`         |
 
 **Filter Examples:**
 
@@ -105,11 +108,11 @@ Click **"Add Filter"** and choose a filter type:
 
 Nuclides define which isotopes the tally tracks.
 
-| Option | Description |
-|--------|-------------|
-| `total` | Sum over all nuclides in the material (default) |
-| `all` | Separate result for every nuclide in the material |
-| Specific nuclide | e.g., `U235`, `U238`, `Pu239` |
+| Option           | Description                                       |
+| ---------------- | ------------------------------------------------- |
+| `total`          | Sum over all nuclides in the material (default)   |
+| `all`            | Separate result for every nuclide in the material |
+| Specific nuclide | e.g., `U235`, `U238`, `Pu239`                     |
 
 Click **"Add Nuclide"** and type a nuclide name. Repeat for each nuclide you need.
 
@@ -126,33 +129,33 @@ Mesh tallies score quantities on a structured grid, producing spatially resolved
 1. In the Tally Configurator, click **"Add Mesh"**.
 2. Choose a mesh type:
 
-| Mesh Type | Description | Parameters |
-|-----------|-------------|------------|
-| **Regular** | Cartesian rectangular grid | `x`, `y`, `z` lower/upper bounds and divisions |
-| **Cylindrical** | `r`, `θ`, `z` grid | `r` (cm), `θ` (radians), `z` (cm) bounds and divisions |
-| **Spherical** | `r`, `θ`, `φ` grid | `r` (cm), `θ` (polar), `φ` (azimuthal) bounds and divisions |
+| Mesh Type       | Description                | Parameters                                                  |
+| --------------- | -------------------------- | ----------------------------------------------------------- |
+| **Regular**     | Cartesian rectangular grid | `x`, `y`, `z` lower/upper bounds and divisions              |
+| **Cylindrical** | `r`, `θ`, `z` grid         | `r` (cm), `θ` (radians), `z` (cm) bounds and divisions      |
+| **Spherical**   | `r`, `θ`, `φ` grid         | `r` (cm), `θ` (polar), `φ` (azimuthal) bounds and divisions |
 
 ### Regular Mesh Configuration
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| **X Min / X Max** | Bounding box in X | `-10.0` to `10.0` |
-| **Y Min / Y Max** | Bounding box in Y | `-10.0` to `10.0` |
-| **Z Min / Z Max** | Bounding box in Z | `-100.0` to `100.0` |
-| **X Divisions** | Number of mesh elements in X | `20` |
-| **Y Divisions** | Number of mesh elements in Y | `20` |
-| **Z Divisions** | Number of mesh elements in Z | `200` |
+| Parameter         | Description                  | Example             |
+| ----------------- | ---------------------------- | ------------------- |
+| **X Min / X Max** | Bounding box in X            | `-10.0` to `10.0`   |
+| **Y Min / Y Max** | Bounding box in Y            | `-10.0` to `10.0`   |
+| **Z Min / Z Max** | Bounding box in Z            | `-100.0` to `100.0` |
+| **X Divisions**   | Number of mesh elements in X | `20`                |
+| **Y Divisions**   | Number of mesh elements in Y | `20`                |
+| **Z Divisions**   | Number of mesh elements in Z | `200`               |
 
 ### Cylindrical Mesh Configuration
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| **R Min / R Max** | Inner/outer radius | `0.0` to `10.0` |
-| **Theta Min / Theta Max** | Angular range | `0.0` to `6.283185` (2π) |
-| **Z Min / Z Max** | Axial range | `-100.0` to `100.0` |
-| **R Divisions** | Radial elements | `10` |
-| **Theta Divisions** | Angular sectors | `16` |
-| **Z Divisions** | Axial elements | `100` |
+| Parameter                 | Description        | Example                  |
+| ------------------------- | ------------------ | ------------------------ |
+| **R Min / R Max**         | Inner/outer radius | `0.0` to `10.0`          |
+| **Theta Min / Theta Max** | Angular range      | `0.0` to `6.283185` (2π) |
+| **Z Min / Z Max**         | Axial range        | `-100.0` to `100.0`      |
+| **R Divisions**           | Radial elements    | `10`                     |
+| **Theta Divisions**       | Angular sectors    | `16`                     |
+| **Z Divisions**           | Axial elements     | `100`                    |
 
 ### Assigning a Mesh Filter
 
@@ -169,11 +172,11 @@ Mesh tallies score quantities on a structured grid, producing spatially resolved
 
 Each tally can use a specific statistical estimator:
 
-| Estimator | Description | When to Use |
-|-----------|-------------|-------------|
-| `analog` | Scores only when the event actually occurs | Rare events, verification |
-| `tracklength` | Scores along entire particle tracks | Flux, most efficient for optically thin regions |
-| `collision` | Scores at every collision | Default for many reaction rates |
+| Estimator     | Description                                | When to Use                                     |
+| ------------- | ------------------------------------------ | ----------------------------------------------- |
+| `analog`      | Scores only when the event actually occurs | Rare events, verification                       |
+| `tracklength` | Scores along entire particle tracks        | Flux, most efficient for optically thin regions |
+| `collision`   | Scores at every collision                  | Default for many reaction rates                 |
 
 Select the estimator in the tally detail panel. The default is `collision` for most scores and `tracklength` for `flux`.
 
@@ -186,11 +189,11 @@ Tally triggers automatically stop the simulation when a convergence criterion is
 1. In the tally detail panel, expand **Triggers**.
 2. Click **"Add Trigger"**.
 
-| Trigger Type | Description | Threshold Example |
-|--------------|-------------|-------------------|
-| **Relative Error** | Stop when relative standard deviation falls below threshold | `0.05` (5%) |
-| **Variance** | Stop when variance falls below threshold | `1e-4` |
-| **Standard Deviation** | Stop when standard deviation falls below threshold | `0.01` |
+| Trigger Type           | Description                                                 | Threshold Example |
+| ---------------------- | ----------------------------------------------------------- | ----------------- |
+| **Relative Error**     | Stop when relative standard deviation falls below threshold | `0.05` (5%)       |
+| **Variance**           | Stop when variance falls below threshold                    | `1e-4`            |
+| **Standard Deviation** | Stop when standard deviation falls below threshold          | `0.01`            |
 
 > **Tip:** Triggers are evaluated at the end of each batch. Only active batches count toward trigger statistics.
 
@@ -201,6 +204,7 @@ Tally triggers automatically stop the simulation when a convergence criterion is
 ### Export Tally Configuration
 
 Click **"Export"** in the Tally Configurator toolbar to save the current tally setup as a JSON file. This is useful for:
+
 - Sharing tally definitions across projects
 - Version-controlling tally configurations independently
 

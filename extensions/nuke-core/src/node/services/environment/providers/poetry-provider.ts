@@ -80,10 +80,7 @@ export class PoetryProvider implements EnvironmentProvider {
                     continue;
                 }
 
-                const pythonPath = path.join(
-                    envPath,
-                    isWindows ? 'Scripts\\python.exe' : 'bin/python'
-                );
+                const pythonPath = path.join(envPath, isWindows ? 'Scripts\\python.exe' : 'bin/python');
 
                 try {
                     const fs = await import('fs');
@@ -126,10 +123,7 @@ export class PoetryProvider implements EnvironmentProvider {
                 return undefined;
             }
 
-            const pythonPath = path.join(
-                output,
-                isWindows ? 'Scripts\\python.exe' : 'bin/python'
-            );
+            const pythonPath = path.join(output, isWindows ? 'Scripts\\python.exe' : 'bin/python');
 
             const fs = await import('fs');
             await fs.promises.access(pythonPath);

@@ -18,33 +18,67 @@
 }
 
 @keyframes fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes header-slide-down {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes section-slide-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes card-fade-in {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 @keyframes progress-shimmer {
-    0% { background-position: -200px 0; }
-    100% { background-position: 200px 0; }
+    0% {
+        background-position: -200px 0;
+    }
+    100% {
+        background-position: 200px 0;
+    }
 }
 
 @keyframes empty-fade-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 /* ============================================================================
@@ -648,7 +682,9 @@
 
 .optimization-widget .runner-actions button:not(:disabled):hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .optimization-widget .runner-actions button:not(:disabled):active {
@@ -1032,7 +1068,7 @@
 
 .optimization-widget .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--theia-focusBorder) 0%, #4CAF50 100%);
+    background: linear-gradient(90deg, var(--theia-focusBorder) 0%, #4caf50 100%);
     border-radius: 6px;
     transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
@@ -1102,7 +1138,7 @@
 }
 
 .optimization-widget .timeline-dot.success {
-    background: #4CAF50;
+    background: #4caf50;
 }
 
 .optimization-widget .timeline-dot.error {
@@ -1119,8 +1155,13 @@
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* Stats Grid */
@@ -1161,7 +1202,7 @@
 
 .optimization-widget .stat-icon.success {
     background: rgba(76, 175, 80, 0.15);
-    color: #4CAF50;
+    color: #4caf50;
 }
 
 .optimization-widget .stat-icon.error {

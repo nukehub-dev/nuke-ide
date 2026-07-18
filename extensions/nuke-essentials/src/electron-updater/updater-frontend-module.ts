@@ -4,10 +4,10 @@ import { ElectronIpcConnectionProvider } from '@theia/core/lib/electron-browser/
 import { NukeUpdaterService, NukeUpdaterServicePath } from '../common/updater-protocol';
 import { NukeUpdaterFrontendContribution } from './updater-frontend-contribution';
 
-export default new ContainerModule(bind => {
-    bind(NukeUpdaterService).toDynamicValue(context =>
-        ElectronIpcConnectionProvider.createProxy(context.container, NukeUpdaterServicePath)
-    ).inSingletonScope();
+export default new ContainerModule((bind) => {
+    bind(NukeUpdaterService)
+        .toDynamicValue((context) => ElectronIpcConnectionProvider.createProxy(context.container, NukeUpdaterServicePath))
+        .inSingletonScope();
     bind(NukeUpdaterFrontendContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeUpdaterFrontendContribution);
     bind(MenuContribution).toService(NukeUpdaterFrontendContribution);

@@ -28,11 +28,7 @@
 import { injectable } from '@theia/core/shared/inversify';
 import { Emitter } from '@theia/core/lib/common/event';
 import { JsonRpcProxy } from '@theia/core/lib/common/messaging/proxy-factory';
-import {
-    FilePropertiesService,
-    DetailedFileProperties,
-    ChecksumResult
-} from '../common/fileinfo-protocol';
+import { FilePropertiesService, DetailedFileProperties, ChecksumResult } from '../common/fileinfo-protocol';
 
 /**
  * Frontend proxy for {@link FilePropertiesService}.
@@ -48,9 +44,7 @@ export class FilePropertiesFrontendService implements FilePropertiesService {
     /**
      * @param proxy - JSON-RPC proxy to the backend {@link FilePropertiesService}.
      */
-    constructor(
-        protected readonly proxy: JsonRpcProxy<FilePropertiesService>
-    ) { }
+    constructor(protected readonly proxy: JsonRpcProxy<FilePropertiesService>) {}
 
     /** {@inheritDoc FilePropertiesService.getDetailedProperties} */
     getDetailedProperties(filePath: string): Promise<DetailedFileProperties> {

@@ -6,12 +6,12 @@ OpenMC Studio can import CAD geometry and convert it into forms usable by OpenMC
 
 ## Supported Formats
 
-| Format | Extensions | Notes |
-|--------|------------|-------|
-| **STEP** | `.step`, `.stp` | Industry-standard CAD exchange; recommended for solid models |
-| **IGES** | `.igs`, `.iges` | Older standard; surfaces may need healing on import |
-| **BREP** | `.brep` | OpenCASCADE native boundary representation; preserves topology well |
-| **STL** | `.stl` | Tessellated surface mesh; no CAD history, but widely supported |
+| Format   | Extensions      | Notes                                                               |
+| -------- | --------------- | ------------------------------------------------------------------- |
+| **STEP** | `.step`, `.stp` | Industry-standard CAD exchange; recommended for solid models        |
+| **IGES** | `.igs`, `.iges` | Older standard; surfaces may need healing on import                 |
+| **BREP** | `.brep`         | OpenCASCADE native boundary representation; preserves topology well |
+| **STL**  | `.stl`          | Tessellated surface mesh; no CAD history, but widely supported      |
 
 > **Tip:** For best results, use STEP or BREP. IGES files occasionally lose face associations during translation, and STL files contain no volume metadata.
 
@@ -21,10 +21,10 @@ OpenMC Studio can import CAD geometry and convert it into forms usable by OpenMC
 
 When converting CAD to DAGMC, the **faceting tolerance** controls how finely curved surfaces are tessellated into triangles. You can customize the default behavior in **Settings** (`File → Preferences → Extensions → OpenMC Studio`):
 
-| Setting | ID | Default | Description |
-|---------|-----|---------|-------------|
-| **Default Faceting Tolerance** | `openmcStudio.defaultFacetingTolerance` | `0.001` cm | Base tolerance for all CAD→DAGMC conversions |
-| **Auto-Adjust Tolerance** | `openmcStudio.autoAdjustFacetingTolerance` | `true` | Automatically increase tolerance for very large models (diagonal > 100 cm) |
+| Setting                        | ID                                         | Default    | Description                                                                |
+| ------------------------------ | ------------------------------------------ | ---------- | -------------------------------------------------------------------------- |
+| **Default Faceting Tolerance** | `openmcStudio.defaultFacetingTolerance`    | `0.001` cm | Base tolerance for all CAD→DAGMC conversions                               |
+| **Auto-Adjust Tolerance**      | `openmcStudio.autoAdjustFacetingTolerance` | `true`     | Automatically increase tolerance for very large models (diagonal > 100 cm) |
 
 ### How Auto-Adjustment Works
 
@@ -66,14 +66,14 @@ During this stage a loading overlay with a progress spinner is shown for large f
 
 Each face is analyzed and mapped to an OpenMC surface type where possible:
 
-| CAD Surface | OpenMC Surface | Fidelity |
-|-------------|----------------|----------|
-| Plane | `Plane` | Exact |
-| Cylinder | `XCylinder`, `YCylinder`, `ZCylinder` | Exact |
-| Sphere | `Sphere` | Exact |
-| Cone | `Cone` | Exact |
-| Torus | `Torus` | Exact |
-| Spline / NURBS | `Surface` (DAGMC) or approximated | Approximate; may require DAGMC |
+| CAD Surface    | OpenMC Surface                        | Fidelity                       |
+| -------------- | ------------------------------------- | ------------------------------ |
+| Plane          | `Plane`                               | Exact                          |
+| Cylinder       | `XCylinder`, `YCylinder`, `ZCylinder` | Exact                          |
+| Sphere         | `Sphere`                              | Exact                          |
+| Cone           | `Cone`                                | Exact                          |
+| Torus          | `Torus`                               | Exact                          |
+| Spline / NURBS | `Surface` (DAGMC) or approximated     | Approximate; may require DAGMC |
 
 ### Stage 3: Volume Assembly
 
@@ -115,11 +115,11 @@ Imported geometry is not locked. You can modify it like native CSG.
 
 ### Common Edits
 
-| Action | How To |
-|--------|--------|
-| **Rename a cell** | Right-click the cell in the hierarchy tree → **Rename** |
-| **Delete a volume** | Select the cell → press `Delete` or right-click → **Remove Cell** |
-| **Adjust a surface** | Click the surface in the cell details → edit coefficients |
+| Action                     | How To                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Rename a cell**          | Right-click the cell in the hierarchy tree → **Rename**                                         |
+| **Delete a volume**        | Select the cell → press `Delete` or right-click → **Remove Cell**                               |
+| **Adjust a surface**       | Click the surface in the cell details → edit coefficients                                       |
 | **Add a bounding surface** | If the model is unbounded, add a large spherical or box surface and union it into the root cell |
 
 ### Re-importing
@@ -164,12 +164,12 @@ The CAD import pipeline is under active development. The following limitations a
 
 ### CAD → CSG Conversion
 
-| Limitation | Details | Workaround |
-|------------|---------|------------|
-| **NURBS / spline surfaces** | Cannot be represented exactly as OpenMC CSG surfaces | Use DAGMC workflow instead; or approximate with planes/cylinders |
-| **Complex assemblies** | Large assemblies with hundreds of parts may timeout during translation | Import sub-assemblies individually; merge manually |
-| **Tolerance sensitivity** | Small gaps or slivers in CAD cause cell leaks | Heal the CAD in a dedicated tool (e.g., FreeCAD, CAD Assistant) before import |
-| **No parameter history** | Parametric features (fillets, chamfers, patterns) are lost on import | Re-apply features in OpenMC Studio if needed |
+| Limitation                  | Details                                                                | Workaround                                                                    |
+| --------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **NURBS / spline surfaces** | Cannot be represented exactly as OpenMC CSG surfaces                   | Use DAGMC workflow instead; or approximate with planes/cylinders              |
+| **Complex assemblies**      | Large assemblies with hundreds of parts may timeout during translation | Import sub-assemblies individually; merge manually                            |
+| **Tolerance sensitivity**   | Small gaps or slivers in CAD cause cell leaks                          | Heal the CAD in a dedicated tool (e.g., FreeCAD, CAD Assistant) before import |
+| **No parameter history**    | Parametric features (fillets, chamfers, patterns) are lost on import   | Re-apply features in OpenMC Studio if needed                                  |
 
 ### DAGMC Path
 
@@ -177,16 +177,16 @@ For models that cannot be expressed in pure CSG, OpenMC Studio supports DAGMC `.
 
 ### Surface Support Matrix
 
-| CAD Surface | OpenMC Surface | Fidelity | Notes |
-|-------------|----------------|----------|-------|
-| Plane | `Plane`, `XPlane`, `YPlane`, `ZPlane` | Exact | Always exact |
-| Sphere | `Sphere` | Exact | Always exact |
-| Cylinder | `XCylinder`, `YCylinder`, `ZCylinder`, `Cylinder` | Exact | Axis-aligned or general |
-| Cone | `XCone`, `YCone`, `ZCone` | Exact | Axis-aligned only |
-| Torus | `XTorus`, `YTorus`, `ZTorus` | Exact | Axis-aligned only |
-| General quadric | `Quadric` | Exact | 10-coefficient fallback |
-| NURBS / B-Spline / Bezier | DAGMC `.h5m` | Exact | Auto-converted to faceted geometry via native `pymoab` writer |
-| Spline (other) | DAGMC `.h5m` | Exact | Auto-converted to faceted geometry via native `pymoab` writer |
+| CAD Surface               | OpenMC Surface                                    | Fidelity | Notes                                                         |
+| ------------------------- | ------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| Plane                     | `Plane`, `XPlane`, `YPlane`, `ZPlane`             | Exact    | Always exact                                                  |
+| Sphere                    | `Sphere`                                          | Exact    | Always exact                                                  |
+| Cylinder                  | `XCylinder`, `YCylinder`, `ZCylinder`, `Cylinder` | Exact    | Axis-aligned or general                                       |
+| Cone                      | `XCone`, `YCone`, `ZCone`                         | Exact    | Axis-aligned only                                             |
+| Torus                     | `XTorus`, `YTorus`, `ZTorus`                      | Exact    | Axis-aligned only                                             |
+| General quadric           | `Quadric`                                         | Exact    | 10-coefficient fallback                                       |
+| NURBS / B-Spline / Bezier | DAGMC `.h5m`                                      | Exact    | Auto-converted to faceted geometry via native `pymoab` writer |
+| Spline (other)            | DAGMC `.h5m`                                      | Exact    | Auto-converted to faceted geometry via native `pymoab` writer |
 
 ### NURBS Auto-Fallback
 
@@ -200,10 +200,10 @@ The DAGMC conversion uses a **native H5M writer** built on `pymoab`. This writer
 
 To override the automatic behavior:
 
-| Override | Effect |
-|----------|--------|
-| `--force-csg` | Force CSG conversion even if NURBS are present (analytic faces become CSG; NURBS faces are skipped with warnings) |
-| `--force-dagmc` | Force DAGMC output even for purely analytic models |
+| Override        | Effect                                                                                                            |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `--force-csg`   | Force CSG conversion even if NURBS are present (analytic faces become CSG; NURBS faces are skipped with warnings) |
+| `--force-dagmc` | Force DAGMC output even for purely analytic models                                                                |
 
 ### Advanced Topology
 
@@ -212,7 +212,6 @@ The converter analyzes multi-solid assemblies and:
 - Detects shared faces between adjacent volumes
 - Merges coincident coplanar surfaces to reduce CSG complexity
 - Preserves solid boundaries for closed-cell validation
-
 
 ---
 

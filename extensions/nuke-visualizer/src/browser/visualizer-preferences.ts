@@ -58,16 +58,21 @@ export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceCont
 export const VisualizerPreferences = Symbol('VisualizerPreferences');
 export type VisualizerPreferences = PreferenceProxy<VisualizerConfiguration>;
 
-export function createVisualizerPreferences(preferences: PreferenceService, schema: PreferenceSchema = VisualizerPreferenceSchema): VisualizerPreferences {
+export function createVisualizerPreferences(
+    preferences: PreferenceService,
+    schema: PreferenceSchema = VisualizerPreferenceSchema
+): VisualizerPreferences {
     return createPreferenceProxy(preferences, schema);
 }
 
 export function bindVisualizerPreferences(bind: interfaces.Bind): void {
-    bind(VisualizerPreferences).toDynamicValue(ctx => {
-        const preferences = ctx.container.get<PreferenceService>(PreferenceService);
-        const contribution = ctx.container.get<PreferenceContribution>(VisualizerPreferenceContribution);
-        return createVisualizerPreferences(preferences, contribution.schema);
-    }).inSingletonScope();
+    bind(VisualizerPreferences)
+        .toDynamicValue((ctx) => {
+            const preferences = ctx.container.get<PreferenceService>(PreferenceService);
+            const contribution = ctx.container.get<PreferenceContribution>(VisualizerPreferenceContribution);
+            return createVisualizerPreferences(preferences, contribution.schema);
+        })
+        .inSingletonScope();
     bind(VisualizerPreferenceContribution).toConstantValue({ schema: VisualizerPreferenceSchema });
     bind(PreferenceContribution).toService(VisualizerPreferenceContribution);
 }

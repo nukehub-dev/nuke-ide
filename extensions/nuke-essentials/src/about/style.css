@@ -16,9 +16,11 @@
     gap: 20px;
     margin-bottom: 24px;
     padding: 16px 20px;
-    background: linear-gradient(135deg, 
-        color-mix(in srgb, var(--theia-focusBorder), transparent 92%) 0%, 
-        color-mix(in srgb, var(--theia-focusBorder), transparent 95%) 100%);
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--theia-focusBorder), transparent 92%) 0%,
+        color-mix(in srgb, var(--theia-focusBorder), transparent 95%) 100%
+    );
     border-radius: var(--nuke-radius-xl);
     border: 1px solid color-mix(in srgb, var(--theia-focusBorder), transparent 85%);
 }

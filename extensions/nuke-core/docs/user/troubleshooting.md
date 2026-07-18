@@ -7,6 +7,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## "Python not found" or "No Python environment configured"
 
 **Symptoms:**
+
 - Status bar shows ⚠️ or no environment label
 - Health check fails at "Configured Python Environment"
 - Commands like "Nuke: Install Package" warn about missing Python
@@ -30,19 +31,20 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## "Package installation failed"
 
 **Symptoms:**
+
 - Terminal shows red errors during install
 - Package not available after install completes
 - Network timeout or 404 errors
 
 **Fixes:**
 
-| Cause | Fix |
-|-------|-----|
-| Network / firewall | Check your connection; try again. Corporate proxies may need `HTTP_PROXY` set. |
-| Wrong channels | Add the correct channel to `nuke.condaChannels` (e.g., `conda-forge,nvidia`). |
-| Package not on conda | Select **pip** instead of conda for the install. |
-| Permission denied | Install into a user-owned environment (conda env or venv), not system Python. |
-| PEP 668 error | Nuke Core avoids this automatically by resolving the environment's Python path. If you see it, switch to a venv or conda environment. |
+| Cause                | Fix                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Network / firewall   | Check your connection; try again. Corporate proxies may need `HTTP_PROXY` set.                                                        |
+| Wrong channels       | Add the correct channel to `nuke.condaChannels` (e.g., `conda-forge,nvidia`).                                                         |
+| Package not on conda | Select **pip** instead of conda for the install.                                                                                      |
+| Permission denied    | Install into a user-owned environment (conda env or venv), not system Python.                                                         |
+| PEP 668 error        | Nuke Core avoids this automatically by resolving the environment's Python path. If you see it, switch to a venv or conda environment. |
 
 > **Tip:** Read the last few lines of the terminal output — the error message usually tells you exactly what went wrong.
 
@@ -51,6 +53,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## Status bar not showing
 
 **Symptoms:**
+
 - No 🐍 environment indicator at the bottom of the window
 - Cannot click to switch environments
 
@@ -70,6 +73,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## "Environment not detected"
 
 **Symptoms:**
+
 - "Nuke: Switch Environment" shows fewer environments than expected
 - Your conda env or venv is missing from the list
 
@@ -92,6 +96,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## "Cross-sections error" (OpenMC)
 
 **Symptoms:**
+
 - OpenMC simulations fail with "cross sections not set"
 - Health check warns about missing cross-sections path
 
@@ -116,17 +121,18 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## Conflicts with Microsoft Python Extension
 
 **Symptoms:**
+
 - Two Python indicators in the status bar
 - Confusion about which environment is "active"
 
 **Fixes:**
 
-| Goal | What to do |
-|------|------------|
-| Avoid duplicate status bars | Set `nuke.showStatusBar` to `"auto"` (default). Nuke Core hides its indicator once configured; MS Python extension takes over. |
-| Use MS Python for IntelliSense/debugging | Keep it installed and configured normally. |
-| Use Nuke Core for nuclear workflows | Use "Nuke:" commands for environment creation, OpenMC validation, health checks, and package installs. |
-| Hide Nuke Core completely | Set `nuke.showStatusBar` to `"never"` and use Command Palette for all Nuke actions. |
+| Goal                                     | What to do                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Avoid duplicate status bars              | Set `nuke.showStatusBar` to `"auto"` (default). Nuke Core hides its indicator once configured; MS Python extension takes over. |
+| Use MS Python for IntelliSense/debugging | Keep it installed and configured normally.                                                                                     |
+| Use Nuke Core for nuclear workflows      | Use "Nuke:" commands for environment creation, OpenMC validation, health checks, and package installs.                         |
+| Hide Nuke Core completely                | Set `nuke.showStatusBar` to `"never"` and use Command Palette for all Nuke actions.                                            |
 
 > **Tip:** The two extensions complement each other. MS Python handles the language server; Nuke Core handles nuclear-specific environment validation and tooling.
 
@@ -135,6 +141,7 @@ Common issues and how to fix them. If you're stuck after working through this gu
 ## "Nuke: Create Environment" hangs or fails
 
 **Symptoms:**
+
 - Terminal opens but nothing happens
 - Conda solver takes a very long time
 
@@ -161,6 +168,7 @@ If you're still stuck, run through this list before filing an issue:
 - [ ] For install failures, I read the full terminal output including the last error line
 
 **If you file an issue, include:**
+
 1. The exact error message (copy-paste from the output channel or terminal)
 2. Your operating system and NukeIDE version
 3. The output of **"Nuke: Show Diagnostics"** (sanitized if needed)

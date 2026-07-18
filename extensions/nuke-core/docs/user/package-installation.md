@@ -20,12 +20,13 @@ Install Python packages directly from NukeIDE with live terminal output, automat
 
 ## Package Manager Selection
 
-| Manager | When to Use | Fallback Chain |
-|---------|-------------|----------------|
-| **pip** | General Python packages; non-conda environments | uv → pip |
-| **conda** | Conda-only packages (e.g., `paraview`, `moose`); conda envs | mamba → conda |
+| Manager   | When to Use                                                 | Fallback Chain |
+| --------- | ----------------------------------------------------------- | -------------- |
+| **pip**   | General Python packages; non-conda environments             | uv → pip       |
+| **conda** | Conda-only packages (e.g., `paraview`, `moose`); conda envs | mamba → conda  |
 
 **Automatic behavior:**
+
 - If you select **conda** but mamba is available, Nuke Core uses `mamba install` for faster solving.
 - If you select **pip** and `uv` is installed, Nuke Core uses `uv pip install` for significantly faster installs.
 - If the preferred tool fails, Nuke Core falls back to the next available option.
@@ -38,10 +39,10 @@ Install Python packages directly from NukeIDE with live terminal output, automat
 
 [UV](https://github.com/astral-sh/uv) is a Rust-based Python package installer that is 10–100× faster than pip.
 
-| UV Available? | Behavior |
-|---------------|----------|
-| ✅ Yes | `uv pip install <package>` is used automatically for pip installs |
-| ❌ No | Falls back to standard `pip install` |
+| UV Available? | Behavior                                                          |
+| ------------- | ----------------------------------------------------------------- |
+| ✅ Yes        | `uv pip install <package>` is used automatically for pip installs |
+| ❌ No         | Falls back to standard `pip install`                              |
 
 No configuration is required — Nuke Core detects `uv` in your `PATH` and uses it transparently.
 
@@ -78,9 +79,9 @@ By default, packages install into your **currently selected** environment. To ta
 
 Set once in **Settings → Nuke Utils** and they apply to all installs:
 
-| Setting | Purpose | Example |
-|---------|---------|---------|
-| `nuke.condaChannels` | Comma-separated conda channels | `conda-forge,nvidia` |
+| Setting                 | Purpose                              | Example                                 |
+| ----------------------- | ------------------------------------ | --------------------------------------- |
+| `nuke.condaChannels`    | Comma-separated conda channels       | `conda-forge,nvidia`                    |
 | `nuke.pipExtraIndexUrl` | Extra pip index for private packages | `https://pkgs.dev.azure.com/.../simple` |
 
 ### Per-Install Override
@@ -114,10 +115,10 @@ Health checks can verify that specific packages are present and suggest installa
 
 ## Summary: Quick Commands
 
-| Goal | Command |
-|------|---------|
-| Install a package | `Ctrl+Shift+P` → "Nuke: Install Package" |
+| Goal                        | Command                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| Install a package           | `Ctrl+Shift+P` → "Nuke: Install Package"                                       |
 | Install into a specific env | `Ctrl+Shift+P` → "Nuke: Environment Actions" → select env → "Install Packages" |
-| Use fastest installer | Install `uv` in your environment — Nuke Core picks it up automatically |
-| Use conda-forge packages | Set `nuke.condaChannels` to `conda-forge` and select conda during install |
-| Verify installed packages | `Ctrl+Shift+P` → "Nuke: Run Health Check" |
+| Use fastest installer       | Install `uv` in your environment — Nuke Core picks it up automatically         |
+| Use conda-forge packages    | Set `nuke.condaChannels` to `conda-forge` and select conda during install      |
+| Verify installed packages   | `Ctrl+Shift+P` → "Nuke: Run Health Check"                                      |

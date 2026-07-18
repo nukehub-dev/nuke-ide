@@ -59,7 +59,7 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
         document.head.appendChild(styleEl);
 
         const observer = new MutationObserver(() => {
-            document.querySelectorAll('.plotly-notifier, .js-plotly-notifier').forEach(el => {
+            document.querySelectorAll('.plotly-notifier, .js-plotly-notifier').forEach((el) => {
                 (el as HTMLElement).style.display = 'none';
             });
         });
@@ -113,7 +113,7 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
         ...layout,
         xaxis: { ...defaultLayout.xaxis, ...layout?.xaxis },
         yaxis: { ...defaultLayout.yaxis, ...layout?.yaxis },
-        template: (theme === 'dark' ? 'plotly_dark' : 'plotly_white') as any,
+        template: (theme === 'dark' ? 'plotly_dark' : 'plotly_white') as any
     };
 
     const combinedConfig: Partial<Plotly.Config> = {
@@ -141,12 +141,12 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
                 }
                 originalError.apply(console, args);
             };
-            
+
             Plotly.react(plotRef.current, data as any, combinedLayout as any, combinedConfig as any);
-            
+
             // Restore console.error
             console.error = originalError;
-            
+
             // Handle window resize events
             const onResize = () => {
                 if (plotRef.current) {
@@ -154,7 +154,7 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
                 }
             };
             window.addEventListener('resize', onResize);
-            
+
             return () => {
                 window.removeEventListener('resize', onResize);
             };
@@ -162,21 +162,21 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
     }, [data, layout, theme, config]);
 
     return (
-        <div 
+        <div
             ref={containerRef}
-            style={{ 
-                width: style?.width || '100%', 
+            style={{
+                width: style?.width || '100%',
                 height: style?.height || '100%',
                 position: 'relative',
                 overflow: 'hidden'
             }}
             className={className}
         >
-            <div 
+            <div
                 ref={plotRef}
-                style={{ 
-                    width: '100%', 
-                    height: '100%' 
+                style={{
+                    width: '100%',
+                    height: '100%'
                 }}
             />
         </div>

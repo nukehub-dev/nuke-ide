@@ -55,7 +55,6 @@ import {
  */
 @injectable()
 export class FilePropertiesBackendService implements FilePropertiesService {
-
     /**
      * Convert a `file://` URI to an absolute local path.
      * @param filePath - URI or raw path.
@@ -122,8 +121,8 @@ export class FilePropertiesBackendService implements FilePropertiesService {
         return new Promise((resolve, reject) => {
             const hash = crypto.createHash(algorithm);
             const stream = fs.createReadStream(localPath);
-            stream.on('error', err => reject(err));
-            stream.on('data', chunk => hash.update(chunk));
+            stream.on('error', (err) => reject(err));
+            stream.on('data', (chunk) => hash.update(chunk));
             stream.on('end', () => resolve({ algorithm, hash: hash.digest('hex') }));
         });
     }
@@ -164,13 +163,24 @@ export class FilePropertiesBackendService implements FilePropertiesService {
     protected async computeTextStats(filePath: string, mimeType: string, size: number): Promise<TextStats | undefined> {
         // Skip if not a text-like file or too large (>10MB)
         if (size > 10 * 1024 * 1024) return undefined;
-        if (!mimeType.startsWith('text/') && !mimeType.includes('json') && !mimeType.includes('xml') && !mimeType.includes('javascript') && !mimeType.includes('typescript') && !mimeType.includes('python') && !mimeType.includes('markdown')) {
+        if (
+            !mimeType.startsWith('text/') &&
+            !mimeType.includes('json') &&
+            !mimeType.includes('xml') &&
+            !mimeType.includes('javascript') &&
+            !mimeType.includes('typescript') &&
+            !mimeType.includes('python') &&
+            !mimeType.includes('markdown')
+        ) {
             return undefined;
         }
         try {
             const content = await fs.promises.readFile(filePath, 'utf8');
             const lines = content.split(/\r?\n/).length;
-            const words = content.trim().split(/\s+/).filter(w => w.length > 0).length;
+            const words = content
+                .trim()
+                .split(/\s+/)
+                .filter((w) => w.length > 0).length;
             const characters = content.length;
             return { lines, words, characters };
         } catch {

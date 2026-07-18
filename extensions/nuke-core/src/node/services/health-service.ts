@@ -57,7 +57,6 @@ import { UvResolver } from './environment/utils/uv-resolver';
 
 @injectable()
 export class HealthService {
-
     @inject(EnvironmentService)
     protected readonly environmentService: EnvironmentService;
 
@@ -69,9 +68,7 @@ export class HealthService {
             return pkg.installCommand;
         }
         if (pkg.condaOnly) {
-            const channels = pkg.channels?.length
-                ? pkg.channels.map(c => `-c ${c}`).join(' ')
-                : '-c conda-forge';
+            const channels = pkg.channels?.length ? pkg.channels.map((c) => `-c ${c}`).join(' ') : '-c conda-forge';
             return `conda install ${channels} ${pkg.name}`;
         }
         if (pkg.extraIndexUrl) {
@@ -204,7 +201,7 @@ export class HealthService {
                 for (const pkg of packages) {
                     const version = checkResult.versions[pkg.name];
                     const isMissing = checkResult.missing.includes(pkg.name);
-                    const mismatch = checkResult.versionMismatches.find(v => v.name === pkg.name);
+                    const mismatch = checkResult.versionMismatches.find((v) => v.name === pkg.name);
 
                     if (mismatch) {
                         checks.push({
@@ -226,9 +223,7 @@ export class HealthService {
                         checks.push({
                             name: `Package: ${pkg.name}`,
                             passed: true,
-                            message: version === 'installed (version unknown)'
-                                ? `${pkg.name} is available`
-                                : `${pkg.name} ${version}`,
+                            message: version === 'installed (version unknown)' ? `${pkg.name} is available` : `${pkg.name} ${version}`,
                             severity: undefined
                         });
                     } else {
@@ -255,7 +250,7 @@ export class HealthService {
             }
         }
 
-        const healthy = checks.every(c => c.passed || c.severity !== 'error');
+        const healthy = checks.every((c) => c.passed || c.severity !== 'error');
 
         return { healthy, checks };
     }
@@ -388,7 +383,7 @@ export class HealthService {
             const installations = await this.condaResolver.findInstallations();
             diagnostics.conda = {
                 bestCommand: best,
-                installations: installations.map(i => ({
+                installations: installations.map((i) => ({
                     rootPath: i.rootPath,
                     type: i.type,
                     hasConda: !!i.condaExe,

@@ -51,49 +51,44 @@ export interface SourceBiasingEditorProps {
  *
  * @see {@link OpenMCSourceBiasing} for the data model
  */
-export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
-    sourceBiasing,
-    onChange,
-    onToggle
-}) => {
+export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ sourceBiasing, onChange, onToggle }) => {
     const isEnabled = !!sourceBiasing;
     const sb = sourceBiasing || {};
 
     return (
-        <div className='source-biasing-editor'>
+        <div className="source-biasing-editor">
             {/* Enable/Disable Card */}
             <div className={`vr-enable-card ${isEnabled ? 'enabled' : ''}`}>
-                <div className='enable-card-content'>
-                    <div className='enable-icon'>
+                <div className="enable-card-content">
+                    <div className="enable-icon">
                         <i className={`codicon ${isEnabled ? 'codicon-check' : 'codicon-target'}`}></i>
                     </div>
-                    <div className='enable-text'>
+                    <div className="enable-text">
                         <h3>Source Biasing</h3>
-                        <p>{isEnabled
-                            ? 'Bias source particle distributions to favor important regions.'
-                            : 'Enable to bias source sampling toward regions of interest for better statistics.'}</p>
+                        <p>
+                            {isEnabled
+                                ? 'Bias source particle distributions to favor important regions.'
+                                : 'Enable to bias source sampling toward regions of interest for better statistics.'}
+                        </p>
                     </div>
-                    <button
-                        className={`theia-button ${isEnabled ? 'secondary' : 'primary'}`}
-                        onClick={() => onToggle(!isEnabled)}
-                    >
+                    <button className={`theia-button ${isEnabled ? 'secondary' : 'primary'}`} onClick={() => onToggle(!isEnabled)}>
                         <i className={`codicon ${isEnabled ? 'codicon-close' : 'codicon-play'}`}></i>
                         {isEnabled ? 'Disable' : 'Enable'}
                     </button>
                 </div>
 
                 {!isEnabled && (
-                    <div className='enable-benefits'>
-                        <div className='benefit-item'>
-                            <i className='codicon codicon-location'></i>
+                    <div className="enable-benefits">
+                        <div className="benefit-item">
+                            <i className="codicon codicon-location"></i>
                             <span>Spatial biasing toward important regions</span>
                         </div>
-                        <div className='benefit-item'>
-                            <i className='codicon codicon-flame'></i>
+                        <div className="benefit-item">
+                            <i className="codicon codicon-flame"></i>
                             <span>Energy biasing for specific reactions</span>
                         </div>
-                        <div className='benefit-item'>
-                            <i className='codicon codicon-zap'></i>
+                        <div className="benefit-item">
+                            <i className="codicon codicon-zap"></i>
                             <span>Reduce variance in tallies</span>
                         </div>
                     </div>
@@ -103,42 +98,42 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
             {isEnabled && (
                 <>
                     {/* Strength Bias */}
-                    <div className='settings-section'>
+                    <div className="settings-section">
                         <h3>
-                            <i className='codicon codicon-zap'></i>
+                            <i className="codicon codicon-zap"></i>
                             Strength Bias
                         </h3>
 
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>
                                 Strength Bias Factor
-                                <Tooltip content='Factor to adjust source particle weights when biasing' position='top'>
-                                    <i className='codicon codicon-info info-icon'></i>
+                                <Tooltip content="Factor to adjust source particle weights when biasing" position="top">
+                                    <i className="codicon codicon-info info-icon"></i>
                                 </Tooltip>
                             </label>
                             <input
-                                type='number'
+                                type="number"
                                 min={0}
                                 step={0.1}
                                 value={sb.strengthBias || ''}
-                                placeholder='1.0 (no bias)'
+                                placeholder="1.0 (no bias)"
                                 onChange={(e) => {
                                     const val = e.target.value ? parseFloat(e.target.value) : undefined;
                                     onChange({ ...sb, strengthBias: val });
                                 }}
                             />
-                            <span className='form-hint'>Weight adjustment factor for biased sources (default: 1.0)</span>
+                            <span className="form-hint">Weight adjustment factor for biased sources (default: 1.0)</span>
                         </div>
                     </div>
 
                     {/* Energy Bias */}
-                    <div className='settings-section'>
+                    <div className="settings-section">
                         <h3>
-                            <i className='codicon codicon-flame'></i>
+                            <i className="codicon codicon-flame"></i>
                             Energy Biasing
                         </h3>
 
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Bias Type</label>
                             <select
                                 value={sb.energyBias?.type || 'none'}
@@ -168,20 +163,20 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                     }
                                 }}
                             >
-                                <option value='none'>No Energy Bias</option>
-                                <option value='discrete'>Discrete</option>
-                                <option value='uniform'>Uniform</option>
-                                <option value='maxwell'>Maxwell</option>
-                                <option value='watt'>Watt</option>
+                                <option value="none">No Energy Bias</option>
+                                <option value="discrete">Discrete</option>
+                                <option value="uniform">Uniform</option>
+                                <option value="maxwell">Maxwell</option>
+                                <option value="watt">Watt</option>
                             </select>
                         </div>
 
                         {sb.energyBias?.type === 'discrete' && (
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Biased Energy (eV)</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={(sb.energyBias as any).energies?.[0] || 1e6}
                                     onChange={(e) => {
                                         onChange({
@@ -194,12 +189,12 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                         )}
 
                         {sb.energyBias?.type === 'uniform' && (
-                            <div className='form-row'>
-                                <div className='form-group'>
+                            <div className="form-row">
+                                <div className="form-group">
                                     <label>Min Energy (eV)</label>
                                     <input
-                                        type='number'
-                                        step='0.1'
+                                        type="number"
+                                        step="0.1"
                                         value={(sb.energyBias as any).min || 0}
                                         onChange={(e) => {
                                             onChange({
@@ -209,11 +204,11 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                         }}
                                     />
                                 </div>
-                                <div className='form-group'>
+                                <div className="form-group">
                                     <label>Max Energy (eV)</label>
                                     <input
-                                        type='number'
-                                        step='0.1'
+                                        type="number"
+                                        step="0.1"
                                         value={(sb.energyBias as any).max || 10e6}
                                         onChange={(e) => {
                                             onChange({
@@ -227,11 +222,11 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                         )}
 
                         {sb.energyBias?.type === 'maxwell' && (
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Temperature (K)</label>
                                 <input
-                                    type='number'
-                                    step='1'
+                                    type="number"
+                                    step="1"
                                     value={(sb.energyBias as any).temperature || 300}
                                     onChange={(e) => {
                                         onChange({
@@ -244,12 +239,12 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                         )}
 
                         {sb.energyBias?.type === 'watt' && (
-                            <div className='form-row'>
-                                <div className='form-group'>
+                            <div className="form-row">
+                                <div className="form-group">
                                     <label>a Parameter</label>
                                     <input
-                                        type='number'
-                                        step='0.001'
+                                        type="number"
+                                        step="0.001"
                                         value={(sb.energyBias as any).a || 0.965}
                                         onChange={(e) => {
                                             onChange({
@@ -259,11 +254,11 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                         }}
                                     />
                                 </div>
-                                <div className='form-group'>
+                                <div className="form-group">
                                     <label>b Parameter</label>
                                     <input
-                                        type='number'
-                                        step='0.001'
+                                        type="number"
+                                        step="0.001"
                                         value={(sb.energyBias as any).b || 2.29}
                                         onChange={(e) => {
                                             onChange({
@@ -278,13 +273,13 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                     </div>
 
                     {/* Spatial Bias */}
-                    <div className='settings-section'>
+                    <div className="settings-section">
                         <h3>
-                            <i className='codicon codicon-location'></i>
+                            <i className="codicon codicon-location"></i>
                             Spatial Biasing
                         </h3>
 
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Bias Type</label>
                             <select
                                 value={sb.spatialBias?.type || 'none'}
@@ -311,24 +306,26 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                     }
                                 }}
                             >
-                                <option value='none'>No Spatial Bias</option>
-                                <option value='point'>Point</option>
-                                <option value='box'>Box</option>
-                                <option value='sphere'>Sphere</option>
+                                <option value="none">No Spatial Bias</option>
+                                <option value="point">Point</option>
+                                <option value="box">Box</option>
+                                <option value="sphere">Sphere</option>
                             </select>
                         </div>
 
                         {sb.spatialBias?.type === 'point' && (
-                            <div className='form-row'>
+                            <div className="form-row">
                                 {['X', 'Y', 'Z'].map((coord, idx) => (
-                                    <div key={coord} className='form-group'>
+                                    <div key={coord} className="form-group">
                                         <label>{coord}</label>
                                         <input
-                                            type='number'
-                                            step='0.1'
+                                            type="number"
+                                            step="0.1"
                                             value={(sb.spatialBias as any).origin?.[idx] || 0}
                                             onChange={(e) => {
-                                                const currentOrigin = (sb.spatialBias as any).origin as [number, number, number] || [0, 0, 0];
+                                                const currentOrigin = ((sb.spatialBias as any).origin as [number, number, number]) || [
+                                                    0, 0, 0
+                                                ];
                                                 const origin: [number, number, number] = [
                                                     idx === 0 ? parseFloat(e.target.value) || 0 : currentOrigin[0],
                                                     idx === 1 ? parseFloat(e.target.value) || 0 : currentOrigin[1],
@@ -347,16 +344,18 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
 
                         {sb.spatialBias?.type === 'box' && (
                             <>
-                                <div className='form-row'>
+                                <div className="form-row">
                                     {['Min X', 'Min Y', 'Min Z'].map((label, idx) => (
-                                        <div key={label} className='form-group'>
+                                        <div key={label} className="form-group">
                                             <label>{label}</label>
                                             <input
-                                                type='number'
-                                                step='0.1'
+                                                type="number"
+                                                step="0.1"
                                                 value={(sb.spatialBias as any).lowerLeft?.[idx] ?? -1}
                                                 onChange={(e) => {
-                                                    const current = (sb.spatialBias as any).lowerLeft as [number, number, number] || [-1, -1, -1];
+                                                    const current = ((sb.spatialBias as any).lowerLeft as [number, number, number]) || [
+                                                        -1, -1, -1
+                                                    ];
                                                     const lowerLeft: [number, number, number] = [
                                                         idx === 0 ? parseFloat(e.target.value) || 0 : current[0],
                                                         idx === 1 ? parseFloat(e.target.value) || 0 : current[1],
@@ -371,16 +370,18 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                         </div>
                                     ))}
                                 </div>
-                                <div className='form-row'>
+                                <div className="form-row">
                                     {['Max X', 'Max Y', 'Max Z'].map((label, idx) => (
-                                        <div key={label} className='form-group'>
+                                        <div key={label} className="form-group">
                                             <label>{label}</label>
                                             <input
-                                                type='number'
-                                                step='0.1'
+                                                type="number"
+                                                step="0.1"
                                                 value={(sb.spatialBias as any).upperRight?.[idx] ?? 1}
                                                 onChange={(e) => {
-                                                    const current = (sb.spatialBias as any).upperRight as [number, number, number] || [1, 1, 1];
+                                                    const current = ((sb.spatialBias as any).upperRight as [number, number, number]) || [
+                                                        1, 1, 1
+                                                    ];
                                                     const upperRight: [number, number, number] = [
                                                         idx === 0 ? parseFloat(e.target.value) || 0 : current[0],
                                                         idx === 1 ? parseFloat(e.target.value) || 0 : current[1],
@@ -400,16 +401,18 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
 
                         {sb.spatialBias?.type === 'sphere' && (
                             <>
-                                <div className='form-row'>
+                                <div className="form-row">
                                     {['Center X', 'Center Y', 'Center Z'].map((label, idx) => (
-                                        <div key={label} className='form-group'>
+                                        <div key={label} className="form-group">
                                             <label>{label}</label>
                                             <input
-                                                type='number'
-                                                step='0.1'
+                                                type="number"
+                                                step="0.1"
                                                 value={(sb.spatialBias as any).center?.[idx] || 0}
                                                 onChange={(e) => {
-                                                    const currentCenter = (sb.spatialBias as any).center as [number, number, number] || [0, 0, 0];
+                                                    const currentCenter = ((sb.spatialBias as any).center as [number, number, number]) || [
+                                                        0, 0, 0
+                                                    ];
                                                     const center: [number, number, number] = [
                                                         idx === 0 ? parseFloat(e.target.value) || 0 : currentCenter[0],
                                                         idx === 1 ? parseFloat(e.target.value) || 0 : currentCenter[1],
@@ -423,11 +426,11 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({
                                             />
                                         </div>
                                     ))}
-                                    <div className='form-group'>
+                                    <div className="form-group">
                                         <label>Radius</label>
                                         <input
-                                            type='number'
-                                            step='0.1'
+                                            type="number"
+                                            step="0.1"
                                             min={0}
                                             value={(sb.spatialBias as any).radius || 1}
                                             onChange={(e) => {

@@ -53,12 +53,12 @@ export namespace PlotlyUtils {
             const mid = (energy_bins[i] + energy_bins[i + 1]) / 2;
             x.push(mid);
             y.push(values[i]);
-            
+
             let relErrStr = 'N/A';
             if (std_dev && std_dev[i] !== undefined) {
                 errors.push(std_dev[i]);
                 if (values[i] !== 0) {
-                    relErrStr = (std_dev[i] / values[i] * 100).toFixed(2) + '%';
+                    relErrStr = ((std_dev[i] / values[i]) * 100).toFixed(2) + '%';
                 }
             }
             customData.push(relErrStr);
@@ -72,10 +72,8 @@ export namespace PlotlyUtils {
             mode: 'lines+markers',
             line: { shape: 'hvh', width: 2 },
             name: name,
-            hovertemplate: `<b>${name}</b><br>` +
-                           `Energy: %{x:.2e} eV<br>` +
-                           `Value: %{y:.4e}<br>` +
-                           `Rel. Error: %{customdata}<extra></extra>`
+            hovertemplate:
+                `<b>${name}</b><br>` + `Energy: %{x:.2e} eV<br>` + `Value: %{y:.4e}<br>` + `Rel. Error: %{customdata}<extra></extra>`
         };
 
         if (errors.length > 0) {
@@ -102,20 +100,26 @@ export namespace PlotlyUtils {
      * Converts multi-score spectrum data to Plotly traces.
      */
     export function createMultiScoreTraces(data: OpenMCMultiScoreData, type: 'spectrum' | 'spatial'): Partial<Plotly.Data>[] {
-        return data.scores.map(score => {
+        return data.scores.map((score) => {
             if (type === 'spectrum' && data.energy_bins) {
-                return createSpectrumTrace({
-                    energy_bins: data.energy_bins,
-                    values: score.values,
-                    std_dev: score.std_dev || []
-                }, score.name);
+                return createSpectrumTrace(
+                    {
+                        energy_bins: data.energy_bins,
+                        values: score.values,
+                        std_dev: score.std_dev || []
+                    },
+                    score.name
+                );
             } else if (type === 'spatial' && data.positions) {
-                return createSpatialTrace({
-                    positions: data.positions,
-                    values: score.values,
-                    std_dev: score.std_dev || [],
-                    axis: 'z' // dummy
-                }, score.name);
+                return createSpatialTrace(
+                    {
+                        positions: data.positions,
+                        values: score.values,
+                        std_dev: score.std_dev || [],
+                        axis: 'z' // dummy
+                    },
+                    score.name
+                );
             }
             return {};
         });
@@ -131,7 +135,7 @@ export namespace PlotlyUtils {
         if (std_dev) {
             for (let i = 0; i < values.length; i++) {
                 if (values[i] !== 0) {
-                    customData.push((std_dev[i] / values[i] * 100).toFixed(2) + '%');
+                    customData.push(((std_dev[i] / values[i]) * 100).toFixed(2) + '%');
                 } else {
                     customData.push('0.00%');
                 }
@@ -147,10 +151,11 @@ export namespace PlotlyUtils {
             name: name,
             line: { width: 2 },
             marker: { size: 6 },
-            hovertemplate: `<b>${name}</b><br>` +
-                           `Position: %{x:.2f} cm<br>` +
-                           `Value: %{y:.4e}<br>` +
-                           (std_dev ? `Rel. Error: %{customdata}<extra></extra>` : `<extra></extra>`)
+            hovertemplate:
+                `<b>${name}</b><br>` +
+                `Position: %{x:.2f} cm<br>` +
+                `Value: %{y:.4e}<br>` +
+                (std_dev ? `Rel. Error: %{customdata}<extra></extra>` : `<extra></extra>`)
         };
 
         if (std_dev && std_dev.length > 0) {

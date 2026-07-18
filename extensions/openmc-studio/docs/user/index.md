@@ -10,17 +10,17 @@ New to OpenMC Studio? Start here:
 
 ## Feature Guides
 
-| Guide | What You'll Learn |
-|-------|-------------------|
-| [**Simulation Dashboard**](simulation-dashboard.md) | Monitor live simulation status, view batch metrics, track k-eff convergence, and control run execution |
-| [**CSG Builder**](csg-builder.md) | Construct constructive solid geometry using an interactive cell/surface tree with boolean operations and live 3D preview |
-| [**DAGMC Editor**](dagmc-editor.md) | View and edit faceted DAGMC geometry, manage group tags, and run imprint/merge operations |
-| [**Tally Configurator**](tally-configurator.md) | Build tallies with mesh editors, filter builders, score selectors, and nuclide pickers |
-| [**Optimization Framework**](optimization-framework.md) | Set up parameter sweeps and surrogate-model-driven optimization campaigns |
-| [**Simulation Comparison**](simulation-comparison.md) | Compare multiple statepoint files side-by-side, analyze tally deltas, and inspect convergence |
-| [**XML Generation / Import**](xml-generation.md) | Generate OpenMC XML files from the graphical model or import existing XML to populate the model |
-| [**Project Management**](project-management.md) | Scaffold new OpenMC projects, manage workspace files, and browse run history |
-| [**CAD Import**](cad-import.md) | Import STEP and IGES files and convert them to DAGMC or CSG representations |
+| Guide                                                   | What You'll Learn                                                                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [**Simulation Dashboard**](simulation-dashboard.md)     | Monitor live simulation status, view batch metrics, track k-eff convergence, and control run execution                   |
+| [**CSG Builder**](csg-builder.md)                       | Construct constructive solid geometry using an interactive cell/surface tree with boolean operations and live 3D preview |
+| [**DAGMC Editor**](dagmc-editor.md)                     | View and edit faceted DAGMC geometry, manage group tags, and run imprint/merge operations                                |
+| [**Tally Configurator**](tally-configurator.md)         | Build tallies with mesh editors, filter builders, score selectors, and nuclide pickers                                   |
+| [**Optimization Framework**](optimization-framework.md) | Set up parameter sweeps and surrogate-model-driven optimization campaigns                                                |
+| [**Simulation Comparison**](simulation-comparison.md)   | Compare multiple statepoint files side-by-side, analyze tally deltas, and inspect convergence                            |
+| [**XML Generation / Import**](xml-generation.md)        | Generate OpenMC XML files from the graphical model or import existing XML to populate the model                          |
+| [**Project Management**](project-management.md)         | Scaffold new OpenMC projects, manage workspace files, and browse run history                                             |
+| [**CAD Import**](cad-import.md)                         | Import STEP and IGES files and convert them to DAGMC or CSG representations                                              |
 
 ## Quick-Start Workflow
 

@@ -44,10 +44,7 @@ import { NukeEnvironment } from '../../../../common/nuke-core-protocol';
  * @see {@link CondaResolver} for conda environment discovery.
  * @see {@link UvResolver} for uv-based environment discovery.
  */
-export async function getPythonInfo(
-    pythonPath: string,
-    type: NukeEnvironment['type']
-): Promise<NukeEnvironment | undefined> {
+export async function getPythonInfo(pythonPath: string, type: NukeEnvironment['type']): Promise<NukeEnvironment | undefined> {
     try {
         const { execSync } = await import('child_process');
         const path = await import('path');
@@ -60,8 +57,8 @@ export async function getPythonInfo(
 
         if (type === 'conda') {
             // For conda, derive name from the env directory
-            const pythonDir = path.dirname(pythonPath);       // .../bin or .../Scripts
-            const envDir = path.dirname(pythonDir);           // .../envName or .../base
+            const pythonDir = path.dirname(pythonPath); // .../bin or .../Scripts
+            const envDir = path.dirname(pythonDir); // .../envName or .../base
             name = path.basename(envDir);
             if (name === 'bin' || name === 'Scripts' || name === 'lib') {
                 name = 'base';

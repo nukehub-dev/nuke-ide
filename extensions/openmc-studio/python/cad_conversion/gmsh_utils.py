@@ -1,12 +1,10 @@
 """Safe gmsh wrappers and CAD traversal utilities."""
 
-import sys
 from contextlib import contextmanager
-from typing import List, Tuple, Optional, Dict, Any
-
 
 try:
     import gmsh
+
     HAS_GMSH = True
 except ImportError:
     HAS_GMSH = False
@@ -15,6 +13,7 @@ except ImportError:
 
 try:
     import numpy as np
+
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -41,38 +40,40 @@ def open_model(file_path: str) -> None:
     gmsh.open(file_path)
 
 
-def get_all_entities() -> List[Tuple[int, int]]:
+def get_all_entities() -> list[tuple[int, int]]:
     """Return all geometric entities as list of (dim, tag)."""
     if not HAS_GMSH:
         return []
     return gmsh.model.getEntities()
 
 
-def get_solids() -> List[Tuple[int, int]]:
+def get_solids() -> list[tuple[int, int]]:
     """Return all 3D solid entities."""
     return [(d, t) for d, t in get_all_entities() if d == 3]
 
 
-def get_faces() -> List[Tuple[int, int]]:
+def get_faces() -> list[tuple[int, int]]:
     """Return all 2D face entities."""
     return [(d, t) for d, t in get_all_entities() if d == 2]
 
 
-def get_edges() -> List[Tuple[int, int]]:
+def get_edges() -> list[tuple[int, int]]:
     """Return all 1D edge entities."""
     return [(d, t) for d, t in get_all_entities() if d == 1]
 
 
-def get_bounding_box(dim: int = -1, tag: int = -1) -> Tuple[float, float, float, float, float, float]:
+def get_bounding_box(
+    dim: int = -1, tag: int = -1
+) -> tuple[float, float, float, float, float, float]:
     """Return (xmin, ymin, zmin, xmax, ymax, zmax)."""
     if not HAS_GMSH:
         return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     return gmsh.model.getBoundingBox(dim, tag)
 
 
-def get_boundary(dimtag: Tuple[int, int],
-                 oriented: bool = True,
-                 recursive: bool = False) -> List[Tuple[int, int]]:
+def get_boundary(
+    dimtag: tuple[int, int], oriented: bool = True, recursive: bool = False
+) -> list[tuple[int, int]]:
     """Get boundary entities of a geometric entity."""
     if not HAS_GMSH:
         return []
@@ -89,12 +90,12 @@ def get_surface_type(dim: int, tag: int) -> str:
         return "Unknown"
 
 
-def sample_surface_parametric(dim: int, tag: int, num_samples: int = 15) -> List[List[float]]:
+def sample_surface_parametric(dim: int, tag: int, num_samples: int = 15) -> list[list[float]]:
     """Sample points on a surface using parametric coordinates.
 
     Returns list of [x, y, z] points.
     """
-    points: List[List[float]] = []
+    points: list[list[float]] = []
     if not HAS_GMSH:
         return points
 
@@ -112,7 +113,7 @@ def sample_surface_parametric(dim: int, tag: int, num_samples: int = 15) -> List
                 v = v_min + (v_max - v_min) * j / max(num_samples - 1, 1)
                 try:
                     coord = gmsh.model.getValue(dim, tag, [u, v])
-                    if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
+                    if coord is not None and hasattr(coord, "__len__") and len(coord) == 3:
                         points.append([float(coord[0]), float(coord[1]), float(coord[2])])
                 except Exception:
                     pass
@@ -125,7 +126,7 @@ def sample_surface_parametric(dim: int, tag: int, num_samples: int = 15) -> List
                     v = v_min + (v_max - v_min) * (0.3 + 0.4 * j / 4)
                     try:
                         coord = gmsh.model.getValue(dim, tag, [u, v])
-                        if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
+                        if coord is not None and hasattr(coord, "__len__") and len(coord) == 3:
                             pt = [float(coord[0]), float(coord[1]), float(coord[2])]
                             if not _has_nearby_point(pt, points, tol=1e-6):
                                 points.append(pt)
@@ -137,9 +138,11 @@ def sample_surface_parametric(dim: int, tag: int, num_samples: int = 15) -> List
     return points
 
 
-def sample_surface_from_curves(dim: int, tag: int, samples_per_curve: int = 10) -> List[List[float]]:
+def sample_surface_from_curves(
+    dim: int, tag: int, samples_per_curve: int = 10
+) -> list[list[float]]:
     """Sample points from a surface's boundary curves."""
-    points: List[List[float]] = []
+    points: list[list[float]] = []
     if not HAS_GMSH:
         return points
 
@@ -157,7 +160,7 @@ def sample_surface_from_curves(dim: int, tag: int, samples_per_curve: int = 10) 
                     t = t_min + (t_max - t_min) * i / max(samples_per_curve - 1, 1)
                     try:
                         coord = gmsh.model.getValue(curve_dim, curve_tag, [t])
-                        if coord is not None and hasattr(coord, '__len__') and len(coord) == 3:
+                        if coord is not None and hasattr(coord, "__len__") and len(coord) == 3:
                             pt = [float(coord[0]), float(coord[1]), float(coord[2])]
                             if not _has_nearby_point(pt, points, tol=1e-6):
                                 points.append(pt)
@@ -171,10 +174,10 @@ def sample_surface_from_curves(dim: int, tag: int, samples_per_curve: int = 10) 
     return points
 
 
-def _has_nearby_point(pt: List[float], points: List[List[float]], tol: float = 1e-6) -> bool:
+def _has_nearby_point(pt: list[float], points: list[list[float]], tol: float = 1e-6) -> bool:
     """Check if a near-duplicate point already exists."""
     for p in points:
-        if (abs(p[0] - pt[0]) < tol and abs(p[1] - pt[1]) < tol and abs(p[2] - pt[2]) < tol):
+        if abs(p[0] - pt[0]) < tol and abs(p[1] - pt[1]) < tol and abs(p[2] - pt[2]) < tol:
             return True
     return False
 
@@ -191,20 +194,20 @@ def classify_gmsh_surface_type(dim: int, tag: int) -> str:
     raw_lower = raw.lower()
 
     # Gmsh typically returns exact strings for analytic surfaces
-    if raw_lower in ('plane', 'cylinder', 'sphere', 'cone', 'torus'):
+    if raw_lower in ("plane", "cylinder", "sphere", "cone", "torus"):
         return raw_lower
 
     # Free-form surfaces
-    if 'bspline' in raw_lower or 'b-spline' in raw_lower:
-        return 'BSpline'
-    if 'bezier' in raw_lower:
-        return 'Bezier'
-    if 'nurbs' in raw_lower or 'spline' in raw_lower:
-        return 'NURBS'
-    if 'surface of revolution' in raw_lower:
-        return 'SurfaceOfRevolution'
+    if "bspline" in raw_lower or "b-spline" in raw_lower:
+        return "BSpline"
+    if "bezier" in raw_lower:
+        return "Bezier"
+    if "nurbs" in raw_lower or "spline" in raw_lower:
+        return "NURBS"
+    if "surface of revolution" in raw_lower:
+        return "SurfaceOfRevolution"
 
-    return 'Unknown'
+    return "Unknown"
 
 
 def has_freeform_boundary_curves(dim: int, tag: int) -> bool:
@@ -218,7 +221,12 @@ def has_freeform_boundary_curves(dim: int, tag: int) -> bool:
                 continue
             ctype = gmsh.model.getType(curve_dim, curve_tag)
             c_lower = ctype.lower()
-            if 'bspline' in c_lower or 'bezier' in c_lower or 'nurbs' in c_lower or 'spline' in c_lower:
+            if (
+                "bspline" in c_lower
+                or "bezier" in c_lower
+                or "nurbs" in c_lower
+                or "spline" in c_lower
+            ):
                 return True
     except Exception:
         pass
@@ -233,10 +241,10 @@ def is_nurbs_like_surface(dim: int, tag: int) -> bool:
     """
     stype = classify_gmsh_surface_type(dim, tag)
 
-    if stype in ('BSpline', 'Bezier', 'NURBS'):
+    if stype in ("BSpline", "Bezier", "NURBS"):
         return True
 
-    if stype == 'SurfaceOfRevolution':
+    if stype == "SurfaceOfRevolution":
         # Surfaces of revolution with analytic generating curves (line, circle)
         # can sometimes be represented as cones/cylinders/tori. But if the
         # generating curve is free-form, it's effectively a NURBS surface.
@@ -245,7 +253,9 @@ def is_nurbs_like_surface(dim: int, tag: int) -> bool:
     return False
 
 
-def get_surface_points(dim: int, tag: int, tolerance: float = 0.001) -> Tuple[List[List[float]], str]:
+def get_surface_points(
+    dim: int, tag: int, tolerance: float = 0.001
+) -> tuple[list[list[float]], str]:
     """Get sampled points and surface type for a face entity.
 
     Returns (points, surf_type_string).

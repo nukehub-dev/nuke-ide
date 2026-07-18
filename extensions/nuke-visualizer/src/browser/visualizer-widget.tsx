@@ -75,7 +75,6 @@ export class VisualizerWidget extends ReactWidget {
 
     @postConstruct()
     protected init(): void {
-
         this.id = VisualizerWidget.ID;
         this.title.label = VisualizerWidget.LABEL;
         this.title.caption = VisualizerWidget.LABEL;
@@ -86,7 +85,6 @@ export class VisualizerWidget extends ReactWidget {
 
     private handleServerStop(port: number): void {
         if (this.serverPort === port) {
-
             this.serverUrl = null;
             this.serverPort = null;
             this.statusMessage = 'Visualizer server stopped unexpectedly. Check logs for details.';
@@ -117,7 +115,6 @@ export class VisualizerWidget extends ReactWidget {
      * Set the server URL directly (for when server is already running, e.g., OpenMC).
      */
     public setServerUrl(url: string, port: number): void {
-
         this.serverUrl = url;
         this.serverPort = port;
         this.statusMessage = `Server ready at ${url}`;
@@ -145,20 +142,33 @@ export class VisualizerWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         const statusLower = this.statusMessage.toLowerCase();
-        const isError = statusLower.includes('failed') || statusLower.includes('error') || 
-                        statusLower.includes('unable') || statusLower.includes('unavailable') ||
-                        statusLower.includes('not found') || statusLower.includes('missing') ||
-                        statusLower.includes('invalid') || statusLower.includes('timeout') ||
-                        statusLower.includes('cannot') || statusLower.includes('not responding') ||
-                        statusLower.includes('no suitable') || statusLower.includes('not installed') ||
-                        statusLower.includes('cannot find') || statusLower.includes('unexpected');
-        const isLoading = !this.serverUrl && 
-                         (statusLower.includes('starting') || statusLower.includes('waiting') || 
-                          statusLower.includes('loading') || statusLower.includes('initializing') || 
-                          statusLower.includes('converting') || statusLower.includes('overlay') ||
-                          statusLower === 'initializing...' || statusLower.includes('server started'));
+        const isError =
+            statusLower.includes('failed') ||
+            statusLower.includes('error') ||
+            statusLower.includes('unable') ||
+            statusLower.includes('unavailable') ||
+            statusLower.includes('not found') ||
+            statusLower.includes('missing') ||
+            statusLower.includes('invalid') ||
+            statusLower.includes('timeout') ||
+            statusLower.includes('cannot') ||
+            statusLower.includes('not responding') ||
+            statusLower.includes('no suitable') ||
+            statusLower.includes('not installed') ||
+            statusLower.includes('cannot find') ||
+            statusLower.includes('unexpected');
+        const isLoading =
+            !this.serverUrl &&
+            (statusLower.includes('starting') ||
+                statusLower.includes('waiting') ||
+                statusLower.includes('loading') ||
+                statusLower.includes('initializing') ||
+                statusLower.includes('converting') ||
+                statusLower.includes('overlay') ||
+                statusLower === 'initializing...' ||
+                statusLower.includes('server started'));
         const hasWarning = this.warningMessage !== null;
-        
+
         // Inject global styles for animations
         const globalStyles = `
             @keyframes visualizer-spin {
@@ -201,246 +211,295 @@ export class VisualizerWidget extends ReactWidget {
                 box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             }
         `;
-        
+
         return (
-            <div className='visualizer-container' style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="visualizer-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <style>{globalStyles}</style>
                 {!this.serverUrl && (
-                    <div style={{ 
-                        padding: '24px', 
-                        textAlign: 'center',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        height: '100%',
-                        animation: 'visualizer-fadeIn 0.3s ease-out'
-                    }}>
-                        {isLoading && (
-                        <div style={{ 
-                            marginBottom: '32px', 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            alignItems: 'center',
-                            padding: '32px',
-                            background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
-                            borderRadius: '12px',
-                            border: '1px solid var(--theia-panel-border)'
-                        }}>
-                            {/* Animated spinner with gradient */}
-                            <div style={{ 
-                                width: '56px', 
-                                height: '56px', 
-                                position: 'relative',
-                                marginBottom: '20px'
-                            }}>
-                                <div style={{
-                                    position: 'absolute',
-                                    inset: '0',
-                                    borderRadius: '50%',
-                                    border: '3px solid transparent',
-                                    borderTopColor: 'var(--theia-focusBorder, #007fd4)',
-                                    borderRightColor: 'var(--theia-focusBorder, #007fd4)',
-                                    animation: 'visualizer-spin 1s linear infinite'
-                                }}></div>
-                                <div style={{
-                                    position: 'absolute',
-                                    inset: '6px',
-                                    borderRadius: '50%',
-                                    border: '3px solid transparent',
-                                    borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
-                                    borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
-                                    animation: 'visualizer-spin 1.5s linear infinite reverse'
-                                }}></div>
-                            </div>
-                            <div style={{ 
-                                fontSize: '15px', 
-                                fontWeight: 500,
-                                color: 'var(--theia-foreground)',
-                                marginBottom: '8px'
-                            }}>
-                                {this.statusMessage || 'Starting visualization server...'}
-                            </div>
-                            <div style={{
-                                fontSize: '12px',
-                                color: 'var(--theia-descriptionForeground)',
-                                animation: 'visualizer-pulse 2s ease-in-out infinite'
-                            }}>
-                                Please wait
-                            </div>
-                        </div>
-                    )}
-                    {hasWarning && (
-                        <div style={{ 
-                            color: 'var(--theia-foreground)',
-                            backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
-                            border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                            padding: '16px 20px',
-                            borderRadius: '8px',
-                            marginBottom: '20px',
-                            maxWidth: '640px',
-                            textAlign: 'left',
-                            animation: 'visualizer-fadeIn 0.3s ease-out',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-                        }}>
-                            <div style={{ 
-                                fontWeight: 600, 
-                                marginBottom: '10px', 
-                                color: 'var(--theia-warningForeground, #b58900)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                fontSize: '14px'
-                            }}>
-                                <span className='codicon codicon-warning' style={{ fontSize: '16px' }} />
-                                Warning
-                            </div>
-                            <div style={{ 
-                                fontFamily: 'var(--theia-code-font-family, monospace)', 
-                                fontSize: '12px', 
-                                whiteSpace: 'pre-wrap',
-                                lineHeight: '1.5',
-                                opacity: 0.9
-                            }}>{this.warningMessage}</div>
-                        </div>
-                    )}
-                    {isError && (
-                        <div style={{ 
-                            color: 'var(--theia-errorForeground)',
-                            backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
-                            border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
-                            padding: '16px 20px',
-                            borderRadius: '8px',
-                            marginBottom: '20px',
-                            maxWidth: '640px',
-                            textAlign: 'left',
-                            animation: 'visualizer-fadeIn 0.3s ease-out',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-                        }}>
-                            <div style={{ 
-                                fontWeight: 600, 
-                                marginBottom: '10px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                fontSize: '14px'
-                            }}>
-                                <span className='codicon codicon-error' style={{ fontSize: '16px' }} />
-                                Error
-                            </div>
-                            <div style={{ 
-                                fontFamily: 'var(--theia-code-font-family, monospace)', 
-                                fontSize: '12px', 
-                                whiteSpace: 'pre-wrap',
-                                lineHeight: '1.5',
-                                opacity: 0.9
-                            }}>{this.statusMessage}</div>
-                        </div>
-                        )}
-                        {!isLoading && !isError && !hasWarning && (
-                        <div style={{
+                    <div
+                        style={{
+                            padding: '24px',
+                            textAlign: 'center',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            padding: '48px 32px',
-                            background: 'var(--theia-editorWidget-background)',
-                            animation: 'visualizer-slide-up 0.5s ease-out',
-                            height: '80%',
-                            width: '80%'
-                        }}>
-                            <div className='visualizer-empty-icon' style={{
-                                fontSize: '64px',
-                                marginBottom: '24px',
-                                color: 'var(--theia-foreground)',
-                                opacity: 0.8
-                            }}>
-                                <span className='codicon codicon-symbol-misc' style={{ fontSize: '64px' }} />
-                            </div>
-                            <h3 style={{ 
-                                margin: '0 0 12px 0',
-                                fontSize: '22px',
-                                fontWeight: 600,
-                                color: 'var(--theia-foreground)',
-                                animation: 'visualizer-fadeIn 0.4s ease-out 0.1s both'
-                            }}>No Visualization Loaded</h3>
-                            <p style={{ 
-                                margin: '0 0 24px 0',
-                                fontSize: '14px',
-                                color: 'var(--theia-descriptionForeground)',
-                                textAlign: 'center',
-                                maxWidth: '320px',
-                                lineHeight: 1.6,
-                                animation: 'visualizer-fadeIn 0.4s ease-out 0.2s both'
-                            }}>
-                                Open a VTK, DAGMC, or mesh file to visualize geometry and results in interactive 3D
-                            </p>
-                            <button 
-                                className='visualizer-empty-button'
-                                style={{ 
-                                    padding: '12px 24px',
-                                    backgroundColor: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    border: '1px solid var(--theia-button-border)',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
+                            height: '100%',
+                            animation: 'visualizer-fadeIn 0.3s ease-out'
+                        }}
+                    >
+                        {isLoading && (
+                            <div
+                                style={{
+                                    marginBottom: '32px',
                                     display: 'flex',
+                                    flexDirection: 'column',
                                     alignItems: 'center',
-                                    gap: '8px',
-                                    fontSize: '14px',
-                                    fontWeight: 500,
-                                    transition: 'all 0.2s ease',
-                                    animation: 'visualizer-scale-in 0.3s ease-out 0.3s both'
+                                    padding: '32px',
+                                    background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
+                                    borderRadius: '12px',
+                                    border: '1px solid var(--theia-panel-border)'
                                 }}
-                                onClick={() => this.browseAndOpen()}
                             >
-                                <span className='codicon codicon-folder-opened' />
-                                Browse Files
-                            </button>
-                            <div style={{
-                                marginTop: '32px',
-                                padding: '16px 20px',
-                                background: 'rgba(100,100,100,0.05)',
-                                borderRadius: '8px',
-                                fontSize: '12px',
-                                color: 'var(--theia-descriptionForeground)',
-                                animation: 'visualizer-fadeIn 0.4s ease-out 0.4s both',
-                                border: '1px solid var(--theia-panel-border)'
-                            }}>
-                                <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats:</div>
-                                <div>VTK, VTU, VTP, VTS, VTR, PVTU, PFTP</div>
-                                <div>H5M (DAGMC)</div>
-                                <div>STEP, STP, BREP (CAD)</div>
-                                <div>STL, PLY, OBJ (meshes)</div>
+                                {/* Animated spinner with gradient */}
+                                <div
+                                    style={{
+                                        width: '56px',
+                                        height: '56px',
+                                        position: 'relative',
+                                        marginBottom: '20px'
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            inset: '0',
+                                            borderRadius: '50%',
+                                            border: '3px solid transparent',
+                                            borderTopColor: 'var(--theia-focusBorder, #007fd4)',
+                                            borderRightColor: 'var(--theia-focusBorder, #007fd4)',
+                                            animation: 'visualizer-spin 1s linear infinite'
+                                        }}
+                                    ></div>
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            inset: '6px',
+                                            borderRadius: '50%',
+                                            border: '3px solid transparent',
+                                            borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
+                                            borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
+                                            animation: 'visualizer-spin 1.5s linear infinite reverse'
+                                        }}
+                                    ></div>
+                                </div>
+                                <div
+                                    style={{
+                                        fontSize: '15px',
+                                        fontWeight: 500,
+                                        color: 'var(--theia-foreground)',
+                                        marginBottom: '8px'
+                                    }}
+                                >
+                                    {this.statusMessage || 'Starting visualization server...'}
+                                </div>
+                                <div
+                                    style={{
+                                        fontSize: '12px',
+                                        color: 'var(--theia-descriptionForeground)',
+                                        animation: 'visualizer-pulse 2s ease-in-out infinite'
+                                    }}
+                                >
+                                    Please wait
+                                </div>
                             </div>
-                        </div>
+                        )}
+                        {hasWarning && (
+                            <div
+                                style={{
+                                    color: 'var(--theia-foreground)',
+                                    backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
+                                    border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
+                                    padding: '16px 20px',
+                                    borderRadius: '8px',
+                                    marginBottom: '20px',
+                                    maxWidth: '640px',
+                                    textAlign: 'left',
+                                    animation: 'visualizer-fadeIn 0.3s ease-out',
+                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontWeight: 600,
+                                        marginBottom: '10px',
+                                        color: 'var(--theia-warningForeground, #b58900)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <span className="codicon codicon-warning" style={{ fontSize: '16px' }} />
+                                    Warning
+                                </div>
+                                <div
+                                    style={{
+                                        fontFamily: 'var(--theia-code-font-family, monospace)',
+                                        fontSize: '12px',
+                                        whiteSpace: 'pre-wrap',
+                                        lineHeight: '1.5',
+                                        opacity: 0.9
+                                    }}
+                                >
+                                    {this.warningMessage}
+                                </div>
+                            </div>
+                        )}
+                        {isError && (
+                            <div
+                                style={{
+                                    color: 'var(--theia-errorForeground)',
+                                    backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
+                                    border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
+                                    padding: '16px 20px',
+                                    borderRadius: '8px',
+                                    marginBottom: '20px',
+                                    maxWidth: '640px',
+                                    textAlign: 'left',
+                                    animation: 'visualizer-fadeIn 0.3s ease-out',
+                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontWeight: 600,
+                                        marginBottom: '10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <span className="codicon codicon-error" style={{ fontSize: '16px' }} />
+                                    Error
+                                </div>
+                                <div
+                                    style={{
+                                        fontFamily: 'var(--theia-code-font-family, monospace)',
+                                        fontSize: '12px',
+                                        whiteSpace: 'pre-wrap',
+                                        lineHeight: '1.5',
+                                        opacity: 0.9
+                                    }}
+                                >
+                                    {this.statusMessage}
+                                </div>
+                            </div>
+                        )}
+                        {!isLoading && !isError && !hasWarning && (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '48px 32px',
+                                    background: 'var(--theia-editorWidget-background)',
+                                    animation: 'visualizer-slide-up 0.5s ease-out',
+                                    height: '80%',
+                                    width: '80%'
+                                }}
+                            >
+                                <div
+                                    className="visualizer-empty-icon"
+                                    style={{
+                                        fontSize: '64px',
+                                        marginBottom: '24px',
+                                        color: 'var(--theia-foreground)',
+                                        opacity: 0.8
+                                    }}
+                                >
+                                    <span className="codicon codicon-symbol-misc" style={{ fontSize: '64px' }} />
+                                </div>
+                                <h3
+                                    style={{
+                                        margin: '0 0 12px 0',
+                                        fontSize: '22px',
+                                        fontWeight: 600,
+                                        color: 'var(--theia-foreground)',
+                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.1s both'
+                                    }}
+                                >
+                                    No Visualization Loaded
+                                </h3>
+                                <p
+                                    style={{
+                                        margin: '0 0 24px 0',
+                                        fontSize: '14px',
+                                        color: 'var(--theia-descriptionForeground)',
+                                        textAlign: 'center',
+                                        maxWidth: '320px',
+                                        lineHeight: 1.6,
+                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.2s both'
+                                    }}
+                                >
+                                    Open a VTK, DAGMC, or mesh file to visualize geometry and results in interactive 3D
+                                </p>
+                                <button
+                                    className="visualizer-empty-button"
+                                    style={{
+                                        padding: '12px 24px',
+                                        backgroundColor: 'var(--theia-button-background)',
+                                        color: 'var(--theia-button-foreground)',
+                                        border: '1px solid var(--theia-button-border)',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontSize: '14px',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s ease',
+                                        animation: 'visualizer-scale-in 0.3s ease-out 0.3s both'
+                                    }}
+                                    onClick={() => this.browseAndOpen()}
+                                >
+                                    <span className="codicon codicon-folder-opened" />
+                                    Browse Files
+                                </button>
+                                <div
+                                    style={{
+                                        marginTop: '32px',
+                                        padding: '16px 20px',
+                                        background: 'rgba(100,100,100,0.05)',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        color: 'var(--theia-descriptionForeground)',
+                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.4s both',
+                                        border: '1px solid var(--theia-panel-border)'
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats:</div>
+                                    <div>VTK, VTU, VTP, VTS, VTR, PVTU, PFTP</div>
+                                    <div>H5M (DAGMC)</div>
+                                    <div>STEP, STP, BREP (CAD)</div>
+                                    <div>STL, PLY, OBJ (meshes)</div>
+                                </div>
+                            </div>
                         )}
                         {this.currentFile && (
-                            <div style={{ 
-                                marginTop: '16px',
-                                padding: '8px 16px',
-                                background: 'var(--theia-badge-background, rgba(100,100,100,0.2))',
-                                borderRadius: '16px',
-                                fontSize: '12px',
-                                color: 'var(--theia-badge-foreground)',
-                                fontFamily: 'var(--theia-code-font-family, monospace)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}>
-                                <span className='codicon codicon-file' />
-                                <span style={{ 
-                                    maxWidth: '400px',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                }}>{this.currentFile}</span>
+                            <div
+                                style={{
+                                    marginTop: '16px',
+                                    padding: '8px 16px',
+                                    background: 'var(--theia-badge-background, rgba(100,100,100,0.2))',
+                                    borderRadius: '16px',
+                                    fontSize: '12px',
+                                    color: 'var(--theia-badge-foreground)',
+                                    fontFamily: 'var(--theia-code-font-family, monospace)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <span className="codicon codicon-file" />
+                                <span
+                                    style={{
+                                        maxWidth: '400px',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                >
+                                    {this.currentFile}
+                                </span>
                             </div>
                         )}
                         {isError && (
                             <div style={{ marginTop: '24px', display: 'flex', gap: '12px', flexDirection: 'column', alignItems: 'center' }}>
-                                <button 
-                                    style={{ 
+                                <button
+                                    style={{
                                         padding: '10px 20px',
                                         backgroundColor: 'var(--theia-button-background)',
                                         color: 'var(--theia-button-foreground)',
@@ -465,11 +524,11 @@ export class VisualizerWidget extends ReactWidget {
                                     }}
                                     onClick={() => this.retry()}
                                 >
-                                    <span className='codicon codicon-refresh' />
+                                    <span className="codicon codicon-refresh" />
                                     Retry
                                 </button>
-                                <button 
-                                    style={{ 
+                                <button
+                                    style={{
                                         padding: '10px 20px',
                                         backgroundColor: 'var(--theia-button-secondaryBackground, transparent)',
                                         color: 'var(--theia-button-secondaryForeground)',
@@ -484,14 +543,15 @@ export class VisualizerWidget extends ReactWidget {
                                         transition: 'all 0.2s ease'
                                     }}
                                     onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'var(--theia-button-hoverBackground, rgba(100,100,100,0.1))';
+                                        e.currentTarget.style.backgroundColor =
+                                            'var(--theia-button-hoverBackground, rgba(100,100,100,0.1))';
                                     }}
                                     onMouseLeave={(e) => {
                                         e.currentTarget.style.backgroundColor = 'var(--theia-button-secondaryBackground, transparent)';
                                     }}
                                     onClick={() => this.openSettings()}
                                 >
-                                    <span className='codicon codicon-settings-gear' />
+                                    <span className="codicon codicon-settings-gear" />
                                     Configure Python Path
                                 </button>
                             </div>
@@ -501,29 +561,38 @@ export class VisualizerWidget extends ReactWidget {
                 {this.serverUrl && (
                     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', animation: 'visualizer-fadeIn 0.3s ease-out' }}>
                         {this.warningMessage && (
-                            <div style={{ 
-                                color: 'var(--theia-foreground)',
-                                backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
-                                border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                                padding: '10px 16px',
-                                borderRadius: '6px',
-                                margin: '8px 8px 0 8px',
-                                fontSize: '12px',
-                                textAlign: 'left',
-                                display: 'flex',
-                                alignItems: 'flex-start',
-                                gap: '8px'
-                            }}>
-                                <span className='codicon codicon-warning' style={{ 
-                                    color: 'var(--theia-warningForeground, #b58900)',
-                                    marginTop: '2px',
-                                    flexShrink: 0
-                                }} />
-                                <div style={{ 
-                                    fontFamily: 'var(--theia-code-font-family, monospace)',
-                                    whiteSpace: 'pre-wrap',
-                                    flex: 1
-                                }}>{this.warningMessage}</div>
+                            <div
+                                style={{
+                                    color: 'var(--theia-foreground)',
+                                    backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
+                                    border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
+                                    padding: '10px 16px',
+                                    borderRadius: '6px',
+                                    margin: '8px 8px 0 8px',
+                                    fontSize: '12px',
+                                    textAlign: 'left',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '8px'
+                                }}
+                            >
+                                <span
+                                    className="codicon codicon-warning"
+                                    style={{
+                                        color: 'var(--theia-warningForeground, #b58900)',
+                                        marginTop: '2px',
+                                        flexShrink: 0
+                                    }}
+                                />
+                                <div
+                                    style={{
+                                        fontFamily: 'var(--theia-code-font-family, monospace)',
+                                        whiteSpace: 'pre-wrap',
+                                        flex: 1
+                                    }}
+                                >
+                                    {this.warningMessage}
+                                </div>
                             </div>
                         )}
                         <iframe
@@ -542,11 +611,11 @@ export class VisualizerWidget extends ReactWidget {
     public async loadFile(fileUri: URI, volumeId?: number): Promise<void> {
         const loadId = ++this.currentLoadId;
         const filePath = fileUri.path.toString();
-        
+
         // Check if volume changed (before updating)
         const volumeChanged = volumeId !== undefined && this.highlightVolumeId !== volumeId;
         const wasShowingSingleVolume = this.highlightVolumeId !== undefined;
-        
+
         // Update highlight volume ID: set if provided, clear if explicitly undefined
         if (volumeId !== undefined) {
             this.highlightVolumeId = volumeId;
@@ -554,7 +623,7 @@ export class VisualizerWidget extends ReactWidget {
             // Clear volume ID to show full model
             this.highlightVolumeId = undefined;
         }
-        
+
         // If already showing this file with the same volume, just activate
         // Also reload if we were showing a single volume and now want full model
         const needReload = wasShowingSingleVolume && volumeId === undefined;
@@ -563,9 +632,7 @@ export class VisualizerWidget extends ReactWidget {
             this.update();
             return;
         }
-        
 
-        
         // Ensure URI and ID are set correctly
         if (!this.currentFileUri || this.currentFileUri.toString() !== fileUri.toString()) {
             this.setUri(fileUri);
@@ -573,7 +640,7 @@ export class VisualizerWidget extends ReactWidget {
 
         this.ensureClosable();
         this.update();
-        
+
         // Check if file needs conversion before visualization
         if (filePath.endsWith('.h5m')) {
             await this.convertAndLoadDAGMC(filePath, loadId);
@@ -589,9 +656,9 @@ export class VisualizerWidget extends ReactWidget {
             clearInterval(this.checkInterval);
             this.checkInterval = null;
         }
-        
+
         const portToStop = this.serverPort;
-        
+
         // Reset all widget state IMMEDIATELY to avoid race conditions in UI
         this.serverUrl = null;
         this.serverPort = null;
@@ -602,7 +669,7 @@ export class VisualizerWidget extends ReactWidget {
         this.title.label = VisualizerWidget.LABEL;
         this.title.closable = true;
         this.update();
-        
+
         if (portToStop) {
             try {
                 console.log(`[Visualizer] Stopping server on port ${portToStop}...`);
@@ -621,14 +688,13 @@ export class VisualizerWidget extends ReactWidget {
     }
 
     private async retry(): Promise<void> {
-
         const uri = this.currentFileUri;
         this.warningMessage = null;
         this.statusMessage = 'Retrying...';
         this.update();
-        
+
         await this.cleanupServer();
-        
+
         if (uri) {
             await this.loadFile(uri);
         } else {
@@ -656,7 +722,7 @@ export class VisualizerWidget extends ReactWidget {
                 'All Files': ['*']
             }
         });
-        
+
         if (fileUri) {
             const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
             await this.loadFile(uri);
@@ -702,18 +768,18 @@ export class VisualizerWidget extends ReactWidget {
             console.log('[Visualizer] DAGMC-specific server failed, falling back to base viewer:', dagmcError);
             // Fall through to base viewer
         }
-        
+
         try {
             // Use backend service to convert DAGMC to VTK
             // Pass volumeId to extract only that volume if specified
             const vtkPath = await this.visualizerBackend.convertDagmc(h5mPath, this.highlightVolumeId);
-            
+
             // Check if still the active load
             if (loadId !== this.currentLoadId) return;
-            
+
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
-            
+
             // Start visualizer server with the converted VTK file
             await this.startVisualizerServer(vtkPath, loadId);
         } catch (error) {
@@ -758,7 +824,7 @@ export class VisualizerWidget extends ReactWidget {
         let attempts = 0;
         const maxAttempts = timeout / 1000;
 
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         this.checkInterval = window.setInterval(async () => {
             if (loadId !== this.currentLoadId) {
@@ -816,17 +882,17 @@ export class VisualizerWidget extends ReactWidget {
 
         this.statusMessage = `Converting CAD file: ${stepPath}...`;
         this.update();
-        
+
         try {
             // Use backend service to convert STEP to VTK
             const vtkPath = await this.visualizerBackend.convertStep(stepPath);
-            
+
             // Check if still the active load
             if (loadId !== this.currentLoadId) return;
-            
+
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
-            
+
             // Start visualizer server with the converted VTK file
             await this.startVisualizerServer(vtkPath, loadId);
         } catch (error) {
@@ -843,7 +909,6 @@ export class VisualizerWidget extends ReactWidget {
     private async startVisualizerServer(filePath?: string, loadId?: number): Promise<void> {
         const currentId = loadId ?? ++this.currentLoadId;
         if (currentId !== this.currentLoadId) {
-    
             return;
         }
 
@@ -867,34 +932,32 @@ export class VisualizerWidget extends ReactWidget {
             const theme = this.detectTheme();
             console.log('[Visualizer] Requesting server start from backend...');
             const result = await this.visualizerBackend.startServer(filePath, undefined, theme);
-            
+
             // Check again after async call
             if (currentId !== this.currentLoadId) {
-
                 this.visualizerBackend.stopServer(result.port);
                 return;
             }
 
             this.serverPort = result.port;
 
-            
             if (result.warning) {
                 this.warningMessage = result.warning;
                 this.messageService.warn(result.warning);
                 this.ensureClosable();
             }
-            
+
             this.statusMessage = `Server started on port ${result.port}. Waiting for it to be ready...`;
             this.update();
             this.ensureClosable();
-            
+
             // Poll to check if server is actually responding
             const timeout = (this.preferences['nukeVisualizer.serverTimeout'] || 30) * 1000;
             let attempts = 0;
             const maxAttempts = timeout / 1000;
-            
+
             // Wait a moment before first poll to let server initialize
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise((resolve) => setTimeout(resolve, 1500));
 
             this.checkInterval = window.setInterval(async () => {
                 // Check if this load is still active
@@ -910,19 +973,18 @@ export class VisualizerWidget extends ReactWidget {
                 try {
                     // Use an image request to test connectivity - most robust cross-origin probe
                     const testImg = new Image();
-                    
+
                     const setReady = () => {
                         if (currentId !== this.currentLoadId) return;
-                        
-                        if (!this.serverUrl) {
 
+                        if (!this.serverUrl) {
                             // Append theme to URL so trame knows which theme to use
                             this.serverUrl = `${result.url}?theme=${theme}`;
                             this.statusMessage = `Server ready at ${result.url}`;
                             this.update();
                             this.ensureClosable();
 
-                            // Once ready, we can stop the probing interval as we now rely on 
+                            // Once ready, we can stop the probing interval as we now rely on
                             // the backend to notify us of process exit via onServerStop
                             if (this.checkInterval) {
                                 clearInterval(this.checkInterval);
@@ -932,20 +994,19 @@ export class VisualizerWidget extends ReactWidget {
                     };
 
                     testImg.onload = setReady;
-                    
+
                     testImg.onerror = () => {
                         if (currentId !== this.currentLoadId) return;
-                        
-                        // If we haven't reached serverUrl yet, any error (including 404/403) 
+
+                        // If we haven't reached serverUrl yet, any error (including 404/403)
                         // means the server is at least responding at the network level
                         if (!this.serverUrl) {
-
                             setReady();
                         }
                     };
 
                     testImg.src = `${result.url}/favicon.ico?${Date.now()}`;
-                    
+
                     if (!this.serverUrl && attempts >= maxAttempts) {
                         if (this.checkInterval) {
                             clearInterval(this.checkInterval);
@@ -955,15 +1016,13 @@ export class VisualizerWidget extends ReactWidget {
                         this.update();
                         this.ensureClosable();
                     }
-                    
                 } catch (e) {
                     // Handle unexpected errors in polling
                 }
             }, 2000); // Check every 2 seconds
-            
         } catch (error) {
             if (currentId !== this.currentLoadId) return;
-            
+
             console.error('[Visualizer] Failed to start server:', error);
             const errorMsg = error instanceof Error ? error.message : String(error);
             this.statusMessage = `Failed to start server: ${errorMsg}`;
@@ -973,7 +1032,6 @@ export class VisualizerWidget extends ReactWidget {
     }
 
     protected override onCloseRequest(msg: Message): void {
-
         VisualizerWidget.instances.delete(this);
         this.cleanupServer();
         super.onCloseRequest(msg);

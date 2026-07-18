@@ -27,20 +27,15 @@
 
 /**
  * OpenMC Command Contribution
- * 
+ *
  * Aggregates all command modules and registers them.
- * 
+ *
  * @module openmc-studio/browser/contributions
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
-import { 
-    EnvironmentCommands, 
-    ProjectCommands, 
-    SimulationCommands,
-    ViewCommands 
-} from '../commands';
+import { EnvironmentCommands, ProjectCommands, SimulationCommands, ViewCommands } from '../commands';
 
 /**
  * Aggregates all OpenMC command modules and registers them with the Theia command registry.
@@ -53,16 +48,15 @@ import {
  */
 @injectable()
 export class OpenMCCommandContribution implements CommandContribution {
-    
     @inject(EnvironmentCommands)
     protected readonly environmentCommands: EnvironmentCommands;
-    
+
     @inject(ProjectCommands)
     protected readonly projectCommands: ProjectCommands;
-    
+
     @inject(SimulationCommands)
     protected readonly simulationCommands: SimulationCommands;
-    
+
     @inject(ViewCommands)
     protected readonly viewCommands: ViewCommands;
 

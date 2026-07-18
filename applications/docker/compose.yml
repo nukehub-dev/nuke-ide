@@ -11,11 +11,11 @@ services:
     image: nuke-ide:latest
     container_name: nuke-ide
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       # Headless rendering for the Trame/ParaView Python backends
       QT_QPA_PLATFORM: offscreen
-      VTK_USE_OFFSCREEN: "1"
+      VTK_USE_OFFSCREEN: '1'
     volumes:
       # Persistent user workspace (projects created in the IDE land here)
       - ./workspace:/root/workspace

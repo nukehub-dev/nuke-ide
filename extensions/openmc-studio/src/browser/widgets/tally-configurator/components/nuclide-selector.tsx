@@ -59,7 +59,7 @@ export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUp
 
     /** Remove a nuclide from the selection. */
     const removeNuclide = (nuclide: string) => {
-        onUpdate(nuclides.filter(n => n !== nuclide));
+        onUpdate(nuclides.filter((n) => n !== nuclide));
     };
 
     /** Handle Enter key to add the current nuclide input. */
@@ -70,54 +70,48 @@ export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUp
     };
 
     return (
-        <div className='nuclide-selector'>
-            <div className='nuclide-list'>
-                {nuclides.map(nuclide => (
-                    <div key={nuclide} className='nuclide-badge'>
-                        <span className='nuclide-name'>{nuclide}</span>
-                        <Tooltip content='Remove nuclide' position='top'>
-                            <button 
-                                className='remove-nuclide-btn' 
-                                onClick={() => removeNuclide(nuclide)}
-                                aria-label='Remove'
-                            >
-                                <i className='codicon codicon-close'></i>
+        <div className="nuclide-selector">
+            <div className="nuclide-list">
+                {nuclides.map((nuclide) => (
+                    <div key={nuclide} className="nuclide-badge">
+                        <span className="nuclide-name">{nuclide}</span>
+                        <Tooltip content="Remove nuclide" position="top">
+                            <button className="remove-nuclide-btn" onClick={() => removeNuclide(nuclide)} aria-label="Remove">
+                                <i className="codicon codicon-close"></i>
                             </button>
                         </Tooltip>
                     </div>
                 ))}
-                {nuclides.length === 0 && (
-                    <span className='nuclide-empty-hint'>No nuclides selected</span>
-                )}
+                {nuclides.length === 0 && <span className="nuclide-empty-hint">No nuclides selected</span>}
             </div>
-            <div className='nuclide-input-row'>
-                <div className='nuclide-input-wrapper'>
-                    <input 
-                        type='text' 
-                        value={inputValue} 
+            <div className="nuclide-input-row">
+                <div className="nuclide-input-wrapper">
+                    <input
+                        type="text"
+                        value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder='e.g. U235, Pu239'
+                        placeholder="e.g. U235, Pu239"
                     />
-                    <span className='nuclide-input-hint'>Press Enter to add</span>
+                    <span className="nuclide-input-hint">Press Enter to add</span>
                 </div>
-                <Tooltip content='Add nuclide to list' position='top'>
-                    <button 
-                        className='nuclide-action-btn nuclide-add-btn' 
+                <Tooltip content="Add nuclide to list" position="top">
+                    <button
+                        className="nuclide-action-btn nuclide-add-btn"
                         onClick={addNuclide}
                         disabled={!inputValue}
-                        aria-label='Add nuclide'
+                        aria-label="Add nuclide"
                     >
-                        <i className='codicon codicon-add'></i>
+                        <i className="codicon codicon-add"></i>
                     </button>
                 </Tooltip>
-                <Tooltip content='Reset to total neutron reaction (default)' position='top'>
-                    <button 
-                        className='nuclide-action-btn nuclide-reset-btn' 
+                <Tooltip content="Reset to total neutron reaction (default)" position="top">
+                    <button
+                        className="nuclide-action-btn nuclide-reset-btn"
                         onClick={() => onUpdate(['total'])}
-                        aria-label='Reset to total'
+                        aria-label="Reset to total"
                     >
-                        <i className='codicon codicon-refresh'></i>
+                        <i className="codicon codicon-refresh"></i>
                     </button>
                 </Tooltip>
             </div>

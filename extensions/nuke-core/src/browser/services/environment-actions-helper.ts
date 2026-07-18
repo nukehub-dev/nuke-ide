@@ -68,7 +68,6 @@ import { NukeEnvironment, PackageDependency } from '../../common/nuke-core-proto
  */
 @injectable()
 export class EnvironmentActionsHelper {
-
     @inject(TerminalService)
     protected readonly terminalService: TerminalService;
 
@@ -110,9 +109,7 @@ export class EnvironmentActionsHelper {
             ...(isConda && envFiles.condaYml
                 ? [{ label: `🔄 Update from ${envFiles.condaYml.path.base}`, value: 'update-conda-yml' as const }]
                 : []),
-            ...(envFiles.reqTxt
-                ? [{ label: `🔄 Update from ${envFiles.reqTxt.path.base}`, value: 'update-req-txt' as const }]
-                : []),
+            ...(envFiles.reqTxt ? [{ label: `🔄 Update from ${envFiles.reqTxt.path.base}`, value: 'update-req-txt' as const }] : []),
             { label: '📋 Copy Python Path', value: 'copy' as const },
             ...(env.isDeletable ? [{ label: '🗑️ Delete Environment', value: 'delete' as const }] : [])
         ];
@@ -238,11 +235,7 @@ export class EnvironmentActionsHelper {
 
     private async updateFromRequirementsTxt(env: NukeEnvironment, uri: URI): Promise<void> {
         try {
-            const success = await this.runPipInstallFromFile(
-                env.pythonPath,
-                uri.path.fsPath(),
-                `Update ${env.name} from ${uri.path.base}`
-            );
+            const success = await this.runPipInstallFromFile(env.pythonPath, uri.path.fsPath(), `Update ${env.name} from ${uri.path.base}`);
             if (success) {
                 this.messageService.info(`Dependencies installed successfully into '${env.name}'!`);
             } else {
@@ -263,12 +256,7 @@ export class EnvironmentActionsHelper {
      * @param title - Terminal tab title.
      * @returns `true` when the terminal exits with code 0.
      */
-    async runCondaEnvFromFile(
-        subCommand: 'create' | 'update',
-        filePath: string,
-        prefix: string,
-        title: string
-    ): Promise<boolean> {
+    async runCondaEnvFromFile(subCommand: 'create' | 'update', filePath: string, prefix: string, title: string): Promise<boolean> {
         const condaCmd = await this.nukeCore.getCondaCommand();
         if (!condaCmd) {
             this.messageService.warn('No conda or mamba found.');
@@ -303,11 +291,7 @@ export class EnvironmentActionsHelper {
      * @param title - Terminal tab title.
      * @returns `true` when the terminal exits with code 0.
      */
-    async runPipInstallFromFile(
-        pythonPath: string,
-        filePath: string,
-        title: string
-    ): Promise<boolean> {
+    async runPipInstallFromFile(pythonPath: string, filePath: string, title: string): Promise<boolean> {
         const roots = await this.workspaceService.roots;
         const workspaceRoot = roots[0]?.resource?.path?.toString() || '';
 
@@ -337,11 +321,7 @@ export class EnvironmentActionsHelper {
      * @param options.args - Command and arguments to execute.
      * @returns `true` when the terminal exits with code 0.
      */
-    async runCommandInTerminal(options: {
-        title: string;
-        cwd: string;
-        args: string[];
-    }): Promise<boolean> {
+    async runCommandInTerminal(options: { title: string; cwd: string; args: string[] }): Promise<boolean> {
         const terminal = await this.terminalService.newTerminal({
             title: options.title,
             cwd: options.cwd
@@ -439,10 +419,11 @@ export class EnvironmentActionsHelper {
         if (!pythonPath) {
             const config = await this.nukeCore.getConfig();
             const selectedEnv = await this.nukeCore.getSelectedEnvironment();
-            if (selectedEnv && (
-                (config.condaEnv && selectedEnv.name === config.condaEnv) ||
-                (config.pythonPath && selectedEnv.pythonPath === config.pythonPath)
-            )) {
+            if (
+                selectedEnv &&
+                ((config.condaEnv && selectedEnv.name === config.condaEnv) ||
+                    (config.pythonPath && selectedEnv.pythonPath === config.pythonPath))
+            ) {
                 pythonPath = selectedEnv.pythonPath;
             } else if (config.pythonPath) {
                 pythonPath = config.pythonPath;
@@ -503,7 +484,9 @@ export class EnvironmentActionsHelper {
         const packages = packageName.trim().split(/\s+/);
         const managerItems = [
             { label: '📦 pip / uv', description: 'Install with pip', value: 'pip' as const },
-            ...(env.type === 'conda' ? [{ label: '🐍 conda / mamba', description: 'Install with conda-forge', value: 'conda' as const }] : [])
+            ...(env.type === 'conda'
+                ? [{ label: '🐍 conda / mamba', description: 'Install with conda-forge', value: 'conda' as const }]
+                : [])
         ];
 
         const manager = await this.quickPick.show(managerItems, {
@@ -574,20 +557,14 @@ export class EnvironmentActionsHelper {
      * @param options.title - Optional notification/terminal title.
      * @returns Result indicating success, environment, and any remaining missing packages.
      */
-    async ensurePackages(options: {
-        requiredPackages: PackageDependency[];
-        title?: string;
-    }): Promise<{
+    async ensurePackages(options: { requiredPackages: PackageDependency[]; title?: string }): Promise<{
         success: boolean;
         environment?: NukeEnvironment;
         command?: string;
         missingPackages?: string[];
         installed?: boolean;
     }> {
-        const {
-            requiredPackages,
-            title = 'Install missing dependencies'
-        } = options;
+        const { requiredPackages, title = 'Install missing dependencies' } = options;
 
         // 1. Get the configured environment only (no fallback discovery)
         const env = await this.nukeCore.getSelectedEnvironment();
@@ -610,10 +587,7 @@ export class EnvironmentActionsHelper {
         const pkgList = missing.join(', ');
 
         // 3. Prompt user with a notification action
-        const action = await this.messageService.warn(
-            `Missing packages in ${env.name}: ${pkgList}`,
-            'Install'
-        );
+        const action = await this.messageService.warn(`Missing packages in ${env.name}: ${pkgList}`, 'Install');
 
         if (action !== 'Install') {
             return {
@@ -625,10 +599,10 @@ export class EnvironmentActionsHelper {
         }
 
         // 4. Derive install options from the PackageDependency definitions
-        const missingDefs = requiredPackages.filter(p => missing.includes(p.name));
-        const useConda = missingDefs.some(p => p.condaOnly);
-        const channels = [...new Set(missingDefs.flatMap(p => p.channels ?? []))];
-        const extraIndexUrl = missingDefs.find(p => p.extraIndexUrl)?.extraIndexUrl;
+        const missingDefs = requiredPackages.filter((p) => missing.includes(p.name));
+        const useConda = missingDefs.some((p) => p.condaOnly);
+        const channels = [...new Set(missingDefs.flatMap((p) => p.channels ?? []))];
+        const extraIndexUrl = missingDefs.find((p) => p.extraIndexUrl)?.extraIndexUrl;
 
         // 5. Install missing packages via unified helper
         const installResult = await this.installPackages({
@@ -673,7 +647,7 @@ export class EnvironmentActionsHelper {
      * @returns Resolves when the terminal exits or the timeout is reached.
      */
     async waitForTerminal(terminal: TerminalWidget): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             const maxWait = 10 * 60 * 1000; // 10 minutes max
             const interval = 1000;
             let elapsed = 0;

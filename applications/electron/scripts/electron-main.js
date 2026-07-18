@@ -8,9 +8,7 @@ const isInsideAsar = __dirname.includes('.asar');
 // In packaged apps, plugins are placed in extraResources at resources/app/plugins.
 // In dev mode, they may be at the project root (../../plugins relative to app dir)
 // or in the app directory itself (../plugins relative to scripts dir).
-const bundledPluginsDir = isInsideAsar
-    ? path.join(process.resourcesPath, 'app', 'plugins')
-    : path.resolve(__dirname, '..', 'plugins');
+const bundledPluginsDir = isInsideAsar ? path.join(process.resourcesPath, 'app', 'plugins') : path.resolve(__dirname, '..', 'plugins');
 
 const devPluginsDir = path.resolve(__dirname, '..', '..', '..', 'plugins');
 const activePluginsDir = fs.existsSync(bundledPluginsDir) ? bundledPluginsDir : devPluginsDir;

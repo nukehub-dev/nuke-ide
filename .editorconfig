@@ -1,0 +1,26 @@
+# EditorConfig — https://editorconfig.org
+# Top-level defaults; language sections below refine them.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# ─── Python ───────────────────────────────────────────────────────────────
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# ─── TypeScript / JavaScript / CSS / HTML ─────────────────────────────────
+[*.{ts,tsx,js,jsx,cjs,mjs,css,scss,html}]
+indent_style = space
+indent_size = 4
+max_line_length = 140
+
+# ─── JSON / YAML / Markdown / TOML ────────────────────────────────────────
+[*.{json,yml,yaml,md,toml}]
+indent_style = space
+indent_size = 2

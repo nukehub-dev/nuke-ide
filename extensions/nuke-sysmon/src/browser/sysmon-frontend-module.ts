@@ -35,7 +35,7 @@ import { SysmonWidget } from './sysmon-widget';
 import { SysmonCommandContribution } from './sysmon-command-contribution';
 import { bindSysmonPreferences } from './sysmon-preferences';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     // Preferences
     bindSysmonPreferences(bind);
 
@@ -53,8 +53,10 @@ export default new ContainerModule(bind => {
 
     // Widget Factory
     bind(SysmonWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(ctx => ({
-        id: SysmonWidget.ID,
-        createWidget: () => ctx.container.get(SysmonWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: SysmonWidget.ID,
+            createWidget: () => ctx.container.get(SysmonWidget)
+        }))
+        .inSingletonScope();
 });

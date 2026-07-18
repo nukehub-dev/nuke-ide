@@ -4,10 +4,10 @@ This directory contains the product documentation for NukeIDE.
 
 ## Where docs live
 
-| Location | Purpose |
-|----------|---------|
-| `docs/*.md` | Product-level docs (Getting Started, Installation, Architecture, etc.) |
-| `extensions/*/docs/` | **Source of truth** for extension-specific docs |
+| Location             | Purpose                                                                |
+| -------------------- | ---------------------------------------------------------------------- |
+| `docs/*.md`          | Product-level docs (Getting Started, Installation, Architecture, etc.) |
+| `extensions/*/docs/` | **Source of truth** for extension-specific docs                        |
 
 The native docs widget (`extensions/nuke-docs`) reads directly from both locations — **no build step required**.
 
@@ -30,6 +30,7 @@ The native docs widget (`extensions/nuke-docs`) reads directly from both locatio
 Open it from the IDE via `Help → NukeIDE Documentation` or the Getting Started page.
 
 Features:
+
 - Renders markdown with Theia-native theming
 - Full-text search across all docs
 - Table of contents for the current page

@@ -21,7 +21,7 @@ if (content.includes('THEIA_DEFAULT_PLUGINS')) {
     process.exit(0);
 }
 
-const marker = "process.env.THEIA_APP_PROJECT_PATH = theiaAppProjectPath;";
+const marker = 'process.env.THEIA_APP_PROJECT_PATH = theiaAppProjectPath;';
 const injection = `
     // Bundled plugins (packaged app) or project-root plugins (dev)
     const pluginsDir = resolve(theiaAppProjectPath, 'plugins');

@@ -102,7 +102,10 @@ export type OpenMCStudioPreferences = PreferenceProxy<OpenMCStudioConfiguration>
  * @param schema - The preference schema to use (defaults to {@link OpenMCStudioPreferenceSchema}).
  * @returns A typed {@link PreferenceProxy} for OpenMC Studio configuration.
  */
-export function createOpenMCStudioPreferences(preferences: PreferenceService, schema: PreferenceSchema = OpenMCStudioPreferenceSchema): OpenMCStudioPreferences {
+export function createOpenMCStudioPreferences(
+    preferences: PreferenceService,
+    schema: PreferenceSchema = OpenMCStudioPreferenceSchema
+): OpenMCStudioPreferences {
     return createPreferenceProxy(preferences, schema);
 }
 
@@ -112,11 +115,13 @@ export function createOpenMCStudioPreferences(preferences: PreferenceService, sc
  * @param bind - The Inversify {@link interfaces.Bind} function.
  */
 export function bindOpenMCStudioPreferences(bind: interfaces.Bind): void {
-    bind(OpenMCStudioPreferences).toDynamicValue(ctx => {
-        const preferences = ctx.container.get<PreferenceService>(PreferenceService);
-        const contribution = ctx.container.get<PreferenceContribution>(OpenMCStudioPreferenceContribution);
-        return createOpenMCStudioPreferences(preferences, contribution.schema);
-    }).inSingletonScope();
+    bind(OpenMCStudioPreferences)
+        .toDynamicValue((ctx) => {
+            const preferences = ctx.container.get<PreferenceService>(PreferenceService);
+            const contribution = ctx.container.get<PreferenceContribution>(OpenMCStudioPreferenceContribution);
+            return createOpenMCStudioPreferences(preferences, contribution.schema);
+        })
+        .inSingletonScope();
     bind(OpenMCStudioPreferenceContribution).toConstantValue({ schema: OpenMCStudioPreferenceSchema });
     bind(PreferenceContribution).toService(OpenMCStudioPreferenceContribution);
 }

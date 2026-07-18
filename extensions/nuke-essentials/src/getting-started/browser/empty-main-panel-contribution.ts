@@ -54,7 +54,7 @@ export class EmptyMainPanelContribution implements FrontendApplicationContributi
 
         // Helper to create key badge HTML - badges on individual keys only
         const createKeyCombo = (keys: string[]) => {
-            return keys.map(k => `<span class="key-badge">${k}</span>`).join('<span class="key-separator">+</span>');
+            return keys.map((k) => `<span class="key-badge">${k}</span>`).join('<span class="key-separator">+</span>');
         };
 
         this.containerElement.innerHTML = `

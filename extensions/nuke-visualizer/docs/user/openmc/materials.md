@@ -7,12 +7,15 @@ The Material Explorer parses `materials.xml` and gives you a searchable, interac
 ## Opening Materials
 
 ### Method 1: Click
+
 Click `materials.xml` in the Explorer.
 
 ### Method 2: Menu
+
 `Tools → Visualizer → OpenMC → Materials → View Materials`
 
 ### Method 3: Command Palette
+
 `Ctrl+Shift+P` → **"View Materials"**
 
 ---
@@ -21,16 +24,16 @@ Click `materials.xml` in the Explorer.
 
 The left panel shows all materials as cards:
 
-| Field | Description |
-|-------|-------------|
-| **ID** | Material identifier |
-| **Name** | Material name (from XML) |
-| **Density** | Value and unit (g/cm³, kg/m³, atom/b-cm, or `sum`) |
-| **Depletable?** | Whether the material is marked for burnup |
-| **Temperature** | Optional temperature in Kelvin |
-| **Volume** | Optional volume in cm³ |
-| **Nuclides** | Count of constituent nuclides |
-| **S(α,β)** | Count of thermal scattering assignments |
+| Field           | Description                                        |
+| --------------- | -------------------------------------------------- |
+| **ID**          | Material identifier                                |
+| **Name**        | Material name (from XML)                           |
+| **Density**     | Value and unit (g/cm³, kg/m³, atom/b-cm, or `sum`) |
+| **Depletable?** | Whether the material is marked for burnup          |
+| **Temperature** | Optional temperature in Kelvin                     |
+| **Volume**      | Optional volume in cm³                             |
+| **Nuclides**    | Count of constituent nuclides                      |
+| **S(α,β)**      | Count of thermal scattering assignments            |
 
 Click a material card to expand it and see the full composition.
 
@@ -40,11 +43,11 @@ Click a material card to expand it and see the full composition.
 
 When expanded, each material shows a table of nuclides:
 
-| Column | Description |
-|--------|-------------|
-| **Nuclide** | Name (e.g., `U235`, `O16`) |
-| **Fraction** | Weight or atomic fraction |
-| **Type** | `wo` (weight %) or `ao` (atomic %) |
+| Column       | Description                        |
+| ------------ | ---------------------------------- |
+| **Nuclide**  | Name (e.g., `U235`, `O16`)         |
+| **Fraction** | Weight or atomic fraction          |
+| **Type**     | `wo` (weight %) or `ao` (atomic %) |
 
 ### Thermal Scattering
 
@@ -55,6 +58,7 @@ If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed below the n
 ## Search & Filter
 
 Use the search bar at the top to filter materials:
+
 - By **name** (e.g., "fuel", "coolant")
 - By **nuclide** (e.g., "U235" — shows all materials containing U235)
 - By **density range**
@@ -66,15 +70,16 @@ Use the search bar at the top to filter materials:
 Click **"Show Cell Usage"** on any material to see which cells in the geometry reference it.
 
 Requirements:
+
 - A `geometry.xml` file must exist in the same directory as `materials.xml`.
 
 The linkage panel shows:
 
-| Column | Description |
-|--------|-------------|
-| **Cell ID** | Cell identifier |
-| **Cell Name** | Name from geometry.xml |
-| **Universe** | Which universe the cell belongs to |
+| Column        | Description                        |
+| ------------- | ---------------------------------- |
+| **Cell ID**   | Cell identifier                    |
+| **Cell Name** | Name from geometry.xml             |
+| **Universe**  | Which universe the cell belongs to |
 
 Click a cell to **highlight it in the 3D Geometry Viewer**.
 

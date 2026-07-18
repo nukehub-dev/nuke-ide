@@ -27,9 +27,9 @@
 
 /**
  * XML Generation Service
- * 
+ *
  * Frontend service for generating OpenMC XML files from the simulation state.
- * 
+ *
  * @module openmc-studio/browser
  */
 
@@ -56,10 +56,9 @@ export interface XMLGenerationOptions {
 
 @injectable()
 export class OpenMCXMLGenerationService {
-    
     @inject(MessageService)
     protected readonly messageService: MessageService;
-    
+
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
 
@@ -67,23 +66,19 @@ export class OpenMCXMLGenerationService {
      * Generate XML files from the current state using a request object.
      */
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult>;
-    
+
     /**
      * Generate XML files from the current state using individual parameters.
      */
-    async generateXML(
-        state: OpenMCState,
-        outputDirectory: string,
-        options?: XMLGenerationOptions
-    ): Promise<XMLGenerationResult>;
-    
+    async generateXML(state: OpenMCState, outputDirectory: string, options?: XMLGenerationOptions): Promise<XMLGenerationResult>;
+
     async generateXML(
         arg1: OpenMCState | XMLGenerationRequest,
         outputDirectory?: string,
         options?: XMLGenerationOptions
     ): Promise<XMLGenerationResult> {
         let request: XMLGenerationRequest;
-        
+
         if (typeof arg1 === 'object' && 'state' in arg1 && 'outputDirectory' in arg1) {
             // Called with XMLGenerationRequest object
             request = arg1 as XMLGenerationRequest;
@@ -107,22 +102,18 @@ export class OpenMCXMLGenerationService {
 
         try {
             const result = await this.backendService.generateXML(request);
-            
+
             if (result.success) {
-                this.messageService.info(
-                    `Generated ${result.generatedFiles.length} XML files`
-                );
+                this.messageService.info(`Generated ${result.generatedFiles.length} XML files`);
             } else {
-                this.messageService.error(
-                    `XML generation failed: ${result.error}`
-                );
+                this.messageService.error(`XML generation failed: ${result.error}`);
             }
-            
+
             return result;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`XML generation error: ${msg}`);
-            
+
             return {
                 success: false,
                 generatedFiles: [],
@@ -137,22 +128,18 @@ export class OpenMCXMLGenerationService {
     async importXML(request: XMLImportRequest): Promise<XMLImportResult> {
         try {
             const result = await this.backendService.importXML(request);
-            
+
             if (result.success) {
-                this.messageService.info(
-                    `Imported XML files with ${result.warnings?.length || 0} warnings`
-                );
+                this.messageService.info(`Imported XML files with ${result.warnings?.length || 0} warnings`);
             } else {
-                this.messageService.error(
-                    `XML import failed: ${result.errors?.join(', ')}`
-                );
+                this.messageService.error(`XML import failed: ${result.errors?.join(', ')}`);
             }
-            
+
             return result;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`XML import error: ${msg}`);
-            
+
             return {
                 success: false,
                 state: undefined,

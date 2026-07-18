@@ -64,7 +64,6 @@ export const OPENMC_EXTRA_INDEX_URL = 'https://shimwell.github.io/wheels';
 
 @injectable()
 export class OpenMCEnvironmentService {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
@@ -132,10 +131,7 @@ export class OpenMCEnvironmentService {
 
         // Check OpenMC in the configured env only (no fallback discovery)
         try {
-            const depCheck = await this.nukeCore.checkDependencies(
-                [{ name: 'openmc' }],
-                env.pythonPath
-            );
+            const depCheck = await this.nukeCore.checkDependencies([{ name: 'openmc' }], env.pythonPath);
 
             if (depCheck.available) {
                 this.currentStatus = {
@@ -174,10 +170,7 @@ export class OpenMCEnvironmentService {
 
         for (const env of allEnvs) {
             try {
-                const depCheck = await this.nukeCore.checkDependencies(
-                    [{ name: 'openmc' }],
-                    env.pythonPath
-                );
+                const depCheck = await this.nukeCore.checkDependencies([{ name: 'openmc' }], env.pythonPath);
                 if (depCheck.available) {
                     openmcEnvs.push({
                         ...env,
@@ -246,9 +239,7 @@ export class OpenMCEnvironmentService {
         pythonCommand?: string;
     }> {
         const result = await this.envActions.ensurePackages({
-            requiredPackages: [
-                { name: 'openmc', extraIndexUrl: OPENMC_EXTRA_INDEX_URL }
-            ],
+            requiredPackages: [{ name: 'openmc', extraIndexUrl: OPENMC_EXTRA_INDEX_URL }],
             title: 'Install OpenMC'
         });
 
@@ -314,13 +305,7 @@ export class OpenMCEnvironmentService {
         if (!pythonCommand) return false;
 
         try {
-            const result = await this.nukeCore.checkDependencies(
-                [
-                    { name: 'pydagmc' },
-                    { name: 'pymoab' }
-                ],
-                pythonCommand
-            );
+            const result = await this.nukeCore.checkDependencies([{ name: 'pydagmc' }, { name: 'pymoab' }], pythonCommand);
             return result.available;
         } catch {
             return false;

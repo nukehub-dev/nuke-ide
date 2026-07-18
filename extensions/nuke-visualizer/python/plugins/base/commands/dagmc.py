@@ -5,14 +5,14 @@ Provides CLI commands for DAGMC model inspection and interactive visualization.
 These are invoked via: python server.py dagmc.info --file <path>
 """
 
-import sys
 import json
+import sys
 
-from nuke_viz.plugin import command, arg
+from nuke_viz.plugin import arg, command
 
 
-@command('dagmc.info', help='Get DAGMC model metadata (volumes, materials, groups)')
-@arg('--file', required=True, help='Path to the input .h5m file')
+@command("dagmc.info", help="Get DAGMC model metadata (volumes, materials, groups)")
+@arg("--file", required=True, help="Path to the input .h5m file")
 def cmd_dagmc_info(args):
     """Extract metadata from a DAGMC .h5m file."""
     try:
@@ -30,11 +30,11 @@ def cmd_dagmc_info(args):
         return 1
 
 
-@command('dagmc.visualize', help='Visualize a DAGMC .h5m file with volume/material/group selection')
-@arg('--file', required=True, help='Path to the input .h5m file')
-@arg('--port', type=int, help='Server port')
-@arg('--theme', type=str, default='dark', choices=['dark', 'light'], help='UI theme')
-@arg('--highlight', help='Volume ID(s) to highlight (comma-separated)')
+@command("dagmc.visualize", help="Visualize a DAGMC .h5m file with volume/material/group selection")
+@arg("--file", required=True, help="Path to the input .h5m file")
+@arg("--port", type=int, help="Server port")
+@arg("--theme", type=str, default="dark", choices=["dark", "light"], help="UI theme")
+@arg("--highlight", help="Volume ID(s) to highlight (comma-separated)")
 def cmd_dagmc_visualize(args):
     """Start an interactive DAGMC visualization server."""
     try:
@@ -46,7 +46,7 @@ def cmd_dagmc_visualize(args):
     highlight_ids = None
     if args.highlight:
         if isinstance(args.highlight, str):
-            highlight_ids = [int(x.strip()) for x in args.highlight.split(',')]
+            highlight_ids = [int(x.strip()) for x in args.highlight.split(",")]
         else:
             highlight_ids = [int(args.highlight)]
 

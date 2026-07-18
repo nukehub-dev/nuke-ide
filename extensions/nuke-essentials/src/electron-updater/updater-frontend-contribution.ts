@@ -1,11 +1,4 @@
-import {
-    Command,
-    CommandContribution,
-    CommandRegistry,
-    MenuContribution,
-    MenuModelRegistry,
-    MessageService,
-} from '@theia/core/lib/common';
+import { Command, CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry, MessageService } from '@theia/core/lib/common';
 import { CommonMenus } from '@theia/core/lib/browser';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { NukeUpdaterService } from '../common/updater-protocol';
@@ -13,17 +6,16 @@ import { NukeUpdaterService } from '../common/updater-protocol';
 export namespace NukeUpdaterCommands {
     export const CHECK_FOR_UPDATES: Command = {
         id: 'nuke-updater:check-for-updates',
-        label: 'Check for Updates...',
+        label: 'Check for Updates...'
     };
     export const RESTART_TO_UPDATE: Command = {
         id: 'nuke-updater:restart-to-update',
-        label: 'Restart to Update',
+        label: 'Restart to Update'
     };
 }
 
 @injectable()
 export class NukeUpdaterFrontendContribution implements CommandContribution, MenuContribution {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -51,7 +43,7 @@ export class NukeUpdaterFrontendContribution implements CommandContribution, Men
                 await this.messageService.info('Checking for updates...');
             },
             isEnabled: () => !this.readyToUpdate,
-            isVisible: () => !this.readyToUpdate,
+            isVisible: () => !this.readyToUpdate
         });
 
         registry.registerCommand(NukeUpdaterCommands.RESTART_TO_UPDATE, {
@@ -59,7 +51,7 @@ export class NukeUpdaterFrontendContribution implements CommandContribution, Men
                 this.updaterService.restartToUpdate();
             },
             isEnabled: () => this.readyToUpdate,
-            isVisible: () => this.readyToUpdate,
+            isVisible: () => this.readyToUpdate
         });
     }
 
@@ -67,12 +59,12 @@ export class NukeUpdaterFrontendContribution implements CommandContribution, Men
         registry.registerMenuAction(CommonMenus.HELP, {
             commandId: NukeUpdaterCommands.CHECK_FOR_UPDATES.id,
             label: NukeUpdaterCommands.CHECK_FOR_UPDATES.label,
-            order: 'z1',
+            order: 'z1'
         });
         registry.registerMenuAction(CommonMenus.HELP, {
             commandId: NukeUpdaterCommands.RESTART_TO_UPDATE.id,
             label: NukeUpdaterCommands.RESTART_TO_UPDATE.label,
-            order: 'z2',
+            order: 'z2'
         });
     }
 }

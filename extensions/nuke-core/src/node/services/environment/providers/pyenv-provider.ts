@@ -90,10 +90,7 @@ export class PyenvProvider implements EnvironmentProvider {
                         continue;
                     }
 
-                    const pythonPath = path.join(
-                        prefixOutput,
-                        isWindows ? 'python.exe' : 'bin/python'
-                    );
+                    const pythonPath = path.join(prefixOutput, isWindows ? 'python.exe' : 'bin/python');
 
                     const fs = await import('fs');
                     await fs.promises.access(pythonPath);
@@ -133,10 +130,7 @@ export class PyenvProvider implements EnvironmentProvider {
                 return undefined;
             }
 
-            const pythonPath = path.join(
-                prefixOutput,
-                isWindows ? 'python.exe' : 'bin/python'
-            );
+            const pythonPath = path.join(prefixOutput, isWindows ? 'python.exe' : 'bin/python');
 
             const fs = await import('fs');
             await fs.promises.access(pythonPath);

@@ -72,7 +72,7 @@ export class SystemProvider implements EnvironmentProvider {
                 const { execSync } = await import('child_process');
                 execSync(`${cmd} --version`, { stdio: 'ignore' });
                 const env = await getPythonInfo(cmd, 'system');
-                if (env && !environments.find(e => e.pythonPath === env.pythonPath)) {
+                if (env && !environments.find((e) => e.pythonPath === env.pythonPath)) {
                     environments.push(env);
                 }
             } catch {

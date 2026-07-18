@@ -6,14 +6,14 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 
 ## Supported Files
 
-| File | Extension | What You Can Do |
-|------|-----------|-----------------|
-| Statepoint | `statepoint*.h5` | View metadata, tallies, k-eff, runtime, source distribution |
-| Source | `source.h5` | Visualize source particle distribution in 3D |
-| Depletion results | `depletion_results.h5` | Plot nuclide evolution, mass changes, activity, decay heat |
-| Geometry | `geometry.xml` | Browse CSG hierarchy, view cells/surfaces/lattices in 3D |
-| Materials | `materials.xml` | Inspect compositions, mix materials, trace cell usage |
-| DAGMC geometry | `.h5m` | Visualize geometry with optional tally overlay |
+| File              | Extension              | What You Can Do                                             |
+| ----------------- | ---------------------- | ----------------------------------------------------------- |
+| Statepoint        | `statepoint*.h5`       | View metadata, tallies, k-eff, runtime, source distribution |
+| Source            | `source.h5`            | Visualize source particle distribution in 3D                |
+| Depletion results | `depletion_results.h5` | Plot nuclide evolution, mass changes, activity, decay heat  |
+| Geometry          | `geometry.xml`         | Browse CSG hierarchy, view cells/surfaces/lattices in 3D    |
+| Materials         | `materials.xml`        | Inspect compositions, mix materials, trace cell usage       |
+| DAGMC geometry    | `.h5m`                 | Visualize geometry with optional tally overlay              |
 
 ---
 
@@ -42,14 +42,14 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 
 All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 
-| Submenu | Commands |
-|---------|----------|
-| **Statepoint** | View Statepoint... |
-| **Tally** | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Overlay Tally on Geometry with Source, Show Tally Info |
-| **Depletion** | View Depletion Results..., Compare Depletion Results... |
-| **Geometry** | View Geometry Hierarchy..., Check Geometry Overlaps... |
-| **Materials** | View Materials |
-| **Plotting** | Plot Cross-Sections |
+| Submenu        | Commands                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Statepoint** | View Statepoint...                                                                                                   |
+| **Tally**      | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Overlay Tally on Geometry with Source, Show Tally Info |
+| **Depletion**  | View Depletion Results..., Compare Depletion Results...                                                              |
+| **Geometry**   | View Geometry Hierarchy..., Check Geometry Overlaps...                                                               |
+| **Materials**  | View Materials                                                                                                       |
+| **Plotting**   | Plot Cross-Sections                                                                                                  |
 
 ---
 

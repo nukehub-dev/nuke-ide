@@ -3,8 +3,6 @@
 import random
 
 import pytest
-
-from cad_conversion import core
 from cad_conversion.core import (
     SurfaceFitResult,
     TopologyInfo,
@@ -82,22 +80,28 @@ class TestDistancePointToLine:
 
 
 class TestIsAxisAligned:
-    @pytest.mark.parametrize("axis,expected", [
-        ([1, 0, 0], 'x'),
-        ([-1, 0, 0], 'x'),
-        ([0, 1, 0], 'y'),
-        ([0, 0, -1], 'z'),
-        ([0.98, 0.01, 0.01], 'x'),
-    ])
+    @pytest.mark.parametrize(
+        "axis,expected",
+        [
+            ([1, 0, 0], "x"),
+            ([-1, 0, 0], "x"),
+            ([0, 1, 0], "y"),
+            ([0, 0, -1], "z"),
+            ([0.98, 0.01, 0.01], "x"),
+        ],
+    )
     def test_aligned_axes(self, axis, expected):
         """Axes close to a coordinate axis are classified."""
         assert is_axis_aligned(axis) == expected
 
-    @pytest.mark.parametrize("axis", [
-        [0.7071, 0.7071, 0.0],
-        [0.9, 0.09, 0.09],   # dominant x but outside default tol
-        [1.0, 0.06, 0.0],    # second component exceeds tol
-    ])
+    @pytest.mark.parametrize(
+        "axis",
+        [
+            [0.7071, 0.7071, 0.0],
+            [0.9, 0.09, 0.09],  # dominant x but outside default tol
+            [1.0, 0.06, 0.0],  # second component exceeds tol
+        ],
+    )
     def test_non_aligned_axes_return_none(self, axis):
         """Tilted axes return None."""
         assert is_axis_aligned(axis) is None
@@ -142,8 +146,12 @@ class TestRansacFit:
             return abs(point[1] - model)
 
         model, inlier_idx = ransac_fit(
-            points, fit_fn, evaluate_fn,
-            sample_size=3, max_iterations=200, inlier_threshold=0.5,
+            points,
+            fit_fn,
+            evaluate_fn,
+            sample_size=3,
+            max_iterations=200,
+            inlier_threshold=0.5,
         )
         assert model is not None
         # Refit happens on the full inlier set, so the mean y is ~2.0.
@@ -156,8 +164,7 @@ class TestRansacFit:
 class TestDataclasses:
     def test_surface_fit_result_defaults(self):
         """Optional fields default to None and metadata to an empty dict."""
-        r = SurfaceFitResult(surface_type='plane', coefficients=[0, 0, 1, -5],
-                             max_deviation=0.0)
+        r = SurfaceFitResult(surface_type="plane", coefficients=[0, 0, 1, -5], max_deviation=0.0)
         assert r.center is None
         assert r.axis is None
         assert r.radius is None
@@ -166,9 +173,9 @@ class TestDataclasses:
 
     def test_surface_fit_result_metadata_not_shared(self):
         """The default metadata dict is not shared between instances."""
-        r1 = SurfaceFitResult('plane', [], 0.0)
-        r2 = SurfaceFitResult('plane', [], 0.0)
-        r1.metadata['k'] = 1
+        r1 = SurfaceFitResult("plane", [], 0.0)
+        r2 = SurfaceFitResult("plane", [], 0.0)
+        r1.metadata["k"] = 1
         assert r2.metadata == {}
 
     def test_topology_info_defaults(self):

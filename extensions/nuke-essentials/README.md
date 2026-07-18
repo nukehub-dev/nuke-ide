@@ -12,14 +12,14 @@ Shared UI components, themes, and essential features for NukeIDE.
 
 Six custom IDE themes with consistent accent colors and nuclear-engineering-inspired palettes:
 
-| Theme | ID | Type |
-|-------|-----|------|
-| **Dark** | `nukeide-dark` | Dark |
-| **Light** | `nukeide-light` | Light |
-| **Blue Dark** | `nukeide-blue-dark` | Dark |
+| Theme          | ID                   | Type  |
+| -------------- | -------------------- | ----- |
+| **Dark**       | `nukeide-dark`       | Dark  |
+| **Light**      | `nukeide-light`      | Light |
+| **Blue Dark**  | `nukeide-blue-dark`  | Dark  |
 | **Blue Light** | `nukeide-blue-light` | Light |
-| **Red Dark** | `nukeide-red-dark` | Dark |
-| **Red Light** | `nukeide-red-light` | Light |
+| **Red Dark**   | `nukeide-red-dark`   | Dark  |
+| **Red Light**  | `nukeide-red-light`  | Light |
 
 Switch themes via **Settings → Color Theme**.
 
@@ -27,16 +27,17 @@ Switch themes via **Settings → Color Theme**.
 
 React components available for import by other extensions:
 
-| Component | Path | Purpose |
-|-----------|------|---------|
-| `Tooltip` | `nuke-essentials/lib/theme/browser/components` | Hover tooltip with themed styling |
-| `ColorPicker` | `nuke-essentials/lib/theme/browser/components` | Hex color input with preset swatches |
-| `LoadingSpinner` | `nuke-essentials/lib/theme/browser/components` | Themed loading indicator |
-| `Logo` | `nuke-essentials/lib/theme/browser/components` | NukeIDE logo SVG |
+| Component        | Path                                           | Purpose                              |
+| ---------------- | ---------------------------------------------- | ------------------------------------ |
+| `Tooltip`        | `nuke-essentials/lib/theme/browser/components` | Hover tooltip with themed styling    |
+| `ColorPicker`    | `nuke-essentials/lib/theme/browser/components` | Hex color input with preset swatches |
+| `LoadingSpinner` | `nuke-essentials/lib/theme/browser/components` | Themed loading indicator             |
+| `Logo`           | `nuke-essentials/lib/theme/browser/components` | NukeIDE logo SVG                     |
 
 ### 🚀 Getting Started Widget
 
 A welcome panel shown on first launch with:
+
 - Quick links to common actions
 - NukeIDE tips and quotes
 - Recent projects

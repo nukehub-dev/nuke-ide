@@ -6,7 +6,7 @@ import { NukeLabMenuContribution } from './nukelab-integration-menu-contribution
 import { NukeLabSidebarContribution } from './nukelab-integration-sidebar-contribution';
 import { NukeLabAppStatusService } from './nukelab-integration-app-status-service';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     bind(NukeLabAppStatusService).toSelf().inSingletonScope();
 
     bind(NukeLabCommandContribution).toSelf().inSingletonScope();

@@ -51,11 +51,7 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
-import {
-    NukeCoreBackendService,
-    NUKE_CORE_BACKEND_PATH,
-    NukeCoreBackendServiceInterface
-} from '../common/nuke-core-protocol';
+import { NukeCoreBackendService, NUKE_CORE_BACKEND_PATH, NukeCoreBackendServiceInterface } from '../common/nuke-core-protocol';
 import { NukeCoreBackendServiceImpl } from './nuke-core-backend-service';
 import { EnvironmentService, PackageService, HealthService } from './services';
 
@@ -71,11 +67,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(NukeCoreBackendServiceImpl).toSelf().inSingletonScope();
     bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService).toService(NukeCoreBackendServiceImpl);
 
-    bind<ConnectionHandler>(ConnectionHandler).toDynamicValue(({ container }) =>
-        new JsonRpcConnectionHandler<NukeCoreBackendServiceInterface>(NUKE_CORE_BACKEND_PATH, () => {
-            return container.get<NukeCoreBackendServiceInterface>(NukeCoreBackendService);
-        })
-    ).inSingletonScope();
+    bind<ConnectionHandler>(ConnectionHandler)
+        .toDynamicValue(
+            ({ container }) =>
+                new JsonRpcConnectionHandler<NukeCoreBackendServiceInterface>(NUKE_CORE_BACKEND_PATH, () => {
+                    return container.get<NukeCoreBackendServiceInterface>(NukeCoreBackendService);
+                })
+        )
+        .inSingletonScope();
 
     console.log('[NukeCore] Backend module initialized');
 });

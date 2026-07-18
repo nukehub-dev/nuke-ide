@@ -64,7 +64,6 @@ import { getPythonInfo } from './utils/python-info';
  */
 @injectable()
 export class EnvironmentService {
-
     private config: PythonConfig = {};
     private cachedPythonCommand?: string;
     private environmentsCache?: NukeEnvironment[];
@@ -226,15 +225,15 @@ export class EnvironmentService {
      * @see {@link checkPackages}
      * @see {@link buildInstallSuggestion}
      */
-    async detectPythonWithRequirements(
-        options: PythonDetectionOptions
-    ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+    async detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
         const { requiredPackages = [], autoDetectEnvs = [], searchWorkspaceVenvs = false } = options;
         const warnings: string[] = [];
         const errors: string[] = [];
 
         // Helper to test Python with dependencies
-        const testPythonWithDeps = async (pythonPath: string): Promise<{
+        const testPythonWithDeps = async (
+            pythonPath: string
+        ): Promise<{
             success: boolean;
             missing: string[];
             mismatches: string[];
@@ -248,7 +247,7 @@ export class EnvironmentService {
 
                 const result = await this.checkPackages(requiredPackages, pythonPath);
 
-                return { success: result.available, missing: result.missing, mismatches: result.versionMismatches.map(m => m.name), env };
+                return { success: result.available, missing: result.missing, mismatches: result.versionMismatches.map((m) => m.name), env };
             } catch {
                 return { success: false, missing: ['Python check failed'], mismatches: [] };
             }
@@ -288,7 +287,9 @@ export class EnvironmentService {
                     const missingPkgs = depCheck.missing.join(', ');
                     const installCmd = this.buildInstallSuggestion(requiredPackages, depCheck.missing);
                     errors.push(`Conda env '${this.config.condaEnv}' missing: ${missingPkgs}`);
-                    warnings.push(`Configured conda environment '${this.config.condaEnv}' is missing: ${missingPkgs}. To use it, run: ${installCmd}`);
+                    warnings.push(
+                        `Configured conda environment '${this.config.condaEnv}' is missing: ${missingPkgs}. To use it, run: ${installCmd}`
+                    );
                 }
             } else {
                 errors.push(`Conda environment '${this.config.condaEnv}' not found`);
@@ -302,12 +303,13 @@ export class EnvironmentService {
             if (matchingEnvironments.length > 0) {
                 const bestMatch = matchingEnvironments[0];
                 this.cachePythonResult(bestMatch.pythonPath, bestMatch);
-                const pkgList = requiredPackages.map(p => p.name).join(', ');
-                const allPkgNames = requiredPackages.map(p => p.name);
+                const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                const allPkgNames = requiredPackages.map((p) => p.name);
                 const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                const warning = warnings.length > 0
-                    ? `${warnings.join(' ')}. Using environment '${bestMatch.name}' with all required packages.`
-                    : `Using environment '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                const warning =
+                    warnings.length > 0
+                        ? `${warnings.join(' ')}. Using environment '${bestMatch.name}' with all required packages.`
+                        : `Using environment '${bestMatch.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                 return { success: true, command: bestMatch.pythonPath, warning, environment: bestMatch };
             }
         }
@@ -319,12 +321,13 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(condaPython);
                 if (depCheck.success) {
                     this.cachePythonResult(condaPython, depCheck.env!);
-                    const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map((p) => p.name);
                     const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                    const warning = warnings.length > 0
-                        ? `${warnings.join(' ')}. Using auto-detected conda environment '${envName}'.`
-                        : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                    const warning =
+                        warnings.length > 0
+                            ? `${warnings.join(' ')}. Using auto-detected conda environment '${envName}'.`
+                            : `Using '${envName}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: condaPython, warning, environment: depCheck.env };
                 } else {
                     errors.push(`Auto-detected conda env '${envName}' missing: ${depCheck.missing.join(', ')}`);
@@ -339,12 +342,13 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(env.pythonPath);
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
-                    const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map((p) => p.name);
                     const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                    const warning = warnings.length > 0
-                        ? `${warnings.join(' ')} Using workspace venv '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                    const warning =
+                        warnings.length > 0
+                            ? `${warnings.join(' ')} Using workspace venv '${env.name}'.`
+                            : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -357,12 +361,13 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(env.pythonPath);
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
-                    const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map((p) => p.name);
                     const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                    const warning = warnings.length > 0
-                        ? `${warnings.join(' ')} Using poetry env '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                    const warning =
+                        warnings.length > 0
+                            ? `${warnings.join(' ')} Using poetry env '${env.name}'.`
+                            : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -377,12 +382,13 @@ export class EnvironmentService {
                 const depCheck = await testPythonWithDeps(env.pythonPath);
                 if (depCheck.success) {
                     this.cachePythonResult(env.pythonPath, depCheck.env!);
-                    const pkgList = requiredPackages.map(p => p.name).join(', ');
-                    const allPkgNames = requiredPackages.map(p => p.name);
+                    const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                    const allPkgNames = requiredPackages.map((p) => p.name);
                     const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                    const warning = warnings.length > 0
-                        ? `${warnings.join(' ')} Using pyenv env '${env.name}'.`
-                        : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                    const warning =
+                        warnings.length > 0
+                            ? `${warnings.join(' ')} Using pyenv env '${env.name}'.`
+                            : `Using '${env.name}' with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                     return { success: true, command: env.pythonPath, warning, environment: depCheck.env };
                 }
             }
@@ -396,25 +402,31 @@ export class EnvironmentService {
             const depCheck = await testPythonWithDeps(systemPython);
             if (depCheck.success) {
                 this.cachePythonResult(systemPython, depCheck.env!);
-                const pkgList = requiredPackages.map(p => p.name).join(', ');
-                const allPkgNames = requiredPackages.map(p => p.name);
+                const pkgList = requiredPackages.map((p) => p.name).join(', ');
+                const allPkgNames = requiredPackages.map((p) => p.name);
                 const installCmd = this.buildInstallSuggestion(requiredPackages, allPkgNames);
-                const warning = warnings.length > 0
-                    ? `${warnings.join(' ')} Using system Python.`
-                    : `Using system Python with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
+                const warning =
+                    warnings.length > 0
+                        ? `${warnings.join(' ')} Using system Python.`
+                        : `Using system Python with required packages (${pkgList}). To use your configured environment, run: ${installCmd}`;
                 return { success: true, command: systemPython, warning, environment: depCheck.env };
             }
         }
 
         // No suitable Python found
-        const errorMessage = `Unable to find an environment with required packages.\n\n` +
-            `Required: ${requiredPackages.map(p => p.name).join(', ')}\n\n` +
-            `Details:\n${errors.map(e => '  • ' + e).join('\n')}`;
+        const errorMessage =
+            `Unable to find an environment with required packages.\n\n` +
+            `Required: ${requiredPackages.map((p) => p.name).join(', ')}\n\n` +
+            `Details:\n${errors.map((e) => '  • ' + e).join('\n')}`;
 
         return {
             success: false,
             error: errorMessage,
-            missingPackages: errors.filter(e => e.includes('missing')).map(e => e.split('missing: ')[1]?.split(', ')).flat().filter(Boolean) as string[]
+            missingPackages: errors
+                .filter((e) => e.includes('missing'))
+                .map((e) => e.split('missing: ')[1]?.split(', '))
+                .flat()
+                .filter(Boolean) as string[]
         };
     }
 
@@ -482,7 +494,10 @@ export class EnvironmentService {
      * @param pythonPath - Absolute path to the Python executable to test
      * @returns Promise resolving to availability, missing packages, version mismatches, and detected versions
      */
-    async checkPackages(packages: PackageDependency[], pythonPath: string): Promise<{
+    async checkPackages(
+        packages: PackageDependency[],
+        pythonPath: string
+    ): Promise<{
         available: boolean;
         missing: string[];
         versionMismatches: Array<{ name: string; found: string; required: string }>;
@@ -502,10 +517,10 @@ export class EnvironmentService {
                     : `import ${pkg.name}; print(${pkg.name}.__version__)`;
 
                 try {
-                    const version = execSync(
-                        `"${pythonPath}" -c "${versionCmd}"`,
-                        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-                    ).trim();
+                    const version = execSync(`"${pythonPath}" -c "${versionCmd}"`, {
+                        encoding: 'utf-8',
+                        stdio: ['pipe', 'pipe', 'ignore']
+                    }).trim();
                     versions[pkg.name] = version;
 
                     if (pkg.minVersion && this.compareVersions(version, pkg.minVersion) < 0) {
@@ -533,8 +548,7 @@ export class EnvironmentService {
                 }
 
                 // Strategy 3: confirm importable but version unknown
-                execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`,
-                    { stdio: 'ignore' });
+                execSync(`"${pythonPath}" -c "import ${pkg.name}${pkg.submodule ? '.' + pkg.submodule : ''}"`, { stdio: 'ignore' });
                 versions[pkg.name] = 'installed (version unknown)';
             } catch {
                 if (pkg.required !== false) {
@@ -562,12 +576,15 @@ export class EnvironmentService {
      * @returns An install command string (conda, pip, or combined)
      */
     private buildInstallSuggestion(packages: PackageDependency[], missingNames: string[]): string {
-        const missing = packages.filter(p => missingNames.includes(p.name));
-        const condaPkgs = missing.filter(p => p.condaOnly);
+        const missing = packages.filter((p) => missingNames.includes(p.name));
+        const condaPkgs = missing.filter((p) => p.condaOnly);
 
         // Default channels from config, fallback to conda-forge
         const defaultChannels = this.config.condaChannels
-            ? this.config.condaChannels.split(',').map(c => c.trim()).filter(Boolean)
+            ? this.config.condaChannels
+                  .split(',')
+                  .map((c) => c.trim())
+                  .filter(Boolean)
             : ['conda-forge'];
 
         const parts: string[] = [];
@@ -584,13 +601,13 @@ export class EnvironmentService {
             }
             for (const [channelsKey, names] of channelGroups) {
                 const channels = channelsKey.split(',');
-                const channelArgs = channels.flatMap(c => ['-c', c]).join(' ');
+                const channelArgs = channels.flatMap((c) => ['-c', c]).join(' ');
                 parts.push(`conda install ${channelArgs} ${names.join(' ')}`);
             }
         }
 
         // Pip packages: group by extra index URL
-        const pipPkgObjs = missing.filter(p => !p.condaOnly);
+        const pipPkgObjs = missing.filter((p) => !p.condaOnly);
         if (pipPkgObjs.length > 0) {
             const indexGroups = new Map<string | undefined, string[]>();
             for (const pkg of pipPkgObjs) {
@@ -622,8 +639,12 @@ export class EnvironmentService {
      * @see {@link filterAndSortEnvironments}
      */
     async listEnvironments(searchWorkspace = false): Promise<ListEnvironmentsResult> {
-        if (this.environmentsCache && this.environmentsCacheTime &&
-            Date.now() - this.environmentsCacheTime < this.CACHE_TTL && !searchWorkspace) {
+        if (
+            this.environmentsCache &&
+            this.environmentsCacheTime &&
+            Date.now() - this.environmentsCacheTime < this.CACHE_TTL &&
+            !searchWorkspace
+        ) {
             return this.filterAndSortEnvironments(this.environmentsCache);
         }
 
@@ -646,7 +667,7 @@ export class EnvironmentService {
         try {
             const condaEnvs = await this.condaProvider.listEnvironments();
             for (const env of condaEnvs) {
-                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                if (!environments.find((e) => e.pythonPath === env.pythonPath)) {
                     if (env.pythonPath === this.config.pythonPath || env.name === this.config.condaEnv) {
                         env.isActive = true;
                     }
@@ -661,7 +682,7 @@ export class EnvironmentService {
         try {
             const systemEnvs = await this.systemProvider.listEnvironments();
             for (const env of systemEnvs) {
-                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                if (!environments.find((e) => e.pythonPath === env.pythonPath)) {
                     environments.push(env);
                 }
             }
@@ -674,7 +695,7 @@ export class EnvironmentService {
             try {
                 const venvs = await this.venvProvider.listEnvironments();
                 for (const env of venvs) {
-                    if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                    if (!environments.find((e) => e.pythonPath === env.pythonPath)) {
                         environments.push(env);
                     }
                 }
@@ -687,7 +708,7 @@ export class EnvironmentService {
         try {
             const poetryEnvs = await this.poetryProvider.listEnvironments();
             for (const env of poetryEnvs) {
-                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                if (!environments.find((e) => e.pythonPath === env.pythonPath)) {
                     environments.push(env);
                 }
             }
@@ -699,7 +720,7 @@ export class EnvironmentService {
         try {
             const pyenvEnvs = await this.pyenvProvider.listEnvironments();
             for (const env of pyenvEnvs) {
-                if (!environments.find(e => e.pythonPath === env.pythonPath)) {
+                if (!environments.find((e) => e.pythonPath === env.pythonPath)) {
                     environments.push(env);
                 }
             }
@@ -721,9 +742,7 @@ export class EnvironmentService {
      * @returns A {@link ListEnvironmentsResult} with sorted environments and a selected entry
      */
     private filterAndSortEnvironments(environments: NukeEnvironment[]): ListEnvironmentsResult {
-        const uniqueEnvs = environments.filter((env, index, self) =>
-            index === self.findIndex(e => e.pythonPath === env.pythonPath)
-        );
+        const uniqueEnvs = environments.filter((env, index, self) => index === self.findIndex((e) => e.pythonPath === env.pythonPath));
 
         // Mark deletable status on each environment
         for (const env of uniqueEnvs) {
@@ -736,7 +755,7 @@ export class EnvironmentService {
             return a.name.localeCompare(b.name);
         });
 
-        const selected = sortedEnvs.find(e => e.isActive) || sortedEnvs[0];
+        const selected = sortedEnvs.find((e) => e.isActive) || sortedEnvs[0];
 
         return { environments: sortedEnvs, selected };
     }
@@ -781,9 +800,11 @@ export class EnvironmentService {
             // Resolve channels: explicit > preference > default
             const condaChannels = channels?.length
                 ? channels
-                : this.config.condaChannels?.split(',').map(c => c.trim()).filter(Boolean)
-                || ['conda-forge'];
-            const channelArgs = condaChannels.flatMap(c => ['-c', c]);
+                : this.config.condaChannels
+                      ?.split(',')
+                      .map((c) => c.trim())
+                      .filter(Boolean) || ['conda-forge'];
+            const channelArgs = condaChannels.flatMap((c) => ['-c', c]);
 
             const pkgArgs = extraPackages && extraPackages.length > 0 ? extraPackages : [];
             const args = ['create', '--prefix', prefix, ...channelArgs, pythonArg, ...pkgArgs, '-y'];

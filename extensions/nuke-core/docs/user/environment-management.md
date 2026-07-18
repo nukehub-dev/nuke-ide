@@ -6,14 +6,14 @@ Nuke Core automatically discovers Python environments across your system and let
 
 ## Supported Environment Types
 
-| Type | Auto-Detected? | Creation Supported? | Notes |
-|------|----------------|---------------------|-------|
-| **Conda** | Yes | Yes | Anaconda, Miniconda, Miniforge, Mambaforge; includes `~/.conda/envs/` |
-| **Mamba** | Yes (as conda) | Yes | Faster solver; preferred over conda when available |
-| **Venv / Virtualenv** | Yes | Yes (venv only) | Discovered in workspace and standard locations |
-| **Poetry** | Yes | No | Discovered via `poetry env list --full-path` |
-| **Pyenv** | Yes | No | Discovered via `pyenv versions --bare` |
-| **System Python** | Yes | No | Linux/macOS `/usr/bin/python*`, Windows Python launcher |
+| Type                  | Auto-Detected? | Creation Supported? | Notes                                                                 |
+| --------------------- | -------------- | ------------------- | --------------------------------------------------------------------- |
+| **Conda**             | Yes            | Yes                 | Anaconda, Miniconda, Miniforge, Mambaforge; includes `~/.conda/envs/` |
+| **Mamba**             | Yes (as conda) | Yes                 | Faster solver; preferred over conda when available                    |
+| **Venv / Virtualenv** | Yes            | Yes (venv only)     | Discovered in workspace and standard locations                        |
+| **Poetry**            | Yes            | No                  | Discovered via `poetry env list --full-path`                          |
+| **Pyenv**             | Yes            | No                  | Discovered via `pyenv versions --bare`                                |
+| **System Python**     | Yes            | No                  | Linux/macOS `/usr/bin/python*`, Windows Python launcher               |
 
 > **Tip:** Nuke Core scans all standard installation locations and environment variables (`CONDA_EXE`, `PATH`, etc.) so you rarely need to configure paths manually.
 
@@ -40,13 +40,13 @@ Nuke Core automatically discovers Python environments across your system and let
 
 For more options on a specific environment, run **"Nuke: Environment Actions"**:
 
-| Action | What it does |
-|--------|--------------|
-| Switch | Activate the selected environment |
-| Open Terminal | Launch a terminal with the environment activated |
+| Action           | What it does                                          |
+| ---------------- | ----------------------------------------------------- |
+| Switch           | Activate the selected environment                     |
+| Open Terminal    | Launch a terminal with the environment activated      |
 | Install Packages | Open the package installer targeting this environment |
-| Copy Python Path | Copy the executable path to your clipboard |
-| Delete | Remove the environment (if deletable) |
+| Copy Python Path | Copy the executable path to your clipboard            |
+| Delete           | Remove the environment (if deletable)                 |
 
 > **Tip:** Right-clicking the status bar item also opens the actions menu for the current environment.
 
@@ -86,10 +86,10 @@ For more options on a specific environment, run **"Nuke: Environment Actions"**:
 
 **What can be deleted:**
 
-| Deletable? | Environment Types |
-|------------|-------------------|
-| ✅ Yes | Venvs, virtualenvs, and conda envs in `~/.nuke-ide/envs/` |
-| ❌ No | System Python, pyenv, poetry, and base conda environments |
+| Deletable? | Environment Types                                         |
+| ---------- | --------------------------------------------------------- |
+| ✅ Yes     | Venvs, virtualenvs, and conda envs in `~/.nuke-ide/envs/` |
+| ❌ No      | System Python, pyenv, poetry, and base conda environments |
 
 > **Warning:** Deletion is permanent. The type-to-confirm step prevents accidental removal.
 
@@ -99,12 +99,13 @@ For more options on a specific environment, run **"Nuke: Environment Actions"**:
 
 Nuke Core scans your workspace for common Python configuration files and suggests setup actions automatically.
 
-| File Detected | Suggested Action |
-|---------------|------------------|
-| `environment.yml` / `environment.yaml` | Create a conda environment from the file |
-| `requirements.txt` | Install dependencies via pip into the active environment |
+| File Detected                          | Suggested Action                                         |
+| -------------------------------------- | -------------------------------------------------------- |
+| `environment.yml` / `environment.yaml` | Create a conda environment from the file                 |
+| `requirements.txt`                     | Install dependencies via pip into the active environment |
 
 **How it works:**
+
 1. Open a workspace containing one of these files.
 2. Nuke Core shows a notification suggesting the appropriate action.
 3. Click **"Create Environment"** or **"Install Dependencies"** to proceed.
@@ -116,11 +117,11 @@ Nuke Core scans your workspace for common Python configuration files and suggest
 
 ## Summary: Common Tasks
 
-| Task | Command / Action |
-|------|------------------|
-| Switch environment | Status bar click → "Switch Environment" or `Ctrl+Shift+P` → "Nuke: Switch Environment" |
-| Open terminal in env | `Ctrl+Shift+P` → "Nuke: Environment Actions" → "Open Terminal" |
-| Create conda env | `Ctrl+Shift+P` → "Nuke: Create Environment" → select conda |
-| Create venv | `Ctrl+Shift+P` → "Nuke: Create Environment" → select venv |
-| Delete env | `Ctrl+Shift+P` → "Nuke: Delete Environment" → type to confirm |
-| Let workspace auto-detect | Just open a folder with `environment.yml` or `requirements.txt` |
+| Task                      | Command / Action                                                                       |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| Switch environment        | Status bar click → "Switch Environment" or `Ctrl+Shift+P` → "Nuke: Switch Environment" |
+| Open terminal in env      | `Ctrl+Shift+P` → "Nuke: Environment Actions" → "Open Terminal"                         |
+| Create conda env          | `Ctrl+Shift+P` → "Nuke: Create Environment" → select conda                             |
+| Create venv               | `Ctrl+Shift+P` → "Nuke: Create Environment" → select venv                              |
+| Delete env                | `Ctrl+Shift+P` → "Nuke: Delete Environment" → type to confirm                          |
+| Let workspace auto-detect | Just open a folder with `environment.yml` or `requirements.txt`                        |

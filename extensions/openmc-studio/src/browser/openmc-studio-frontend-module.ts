@@ -36,22 +36,13 @@
  */
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
-import {
-    WebSocketConnectionProvider,
-    FrontendApplicationContribution,
-    OpenHandler,
-    WidgetFactory
-} from '@theia/core/lib/browser';
+import { WebSocketConnectionProvider, FrontendApplicationContribution, OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { MenuContribution } from '@theia/core/lib/common/menu';
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
 // Protocol imports
-import {
-    OpenMCStudioBackendService,
-    OpenMCStudioClient,
-    OPENMC_STUDIO_BACKEND_PATH
-} from '../common/openmc-studio-protocol';
+import { OpenMCStudioBackendService, OpenMCStudioClient, OPENMC_STUDIO_BACKEND_PATH } from '../common/openmc-studio-protocol';
 
 // Service imports
 import { OpenMCStudioService } from './openmc-studio-service';
@@ -61,19 +52,10 @@ import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulatio
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
 
 // New modular services
-import {
-    OpenMCEnvironmentService,
-    OpenMCHealthService,
-    OpenMCInstallerService
-} from './services';
+import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
 
 // Command imports
-import {
-    EnvironmentCommands,
-    ProjectCommands,
-    SimulationCommands,
-    ViewCommands
-} from './commands';
+import { EnvironmentCommands, ProjectCommands, SimulationCommands, ViewCommands } from './commands';
 
 // Modular contributions
 import {
@@ -120,34 +102,36 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // ============================================================================
     // Backend Service Proxy
     // ============================================================================
-    bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
-        const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
+    bind(OpenMCStudioBackendService)
+        .toDynamicValue((ctx) => {
+            const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
 
-        const client: OpenMCStudioClient = {
-            log: (message: string) => {
-                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stdout', data: message } }));
-            },
-            error: (message: string) => {
-                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
-            },
-            warn: (message: string) => {
-                window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
-            },
-            onSimulationStatus: (event) => {
-                window.dispatchEvent(new CustomEvent('openmc-simulation-status', { detail: event }));
-            },
-            onProgress: () => {},
-            onStateChange: () => {},
-            onOptimizationProgress: (event) => {
-                window.dispatchEvent(new CustomEvent('openmc-optimization-progress', { detail: event }));
-            },
-            onOptimizationIterationComplete: (runId, result) => {
-                window.dispatchEvent(new CustomEvent('openmc-optimization-iteration', { detail: { runId, result } }));
-            }
-        };
+            const client: OpenMCStudioClient = {
+                log: (message: string) => {
+                    window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stdout', data: message } }));
+                },
+                error: (message: string) => {
+                    window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
+                },
+                warn: (message: string) => {
+                    window.dispatchEvent(new CustomEvent('openmc-output', { detail: { type: 'stderr', data: message } }));
+                },
+                onSimulationStatus: (event) => {
+                    window.dispatchEvent(new CustomEvent('openmc-simulation-status', { detail: event }));
+                },
+                onProgress: () => {},
+                onStateChange: () => {},
+                onOptimizationProgress: (event) => {
+                    window.dispatchEvent(new CustomEvent('openmc-optimization-progress', { detail: event }));
+                },
+                onOptimizationIterationComplete: (runId, result) => {
+                    window.dispatchEvent(new CustomEvent('openmc-optimization-iteration', { detail: { runId, result } }));
+                }
+            };
 
-        return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
-    }).inSingletonScope();
+            return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
+        })
+        .inSingletonScope();
 
     // ============================================================================
     // Core Services
@@ -194,34 +178,44 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Widget Factories
     // ============================================================================
     bind(SimulationDashboardWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: SimulationDashboardWidget.ID,
-        createWidget: () => container.get(SimulationDashboardWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: SimulationDashboardWidget.ID,
+            createWidget: () => container.get(SimulationDashboardWidget)
+        }))
+        .inSingletonScope();
 
     bind(CSGBuilderWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: CSGBuilderWidget.ID,
-        createWidget: () => container.get(CSGBuilderWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: CSGBuilderWidget.ID,
+            createWidget: () => container.get(CSGBuilderWidget)
+        }))
+        .inSingletonScope();
 
     bind(DAGMCEditorWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: DAGMCEditorWidget.ID,
-        createWidget: () => container.get(DAGMCEditorWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: DAGMCEditorWidget.ID,
+            createWidget: () => container.get(DAGMCEditorWidget)
+        }))
+        .inSingletonScope();
 
     bind(TallyConfiguratorWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: TallyConfiguratorWidget.ID,
-        createWidget: () => container.get(TallyConfiguratorWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: TallyConfiguratorWidget.ID,
+            createWidget: () => container.get(TallyConfiguratorWidget)
+        }))
+        .inSingletonScope();
 
     bind(SimulationComparisonWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: SimulationComparisonWidget.ID,
-        createWidget: () => container.get(SimulationComparisonWidget)
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: SimulationComparisonWidget.ID,
+            createWidget: () => container.get(SimulationComparisonWidget)
+        }))
+        .inSingletonScope();
 
     bind(OptimizationWidget).toSelf().inTransientScope();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({

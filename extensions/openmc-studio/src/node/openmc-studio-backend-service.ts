@@ -27,10 +27,10 @@
 
 /**
  * OpenMC Studio Backend Service Implementation
- * 
+ *
  * Main backend service for the OpenMC Studio extension.
  * Implements the JSON-RPC interface for frontend-backend communication.
- * 
+ *
  * @module openmc-studio/node
  */
 
@@ -81,9 +81,7 @@ import { OptimizationBackendService } from './optimization-backend-service';
  * @implements {BackendApplicationContribution}
  */
 @injectable()
-export class OpenMCStudioBackendServiceImpl
-    implements OpenMCStudioBackendService, BackendApplicationContribution {
-
+export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendService, BackendApplicationContribution {
     @inject(OpenMCRunnerService)
     protected readonly runnerService: OpenMCRunnerService;
 
@@ -168,22 +166,22 @@ export class OpenMCStudioBackendServiceImpl
      */
     async importXML(request: XMLImportRequest): Promise<XMLImportResult> {
         this.log(`Importing XML from ${request.directory}`);
-        
+
         try {
             const fs = await import('fs');
             const path = await import('path');
-            
+
             const materialsPath = path.join(request.directory, 'materials.xml');
             const geometryPath = path.join(request.directory, 'geometry.xml');
             const settingsPath = path.join(request.directory, 'settings.xml');
-            
+
             const warnings: string[] = [];
             const errors: string[] = [];
-            
+
             // Use directory name as project name
             const dirName = path.basename(request.directory);
             const state = this.createDefaultState(dirName);
-            
+
             // Import materials.xml
             if (fs.existsSync(materialsPath)) {
                 try {
@@ -198,7 +196,7 @@ export class OpenMCStudioBackendServiceImpl
             } else {
                 warnings.push('materials.xml not found');
             }
-            
+
             // Import geometry.xml
             if (fs.existsSync(geometryPath)) {
                 try {
@@ -213,7 +211,7 @@ export class OpenMCStudioBackendServiceImpl
             } else {
                 warnings.push('geometry.xml not found');
             }
-            
+
             // Import settings.xml
             if (fs.existsSync(settingsPath)) {
                 try {
@@ -228,7 +226,7 @@ export class OpenMCStudioBackendServiceImpl
             } else {
                 warnings.push('settings.xml not found');
             }
-            
+
             if (state.materials.length === 0 && state.geometry.cells.length === 0) {
                 errors.push('No materials or geometry found in XML files');
                 return {
@@ -238,14 +236,13 @@ export class OpenMCStudioBackendServiceImpl
                     warnings
                 };
             }
-            
+
             return {
                 success: true,
                 state,
                 errors: errors.length > 0 ? errors : [],
                 warnings: warnings.length > 0 ? warnings : []
             };
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.error(`XML import failed: ${msg}`);
@@ -257,7 +254,7 @@ export class OpenMCStudioBackendServiceImpl
             };
         }
     }
-    
+
     private createDefaultState(name?: string): OpenMCState {
         const now = new Date().toISOString();
         return {
@@ -270,12 +267,14 @@ export class OpenMCStudioBackendServiceImpl
             geometry: {
                 surfaces: [],
                 cells: [],
-                universes: [{
-                    id: 0,
-                    name: 'root',
-                    cellIds: [],
-                    isRoot: true
-                }],
+                universes: [
+                    {
+                        id: 0,
+                        name: 'root',
+                        cellIds: [],
+                        isRoot: true
+                    }
+                ],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -293,27 +292,25 @@ export class OpenMCStudioBackendServiceImpl
             meshes: []
         };
     }
-    
+
     private async parseMaterialsXML(filePath: string): Promise<{ materials: any[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
-        
+
         const warnings: string[] = [];
         const xml = fs.readFileSync(filePath, 'utf-8');
         const parser = new xml2js.Parser({ explicitArray: false });
         const result = await parser.parseStringPromise(xml);
-        
+
         const materials: any[] = [];
-        
+
         if (!result.materials || !result.materials.material) {
             warnings.push('No materials found in materials.xml');
             return { materials, warnings };
         }
-        
-        const materialArray = Array.isArray(result.materials.material) 
-            ? result.materials.material 
-            : [result.materials.material];
-        
+
+        const materialArray = Array.isArray(result.materials.material) ? result.materials.material : [result.materials.material];
+
         for (const mat of materialArray) {
             try {
                 const material: any = {
@@ -324,13 +321,13 @@ export class OpenMCStudioBackendServiceImpl
                     nuclides: [],
                     thermalScattering: []
                 };
-                
+
                 // Parse density
                 if (mat.density) {
                     material.density = parseFloat(mat.density.$.value);
                     material.densityUnit = mat.density.$.units as any;
                 }
-                
+
                 // Parse nuclides
                 if (mat.nuclide) {
                     const nuclides = Array.isArray(mat.nuclide) ? mat.nuclide : [mat.nuclide];
@@ -342,7 +339,7 @@ export class OpenMCStudioBackendServiceImpl
                         });
                     }
                 }
-                
+
                 // Parse S(alpha,beta)
                 if (mat.sab) {
                     const sabs = Array.isArray(mat.sab) ? mat.sab : [mat.sab];
@@ -353,54 +350,54 @@ export class OpenMCStudioBackendServiceImpl
                         });
                     }
                 }
-                
+
                 // Parse temperature
                 if (mat.$.temperature) {
                     material.temperature = parseFloat(mat.$.temperature);
                 }
-                
+
                 materials.push(material);
             } catch (err) {
                 warnings.push(`Failed to parse material ${mat.$.id}: ${err}`);
             }
         }
-        
+
         return { materials, warnings };
     }
-    
+
     private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
-        
+
         const warnings: string[] = [];
         const xml = fs.readFileSync(filePath, 'utf-8');
         const parser = new xml2js.Parser({ explicitArray: false });
         const result = await parser.parseStringPromise(xml);
-        
+
         const geometry = {
             surfaces: [] as any[],
             cells: [] as any[],
-            universes: [{
-                id: 0,
-                name: 'root',
-                cellIds: [] as number[],
-                isRoot: true
-            }],
+            universes: [
+                {
+                    id: 0,
+                    name: 'root',
+                    cellIds: [] as number[],
+                    isRoot: true
+                }
+            ],
             lattices: [] as any[],
             rootUniverseId: 0
         };
-        
+
         if (!result.geometry) {
             warnings.push('No geometry element found in geometry.xml');
             return { geometry, warnings };
         }
-        
+
         // Parse surfaces
         if (result.geometry.surface) {
-            const surfaces = Array.isArray(result.geometry.surface) 
-                ? result.geometry.surface 
-                : [result.geometry.surface];
-            
+            const surfaces = Array.isArray(result.geometry.surface) ? result.geometry.surface : [result.geometry.surface];
+
             for (const surf of surfaces) {
                 try {
                     const surface: any = {
@@ -416,13 +413,11 @@ export class OpenMCStudioBackendServiceImpl
                 }
             }
         }
-        
+
         // Parse cells
         if (result.geometry.cell) {
-            const cells = Array.isArray(result.geometry.cell) 
-                ? result.geometry.cell 
-                : [result.geometry.cell];
-            
+            const cells = Array.isArray(result.geometry.cell) ? result.geometry.cell : [result.geometry.cell];
+
             for (const cell of cells) {
                 try {
                     const cellObj: any = {
@@ -431,13 +426,13 @@ export class OpenMCStudioBackendServiceImpl
                     };
                     if (cell.$.name) cellObj.name = cell.$.name;
                     if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
-                    
+
                     // Parse fill - check both attributes (new format) and child elements (old format)
                     const materialAttr = cell.$.material;
                     const fillAttr = cell.$.fill;
                     const materialElem = cell.material;
                     const fillElem = cell.fill;
-                    
+
                     if (materialAttr !== undefined) {
                         // New format: material as attribute
                         if (materialAttr === '' || materialAttr === 'void') {
@@ -463,19 +458,19 @@ export class OpenMCStudioBackendServiceImpl
                         cellObj.fillType = 'universe';
                         cellObj.fillId = parseInt(fillElem);
                     }
-                    
+
                     // Parse region - check both attribute and child element
                     if (cell.$.region) {
                         cellObj.regionString = cell.$.region;
                     } else if (cell.region) {
                         cellObj.regionString = cell.region;
                     }
-                    
+
                     geometry.cells.push(cellObj);
-                    
+
                     // Get universe ID (default to 0 if not specified)
                     const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
-                    
+
                     // Find or create the universe
                     let universe = geometry.universes.find((u: any) => u.id === universeId);
                     if (!universe) {
@@ -487,7 +482,7 @@ export class OpenMCStudioBackendServiceImpl
                         };
                         geometry.universes.push(universe);
                     }
-                    
+
                     // Add cell to its universe
                     if (!universe.cellIds.includes(cellObj.id)) {
                         universe.cellIds.push(cellObj.id);
@@ -497,13 +492,16 @@ export class OpenMCStudioBackendServiceImpl
                 }
             }
         }
-        
+
         return { geometry, warnings };
     }
-    
+
     private parseCoeffs(surfaceType: string, coeffsStr: string): any {
-        const values = coeffsStr.split(/\s+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-        
+        const values = coeffsStr
+            .split(/\s+/)
+            .map((v) => parseFloat(v.trim()))
+            .filter((v) => !isNaN(v));
+
         // Return as structured object based on surface type
         switch (surfaceType) {
             case 'sphere':
@@ -563,20 +561,20 @@ export class OpenMCStudioBackendServiceImpl
                 }
                 break;
         }
-        
+
         // Fallback: return as array if type unknown or insufficient values
         return values;
     }
-    
+
     private async parseSettingsXML(filePath: string): Promise<{ settings: any; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
-        
+
         const warnings: string[] = [];
         const xml = fs.readFileSync(filePath, 'utf-8');
         const parser = new xml2js.Parser({ explicitArray: false });
         const result = await parser.parseStringPromise(xml);
-        
+
         const settings: any = {
             run: {
                 mode: 'eigenvalue',
@@ -586,19 +584,19 @@ export class OpenMCStudioBackendServiceImpl
             },
             sources: []
         };
-        
+
         if (!result.settings) {
             warnings.push('No settings element found in settings.xml');
             return { settings, warnings };
         }
-        
+
         const s = result.settings;
-        
+
         // Run mode
         if (s.run_mode) {
             settings.run.mode = s.run_mode;
         }
-        
+
         // Particles and batches
         if (s.particles) {
             settings.run.particles = parseInt(s.particles);
@@ -609,31 +607,31 @@ export class OpenMCStudioBackendServiceImpl
         if (s.inactive) {
             settings.run.inactive = parseInt(s.inactive);
         }
-        
+
         // Source rejection fraction
         if (s.source_rejection_fraction) {
             settings.sourceRejectionFraction = parseFloat(s.source_rejection_fraction);
         }
-        
+
         // Source
         if (s.source) {
             const sources = Array.isArray(s.source) ? s.source : [s.source];
-            
+
             for (const src of sources) {
                 const source: any = {
                     spatial: { type: 'point', origin: [0, 0, 0] },
                     energy: { type: 'discrete', energies: [1e6] }
                 };
-                
+
                 // Parse spatial distribution
                 if (src.space) {
                     const spaceType = src.space.$.type || 'point';
                     source.spatial.type = spaceType;
-                    
+
                     // Parse parameters
                     if (src.space.parameters) {
                         const params = src.space.parameters.toString().trim().split(/\s+/).map(Number);
-                        
+
                         if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
                             source.spatial.lowerLeft = params.slice(0, 3);
                             source.spatial.upperRight = params.slice(3, 6);
@@ -645,15 +643,15 @@ export class OpenMCStudioBackendServiceImpl
                         }
                     }
                 }
-                
+
                 // Parse energy distribution
                 if (src.energy) {
                     const energyType = src.energy.$.type || 'discrete';
                     source.energy.type = energyType;
-                    
+
                     if (src.energy.parameters) {
                         const params = src.energy.parameters.toString().trim().split(/\s+/).map(Number);
-                        
+
                         if (energyType === 'discrete') {
                             source.energy.energies = params;
                         } else if (energyType === 'uniform' && params.length >= 2) {
@@ -667,18 +665,18 @@ export class OpenMCStudioBackendServiceImpl
                         }
                     }
                 }
-                
+
                 // Parse angle distribution
                 if (src.angle) {
                     source.angle = {
                         type: src.angle.$.type || 'isotropic'
                     };
                 }
-                
+
                 settings.sources.push(source);
             }
         }
-        
+
         return { settings, warnings };
     }
 
@@ -767,15 +765,15 @@ export class OpenMCStudioBackendServiceImpl
      */
     async validateState(request: ValidationRequest): Promise<ValidationResult> {
         this.log('Validating simulation state');
-        
+
         const issues: ValidationResult['issues'] = [];
         const { geometry, materials, settings } = request.state;
-        
+
         // Basic validation - skip materials check for DAGMC (materials are in the file)
         const dagmcMaterials = settings.dagmcInfo?.materials;
         const hasDagmcMaterials = dagmcMaterials && Object.keys(dagmcMaterials).length > 0;
         const hasOpenMCMaterials = materials && materials.length > 0;
-        
+
         if (!hasOpenMCMaterials && !hasDagmcMaterials) {
             issues.push({
                 severity: 'error',
@@ -784,11 +782,11 @@ export class OpenMCStudioBackendServiceImpl
                 suggestion: 'Add at least one material to the model'
             });
         }
-        
+
         // For DAGMC: check that OpenMC materials match DAGMC material names
         if (settings.dagmcFile && dagmcMaterials) {
             const dagmcMaterialNames = Object.keys(dagmcMaterials);
-            
+
             if (dagmcMaterialNames.length === 0) {
                 // DAGMC file has no materials - this might be an issue with the export
                 issues.push({
@@ -807,15 +805,15 @@ export class OpenMCStudioBackendServiceImpl
                 });
             } else {
                 // Check for missing materials
-                const openMCMaterialNames = new Set(materials.map(m => m.name.toLowerCase()));
+                const openMCMaterialNames = new Set(materials.map((m) => m.name.toLowerCase()));
                 const missingMaterials: string[] = [];
-                
+
                 for (const dagmcMatName of dagmcMaterialNames) {
                     if (!openMCMaterialNames.has(dagmcMatName.toLowerCase())) {
                         missingMaterials.push(dagmcMatName);
                     }
                 }
-                
+
                 if (missingMaterials.length > 0) {
                     issues.push({
                         severity: 'warning',
@@ -826,7 +824,7 @@ export class OpenMCStudioBackendServiceImpl
                 }
             }
         }
-        
+
         // Only check for CSG cells if not using DAGMC geometry
         if (!settings.dagmcFile && (!geometry.cells || geometry.cells.length === 0)) {
             issues.push({
@@ -836,11 +834,11 @@ export class OpenMCStudioBackendServiceImpl
                 suggestion: 'Add at least one cell to the geometry or import a DAGMC file'
             });
         }
-        
+
         // Geometry region validation
         if (geometry.cells && geometry.cells.length > 0) {
-            const surfaceIds = new Set(geometry.surfaces.map(s => s.id));
-            
+            const surfaceIds = new Set(geometry.surfaces.map((s) => s.id));
+
             for (const cell of geometry.cells) {
                 // Get region string from either regionString or convert from region tree
                 let regionStr = cell.regionString;
@@ -848,18 +846,18 @@ export class OpenMCStudioBackendServiceImpl
                     regionStr = cell.region;
                 }
                 if (!regionStr) continue;
-                
+
                 // Extract surface references from region
                 const surfaceRefs: Array<{ id: number; side: string }> = [];
                 const surfacePattern = /([+-~]?)(\d+)/g;
                 let match;
-                
+
                 while ((match = surfacePattern.exec(regionStr)) !== null) {
                     const side = match[1] || '+';
                     const id = parseInt(match[2], 10);
                     surfaceRefs.push({ id, side });
                 }
-                
+
                 // Check for undefined surfaces
                 for (const ref of surfaceRefs) {
                     if (!surfaceIds.has(ref.id)) {
@@ -871,7 +869,7 @@ export class OpenMCStudioBackendServiceImpl
                         });
                     }
                 }
-                
+
                 // Check for contradictory regions (same surface with both + and -)
                 const surfaceSides = new Map<number, Set<string>>();
                 for (const ref of surfaceRefs) {
@@ -880,7 +878,7 @@ export class OpenMCStudioBackendServiceImpl
                     }
                     surfaceSides.get(ref.id)!.add(ref.side);
                 }
-                
+
                 for (const [id, sides] of surfaceSides) {
                     const hasPositive = sides.has('+') || sides.has('~');
                     const hasNegative = sides.has('-');
@@ -895,7 +893,7 @@ export class OpenMCStudioBackendServiceImpl
                 }
             }
         }
-        
+
         // Check for source in fixed source mode
         if (settings.run.mode === 'fixed source') {
             if (!settings.sources || settings.sources.length === 0) {
@@ -907,7 +905,7 @@ export class OpenMCStudioBackendServiceImpl
                 });
             }
         }
-        
+
         // For DAGMC: validate source is within geometry bounds
         if (settings.dagmcFile && settings.dagmcInfo?.boundingBox && settings.sources.length > 0) {
             const geomBounds = settings.dagmcInfo.boundingBox;
@@ -915,54 +913,71 @@ export class OpenMCStudioBackendServiceImpl
                 const spatial = source.spatial as any;
                 if (spatial.type === 'box' && spatial.lowerLeft && spatial.upperRight) {
                     // Check if source box extends beyond geometry bounds
-                    const sourceExtendsBeyond = 
+                    const sourceExtendsBeyond =
                         spatial.lowerLeft[0] < geomBounds.min[0] ||
                         spatial.lowerLeft[1] < geomBounds.min[1] ||
                         spatial.lowerLeft[2] < geomBounds.min[2] ||
                         spatial.upperRight[0] > geomBounds.max[0] ||
                         spatial.upperRight[1] > geomBounds.max[1] ||
                         spatial.upperRight[2] > geomBounds.max[2];
-                    
+
                     if (sourceExtendsBeyond) {
                         issues.push({
                             severity: 'warning',
                             category: 'settings',
                             message: `Source extends beyond DAGMC geometry bounds`,
-                            suggestion: `Source box [${spatial.lowerLeft.join(',')}] to [${spatial.upperRight.join(',')}] ` +
-                                      `extends beyond geometry [${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
-                                      `Particles born outside volumes will be lost. Use "Snap to Geometry" to fix.`
+                            suggestion:
+                                `Source box [${spatial.lowerLeft.join(',')}] to [${spatial.upperRight.join(',')}] ` +
+                                `extends beyond geometry [${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
+                                `Particles born outside volumes will be lost. Use "Snap to Geometry" to fix.`
                         });
                     }
                 }
             }
         }
-        
+
         // Check for fissile material in eigenvalue mode (skip for DAGMC - materials are in the file)
         if (settings.run.mode === 'eigenvalue' && !settings.dagmcFile) {
-            const fissileNuclides = ['U233', 'U235', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 
-                                     'Am241', 'Am242', 'Am243', 'Cm242', 'Cm243', 'Cm244', 'Cm245', 'Cm246'];
-            
+            const fissileNuclides = [
+                'U233',
+                'U235',
+                'Pu238',
+                'Pu239',
+                'Pu240',
+                'Pu241',
+                'Pu242',
+                'Am241',
+                'Am242',
+                'Am243',
+                'Cm242',
+                'Cm243',
+                'Cm244',
+                'Cm245',
+                'Cm246'
+            ];
+
             let hasFissileMaterial = false;
             for (const material of materials) {
                 for (const nuclide of material.nuclides) {
-                    if (fissileNuclides.some(fn => nuclide.name.includes(fn))) {
+                    if (fissileNuclides.some((fn) => nuclide.name.includes(fn))) {
                         hasFissileMaterial = true;
                         break;
                     }
                 }
                 if (hasFissileMaterial) break;
             }
-            
+
             if (!hasFissileMaterial) {
                 issues.push({
                     severity: 'error',
                     category: 'materials',
                     message: 'Eigenvalue mode requires at least one fissile material',
-                    suggestion: 'Add a fissile nuclide like U235 or Pu239 to a material. Eigenvalue calculations require fission chain reactions.'
+                    suggestion:
+                        'Add a fissile nuclide like U235 or Pu239 to a material. Eigenvalue calculations require fission chain reactions.'
                 });
             }
         }
-        
+
         // Check depletion settings
         const depletion = request.state.depletion;
         if (depletion?.enabled) {
@@ -976,7 +991,7 @@ export class OpenMCStudioBackendServiceImpl
                     suggestion: 'Set the power level in the Depletion tab under Physics Configuration'
                 });
             }
-            
+
             // Check for chain file
             if (!depletion.chainFile) {
                 issues.push({
@@ -986,9 +1001,9 @@ export class OpenMCStudioBackendServiceImpl
                     suggestion: 'Select a chain file in the Depletion tab (e.g., chain_endfb71.xml)'
                 });
             }
-            
+
             // Check for depletable materials
-            const hasDepletableMaterials = materials.some(m => m.isDepletable);
+            const hasDepletableMaterials = materials.some((m) => m.isDepletable);
             if (!hasDepletableMaterials) {
                 issues.push({
                     severity: 'error',
@@ -997,7 +1012,7 @@ export class OpenMCStudioBackendServiceImpl
                     suggestion: 'Enable "Depletable" for at least one material in the Materials tab'
                 });
             }
-            
+
             // Check for time steps
             if (!depletion.timeSteps || depletion.timeSteps.length === 0) {
                 issues.push({
@@ -1008,14 +1023,14 @@ export class OpenMCStudioBackendServiceImpl
                 });
             }
         }
-        
+
         return {
-            valid: issues.filter(i => i.severity === 'error').length === 0,
+            valid: issues.filter((i) => i.severity === 'error').length === 0,
             issues,
             summary: {
-                errors: issues.filter(i => i.severity === 'error').length,
-                warnings: issues.filter(i => i.severity === 'warning').length,
-                info: issues.filter(i => i.severity === 'info').length
+                errors: issues.filter((i) => i.severity === 'error').length,
+                warnings: issues.filter((i) => i.severity === 'warning').length,
+                info: issues.filter((i) => i.severity === 'info').length
             }
         };
     }
@@ -1059,16 +1074,16 @@ export class OpenMCStudioBackendServiceImpl
      */
     async createProject(request: ProjectCreateRequest): Promise<ProjectCreateResult> {
         this.log(`Creating new project: ${request.name}`);
-        
+
         try {
             const fs = await import('fs');
             const path = await import('path');
-            
+
             // Create directory if it doesn't exist
             if (!fs.existsSync(request.directory)) {
                 fs.mkdirSync(request.directory, { recursive: true });
             }
-            
+
             // Create initial state
             const now = new Date().toISOString();
             const initialState: OpenMCState = {
@@ -1083,12 +1098,14 @@ export class OpenMCStudioBackendServiceImpl
                 geometry: {
                     surfaces: [],
                     cells: [],
-                    universes: [{
-                        id: 0,
-                        name: 'root',
-                        cellIds: [],
-                        isRoot: true
-                    }],
+                    universes: [
+                        {
+                            id: 0,
+                            name: 'root',
+                            cellIds: [],
+                            isRoot: true
+                        }
+                    ],
                     lattices: [],
                     rootUniverseId: 0
                 },
@@ -1105,22 +1122,21 @@ export class OpenMCStudioBackendServiceImpl
                 tallies: [],
                 meshes: []
             };
-            
+
             // Create project file
             const projectFile: OpenMCProjectFile = {
                 version: OPENMC_STATE_SCHEMA_VERSION,
                 state: initialState
             };
-            
+
             const projectPath = path.join(request.directory, `${request.name}.nuke-openmc`);
             fs.writeFileSync(projectPath, JSON.stringify(projectFile, null, 2));
-            
+
             return {
                 success: true,
                 projectFile: projectPath,
                 initialState
             };
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             return {
@@ -1137,17 +1153,16 @@ export class OpenMCStudioBackendServiceImpl
      */
     async loadProject(projectPath: string): Promise<ProjectLoadResult> {
         this.log(`Loading project: ${projectPath}`);
-        
+
         try {
             const fs = await import('fs');
             const content = fs.readFileSync(projectPath, 'utf-8');
             const project: OpenMCProjectFile = JSON.parse(content);
-            
+
             return {
                 success: true,
                 project
             };
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             return {
@@ -1164,17 +1179,17 @@ export class OpenMCStudioBackendServiceImpl
      */
     async saveProject(request: ProjectSaveRequest): Promise<{ success: boolean; error?: string }> {
         this.log(`Saving project: ${request.projectPath}`);
-        
+
         try {
             const fs = await import('fs');
-            
+
             const projectFile: OpenMCProjectFile = {
                 version: OPENMC_STATE_SCHEMA_VERSION,
                 state: request.state
             };
-            
+
             fs.writeFileSync(request.projectPath, JSON.stringify(projectFile, null, 2));
-            
+
             // Also generate XML if requested
             if (request.generateXml) {
                 const path = await import('path');
@@ -1192,9 +1207,8 @@ export class OpenMCStudioBackendServiceImpl
                     overwrite: true
                 });
             }
-            
+
             return { success: true };
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             return {
@@ -1210,7 +1224,7 @@ export class OpenMCStudioBackendServiceImpl
      */
     async getTemplates(): Promise<TemplatesResponse> {
         this.log('Getting available templates');
-        
+
         return {
             templates: [
                 {
@@ -1276,7 +1290,7 @@ export class OpenMCStudioBackendServiceImpl
      */
     async getCrossSectionsPath(): Promise<{ path?: string; found: boolean }> {
         const crossSectionsEnv = process.env.OPENMC_CROSS_SECTIONS;
-        
+
         if (crossSectionsEnv) {
             const fs = await import('fs');
             const exists = fs.existsSync(crossSectionsEnv);
@@ -1285,7 +1299,7 @@ export class OpenMCStudioBackendServiceImpl
                 found: exists
             };
         }
-        
+
         return { found: false };
     }
 
@@ -1295,7 +1309,7 @@ export class OpenMCStudioBackendServiceImpl
      * @returns Suggested material ID
      */
     async suggestMaterialId(state: OpenMCState): Promise<number> {
-        const ids = state.materials.map(m => m.id);
+        const ids = state.materials.map((m) => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1305,7 +1319,7 @@ export class OpenMCStudioBackendServiceImpl
      * @returns Suggested cell ID
      */
     async suggestCellId(state: OpenMCState): Promise<number> {
-        const ids = state.geometry.cells.map(c => c.id);
+        const ids = state.geometry.cells.map((c) => c.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1315,7 +1329,7 @@ export class OpenMCStudioBackendServiceImpl
      * @returns Suggested surface ID
      */
     async suggestSurfaceId(state: OpenMCState): Promise<number> {
-        const ids = state.geometry.surfaces.map(s => s.id);
+        const ids = state.geometry.surfaces.map((s) => s.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1325,7 +1339,7 @@ export class OpenMCStudioBackendServiceImpl
      * @returns Suggested tally ID
      */
     async suggestTallyId(state: OpenMCState): Promise<number> {
-        const ids = state.tallies.map(t => t.id);
+        const ids = state.tallies.map((t) => t.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1335,7 +1349,7 @@ export class OpenMCStudioBackendServiceImpl
      * @returns Suggested mesh ID
      */
     async suggestMeshId(state: OpenMCState): Promise<number> {
-        const ids = state.meshes.map(m => m.id);
+        const ids = state.meshes.map((m) => m.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -1364,7 +1378,9 @@ export class OpenMCStudioBackendServiceImpl
      * @param request - CAD import request with file path and options
      * @returns Import result with surfaces, cells, and metadata
      */
-    async importCAD(request: import('../common/openmc-studio-protocol').CADImportRequest): Promise<import('../common/openmc-studio-protocol').CADImportResult> {
+    async importCAD(
+        request: import('../common/openmc-studio-protocol').CADImportRequest
+    ): Promise<import('../common/openmc-studio-protocol').CADImportResult> {
         return this.cadService.importCAD(request);
     }
 
@@ -1428,7 +1444,11 @@ export class OpenMCStudioBackendServiceImpl
      * @param materialName - Material name to assign
      * @returns Operation result
      */
-    async dagmcAssignMaterial(filePath: string, volumeId: number, materialName: string): Promise<{
+    async dagmcAssignMaterial(
+        filePath: string,
+        volumeId: number,
+        materialName: string
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
@@ -1444,7 +1464,11 @@ export class OpenMCStudioBackendServiceImpl
      * @param volumeIds - Optional volume IDs to include
      * @returns Operation result
      */
-    async dagmcCreateGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<{
+    async dagmcCreateGroup(
+        filePath: string,
+        groupName: string,
+        volumeIds?: number[]
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
@@ -1459,7 +1483,10 @@ export class OpenMCStudioBackendServiceImpl
      * @param groupName - Name of group to delete
      * @returns Operation result
      */
-    async dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
+    async dagmcDeleteGroup(
+        filePath: string,
+        groupName: string
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
@@ -1489,7 +1516,11 @@ export class OpenMCStudioBackendServiceImpl
      * @param tolerance - Desired faceting tolerance
      * @returns Operation result with output path
      */
-    async dagmcRefacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<{
+    async dagmcRefacet(
+        filePath: string,
+        sourceCadPath: string,
+        tolerance: number
+    ): Promise<{
         success: boolean;
         data?: { outputPath: string; message?: string };
         error?: string;
@@ -1524,7 +1555,7 @@ export class OpenMCStudioBackendServiceImpl
         error?: string;
     }> {
         this.log(`Importing WWINP from ${request.filePath}`);
-        
+
         try {
             // For now, return a placeholder response
             // Full implementation would parse WWINP binary format
@@ -1550,19 +1581,15 @@ export class OpenMCStudioBackendServiceImpl
      * @param request - Export request with weight windows and mesh data
      * @returns Export result
      */
-    async exportWWINP(request: {
-        filePath: string;
-        weightWindows: any;
-        meshes: any[]
-    }): Promise<{
+    async exportWWINP(request: { filePath: string; weightWindows: any; meshes: any[] }): Promise<{
         success: boolean;
         error?: string;
     }> {
         this.log(`Exporting WWINP to ${request.filePath}`);
-        
+
         try {
             const fs = await import('fs');
-            
+
             // Create a simple text-based WWINP format
             // Note: Full WWINP is binary, this is a simplified text representation
             const lines: string[] = [];
@@ -1570,7 +1597,7 @@ export class OpenMCStudioBackendServiceImpl
             lines.push(`Generated by OpenMC Studio - ${new Date().toISOString()}`);
             lines.push('');
             lines.push('MESH DIMENSIONS:');
-            
+
             // Find mesh info
             const mesh = request.meshes.find((m: any) => m.id === request.weightWindows.meshId);
             if (mesh && mesh.type === 'regular') {
@@ -1580,35 +1607,35 @@ export class OpenMCStudioBackendServiceImpl
                 lines.push(`  Lower Left: ${mesh.lowerLeft.join(' ')}`);
                 lines.push(`  Upper Right: ${mesh.upperRight.join(' ')}`);
             }
-            
+
             lines.push('');
             lines.push('PARTICLE TYPE: ' + (request.weightWindows.particleType || 'neutron'));
             lines.push('');
             lines.push('LOWER BOUNDS:');
-            
+
             // Write bounds
-            const lowerBounds = Array.isArray(request.weightWindows.lowerBound) 
-                ? request.weightWindows.lowerBound 
+            const lowerBounds = Array.isArray(request.weightWindows.lowerBound)
+                ? request.weightWindows.lowerBound
                 : [request.weightWindows.lowerBound];
             lines.push(lowerBounds.join(' '));
-            
+
             lines.push('');
             lines.push('UPPER BOUNDS:');
-            const upperBounds = Array.isArray(request.weightWindows.upperBound) 
-                ? request.weightWindows.upperBound 
+            const upperBounds = Array.isArray(request.weightWindows.upperBound)
+                ? request.weightWindows.upperBound
                 : [request.weightWindows.upperBound || request.weightWindows.lowerBound * 2];
             lines.push(upperBounds.join(' '));
-            
+
             if (request.weightWindows.energyBounds && request.weightWindows.energyBounds.length > 0) {
                 lines.push('');
                 lines.push('ENERGY BOUNDS:');
                 lines.push(request.weightWindows.energyBounds.join(' '));
             }
-            
+
             // Write file
             fs.writeFileSync(request.filePath, lines.join('\n'));
             this.log(`WWINP exported successfully to ${request.filePath}`);
-            
+
             return { success: true };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -1628,12 +1655,12 @@ export class OpenMCStudioBackendServiceImpl
      */
     async readStatepoint(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').ReadStatepointResult> {
         this.log(`Reading statepoint file: ${request.filePath}`);
-        
+
         try {
             const fs = await import('fs');
             const path = await import('path');
             const { execSync } = await import('child_process');
-            
+
             // Check if file exists
             if (!fs.existsSync(request.filePath)) {
                 return {
@@ -1644,10 +1671,10 @@ export class OpenMCStudioBackendServiceImpl
                     error: `File not found: ${request.filePath}`
                 };
             }
-            
+
             // Get file stats
             const stats = fs.statSync(request.filePath);
-            
+
             // Find the statepoint reader script
             const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
 
@@ -1656,27 +1683,27 @@ export class OpenMCStudioBackendServiceImpl
                     success: false,
                     filePath: request.filePath,
                     fileName: path.basename(request.filePath),
-                    fileSizeMB: Math.round(stats.size / (1024 * 1024) * 100) / 100,
+                    fileSizeMB: Math.round((stats.size / (1024 * 1024)) * 100) / 100,
                     error: 'Statepoint reader script not found'
                 };
             }
-            
+
             this.log(`Using script: ${scriptPath}`);
-            
+
             // Get Python command from runner service
-            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
-                || { command: 'python' };
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';
-            
+
             this.log(`Using Python: ${pythonCommand}`);
-            
+
             // Execute the Python script - capture both stdout and stderr
             let output: string;
             try {
-                output = execSync(
-                    `"${pythonCommand}" "${scriptPath}" "${request.filePath}" --json`,
-                    { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
-                );
+                output = execSync(`"${pythonCommand}" "${scriptPath}" "${request.filePath}" --json`, {
+                    encoding: 'utf-8',
+                    timeout: 60000,
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
             } catch (execError: any) {
                 // Capture stderr from the error
                 const stderr = execError.stderr ? execError.stderr.toString() : '';
@@ -1684,24 +1711,24 @@ export class OpenMCStudioBackendServiceImpl
                 this.error(`Python script failed with code ${execError.status}`);
                 this.error(`Stderr: ${stderr}`);
                 this.error(`Stdout: ${stdout}`);
-                
+
                 // Try to parse stdout if it contains JSON
                 if (stdout) {
                     try {
                         const result = JSON.parse(stdout);
                         if (!result.filePath) result.filePath = request.filePath;
                         if (!result.fileName) result.fileName = path.basename(request.filePath);
-                        if (!result.fileSizeMB) result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+                        if (!result.fileSizeMB) result.fileSizeMB = Math.round((stats.size / (1024 * 1024)) * 100) / 100;
                         return result;
                     } catch {}
                 }
-                
+
                 throw new Error(`Python error: ${stderr || execError.message}`);
             }
-            
+
             // Parse the result
             const result = JSON.parse(output);
-            
+
             // Add file info if not present
             if (!result.filePath) {
                 result.filePath = request.filePath;
@@ -1710,25 +1737,24 @@ export class OpenMCStudioBackendServiceImpl
                 result.fileName = path.basename(request.filePath);
             }
             if (!result.fileSizeMB) {
-                result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+                result.fileSizeMB = Math.round((stats.size / (1024 * 1024)) * 100) / 100;
             }
-            
+
             this.log(`Successfully read statepoint: ${result.fileName}`);
             return result;
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.error(`Failed to read statepoint: ${msg}`);
-            
+
             const path = await import('path');
             const fs = await import('fs');
-            
+
             let fileSizeMB = 0;
             try {
                 const stats = fs.statSync(request.filePath);
-                fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
+                fileSizeMB = Math.round((stats.size / (1024 * 1024)) * 100) / 100;
             } catch {}
-            
+
             return {
                 success: false,
                 filePath: request.filePath,
@@ -1744,13 +1770,15 @@ export class OpenMCStudioBackendServiceImpl
      * @param request - Comparison request with file paths
      * @returns Comparison statistics and results
      */
-    async compareStatepoints(request: { filePaths: string[] }): Promise<import('../common/openmc-studio-protocol').CompareStatepointsResult> {
+    async compareStatepoints(request: {
+        filePaths: string[];
+    }): Promise<import('../common/openmc-studio-protocol').CompareStatepointsResult> {
         this.log(`Comparing ${request.filePaths.length} statepoint files`);
-        
+
         try {
             const fs = await import('fs');
             const { execSync } = await import('child_process');
-            
+
             // Check if files exist
             for (const filePath of request.filePaths) {
                 if (!fs.existsSync(filePath)) {
@@ -1761,7 +1789,7 @@ export class OpenMCStudioBackendServiceImpl
                     };
                 }
             }
-            
+
             // Find the statepoint reader script
             const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
 
@@ -1769,38 +1797,37 @@ export class OpenMCStudioBackendServiceImpl
                 return {
                     success: false,
                     statepoints: [],
-                    errors: request.filePaths.map(fp => ({ file: fp, error: 'Statepoint reader script not found' }))
+                    errors: request.filePaths.map((fp) => ({ file: fp, error: 'Statepoint reader script not found' }))
                 };
             }
-            
+
             // Get Python command
-            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
-                || { command: 'python' };
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';
-            
+
             // Build file arguments
-            const fileArgs = request.filePaths.map(fp => `"${fp}"`).join(' ');
-            
+            const fileArgs = request.filePaths.map((fp) => `"${fp}"`).join(' ');
+
             // Execute the Python script with compare flag and stats
-            const output = execSync(
-                `"${pythonCommand}" "${scriptPath}" ${fileArgs} --compare --stats --json`,
-                { encoding: 'utf-8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] }
-            );
-            
+            const output = execSync(`"${pythonCommand}" "${scriptPath}" ${fileArgs} --compare --stats --json`, {
+                encoding: 'utf-8',
+                timeout: 120000,
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
             // Parse the result
             const result = JSON.parse(output);
-            
+
             this.log(`Successfully compared ${result.statepoints?.length || 0} statepoints`);
             return result;
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.error(`Failed to compare statepoints: ${msg}`);
-            
+
             return {
                 success: false,
                 statepoints: [],
-                errors: request.filePaths.map(fp => ({ file: fp, error: msg }))
+                errors: request.filePaths.map((fp) => ({ file: fp, error: msg }))
             };
         }
     }
@@ -1812,12 +1839,12 @@ export class OpenMCStudioBackendServiceImpl
      */
     async readDepletionResults(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').DepletionResults> {
         this.log(`Reading depletion results: ${request.filePath}`);
-        
+
         try {
             const fs = await import('fs');
             const path = await import('path');
             const { execSync } = await import('child_process');
-            
+
             if (!fs.existsSync(request.filePath)) {
                 return {
                     success: false,
@@ -1829,38 +1856,37 @@ export class OpenMCStudioBackendServiceImpl
                     error: `File not found: ${request.filePath}`
                 };
             }
-            
+
             const stats = fs.statSync(request.filePath);
-            
+
             // Find script
             const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
             if (!scriptPath) {
                 throw new Error('Statepoint reader script not found');
             }
 
-            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
-                || { command: 'python' };
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';
-            
-            const output = execSync(
-                `"${pythonCommand}" "${scriptPath}" --depletion "${request.filePath}" --json`,
-                { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
-            );
-            
+
+            const output = execSync(`"${pythonCommand}" "${scriptPath}" --depletion "${request.filePath}" --json`, {
+                encoding: 'utf-8',
+                timeout: 60000,
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
             const result = JSON.parse(output);
-            
+
             if (!result.filePath) result.filePath = request.filePath;
             if (!result.fileName) result.fileName = path.basename(request.filePath);
-            if (!result.fileSizeMB) result.fileSizeMB = Math.round(stats.size / (1024 * 1024) * 100) / 100;
-            
+            if (!result.fileSizeMB) result.fileSizeMB = Math.round((stats.size / (1024 * 1024)) * 100) / 100;
+
             return result;
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.error(`Failed to read depletion results: ${msg}`);
-            
+
             const path = await import('path');
-            
+
             return {
                 success: false,
                 filePath: request.filePath,
@@ -1880,11 +1906,11 @@ export class OpenMCStudioBackendServiceImpl
      */
     async analyzeConvergence(request: { filePath: string }): Promise<import('../common/openmc-studio-protocol').KeffConvergenceAnalysis> {
         this.log(`Analyzing k-effective convergence: ${request.filePath}`);
-        
+
         try {
             const fs = await import('fs');
             const { execSync } = await import('child_process');
-            
+
             if (!fs.existsSync(request.filePath)) {
                 return {
                     success: false,
@@ -1893,28 +1919,27 @@ export class OpenMCStudioBackendServiceImpl
                     finalValue: 0
                 };
             }
-            
+
             // Find script
             const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'statepoint_reader.py' });
             if (!scriptPath) {
                 throw new Error('Statepoint reader script not found');
             }
 
-            const pythonInfo = await this.runnerService['detectPythonCommand']?.() 
-                || { command: 'python' };
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
             const pythonCommand = pythonInfo.command || 'python';
-            
-            const output = execSync(
-                `"${pythonCommand}" "${scriptPath}" --convergence "${request.filePath}" --json`,
-                { encoding: 'utf-8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'] }
-            );
-            
+
+            const output = execSync(`"${pythonCommand}" "${scriptPath}" --convergence "${request.filePath}" --json`, {
+                encoding: 'utf-8',
+                timeout: 60000,
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
             return JSON.parse(output);
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.error(`Failed to analyze convergence: ${msg}`);
-            
+
             return {
                 success: false,
                 error: `Failed to analyze convergence: ${msg}`,
@@ -1923,8 +1948,6 @@ export class OpenMCStudioBackendServiceImpl
             };
         }
     }
-
-
 
     // ============================================================================
     // Optimization Framework Methods
@@ -1935,8 +1958,9 @@ export class OpenMCStudioBackendServiceImpl
      * @param request - Optimization request with sweeps and base state
      * @returns Start result with total iterations
      */
-    async startOptimization(request: import('../common/openmc-studio-protocol').StartOptimizationRequest):
-        Promise<import('../common/openmc-studio-protocol').StartOptimizationResult> {
+    async startOptimization(
+        request: import('../common/openmc-studio-protocol').StartOptimizationRequest
+    ): Promise<import('../common/openmc-studio-protocol').StartOptimizationResult> {
         this.log(`Starting optimization run: ${request.runId}`);
         return this.optimizationService.startOptimization(request);
     }
@@ -1946,8 +1970,9 @@ export class OpenMCStudioBackendServiceImpl
      * @param request - Stop request with run ID
      * @returns Stop result
      */
-    async stopOptimization(request: import('../common/openmc-studio-protocol').StopOptimizationRequest):
-        Promise<import('../common/openmc-studio-protocol').StopOptimizationResult> {
+    async stopOptimization(
+        request: import('../common/openmc-studio-protocol').StopOptimizationRequest
+    ): Promise<import('../common/openmc-studio-protocol').StopOptimizationResult> {
         this.log(`Stopping optimization run: ${request.runId}`);
         return this.optimizationService.stopOptimization(request);
     }
@@ -1984,12 +2009,14 @@ export class OpenMCStudioBackendServiceImpl
      * @param iteration - Iteration number
      * @returns Log content
      */
-    async getIterationLog(runId: string, iteration: number): Promise<{
+    async getIterationLog(
+        runId: string,
+        iteration: number
+    ): Promise<{
         success: boolean;
         logContent?: string;
         error?: string;
     }> {
         return this.optimizationService.getIterationLog(runId, iteration);
     }
-
 }

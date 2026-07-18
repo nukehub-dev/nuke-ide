@@ -9,56 +9,55 @@ import json
 import sys
 import types
 
-import pytest
-
 import dagmc_info
+import pytest
 
 
 class TestGetDagmcInfo:
     def test_missing_pydagmc_dependency(self, monkeypatch):
         """Without pydagmc, the documented install-hint error is returned."""
-        monkeypatch.setitem(sys.modules, 'pydagmc', None)
-        result = dagmc_info.get_dagmc_info('whatever.h5m')
+        monkeypatch.setitem(sys.modules, "pydagmc", None)
+        result = dagmc_info.get_dagmc_info("whatever.h5m")
         assert result == {
-            'success': False,
-            'error': 'pydagmc not available. Install with: pip install pydagmc',
+            "success": False,
+            "error": "pydagmc not available. Install with: pip install pydagmc",
         }
 
     def test_nonexistent_file(self, monkeypatch, tmp_path):
         """With pydagmc importable, a missing file yields 'File not found'."""
-        fake_pydagmc = types.ModuleType('pydagmc')
-        monkeypatch.setitem(sys.modules, 'pydagmc', fake_pydagmc)
-        missing = tmp_path / 'nope.h5m'
+        fake_pydagmc = types.ModuleType("pydagmc")
+        monkeypatch.setitem(sys.modules, "pydagmc", fake_pydagmc)
+        missing = tmp_path / "nope.h5m"
         result = dagmc_info.get_dagmc_info(str(missing))
-        assert result == {'success': False, 'error': f'File not found: {missing}'}
+        assert result == {"success": False, "error": f"File not found: {missing}"}
 
 
 class TestMain:
     def test_json_output_on_error_prints_json_and_exits_1(self, monkeypatch, capsys, tmp_path):
         """--output-json prints the error dict as JSON, then exits 1."""
-        monkeypatch.setitem(sys.modules, 'pydagmc', types.ModuleType('pydagmc'))
-        missing = str(tmp_path / 'nope.h5m')
-        monkeypatch.setattr(sys, 'argv', ['dagmc_info.py', missing, '--output-json'])
+        monkeypatch.setitem(sys.modules, "pydagmc", types.ModuleType("pydagmc"))
+        missing = str(tmp_path / "nope.h5m")
+        monkeypatch.setattr(sys, "argv", ["dagmc_info.py", missing, "--output-json"])
         with pytest.raises(SystemExit) as exc:
             dagmc_info.main()
         assert exc.value.code == 1
         out = json.loads(capsys.readouterr().out)
-        assert out['success'] is False
-        assert 'error' in out
+        assert out["success"] is False
+        assert "error" in out
 
     def test_pretty_output_on_error_exits_1(self, monkeypatch, capsys, tmp_path):
         """The human-readable error path prints 'Error:' and exits 1."""
-        monkeypatch.setitem(sys.modules, 'pydagmc', types.ModuleType('pydagmc'))
-        missing = str(tmp_path / 'nope.h5m')
-        monkeypatch.setattr(sys, 'argv', ['dagmc_info.py', missing])
+        monkeypatch.setitem(sys.modules, "pydagmc", types.ModuleType("pydagmc"))
+        missing = str(tmp_path / "nope.h5m")
+        monkeypatch.setattr(sys, "argv", ["dagmc_info.py", missing])
         with pytest.raises(SystemExit) as exc:
             dagmc_info.main()
         assert exc.value.code == 1
-        assert 'Error:' in capsys.readouterr().out
+        assert "Error:" in capsys.readouterr().out
 
     def test_help_exits_with_code_0(self, monkeypatch):
         """--help prints usage and exits 0."""
-        monkeypatch.setattr(sys, 'argv', ['dagmc_info.py', '--help'])
+        monkeypatch.setattr(sys, "argv", ["dagmc_info.py", "--help"])
         with pytest.raises(SystemExit) as exc:
             dagmc_info.main()
         assert exc.value.code == 0

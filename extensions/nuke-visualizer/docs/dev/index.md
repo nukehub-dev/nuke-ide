@@ -4,15 +4,15 @@ This section is for developers who want to understand, modify, or extend `nuke-v
 
 ## Getting Started
 
-| Doc | What You'll Learn |
-|-----|-------------------|
-| [**Architecture**](architecture.md) | How frontend, backend, and Python layers fit together |
+| Doc                                       | What You'll Learn                                              |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| [**Architecture**](architecture.md)       | How frontend, backend, and Python layers fit together          |
 | [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle |
-| [**RPC Protocols**](rpc-protocols.md) | How TypeScript interfaces define the frontend/backend contract |
-| [**DI Wiring**](di-wiring.md) | InversifyJS container modules and binding patterns |
-| [**Widget Patterns**](widget-patterns.md) | When to use iframe widgets vs React widgets |
-| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin |
-| [**Python Backends**](python-backends.md) | Conventions for Python server scripts |
+| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract |
+| [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns             |
+| [**Widget Patterns**](widget-patterns.md) | When to use iframe widgets vs React widgets                    |
+| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin      |
+| [**Python Backends**](python-backends.md) | Conventions for Python server scripts                          |
 
 ## Code Organization
 
@@ -67,21 +67,22 @@ We do **not** maintain a separate API reference in Markdown (it goes stale too q
 
 Key files to read for API details:
 
-| Purpose | File |
-|---------|------|
-| Base visualizer protocol | `src/common/base-visualizer-protocol.ts` |
-| OpenMC protocol | `src/common/openmc-protocol.ts` |
-| Health check framework | `src/browser/services/health-check-framework.ts` |
-| Python command helper | `src/node/services/python-command-helper.ts` |
-| Plotly service | `src/browser/plotly/plotly-service.ts` |
-| Base visualizer backend | `src/node/visualizer-backend-service.ts` |
-| OpenMC backend | `src/node/plugins/openmc/openmc-backend-service.ts` |
+| Purpose                  | File                                                |
+| ------------------------ | --------------------------------------------------- |
+| Base visualizer protocol | `src/common/base-visualizer-protocol.ts`            |
+| OpenMC protocol          | `src/common/openmc-protocol.ts`                     |
+| Health check framework   | `src/browser/services/health-check-framework.ts`    |
+| Python command helper    | `src/node/services/python-command-helper.ts`        |
+| Plotly service           | `src/browser/plotly/plotly-service.ts`              |
+| Base visualizer backend  | `src/node/visualizer-backend-service.ts`            |
+| OpenMC backend           | `src/node/plugins/openmc/openmc-backend-service.ts` |
 
 ---
 
 ## Contributing
 
 When adding a new feature:
+
 1. Write or update the **user doc** if it affects end-user workflows.
 2. Write or update the **dev doc** if it introduces new patterns or architecture changes.
 3. Add **JSDoc** to new public APIs.

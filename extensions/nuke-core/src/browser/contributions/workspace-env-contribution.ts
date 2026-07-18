@@ -78,7 +78,6 @@ export interface EnvFileInfo {
  */
 @injectable()
 export class WorkspaceEnvContribution implements FrontendApplicationContribution {
-
     @inject(WorkspaceService)
     protected readonly workspaceService: WorkspaceService;
 
@@ -169,7 +168,7 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         try {
             const envFiles = await this.findEnvFiles();
             // Filter out files we've already notified about
-            const newFiles = envFiles.filter(f => !this.notifiedFiles.has(f.uri.toString()));
+            const newFiles = envFiles.filter((f) => !this.notifiedFiles.has(f.uri.toString()));
             if (newFiles.length === 0) {
                 return;
             }
@@ -182,8 +181,8 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
             const hasPython = python?.success ?? false;
 
             // Determine which files to actually suggest
-            const condaYml = newFiles.find(f => f.type === 'conda-yml');
-            const reqTxt = newFiles.find(f => f.type === 'requirements-txt');
+            const condaYml = newFiles.find((f) => f.type === 'conda-yml');
+            const reqTxt = newFiles.find((f) => f.type === 'requirements-txt');
 
             // Mark all found files as notified so we don't re-prompt
             for (const f of envFiles) {
@@ -252,7 +251,7 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
             const candidates = [
                 { uri: rootUri.resolve('environment.yml'), type: 'conda-yml' as const, name: 'environment.yml' },
                 { uri: rootUri.resolve('environment.yaml'), type: 'conda-yml' as const, name: 'environment.yaml' },
-                { uri: rootUri.resolve('requirements.txt'), type: 'requirements-txt' as const, name: 'requirements.txt' },
+                { uri: rootUri.resolve('requirements.txt'), type: 'requirements-txt' as const, name: 'requirements.txt' }
             ];
 
             for (const candidate of candidates) {
@@ -329,7 +328,7 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                 );
                 if (action === 'Switch Environment') {
                     const envs = await this.nukeCore.listEnvironments(true);
-                    const newEnv = envs.find(e => e.envPath === prefix || e.name === envName);
+                    const newEnv = envs.find((e) => e.envPath === prefix || e.name === envName);
                     if (newEnv) {
                         await this.nukeCore.switchToEnvironment(newEnv);
                     } else if (envs.length > 0) {
@@ -337,9 +336,7 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
                     }
                 }
             } else {
-                this.messageService.warn(
-                    `Environment ${subCommand} from ${file.name} may have failed. Check the terminal for details.`
-                );
+                this.messageService.warn(`Environment ${subCommand} from ${file.name} may have failed. Check the terminal for details.`);
             }
         } catch (error) {
             console.error('[NukeCore] Error setting up from conda yml:', error);
@@ -367,7 +364,7 @@ export class WorkspaceEnvContribution implements FrontendApplicationContribution
         // Fallback: use the workspace folder name
         const parts = uri.path.toString().split('/');
         // Remove empty parts and the filename itself
-        const dirs = parts.filter(p => p).slice(0, -1);
+        const dirs = parts.filter((p) => p).slice(0, -1);
         return dirs[dirs.length - 1] || 'nuke-env';
     }
 

@@ -126,10 +126,10 @@ export class OptimizationWidget extends ReactWidget {
         this.title.caption = OptimizationWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-symbol-variable';
-        
+
         // Reset widget state for fresh instance
         this.resetWidgetState();
-        
+
         window.addEventListener('openmc-optimization-progress', ((evt: CustomEvent) => {
             const event = evt.detail;
             // Progress update received
@@ -137,17 +137,17 @@ export class OptimizationWidget extends ReactWidget {
                 currentIteration: event.currentIteration,
                 status: event.status
             });
-            
+
             // Load iteration logs when iteration progresses
             if (event.currentIteration > 0 && event.status === 'running') {
                 this.loadIterationLogsIndex(event.runId);
             }
-            
+
             // Refresh the currently loaded log if running
             if (this.selectedIteration && this.expandedIterations.has(this.selectedIteration)) {
                 this.loadIterationLog(event.runId, this.selectedIteration);
             }
-            
+
             this.update();
         }) as EventListener);
 
@@ -166,7 +166,7 @@ export class OptimizationWidget extends ReactWidget {
             const run = this.stateManager.getOptimizationRun(runId);
             if (run) {
                 // Check if this iteration already exists to avoid duplicates
-                const existingIndex = run.results.findIndex(r => r.iteration === result.iteration);
+                const existingIndex = run.results.findIndex((r) => r.iteration === result.iteration);
                 if (existingIndex === -1) {
                     const updatedResults = [...run.results, result];
                     this.stateManager.updateOptimizationRun(runId, {
@@ -252,17 +252,17 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected onActivateRequest(msg: any): void {
         super.onActivateRequest(msg);
-        
+
         const activeRun = this.stateManager.getActiveOptimizationRun();
         if (activeRun) {
             // Restore the iteration logs index for the active run
             this.loadIterationLogsIndex(activeRun.id);
-            
+
             // Restart progress polling if still running
             if (activeRun.status === 'running' && !this.progressInterval) {
                 this.startProgressPolling(activeRun.id);
             }
-            
+
             this.update();
         }
     }
@@ -274,10 +274,10 @@ export class OptimizationWidget extends ReactWidget {
     protected render(): React.ReactNode {
         try {
             return (
-                <div className='optimization-widget'>
+                <div className="optimization-widget">
                     {this.renderHeader()}
                     {this.renderTabs()}
-                    <div className='optimization-widget-content'>
+                    <div className="optimization-widget-content">
                         {this.activeTab === 'sweeps' && this.renderSweepsTab()}
                         {this.activeTab === 'runner' && this.renderRunnerTab()}
                         {this.activeTab === 'results' && this.renderResultsTab()}
@@ -288,11 +288,11 @@ export class OptimizationWidget extends ReactWidget {
         } catch (error) {
             console.error('[OptimizationWidget] Error in render:', error);
             return (
-                <div className='optimization-widget error'>
-                    <div className='empty-state'>
-                        <i className='codicon codicon-error'></i>
+                <div className="optimization-widget error">
+                    <div className="empty-state">
+                        <i className="codicon codicon-error"></i>
                         <p>Failed to render widget.</p>
-                        <p className='empty-hint'>{String(error)}</p>
+                        <p className="empty-hint">{String(error)}</p>
                     </div>
                 </div>
             );
@@ -307,19 +307,17 @@ export class OptimizationWidget extends ReactWidget {
         const projectPath = this.stateManager.projectPath;
 
         return (
-            <div className='optimization-header'>
-                <div className='optimization-info'>
+            <div className="optimization-header">
+                <div className="optimization-info">
                     <h2>
-                        <i className='codicon codicon-symbol-variable'></i>
+                        <i className="codicon codicon-symbol-variable"></i>
                         Optimization Study
                     </h2>
-                    <p className='optimization-description'>
+                    <p className="optimization-description">
                         Define parameter sweeps and run automated optimization studies
                         {projectPath && (
-                            <Tooltip content={projectPath} position='bottom'>
-                                <span className='project-path'>
-                                    {' '}• {projectPath.split('/').pop()}
-                                </span>
+                            <Tooltip content={projectPath} position="bottom">
+                                <span className="project-path"> • {projectPath.split('/').pop()}</span>
                             </Tooltip>
                         )}
                     </p>
@@ -334,23 +332,31 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderQuickStartGuide(): React.ReactNode {
         return (
-            <div className='quick-start-guide'>
-                <h4><i className='codicon codicon-book'></i> Getting Started with Optimization</h4>
-                <div className='guide-cards'>
-                    <div className='guide-card'>
-                        <div className='guide-icon'><i className='codicon codicon-list-selection'></i></div>
+            <div className="quick-start-guide">
+                <h4>
+                    <i className="codicon codicon-book"></i> Getting Started with Optimization
+                </h4>
+                <div className="guide-cards">
+                    <div className="guide-card">
+                        <div className="guide-icon">
+                            <i className="codicon codicon-list-selection"></i>
+                        </div>
                         <h5>1. Define Sweeps</h5>
                         <p>Create parameter sweeps to vary inputs like enrichment, density, or geometry dimensions.</p>
                         <code>Example: U-235 enrichment from 3% to 5%</code>
                     </div>
-                    <div className='guide-card'>
-                        <div className='guide-icon'><i className='codicon codicon-play'></i></div>
+                    <div className="guide-card">
+                        <div className="guide-icon">
+                            <i className="codicon codicon-play"></i>
+                        </div>
                         <h5>2. Run Batch</h5>
                         <p>Execute multiple simulations automatically with different parameter combinations.</p>
                         <code>Each iteration = one simulation</code>
                     </div>
-                    <div className='guide-card'>
-                        <div className='guide-icon'><i className='codicon codicon-graph-line'></i></div>
+                    <div className="guide-card">
+                        <div className="guide-icon">
+                            <i className="codicon codicon-graph-line"></i>
+                        </div>
                         <h5>3. Analyze Results</h5>
                         <p>View k-effective trends, statistics, and export data for further analysis.</p>
                         <code>Plot k-eff vs parameter</code>
@@ -373,8 +379,8 @@ export class OptimizationWidget extends ReactWidget {
         ] as const;
 
         return (
-            <div className='optimization-tabs'>
-                {tabs.map(tab => (
+            <div className="optimization-tabs">
+                {tabs.map((tab) => (
                     <button
                         key={tab.id}
                         className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
@@ -400,60 +406,51 @@ export class OptimizationWidget extends ReactWidget {
             const sweeps = this.stateManager.getParameterSweeps();
 
             return (
-                <div className='sweeps-tab'>
+                <div className="sweeps-tab">
                     {this.renderQuickStartGuide()}
-                    <div className='sweeps-toolbar'>
-                        <Tooltip content='Create a new parameter sweep' position='bottom'>
-                            <button
-                                className='theia-button primary'
-                                onClick={() => this.addNewSweep()}
-                            >
-                                <i className='codicon codicon-add'></i>
+                    <div className="sweeps-toolbar">
+                        <Tooltip content="Create a new parameter sweep" position="bottom">
+                            <button className="theia-button primary" onClick={() => this.addNewSweep()}>
+                                <i className="codicon codicon-add"></i>
                                 Add Sweep
                             </button>
                         </Tooltip>
                     </div>
 
                     {sweeps.length === 0 ? (
-                        <div className='empty-state'>
-                            <i className='codicon codicon-symbol-variable'></i>
+                        <div className="empty-state">
+                            <i className="codicon codicon-symbol-variable"></i>
                             <p>No parameter sweeps defined yet.</p>
-                            <p className='empty-hint'>Add a sweep to vary parameters across multiple simulations.</p>
-                            <div className='empty-actions'>
-                                <button 
-                                    className='theia-button primary'
-                                    onClick={() => this.addNewSweep()}
-                                >
-                                    <i className='codicon codicon-add'></i>
+                            <p className="empty-hint">Add a sweep to vary parameters across multiple simulations.</p>
+                            <div className="empty-actions">
+                                <button className="theia-button primary" onClick={() => this.addNewSweep()}>
+                                    <i className="codicon codicon-add"></i>
                                     Add Sweep
                                 </button>
-                                <button 
-                                    className='theia-button secondary'
-                                    onClick={() => this.openProject()}
-                                >
-                                    <i className='codicon codicon-folder-opened'></i>
+                                <button className="theia-button secondary" onClick={() => this.openProject()}>
+                                    <i className="codicon codicon-folder-opened"></i>
                                     Open Project
                                 </button>
                             </div>
-                            <div className='empty-tips'>
-                                <p><strong>💡 Tip:</strong> Start with material properties like enrichment or density.</p>
-                                <p><strong>💡 Tip:</strong> You can sweep geometry dimensions for sensitivity studies.</p>
+                            <div className="empty-tips">
+                                <p>
+                                    <strong>💡 Tip:</strong> Start with material properties like enrichment or density.
+                                </p>
+                                <p>
+                                    <strong>💡 Tip:</strong> You can sweep geometry dimensions for sensitivity studies.
+                                </p>
                             </div>
                         </div>
                     ) : (
-                        <div className='sweeps-list'>
-                            {sweeps.map(sweep => this.renderSweepCard(sweep))}
-                        </div>
+                        <div className="sweeps-list">{sweeps.map((sweep) => this.renderSweepCard(sweep))}</div>
                     )}
                 </div>
             );
         } catch (error) {
             console.error('[OptimizationWidget] Error in renderSweepsTab:', error);
             return (
-                <div className='sweeps-tab error'>
-                    <div className='error-message'>
-                        Error loading sweeps: {String(error)}
-                    </div>
+                <div className="sweeps-tab error">
+                    <div className="error-message">Error loading sweeps: {String(error)}</div>
                 </div>
             );
         }
@@ -474,76 +471,62 @@ export class OptimizationWidget extends ReactWidget {
         }
 
         return (
-            <div
-                key={sweep.id}
-                className={`sweep-card ${isSelected ? 'selected' : ''} ${!sweep.enabled ? 'disabled' : ''}`}
-            >
-                <div className='sweep-card-header'>
-                    <div className='sweep-info'>
-                        <Tooltip content={sweep.enabled ? 'Disable this sweep' : 'Enable this sweep'} position='top'>
-                            <input
-                                type='checkbox'
-                                checked={sweep.enabled}
-                                onChange={() => this.toggleSweepEnabled(sweep.id)}
-                            />
+            <div key={sweep.id} className={`sweep-card ${isSelected ? 'selected' : ''} ${!sweep.enabled ? 'disabled' : ''}`}>
+                <div className="sweep-card-header">
+                    <div className="sweep-info">
+                        <Tooltip content={sweep.enabled ? 'Disable this sweep' : 'Enable this sweep'} position="top">
+                            <input type="checkbox" checked={sweep.enabled} onChange={() => this.toggleSweepEnabled(sweep.id)} />
                         </Tooltip>
-                        <Tooltip content={sweep.name} position='top'>
-                            <span className='sweep-name'>{sweep.name}</span>
+                        <Tooltip content={sweep.name} position="top">
+                            <span className="sweep-name">{sweep.name}</span>
                         </Tooltip>
-                        <Tooltip content={`Variable: ${sweep.variable}`} position='top'>
-                            <span className='sweep-variable'>{sweep.variable}</span>
+                        <Tooltip content={`Variable: ${sweep.variable}`} position="top">
+                            <span className="sweep-variable">{sweep.variable}</span>
                         </Tooltip>
                         {sweep.parameterPath && (
-                            <Tooltip content={`Path: ${sweep.parameterPath}`} position='top'>
-                                <span className='sweep-path'>{sweep.parameterPath}</span>
+                            <Tooltip content={`Path: ${sweep.parameterPath}`} position="top">
+                                <span className="sweep-path">{sweep.parameterPath}</span>
                             </Tooltip>
                         )}
                     </div>
-                    <div className='sweep-actions'>
-                        <Tooltip content='Edit sweep parameters' position='top'>
-                            <button
-                                className='theia-button small'
-                                onClick={() => this.editSweep(sweep.id)}
-                            >
-                                <i className='codicon codicon-edit'></i>
+                    <div className="sweep-actions">
+                        <Tooltip content="Edit sweep parameters" position="top">
+                            <button className="theia-button small" onClick={() => this.editSweep(sweep.id)}>
+                                <i className="codicon codicon-edit"></i>
                             </button>
                         </Tooltip>
-                        <Tooltip content='Duplicate this sweep' position='top'>
-                            <button
-                                className='theia-button small'
-                                onClick={() => this.duplicateSweep(sweep.id)}
-                            >
-                                <i className='codicon codicon-copy'></i>
+                        <Tooltip content="Duplicate this sweep" position="top">
+                            <button className="theia-button small" onClick={() => this.duplicateSweep(sweep.id)}>
+                                <i className="codicon codicon-copy"></i>
                             </button>
                         </Tooltip>
-                        <Tooltip content='Delete sweep' position='top'>
-                            <button
-                                className='theia-button small danger'
-                                onClick={() => this.deleteSweep(sweep.id)}
-                            >
-                                <i className='codicon codicon-trash'></i>
+                        <Tooltip content="Delete sweep" position="top">
+                            <button className="theia-button small danger" onClick={() => this.deleteSweep(sweep.id)}>
+                                <i className="codicon codicon-trash"></i>
                             </button>
                         </Tooltip>
                     </div>
                 </div>
 
-                <div className='sweep-details'>
-                    <div className='sweep-range'>
+                <div className="sweep-details">
+                    <div className="sweep-range">
                         <label>Range:</label>
                         <span className={`range-type ${sweep.rangeType}`}>{sweep.rangeType}</span>
-                        <span className='range-values'>
+                        <span className="range-values">
                             {sweep.startValue.toFixed(4)} → {sweep.endValue.toFixed(4)}
                         </span>
-                        <span className='range-points'>({sweep.numPoints} points)</span>
+                        <span className="range-points">({sweep.numPoints} points)</span>
                     </div>
 
-                    <div className='sweep-preview'>
+                    <div className="sweep-preview">
                         <label>Preview:</label>
-                        <div className='values-preview'>
+                        <div className="values-preview">
                             {values.slice(0, 8).map((v, i) => (
-                                <span key={i} className='value-tag'>{v.toFixed(4)}</span>
+                                <span key={i} className="value-tag">
+                                    {v.toFixed(4)}
+                                </span>
                             ))}
-                            {values.length > 8 && <span className='more-tag'>+{values.length - 8} more</span>}
+                            {values.length > 8 && <span className="more-tag">+{values.length - 8} more</span>}
                         </div>
                     </div>
                 </div>
@@ -564,34 +547,34 @@ export class OptimizationWidget extends ReactWidget {
 
         const handleSave = () => {
             if (!this.editingSweepData) return;
-            
+
             // Validate required fields
             if (!this.editingSweepData.name.trim()) {
                 this.messageService.error('Sweep name is required');
                 return;
             }
-            
+
             if (!this.editingSweepData.variable.trim()) {
                 this.messageService.error('Variable name is required');
                 return;
             }
-            
+
             if (!this.editingSweepData.parameterPath) {
                 this.messageService.error('Parameter Path is required. Please select what to sweep.');
                 return;
             }
-            
+
             // Validate numeric ranges
             if (this.editingSweepData.numPoints < 2) {
                 this.messageService.error('Number of points must be at least 2');
                 return;
             }
-            
+
             if (this.editingSweepData.startValue === this.editingSweepData.endValue) {
                 this.messageService.error('Start and end values must be different');
                 return;
             }
-            
+
             this.stateManager.updateParameterSweep(sweep.id, this.editingSweepData);
             this.autoSave();
             this.editingSweepId = undefined;
@@ -615,29 +598,29 @@ export class OptimizationWidget extends ReactWidget {
         const data = this.editingSweepData;
 
         return (
-            <div key={sweep.id} className='sweep-card editing'>
-                <div className='sweep-editor'>
-                    <div className='editor-row'>
+            <div key={sweep.id} className="sweep-card editing">
+                <div className="sweep-editor">
+                    <div className="editor-row">
                         <label>Name:</label>
                         <input
-                            type='text'
+                            type="text"
                             value={data.name}
                             onChange={(e) => updateField('name', e.target.value)}
                             className={`theia-input ${!data.name.trim() ? 'invalid' : ''}`}
-                            placeholder='Enter sweep name'
+                            placeholder="Enter sweep name"
                         />
                     </div>
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Variable:</label>
                         <input
-                            type='text'
+                            type="text"
                             value={data.variable}
                             onChange={(e) => updateField('variable', e.target.value)}
                             className={`theia-input ${!data.variable.trim() ? 'invalid' : ''}`}
-                            placeholder='e.g., enrichment, temperature'
+                            placeholder="e.g., enrichment, temperature"
                         />
                     </div>
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Parameter Type:</label>
                         <select
                             value={data.parameterType}
@@ -648,16 +631,16 @@ export class OptimizationWidget extends ReactWidget {
                                     updateField('parameterPath', '');
                                 }
                             }}
-                            className='theia-select'
+                            className="theia-select"
                         >
-                            <option value='material'>Material</option>
-                            <option value='geometry'>Geometry</option>
-                            <option value='settings'>Settings</option>
-                            <option value='tally'>Tally</option>
+                            <option value="material">Material</option>
+                            <option value="geometry">Geometry</option>
+                            <option value="settings">Settings</option>
+                            <option value="tally">Tally</option>
                         </select>
                     </div>
                     {data.parameterType === 'material' && (
-                        <div className='editor-row'>
+                        <div className="editor-row">
                             <label>Parameter Path:</label>
                             <select
                                 value={data.parameterPath}
@@ -672,11 +655,11 @@ export class OptimizationWidget extends ReactWidget {
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
-                                <option value=''>-- Select parameter --</option>
+                                <option value="">-- Select parameter --</option>
                                 {(() => {
                                     const state = this.stateManager.getState();
                                     const options: JSX.Element[] = [];
-                                    state.materials.forEach(mat => {
+                                    state.materials.forEach((mat) => {
                                         options.push(
                                             <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
                                                 <option key={`${mat.name}.density`} value={`${mat.name}.density`}>
@@ -685,7 +668,7 @@ export class OptimizationWidget extends ReactWidget {
                                                 <option key={`${mat.name}.temperature`} value={`${mat.name}.temperature`}>
                                                     {mat.name}.temperature
                                                 </option>
-                                                {mat.nuclides.map(nuc => (
+                                                {mat.nuclides.map((nuc) => (
                                                     <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
                                                         {mat.name}.{nuc.name}
                                                     </option>
@@ -699,7 +682,7 @@ export class OptimizationWidget extends ReactWidget {
                         </div>
                     )}
                     {data.parameterType === 'geometry' && (
-                        <div className='editor-row'>
+                        <div className="editor-row">
                             <label>Parameter Path:</label>
                             <select
                                 value={data.parameterPath}
@@ -714,12 +697,12 @@ export class OptimizationWidget extends ReactWidget {
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
-                                <option value=''>-- Select parameter --</option>
+                                <option value="">-- Select parameter --</option>
                                 {(() => {
                                     const state = this.stateManager.getState();
                                     const options: JSX.Element[] = [];
                                     if (state.geometry && state.geometry.cells) {
-                                        state.geometry.cells.forEach(cell => {
+                                        state.geometry.cells.forEach((cell) => {
                                             options.push(
                                                 <optgroup key={`cell-${cell.id}`} label={`Cell: ${cell.name}`}>
                                                     <option key={`${cell.name}.temperature`} value={`${cell.name}.temperature`}>
@@ -735,7 +718,7 @@ export class OptimizationWidget extends ReactWidget {
                         </div>
                     )}
                     {data.parameterType === 'settings' && (
-                        <div className='editor-row'>
+                        <div className="editor-row">
                             <label>Parameter Path:</label>
                             <select
                                 value={data.parameterPath}
@@ -750,30 +733,30 @@ export class OptimizationWidget extends ReactWidget {
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
                             >
-                                <option value=''>-- Select parameter --</option>
+                                <option value="">-- Select parameter --</option>
                                 <optgroup label="Settings">
-                                    <option value='settings.particles'>particles</option>
-                                    <option value='settings.inactive'>inactive</option>
-                                    <option value='settings.batches'>batches</option>
-                                    <option value='settings.seed'>seed</option>
+                                    <option value="settings.particles">particles</option>
+                                    <option value="settings.inactive">inactive</option>
+                                    <option value="settings.batches">batches</option>
+                                    <option value="settings.seed">seed</option>
                                 </optgroup>
                             </select>
                         </div>
                     )}
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Range Type:</label>
                         <select
                             value={data.rangeType}
                             onChange={(e) => updateField('rangeType', e.target.value as 'linear' | 'logarithmic')}
-                            className='theia-select'
+                            className="theia-select"
                         >
-                            <option value='linear'>Linear</option>
-                            <option value='logarithmic'>Logarithmic</option>
+                            <option value="linear">Linear</option>
+                            <option value="logarithmic">Logarithmic</option>
                         </select>
                     </div>
                     {data.parameterPath?.startsWith('settings.') && (
-                        <div className='editor-row validation-warning'>
-                            <i className='codicon codicon-info'></i>
+                        <div className="editor-row validation-warning">
+                            <i className="codicon codicon-info"></i>
                             <span>
                                 {data.parameterPath === 'settings.particles' && 'Particles must be ≥ 1'}
                                 {data.parameterPath === 'settings.batches' && 'Batches must be ≥ 1 and > inactive'}
@@ -784,33 +767,33 @@ export class OptimizationWidget extends ReactWidget {
                     )}
                     {/* Cross-sweep validation for batches vs inactive */}
                     {(() => {
-                        const allSweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
-                        const batchesSweep = allSweeps.find(s => s.parameterPath === 'settings.batches');
-                        const inactiveSweep = allSweeps.find(s => s.parameterPath === 'settings.inactive');
-                        
+                        const allSweeps = this.stateManager.getParameterSweeps().filter((s) => s.enabled);
+                        const batchesSweep = allSweeps.find((s) => s.parameterPath === 'settings.batches');
+                        const inactiveSweep = allSweeps.find((s) => s.parameterPath === 'settings.inactive');
+
                         if (batchesSweep && inactiveSweep) {
                             const batchesValues = this.stateManager.computeSweepValues(batchesSweep);
                             const inactiveValues = this.stateManager.computeSweepValues(inactiveSweep);
                             const minBatches = Math.min(...batchesValues);
                             const maxInactive = Math.max(...inactiveValues);
-                            
+
                             if (minBatches <= maxInactive) {
                                 return (
-                                    <div className='editor-row validation-error'>
-                                        <i className='codicon codicon-error'></i>
+                                    <div className="editor-row validation-error">
+                                        <i className="codicon codicon-error"></i>
                                         <span>
-                                            Conflict: batches minimum ({minBatches}) ≤ inactive maximum ({maxInactive}).
-                                            Adjust sweeps so batches &gt; inactive.
+                                            Conflict: batches minimum ({minBatches}) ≤ inactive maximum ({maxInactive}). Adjust sweeps so
+                                            batches &gt; inactive.
                                         </span>
                                     </div>
                                 );
                             } else if (minBatches <= maxInactive + 5) {
                                 return (
-                                    <div className='editor-row validation-warning'>
-                                        <i className='codicon codicon-warning'></i>
+                                    <div className="editor-row validation-warning">
+                                        <i className="codicon codicon-warning"></i>
                                         <span>
-                                            Warning: Only {minBatches - maxInactive} active batches at minimum.
-                                            Consider increasing batches or decreasing inactive.
+                                            Warning: Only {minBatches - maxInactive} active batches at minimum. Consider increasing batches
+                                            or decreasing inactive.
                                         </span>
                                     </div>
                                 );
@@ -818,11 +801,11 @@ export class OptimizationWidget extends ReactWidget {
                         }
                         return null;
                     })()}
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Start Value:</label>
                         <input
-                            type='number'
-                            step='any'
+                            type="number"
+                            step="any"
                             value={data.startValue}
                             onChange={(e) => {
                                 const val = parseFloat(e.target.value) || 0;
@@ -833,14 +816,14 @@ export class OptimizationWidget extends ReactWidget {
                                     updateField('startValue', val);
                                 }
                             }}
-                            className='theia-input'
+                            className="theia-input"
                         />
                     </div>
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>End Value:</label>
                         <input
-                            type='number'
-                            step='any'
+                            type="number"
+                            step="any"
                             value={data.endValue}
                             onChange={(e) => {
                                 const val = parseFloat(e.target.value) || 0;
@@ -851,37 +834,37 @@ export class OptimizationWidget extends ReactWidget {
                                     updateField('endValue', val);
                                 }
                             }}
-                            className='theia-input'
+                            className="theia-input"
                         />
                     </div>
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Num Points:</label>
                         <input
-                            type='number'
+                            type="number"
                             min={2}
                             max={1000}
                             value={data.numPoints}
                             onChange={(e) => updateField('numPoints', parseInt(e.target.value) || 2)}
-                            className='theia-input'
+                            className="theia-input"
                         />
                     </div>
-                    <div className='editor-row'>
+                    <div className="editor-row">
                         <label>Unit:</label>
                         <input
-                            type='text'
+                            type="text"
                             value={data.unit || ''}
                             onChange={(e) => updateField('unit', e.target.value)}
-                            className='theia-input'
-                            placeholder='e.g., cm, %, K'
+                            className="theia-input"
+                            placeholder="e.g., cm, %, K"
                         />
                     </div>
-                    <div className='editor-actions'>
-                        <button className='theia-button primary' onClick={handleSave}>
-                            <i className='codicon codicon-check'></i>
+                    <div className="editor-actions">
+                        <button className="theia-button primary" onClick={handleSave}>
+                            <i className="codicon codicon-check"></i>
                             Save
                         </button>
-                        <button className='theia-button secondary' onClick={handleCancel}>
-                            <i className='codicon codicon-close'></i>
+                        <button className="theia-button secondary" onClick={handleCancel}>
+                            <i className="codicon codicon-close"></i>
                             Cancel
                         </button>
                     </div>
@@ -896,36 +879,32 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderValidationActions(): React.ReactNode {
         const errors = this.runnerValidation.errors;
-        
+
         // Check if any errors are related to batches/inactive settings
-        const hasSettingsError = errors.some(e => 
-            e.toLowerCase().includes('batches') || 
-            e.toLowerCase().includes('inactive') ||
-            e.toLowerCase().includes('settings')
-        );
-        
-        // Check if any errors are related to sweeps
-        const hasSweepError = errors.some(e =>
-            e.toLowerCase().includes('sweep')
+        const hasSettingsError = errors.some(
+            (e) => e.toLowerCase().includes('batches') || e.toLowerCase().includes('inactive') || e.toLowerCase().includes('settings')
         );
 
+        // Check if any errors are related to sweeps
+        const hasSweepError = errors.some((e) => e.toLowerCase().includes('sweep'));
+
         return (
-            <div className='validation-actions'>
+            <div className="validation-actions">
                 {hasSettingsError && (
-                    <button 
-                        className='theia-button secondary action-button'
-                        onClick={() => this.openSimulationDashboard()}
-                    >
-                        <i className='codicon codicon-settings-gear'></i>
+                    <button className="theia-button secondary action-button" onClick={() => this.openSimulationDashboard()}>
+                        <i className="codicon codicon-settings-gear"></i>
                         Open Settings
                     </button>
                 )}
                 {hasSweepError && (
-                    <button 
-                        className='theia-button secondary action-button'
-                        onClick={() => { this.activeTab = 'sweeps'; this.update(); }}
+                    <button
+                        className="theia-button secondary action-button"
+                        onClick={() => {
+                            this.activeTab = 'sweeps';
+                            this.update();
+                        }}
                     >
-                        <i className='codicon codicon-list-selection'></i>
+                        <i className="codicon codicon-list-selection"></i>
                         Go to Sweeps
                     </button>
                 )}
@@ -938,11 +917,11 @@ export class OptimizationWidget extends ReactWidget {
      * @returns Runner tab React node.
      */
     protected renderRunnerTab(): React.ReactNode {
-        const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
+        const sweeps = this.stateManager.getParameterSweeps().filter((s) => s.enabled);
         const activeRun = this.stateManager.getActiveOptimizationRun();
 
         let totalIterations = 1;
-        sweeps.forEach(s => {
+        sweeps.forEach((s) => {
             const values = this.stateManager.computeSweepValues(s);
             totalIterations *= values.length;
         });
@@ -952,68 +931,67 @@ export class OptimizationWidget extends ReactWidget {
         const hasWarnings = this.runnerValidation.warnings.length > 0;
 
         return (
-            <div className='runner-tab'>
-                <div className='runner-config'>
-                    <div className='runner-header'>
-                        <div className='runner-title-section'>
-                            <h3><i className='codicon codicon-play'></i> Batch Run</h3>
-                            <div className='runner-status-badges'>
+            <div className="runner-tab">
+                <div className="runner-config">
+                    <div className="runner-header">
+                        <div className="runner-title-section">
+                            <h3>
+                                <i className="codicon codicon-play"></i> Batch Run
+                            </h3>
+                            <div className="runner-status-badges">
                                 {sweeps.length > 0 && (
-                                    <span className='status-badge ready'>
-                                        <i className='codicon codicon-check'></i>
+                                    <span className="status-badge ready">
+                                        <i className="codicon codicon-check"></i>
                                         {sweeps.length} {sweeps.length === 1 ? 'sweep' : 'sweeps'} ready
                                     </span>
                                 )}
                                 {hasErrors && (
-                                    <span className='status-badge error'>
-                                        <i className='codicon codicon-error'></i>
+                                    <span className="status-badge error">
+                                        <i className="codicon codicon-error"></i>
                                         {this.runnerValidation.errors.length} error{this.runnerValidation.errors.length > 1 ? 's' : ''}
                                     </span>
                                 )}
                                 {hasWarnings && !hasErrors && (
-                                    <span className='status-badge warning'>
-                                        <i className='codicon codicon-warning'></i>
-                                        {this.runnerValidation.warnings.length} warning{this.runnerValidation.warnings.length > 1 ? 's' : ''}
+                                    <span className="status-badge warning">
+                                        <i className="codicon codicon-warning"></i>
+                                        {this.runnerValidation.warnings.length} warning
+                                        {this.runnerValidation.warnings.length > 1 ? 's' : ''}
                                     </span>
                                 )}
                             </div>
                         </div>
-                        <div className='runner-info'>
-                            <span className='info-item'>
-                                <i className='codicon codicon-list-selection'></i>
+                        <div className="runner-info">
+                            <span className="info-item">
+                                <i className="codicon codicon-list-selection"></i>
                                 {sweeps.length} {sweeps.length === 1 ? 'sweep' : 'sweeps'}
                             </span>
-                            <span className='info-item'>
-                                <i className='codicon codicon-numbers'></i>
+                            <span className="info-item">
+                                <i className="codicon codicon-numbers"></i>
                                 {totalIterations.toLocaleString()} {totalIterations === 1 ? 'iteration' : 'iterations'}
                             </span>
                         </div>
                     </div>
-                    
+
                     {/* Validation Panel */}
                     {(hasErrors || hasWarnings) && this.runnerValidation.showDetails && (
                         <div className={`validation-panel ${hasErrors ? 'has-errors' : 'has-warnings'}`}>
-                            <div className='validation-header'>
+                            <div className="validation-header">
                                 <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
                                 <span>{hasErrors ? 'Configuration Issues Found' : 'Configuration Warnings'}</span>
-                                <button 
-                                    className='validation-close' 
-                                    onClick={() => this.toggleValidationDetails()}
-                                    title='Hide details'
-                                >
-                                    <i className='codicon codicon-chevron-up'></i>
+                                <button className="validation-close" onClick={() => this.toggleValidationDetails()} title="Hide details">
+                                    <i className="codicon codicon-chevron-up"></i>
                                 </button>
                             </div>
-                            <div className='validation-content'>
+                            <div className="validation-content">
                                 {this.runnerValidation.errors.map((error, idx) => (
-                                    <div key={`error-${idx}`} className='validation-item error'>
-                                        <i className='codicon codicon-close'></i>
+                                    <div key={`error-${idx}`} className="validation-item error">
+                                        <i className="codicon codicon-close"></i>
                                         <span>{error}</span>
                                     </div>
                                 ))}
                                 {this.runnerValidation.warnings.map((warning, idx) => (
-                                    <div key={`warning-${idx}`} className='validation-item warning'>
-                                        <i className='codicon codicon-warning'></i>
+                                    <div key={`warning-${idx}`} className="validation-item warning">
+                                        <i className="codicon codicon-warning"></i>
                                         <span>{warning}</span>
                                     </div>
                                 ))}
@@ -1021,50 +999,58 @@ export class OptimizationWidget extends ReactWidget {
                             </div>
                         </div>
                     )}
-                    
+
                     {/* Validation Summary (collapsed state) */}
                     {(hasErrors || hasWarnings) && !this.runnerValidation.showDetails && (
                         <div className={`validation-summary ${hasErrors ? 'has-errors' : 'has-warnings'}`}>
                             <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
                             <span>
-                                {hasErrors 
+                                {hasErrors
                                     ? `${this.runnerValidation.errors.length} error${this.runnerValidation.errors.length > 1 ? 's' : ''} need to be fixed`
-                                    : `${this.runnerValidation.warnings.length} warning${this.runnerValidation.warnings.length > 1 ? 's' : ''}`
-                                }
+                                    : `${this.runnerValidation.warnings.length} warning${this.runnerValidation.warnings.length > 1 ? 's' : ''}`}
                             </span>
-                            <button className='validation-toggle' onClick={() => this.toggleValidationDetails()}>
-                                <i className='codicon codicon-chevron-down'></i>
+                            <button className="validation-toggle" onClick={() => this.toggleValidationDetails()}>
+                                <i className="codicon codicon-chevron-down"></i>
                                 Show details
                             </button>
                         </div>
                     )}
-                    
+
                     {sweeps.length === 0 && (
-                        <div className='runner-empty-state'>
-                            <i className='codicon codicon-list-selection'></i>
+                        <div className="runner-empty-state">
+                            <i className="codicon codicon-list-selection"></i>
                             <p>No sweeps enabled</p>
-                            <span>Enable at least one sweep in the <strong>Parameter Sweeps</strong> tab to start a batch run.</span>
+                            <span>
+                                Enable at least one sweep in the <strong>Parameter Sweeps</strong> tab to start a batch run.
+                            </span>
                         </div>
                     )}
 
-                    <div className='runner-actions'>
-                        <Tooltip content={isRunning ? 'Batch run in progress' : sweeps.length === 0 ? 'Enable at least one sweep first' : hasErrors ? 'Fix errors before starting' : 'Start the batch optimization run'} position='top'>
+                    <div className="runner-actions">
+                        <Tooltip
+                            content={
+                                isRunning
+                                    ? 'Batch run in progress'
+                                    : sweeps.length === 0
+                                      ? 'Enable at least one sweep first'
+                                      : hasErrors
+                                        ? 'Fix errors before starting'
+                                        : 'Start the batch optimization run'
+                            }
+                            position="top"
+                        >
                             <button
-                                className='theia-button primary large'
+                                className="theia-button primary large"
                                 onClick={() => this.startBatchRun()}
                                 disabled={isRunning || sweeps.length === 0}
                             >
-                                <i className='codicon codicon-play'></i>
+                                <i className="codicon codicon-play"></i>
                                 {isRunning ? 'Running...' : 'Start Batch Run'}
                             </button>
                         </Tooltip>
-                        <Tooltip content='Stop the batch run'>
-                            <button
-                                className='theia-button secondary large'
-                                onClick={() => this.stopBatchRun()}
-                                disabled={!isRunning}
-                            >
-                                <i className='codicon codicon-stop'></i>
+                        <Tooltip content="Stop the batch run">
+                            <button className="theia-button secondary large" onClick={() => this.stopBatchRun()} disabled={!isRunning}>
+                                <i className="codicon codicon-stop"></i>
                                 Stop
                             </button>
                         </Tooltip>
@@ -1084,22 +1070,18 @@ export class OptimizationWidget extends ReactWidget {
     protected renderRunProgress(run: OpenMCOptimizationRun): React.ReactNode {
         // Manage elapsed time timer
         this.manageElapsedTimeTimer(run);
-        
+
         // Calculate statistics - use results.length for completed iterations
         const completedIterations = run.results.length;
-        const successfulIterations = run.results.filter(r => r.success).length;
-        const failedIterations = run.results.filter(r => !r.success && r.executionTime > 0).length;
-        
+        const successfulIterations = run.results.filter((r) => r.success).length;
+        const failedIterations = run.results.filter((r) => !r.success && r.executionTime > 0).length;
+
         // Progress based on completed iterations, not currentIteration
-        const progress = run.totalIterations > 0
-            ? (completedIterations / run.totalIterations) * 100
-            : 0;
-        
-        const avgTime = completedIterations > 0
-            ? run.results.reduce((sum, r) => sum + r.executionTime, 0) / completedIterations
-            : 0;
+        const progress = run.totalIterations > 0 ? (completedIterations / run.totalIterations) * 100 : 0;
+
+        const avgTime = completedIterations > 0 ? run.results.reduce((sum, r) => sum + r.executionTime, 0) / completedIterations : 0;
         const estimatedRemaining = (run.totalIterations - completedIterations) * avgTime;
-        
+
         // Format time
         const formatTime = (seconds: number): string => {
             if (!seconds || seconds < 0) return '0s';
@@ -1107,7 +1089,7 @@ export class OptimizationWidget extends ReactWidget {
             if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
             return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
         };
-        
+
         // Calculate elapsed time - always compute fresh from current time
         let elapsedTime = 0;
         if (run.startTime) {
@@ -1123,42 +1105,45 @@ export class OptimizationWidget extends ReactWidget {
         }
 
         return (
-            <div className='run-progress'>
+            <div className="run-progress">
                 {/* Run Header */}
-                <div className='run-progress-header'>
-                    <div className='run-info'>
+                <div className="run-progress-header">
+                    <div className="run-info">
                         <h4>{run.name}</h4>
-                        <div className='run-meta'>
+                        <div className="run-meta">
                             <span className={`status-pill ${run.status}`}>
-                                <i className={`codicon codicon-${run.status === 'running' ? 'sync codicon-spin' : run.status === 'completed' ? 'check' : run.status === 'failed' ? 'error' : 'clock'}`}></i>
+                                <i
+                                    className={`codicon codicon-${run.status === 'running' ? 'sync codicon-spin' : run.status === 'completed' ? 'check' : run.status === 'failed' ? 'error' : 'clock'}`}
+                                ></i>
                                 {run.status}
                             </span>
                         </div>
                     </div>
-                    <div className='run-actions'>
-                    </div>
+                    <div className="run-actions"></div>
                 </div>
-                
+
                 {/* Progress Section */}
-                <div className='progress-section'>
-                    <div className='progress-header'>
-                        <span className='progress-percentage'>{Math.min(100, progress).toFixed(0)}%</span>
-                        <span className='progress-fraction'>{completedIterations} of {run.totalIterations} completed</span>
+                <div className="progress-section">
+                    <div className="progress-header">
+                        <span className="progress-percentage">{Math.min(100, progress).toFixed(0)}%</span>
+                        <span className="progress-fraction">
+                            {completedIterations} of {run.totalIterations} completed
+                        </span>
                     </div>
-                    
+
                     {/* Visual Progress Bar with Segments */}
-                    <div className='progress-track'>
-                        <div className='progress-fill' style={{ width: `${progress}%` }}>
-                            {run.status === 'running' && <div className='progress-shimmer'></div>}
+                    <div className="progress-track">
+                        <div className="progress-fill" style={{ width: `${progress}%` }}>
+                            {run.status === 'running' && <div className="progress-shimmer"></div>}
                         </div>
                         {/* Segment markers */}
-                        <div className='progress-segments'>
+                        <div className="progress-segments">
                             {Array.from({ length: Math.min(run.totalIterations, 20) }, (_, i) => {
                                 const segmentProgress = ((i + 1) / run.totalIterations) * 100;
                                 const isCompleted = run.currentIteration >= i + 1;
                                 return (
-                                    <div 
-                                        key={i} 
+                                    <div
+                                        key={i}
                                         className={`segment-marker ${isCompleted ? 'completed' : ''}`}
                                         style={{ left: `${segmentProgress}%` }}
                                     />
@@ -1166,11 +1151,11 @@ export class OptimizationWidget extends ReactWidget {
                             })}
                         </div>
                     </div>
-                    
+
                     {/* Timeline Visualization */}
-                    <div className='timeline-visual'>
+                    <div className="timeline-visual">
                         {Array.from({ length: Math.min(run.totalIterations, 50) }, (_, i) => {
-                            const result = run.results.find(r => r.iteration === i + 1);
+                            const result = run.results.find((r) => r.iteration === i + 1);
                             let status = 'pending';
                             if (result) {
                                 status = result.success ? 'success' : 'error';
@@ -1178,8 +1163,12 @@ export class OptimizationWidget extends ReactWidget {
                                 status = 'running';
                             }
                             return (
-                                <Tooltip key={i} content={`Iteration ${i + 1}${result ? result.success ? ' (Success)' : ' (Failed)' : ''}`} position='top'>
-                                    <div 
+                                <Tooltip
+                                    key={i}
+                                    content={`Iteration ${i + 1}${result ? (result.success ? ' (Success)' : ' (Failed)') : ''}`}
+                                    position="top"
+                                >
+                                    <div
                                         className={`timeline-dot ${status} ${this.selectedIteration === i + 1 ? 'selected' : ''}`}
                                         onClick={() => this.selectIteration(run.id, i + 1)}
                                     />
@@ -1188,83 +1177,83 @@ export class OptimizationWidget extends ReactWidget {
                         })}
                     </div>
                 </div>
-                
+
                 {/* Stats Cards */}
-                <div className='stats-grid'>
-                    <div className='stat-card'>
-                        <div className='stat-icon success'>
-                            <i className='codicon codicon-check'></i>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-icon success">
+                            <i className="codicon codicon-check"></i>
                         </div>
-                        <div className='stat-content'>
-                            <span className='stat-value'>{successfulIterations}</span>
-                            <span className='stat-label'>Successful</span>
+                        <div className="stat-content">
+                            <span className="stat-value">{successfulIterations}</span>
+                            <span className="stat-label">Successful</span>
                         </div>
                     </div>
-                    
+
                     {failedIterations > 0 && (
-                        <div className='stat-card'>
-                            <div className='stat-icon error'>
-                                <i className='codicon codicon-error'></i>
+                        <div className="stat-card">
+                            <div className="stat-icon error">
+                                <i className="codicon codicon-error"></i>
                             </div>
-                            <div className='stat-content'>
-                                <span className='stat-value'>{failedIterations}</span>
-                                <span className='stat-label'>Failed</span>
+                            <div className="stat-content">
+                                <span className="stat-value">{failedIterations}</span>
+                                <span className="stat-label">Failed</span>
                             </div>
                         </div>
                     )}
-                    
-                    <div className='stat-card'>
-                        <div className='stat-icon time'>
-                            <i className='codicon codicon-clock'></i>
+
+                    <div className="stat-card">
+                        <div className="stat-icon time">
+                            <i className="codicon codicon-clock"></i>
                         </div>
-                        <div className='stat-content'>
-                            <span className='stat-value'>{formatTime(elapsedTime)}</span>
-                            <span className='stat-label'>Elapsed</span>
+                        <div className="stat-content">
+                            <span className="stat-value">{formatTime(elapsedTime)}</span>
+                            <span className="stat-label">Elapsed</span>
                         </div>
                     </div>
-                    
+
                     {run.status === 'running' && estimatedRemaining > 0 && (
-                        <div className='stat-card'>
-                            <div className='stat-icon estimate'>
-                                <i className='codicon codicon-history'></i>
+                        <div className="stat-card">
+                            <div className="stat-icon estimate">
+                                <i className="codicon codicon-history"></i>
                             </div>
-                            <div className='stat-content'>
-                                <span className='stat-value'>~{formatTime(estimatedRemaining)}</span>
-                                <span className='stat-label'>Remaining</span>
+                            <div className="stat-content">
+                                <span className="stat-value">~{formatTime(estimatedRemaining)}</span>
+                                <span className="stat-label">Remaining</span>
                             </div>
                         </div>
                     )}
-                    
+
                     {avgTime > 0 && (
-                        <div className='stat-card'>
-                            <div className='stat-icon avg'>
-                                <i className='codicon codicon-dashboard'></i>
+                        <div className="stat-card">
+                            <div className="stat-icon avg">
+                                <i className="codicon codicon-dashboard"></i>
                             </div>
-                            <div className='stat-content'>
-                                <span className='stat-value'>{formatTime(avgTime)}</span>
-                                <span className='stat-label'>Avg/iter</span>
+                            <div className="stat-content">
+                                <span className="stat-value">{formatTime(avgTime)}</span>
+                                <span className="stat-label">Avg/iter</span>
                             </div>
                         </div>
                     )}
                 </div>
 
-                <div className='run-log'>
-                    <div className='log-layout' style={{ height: this.showLogMaximized ? '60vh' : `${this.logPanelHeight}px` }}>
-                        <div className='log-sidebar'>
-                            <div className='sidebar-header'>
+                <div className="run-log">
+                    <div className="log-layout" style={{ height: this.showLogMaximized ? '60vh' : `${this.logPanelHeight}px` }}>
+                        <div className="log-sidebar">
+                            <div className="sidebar-header">
                                 <h5>Iterations ({this.iterationLogsIndex.length})</h5>
                             </div>
-                            <div className='sidebar-list'>
+                            <div className="sidebar-list">
                                 {this.iterationLogsIndex.length === 0 ? (
-                                    <div className='sidebar-empty'>No iterations</div>
+                                    <div className="sidebar-empty">No iterations</div>
                                 ) : (
-                                    this.iterationLogsIndex.map(iter => (
-                                        <button 
+                                    this.iterationLogsIndex.map((iter) => (
+                                        <button
                                             key={iter.iteration}
                                             className={`sidebar-item ${this.selectedIteration === iter.iteration ? 'selected' : ''}`}
                                             onClick={() => this.toggleIteration(run.id, iter.iteration, iter.hasLog)}
                                         >
-                                            <span className='item-num'>#{iter.iteration}</span>
+                                            <span className="item-num">#{iter.iteration}</span>
                                             <span className={`item-status ${iter.hasLog ? 'done' : 'running'}`}>
                                                 {iter.hasLog ? '✓' : '○'}
                                             </span>
@@ -1273,31 +1262,34 @@ export class OptimizationWidget extends ReactWidget {
                                 )}
                             </div>
                         </div>
-                        <div className='log-main'>
+                        <div className="log-main">
                             {this.selectedIteration ? (
-                                <div className='log-viewer'>
-                                    <div className='viewer-header'>
+                                <div className="log-viewer">
+                                    <div className="viewer-header">
                                         <span>Iteration {this.selectedIteration}</span>
-                                        <div className='viewer-controls'>
-                                            <Tooltip content='Open log file in editor' position='top'>
-                                                <button 
-                                                    className='theia-button secondary'
+                                        <div className="viewer-controls">
+                                            <Tooltip content="Open log file in editor" position="top">
+                                                <button
+                                                    className="theia-button secondary"
                                                     onClick={() => this.openLogInEditor(run.id, this.selectedIteration!)}
                                                 >
-                                                    <i className='codicon codicon-file-text'></i>
+                                                    <i className="codicon codicon-file-text"></i>
                                                     Open Log File
                                                 </button>
                                             </Tooltip>
-                                            <input 
-                                                type='text' 
-                                                placeholder='Filter output...'
+                                            <input
+                                                type="text"
+                                                placeholder="Filter output..."
                                                 onInput={(e: any) => {
                                                     this.filterLogContent(this.selectedIteration!, e.target.value);
                                                 }}
                                             />
-                                            <Tooltip content={this.showLogMaximized ? 'Minimize log view' : 'Maximize log view'} position='top'>
-                                                <button 
-                                                    className='theia-button secondary'
+                                            <Tooltip
+                                                content={this.showLogMaximized ? 'Minimize log view' : 'Maximize log view'}
+                                                position="top"
+                                            >
+                                                <button
+                                                    className="theia-button secondary"
                                                     onClick={() => {
                                                         this.showLogMaximized = !this.showLogMaximized;
                                                         this.update();
@@ -1311,9 +1303,9 @@ export class OptimizationWidget extends ReactWidget {
                                                     {this.showLogMaximized ? '−' : '+'}
                                                 </button>
                                             </Tooltip>
-                                            <Tooltip content='Close log viewer' position='top'>
-                                                <button 
-                                                    className='theia-button secondary'
+                                            <Tooltip content="Close log viewer" position="top">
+                                                <button
+                                                    className="theia-button secondary"
                                                     onClick={() => {
                                                         this.selectedIteration = undefined;
                                                         this.loadedLogContent = '';
@@ -1325,8 +1317,8 @@ export class OptimizationWidget extends ReactWidget {
                                             </Tooltip>
                                         </div>
                                     </div>
-                                    <pre 
-                                        className='viewer-content' 
+                                    <pre
+                                        className="viewer-content"
                                         ref={this.logViewerRef}
                                         onScroll={(e) => {
                                             const el = e.target as HTMLPreElement;
@@ -1337,9 +1329,7 @@ export class OptimizationWidget extends ReactWidget {
                                     </pre>
                                 </div>
                             ) : (
-                                <div className='log-placeholder'>
-                                    Select an iteration to view its output
-                                </div>
+                                <div className="log-placeholder">Select an iteration to view its output</div>
                             )}
                         </div>
                     </div>
@@ -1355,7 +1345,7 @@ export class OptimizationWidget extends ReactWidget {
      */
     private selectIteration(runId: string, iteration: number): void {
         // Find if this iteration has a log
-        const iterInfo = this.iterationLogsIndex.find(i => i.iteration === iteration);
+        const iterInfo = this.iterationLogsIndex.find((i) => i.iteration === iteration);
         if (iterInfo?.hasLog) {
             this.toggleIteration(runId, iteration, true);
         } else {
@@ -1373,7 +1363,7 @@ export class OptimizationWidget extends ReactWidget {
     private manageElapsedTimeTimer(run: OpenMCOptimizationRun): void {
         const shouldRun = run.status === 'running' && !!run.startTime;
         const isDifferentRun = this.timedRunId !== run.id;
-        
+
         // Stop timer if run is not running or if we switched to a different run
         if (!shouldRun || isDifferentRun) {
             if (this.elapsedTimeTimer) {
@@ -1382,7 +1372,7 @@ export class OptimizationWidget extends ReactWidget {
                 this.timedRunId = undefined;
             }
         }
-        
+
         // Start timer if run is running and we don't have a timer for this run
         if (shouldRun && !this.elapsedTimeTimer) {
             this.timedRunId = run.id;
@@ -1417,33 +1407,33 @@ export class OptimizationWidget extends ReactWidget {
                 this.messageService.warn('Run not found');
                 return;
             }
-            
+
             // Get project path to resolve relative paths
             const projectPath = this.stateManager.projectPath;
             if (!projectPath) {
                 this.messageService.warn('Project path not available');
                 return;
             }
-            
+
             // Resolve output directory (relative to project directory)
             const projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
             const outputDir = run.outputDirectory || `optimization/${runId}`;
             const absoluteOutputDir = `${projectDir}/${outputDir}`;
-            
+
             // Construct the iteration-specific log file path
             // Logs are stored at {outputDirectory}/iteration_{iteration}/output.log
-            const iterResult = run.results.find(r => r.iteration === iteration);
+            const iterResult = run.results.find((r) => r.iteration === iteration);
             if (iterResult?.statepointPath) {
                 // statepointPath is relative to output directory, e.g., "iteration_1/statepoint.11.h5"
                 const statepointDir = iterResult.statepointPath.substring(0, iterResult.statepointPath.lastIndexOf('/'));
                 const logPath = `${absoluteOutputDir}/${statepointDir}/output.log`;
                 const uri = URI.fromFilePath(logPath);
-                await this.openerService.getOpener(uri).then(opener => opener.open(uri));
+                await this.openerService.getOpener(uri).then((opener) => opener.open(uri));
             } else {
                 // Fallback: try default path
                 const logPath = `${absoluteOutputDir}/iteration_${iteration}/output.log`;
                 const uri = URI.fromFilePath(logPath);
-                await this.openerService.getOpener(uri).then(opener => opener.open(uri));
+                await this.openerService.getOpener(uri).then((opener) => opener.open(uri));
             }
         } catch (error) {
             this.messageService.error(`Failed to open log file: ${error}`);
@@ -1459,7 +1449,7 @@ export class OptimizationWidget extends ReactWidget {
             // Get the run to resolve output directory
             const run = this.stateManager.getOptimizationRun(runId);
             let outputDirectory: string | undefined;
-            
+
             if (run?.outputDirectory) {
                 // Resolve relative path to absolute path
                 const projectPath = this.stateManager.projectPath;
@@ -1468,7 +1458,7 @@ export class OptimizationWidget extends ReactWidget {
                     outputDirectory = `${projectDir}/${run.outputDirectory}`;
                 }
             }
-            
+
             const result = await this.backendService.getIterationLogsIndex(runId, outputDirectory);
             if (result.iterations.length !== this.iterationLogsIndex.length) {
                 this.iterationLogsIndex = result.iterations;
@@ -1487,11 +1477,11 @@ export class OptimizationWidget extends ReactWidget {
     private getRunOutputDirectory(runId: string): string | undefined {
         const run = this.stateManager.getOptimizationRun(runId);
         if (!run?.outputDirectory) return undefined;
-        
+
         // Resolve relative path to absolute path
         const projectPath = this.stateManager.projectPath;
         if (!projectPath) return undefined;
-        
+
         const projectDir = projectPath.substring(0, projectPath.lastIndexOf('/'));
         return `${projectDir}/${run.outputDirectory}`;
     }
@@ -1504,7 +1494,7 @@ export class OptimizationWidget extends ReactWidget {
      */
     private async toggleIteration(runId: string, iteration: number, hasLog: boolean): Promise<void> {
         if (!hasLog) return;
-        
+
         if (this.expandedIterations.has(iteration)) {
             // Collapse - just close the expanded view
             this.expandedIterations.delete(iteration);
@@ -1547,14 +1537,14 @@ export class OptimizationWidget extends ReactWidget {
      */
     private async loadIterationLog(runId: string, iteration: number): Promise<void> {
         if (!this.expandedIterations.has(iteration)) return;
-        
+
         try {
             const outputDirectory = this.getRunOutputDirectory(runId);
             const result = await this.backendService.getIterationLog(runId, iteration, outputDirectory);
             if (result.success && result.logContent) {
                 this.loadedLogContent = result.logContent;
                 this.update();
-                
+
                 // Auto-scroll only if user is near bottom or new content
                 setTimeout(() => {
                     if (this.logViewerRef.current) {
@@ -1586,9 +1576,7 @@ export class OptimizationWidget extends ReactWidget {
         if (this.selectedIteration === iteration && this.loadedLogContent) {
             const filterLower = filter.toLowerCase();
             const lines = this.loadedLogContent.split('\n');
-            const filtered = lines.filter(line => 
-                line.toLowerCase().includes(filterLower)
-            ).join('\n');
+            const filtered = lines.filter((line) => line.toLowerCase().includes(filterLower)).join('\n');
             this.filteredLogContent = filtered;
             this.update();
         }
@@ -1600,26 +1588,24 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderResultsTab(): React.ReactNode {
         const runs = this.stateManager.getOptimizationRuns();
-        const selectedRun = this.selectedRunId
-            ? runs.find(r => r.id === this.selectedRunId)
-            : runs[0];
+        const selectedRun = this.selectedRunId ? runs.find((r) => r.id === this.selectedRunId) : runs[0];
 
         return (
-            <div className='results-tab'>
+            <div className="results-tab">
                 {runs.length === 0 ? (
-                    <div className='results-empty'>
-                        <i className='codicon codicon-test-queued'></i>
+                    <div className="results-empty">
+                        <i className="codicon codicon-test-queued"></i>
                         <h3>No Optimization Runs</h3>
                         <p>Start a batch run from the Runner tab to see results here.</p>
                     </div>
                 ) : (
                     <>
-                        <div className='results-sidebar'>
-                            <div className='results-sidebar-header'>
+                        <div className="results-sidebar">
+                            <div className="results-sidebar-header">
                                 <h4>Run History</h4>
-                                <Tooltip content='Delete all optimization runs' position='top'>
+                                <Tooltip content="Delete all optimization runs" position="top">
                                     <button
-                                        className='theia-button secondary small'
+                                        className="theia-button secondary small"
                                         onClick={async () => {
                                             const confirmDialog = new ConfirmDialog({
                                                 title: 'Delete All Runs',
@@ -1629,19 +1615,19 @@ export class OptimizationWidget extends ReactWidget {
                                             });
                                             const confirmed = await confirmDialog.open();
                                             if (confirmed) {
-                                                runs.forEach(r => this.stateManager.removeOptimizationRun(r.id));
+                                                runs.forEach((r) => this.stateManager.removeOptimizationRun(r.id));
                                                 this.selectedRunId = undefined;
                                                 this.autoSave();
                                                 this.update();
                                             }
                                         }}
                                     >
-                                        <i className='codicon codicon-trash'></i>
+                                        <i className="codicon codicon-trash"></i>
                                     </button>
                                 </Tooltip>
                             </div>
-                            <div className='runs-list'>
-                                {runs.map(run => (
+                            <div className="runs-list">
+                                {runs.map((run) => (
                                     <div
                                         key={run.id}
                                         className={`run-item ${run.id === this.selectedRunId ? 'selected' : ''}`}
@@ -1652,19 +1638,24 @@ export class OptimizationWidget extends ReactWidget {
                                             this.update();
                                         }}
                                     >
-                                        <div className='run-item-header'>
-                                            <span className='run-name'>{run.name}</span>
+                                        <div className="run-item-header">
+                                            <span className="run-name">{run.name}</span>
                                             <span className={`run-status ${run.status}`}>{run.status}</span>
                                         </div>
-                                        <div className='run-item-meta'>
-                                            <span><i className='codicon codicon-numbers'></i> {run.totalIterations} iterations</span>
+                                        <div className="run-item-meta">
+                                            <span>
+                                                <i className="codicon codicon-numbers"></i> {run.totalIterations} iterations
+                                            </span>
                                             {run.results.length > 0 && (
-                                                <span><i className='codicon codicon-check'></i> {run.results.filter(r => r.success).length} succeeded</span>
+                                                <span>
+                                                    <i className="codicon codicon-check"></i> {run.results.filter((r) => r.success).length}{' '}
+                                                    succeeded
+                                                </span>
                                             )}
                                         </div>
-                                        <Tooltip content={`Delete ${run.name}`} position='right'>
+                                        <Tooltip content={`Delete ${run.name}`} position="right">
                                             <button
-                                                className='run-item-delete'
+                                                className="run-item-delete"
                                                 onClick={async (e) => {
                                                     e.stopPropagation();
                                                     const confirmDialog = new ConfirmDialog({
@@ -1684,7 +1675,7 @@ export class OptimizationWidget extends ReactWidget {
                                                     }
                                                 }}
                                             >
-                                                <i className='codicon codicon-trash'></i>
+                                                <i className="codicon codicon-trash"></i>
                                             </button>
                                         </Tooltip>
                                     </div>
@@ -1692,12 +1683,12 @@ export class OptimizationWidget extends ReactWidget {
                             </div>
                         </div>
 
-                        <div className='results-content'>
+                        <div className="results-content">
                             {selectedRun ? (
                                 this.renderResultsTable(selectedRun)
                             ) : (
-                                <div className='empty-state'>
-                                    <i className='codicon codicon-list'></i>
+                                <div className="empty-state">
+                                    <i className="codicon codicon-list"></i>
                                     <p>Select a run to view results.</p>
                                 </div>
                             )}
@@ -1716,38 +1707,37 @@ export class OptimizationWidget extends ReactWidget {
     protected renderResultsTable(run: OpenMCOptimizationRun): React.ReactNode {
         if (run.results.length === 0) {
             return (
-                <div className='empty-state'>
-                    <i className='codicon codicon-list'></i>
+                <div className="empty-state">
+                    <i className="codicon codicon-list"></i>
                     <p>No results for this run yet.</p>
                 </div>
             );
         }
 
-        const sweepVars = run.sweepConfig.map(s => s.parameterPath || s.variable);
+        const sweepVars = run.sweepConfig.map((s) => s.parameterPath || s.variable);
 
         return (
-            <div className='results-table-container'>
-                <div className='results-toolbar'>
+            <div className="results-table-container">
+                <div className="results-toolbar">
                     <h4>Results: {run.name}</h4>
-                    <Tooltip content='Export results as CSV file' position='top'>
-                        <button
-                            className='theia-button secondary small'
-                            onClick={() => this.exportRunResults(run.id)}
-                        >
-                            <i className='codicon codicon-file-export'></i>
+                    <Tooltip content="Export results as CSV file" position="top">
+                        <button className="theia-button secondary small" onClick={() => this.exportRunResults(run.id)}>
+                            <i className="codicon codicon-file-export"></i>
                             Export CSV
                         </button>
                     </Tooltip>
                 </div>
 
-                <table className='results-table'>
+                <table className="results-table">
                     <thead>
                         <tr>
                             <th>#</th>
-                            {sweepVars.map(v => <th key={v}>{v}</th>)}
-                            <th className='numeric-header'>k-eff</th>
-                            <th className='numeric-header'>σ (std)</th>
-                            <th className='numeric-header'>Time</th>
+                            {sweepVars.map((v) => (
+                                <th key={v}>{v}</th>
+                            ))}
+                            <th className="numeric-header">k-eff</th>
+                            <th className="numeric-header">σ (std)</th>
+                            <th className="numeric-header">Time</th>
                             <th>Status</th>
                         </tr>
                     </thead>
@@ -1755,25 +1745,21 @@ export class OptimizationWidget extends ReactWidget {
                         {run.results.map((result, idx) => (
                             <tr key={idx} className={result.success ? '' : 'failed'}>
                                 <td>{result.iteration}</td>
-                                {sweepVars.map(v => (
-                                    <td key={v}>
-                                        {result.parameterValues[v]?.toFixed(4) || '-'}
-                                    </td>
+                                {sweepVars.map((v) => (
+                                    <td key={v}>{result.parameterValues[v]?.toFixed(4) || '-'}</td>
                                 ))}
-                                <td className='numeric'>
-                                    {result.keff?.toFixed(4) || '-'}
-                                </td>
-                                <td className='numeric'>
-                                    {result.keffStd?.toFixed(4) || '-'}
-                                </td>
-                                <td className='numeric'>
-                                    {result.executionTime.toFixed(1)}s
-                                </td>
-                                <td className='status-cell'>
+                                <td className="numeric">{result.keff?.toFixed(4) || '-'}</td>
+                                <td className="numeric">{result.keffStd?.toFixed(4) || '-'}</td>
+                                <td className="numeric">{result.executionTime.toFixed(1)}s</td>
+                                <td className="status-cell">
                                     {result.success ? (
-                                        <span className='status-success'><i className='codicon codicon-check'></i></span>
+                                        <span className="status-success">
+                                            <i className="codicon codicon-check"></i>
+                                        </span>
                                     ) : (
-                                        <span className='status-failed'><i className='codicon codicon-error'></i></span>
+                                        <span className="status-failed">
+                                            <i className="codicon codicon-error"></i>
+                                        </span>
                                     )}
                                 </td>
                             </tr>
@@ -1789,43 +1775,45 @@ export class OptimizationWidget extends ReactWidget {
      * @returns Analysis tab React node.
      */
     protected renderAnalysisTab(): React.ReactNode {
-        const runs = this.stateManager.getOptimizationRuns().filter(r => r.results.length > 0);
+        const runs = this.stateManager.getOptimizationRuns().filter((r) => r.results.length > 0);
 
         if (runs.length === 0) {
             return (
-                <div className='empty-state'>
-                    <i className='codicon codicon-graph'></i>
+                <div className="empty-state">
+                    <i className="codicon codicon-graph"></i>
                     <p>No completed runs to analyze.</p>
-                    <p className='empty-hint'>Complete an optimization run to see analysis plots.</p>
+                    <p className="empty-hint">Complete an optimization run to see analysis plots.</p>
                 </div>
             );
         }
 
-        const selectedRun = this.analysisRunId 
-            ? runs.find(r => r.id === this.analysisRunId) 
-            : runs[0];
-        
+        const selectedRun = this.analysisRunId ? runs.find((r) => r.id === this.analysisRunId) : runs[0];
+
         if (!selectedRun) {
-            return <div className='empty-state'><p>No run selected</p></div>;
+            return (
+                <div className="empty-state">
+                    <p>No run selected</p>
+                </div>
+            );
         }
 
-        const results = selectedRun.results.filter(r => r.success && r.keff !== undefined);
-        
+        const results = selectedRun.results.filter((r) => r.success && r.keff !== undefined);
+
         if (results.length === 0) {
             return (
-                <div className='empty-state'>
-                    <i className='codicon codicon-graph'></i>
+                <div className="empty-state">
+                    <i className="codicon codicon-graph"></i>
                     <p>No valid results to display.</p>
-                    <p className='empty-hint'>Run optimization with valid k-eff values.</p>
+                    <p className="empty-hint">Run optimization with valid k-eff values.</p>
                 </div>
             );
         }
 
         const sweepVar = selectedRun.sweepConfig[0]?.parameterPath || selectedRun.sweepConfig[0]?.variable || 'Parameter';
-        
-        const xValues = results.map(r => r.parameterValues[sweepVar] ?? r.iteration);
-        const yValues = results.map(r => r.keff!);
-        const yErrors = results.map(r => r.keffStd ?? 0);
+
+        const xValues = results.map((r) => r.parameterValues[sweepVar] ?? r.iteration);
+        const yValues = results.map((r) => r.keff!);
+        const yErrors = results.map((r) => r.keffStd ?? 0);
 
         const bgColor = this.getCssColor('--theia-editor-background', '#1e1e1e');
         const fgColor = this.getCssColor('--theia-foreground', '#cccccc');
@@ -1847,7 +1835,7 @@ export class OptimizationWidget extends ReactWidget {
             type: 'scatter' as const,
             mode: 'markers' as const,
             name: 'Uncertainty',
-            marker: { 
+            marker: {
                 color: 'transparent',
                 size: 10,
                 line: { color: '#ff6600', width: 2 }
@@ -1861,13 +1849,13 @@ export class OptimizationWidget extends ReactWidget {
 
         const layout: any = {
             title: { text: `k-eff vs ${sweepVar}`, font: { size: 14, color: fgColor } },
-            xaxis: { 
+            xaxis: {
                 title: { text: sweepVar, font: { size: 12, color: fgColor } },
                 gridcolor: gridColor,
                 tickfont: { color: fgColor },
                 linecolor: gridColor
             },
-            yaxis: { 
+            yaxis: {
                 title: { text: 'k-effective', font: { size: 12, color: fgColor } },
                 gridcolor: gridColor,
                 tickfont: { color: fgColor },
@@ -1884,103 +1872,121 @@ export class OptimizationWidget extends ReactWidget {
 
         const config = { displayModeBar: false, responsive: true };
 
-        const allKeff = results.map(r => r.keff!);
+        const allKeff = results.map((r) => r.keff!);
         const meanKeff = allKeff.reduce((a, b) => a + b, 0) / allKeff.length;
         const minKeff = Math.min(...allKeff);
         const maxKeff = Math.max(...allKeff);
 
         return (
-            <div className='analysis-tab'>
-                <div className='analysis-guide'>
-                    <h4><i className='codicon codicon-lightbulb'></i> Understanding the Analysis</h4>
-                    <div className='guide-steps'>
-                        <div className='guide-step'>
-                            <span className='step-num'><i className='codicon codicon-graph-line'></i></span>
-                            <span><strong>Trend Plot:</strong> Shows how k-effective changes with your sweep parameter</span>
+            <div className="analysis-tab">
+                <div className="analysis-guide">
+                    <h4>
+                        <i className="codicon codicon-lightbulb"></i> Understanding the Analysis
+                    </h4>
+                    <div className="guide-steps">
+                        <div className="guide-step">
+                            <span className="step-num">
+                                <i className="codicon codicon-graph-line"></i>
+                            </span>
+                            <span>
+                                <strong>Trend Plot:</strong> Shows how k-effective changes with your sweep parameter
+                            </span>
                         </div>
-                        <div className='guide-step'>
-                            <span className='step-num'><i className='codicon codicon-error'></i></span>
-                            <span><strong>Error Bars:</strong> Represent statistical uncertainty (σ) in each simulation</span>
+                        <div className="guide-step">
+                            <span className="step-num">
+                                <i className="codicon codicon-error"></i>
+                            </span>
+                            <span>
+                                <strong>Error Bars:</strong> Represent statistical uncertainty (σ) in each simulation
+                            </span>
                         </div>
-                        <div className='guide-step'>
-                            <span className='step-num'><i className='codicon codicon-dashboard'></i></span>
-                            <span><strong>Statistics:</strong> Hover over each stat box to understand what it means</span>
+                        <div className="guide-step">
+                            <span className="step-num">
+                                <i className="codicon codicon-dashboard"></i>
+                            </span>
+                            <span>
+                                <strong>Statistics:</strong> Hover over each stat box to understand what it means
+                            </span>
                         </div>
                     </div>
                 </div>
-                <div className='analysis-header'>
+                <div className="analysis-header">
                     <h3>Results Analysis</h3>
-                    <Tooltip content='Select a run to analyze' position='bottom'>
-                        <select 
-                            className='run-selector'
+                    <Tooltip content="Select a run to analyze" position="bottom">
+                        <select
+                            className="run-selector"
                             value={this.analysisRunId || selectedRun.id}
                             onChange={(e) => {
                                 this.analysisRunId = e.target.value;
                                 this.update();
                             }}
                         >
-                            {runs.map(run => (
-                                <option key={run.id} value={run.id}>{run.name}</option>
+                            {runs.map((run) => (
+                                <option key={run.id} value={run.id}>
+                                    {run.name}
+                                </option>
                             ))}
                         </select>
                     </Tooltip>
                 </div>
 
-                <div className='analysis-content'>
-                    <div className='analysis-chart-section'>
+                <div className="analysis-content">
+                    <div className="analysis-chart-section">
                         <h4>k-eff Trend Plot</h4>
-                        <div className='chart-wrapper'>
+                        <div className="chart-wrapper">
                             <PlotlyComponent data={[trace, errorTrace]} layout={layout} config={config} />
                         </div>
                     </div>
 
-                    <div className='analysis-stats'>
+                    <div className="analysis-stats">
                         <h4>Statistics</h4>
-                        <div className='stats-grid'>
-                            <Tooltip content='Average k-effective across all iterations' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>Mean k-eff</span>
-                                    <span className='stat-value'>{meanKeff.toFixed(6)}</span>
+                        <div className="stats-grid">
+                            <Tooltip content="Average k-effective across all iterations" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">Mean k-eff</span>
+                                    <span className="stat-value">{meanKeff.toFixed(6)}</span>
                                 </div>
                             </Tooltip>
-                            <Tooltip content='Minimum k-effective value observed' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>Min k-eff</span>
-                                    <span className='stat-value'>{minKeff.toFixed(6)}</span>
+                            <Tooltip content="Minimum k-effective value observed" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">Min k-eff</span>
+                                    <span className="stat-value">{minKeff.toFixed(6)}</span>
                                 </div>
                             </Tooltip>
-                            <Tooltip content='Maximum k-effective value observed' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>Max k-eff</span>
-                                    <span className='stat-value'>{maxKeff.toFixed(6)}</span>
+                            <Tooltip content="Maximum k-effective value observed" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">Max k-eff</span>
+                                    <span className="stat-value">{maxKeff.toFixed(6)}</span>
                                 </div>
                             </Tooltip>
-                            <Tooltip content='Difference between max and min k-eff' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>Range</span>
-                                    <span className='stat-value'>{(maxKeff - minKeff).toFixed(6)}</span>
+                            <Tooltip content="Difference between max and min k-eff" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">Range</span>
+                                    <span className="stat-value">{(maxKeff - minKeff).toFixed(6)}</span>
                                 </div>
                             </Tooltip>
-                            <Tooltip content='Standard deviation of k-effective values' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>Std Dev</span>
-                                    <span className='stat-value'>
-                                        {Math.sqrt(allKeff.reduce((sum, v) => sum + Math.pow(v - meanKeff, 2), 0) / allKeff.length).toFixed(6)}
+                            <Tooltip content="Standard deviation of k-effective values" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">Std Dev</span>
+                                    <span className="stat-value">
+                                        {Math.sqrt(allKeff.reduce((sum, v) => sum + Math.pow(v - meanKeff, 2), 0) / allKeff.length).toFixed(
+                                            6
+                                        )}
                                     </span>
                                 </div>
                             </Tooltip>
-                            <Tooltip content='Number of successful simulation points' position='top'>
-                                <div className='stat-box'>
-                                    <span className='stat-label'>N Points</span>
-                                    <span className='stat-value'>{results.length}</span>
+                            <Tooltip content="Number of successful simulation points" position="top">
+                                <div className="stat-box">
+                                    <span className="stat-label">N Points</span>
+                                    <span className="stat-value">{results.length}</span>
                                 </div>
                             </Tooltip>
                         </div>
                     </div>
 
-                    <div className='analysis-table-section'>
+                    <div className="analysis-table-section">
                         <h4>Results Table</h4>
-                        <table className='analysis-results-table'>
+                        <table className="analysis-results-table">
                             <thead>
                                 <tr>
                                     <th>{sweepVar}</th>
@@ -2075,7 +2081,7 @@ export class OptimizationWidget extends ReactWidget {
      */
     private toggleSweepEnabled(id: number): void {
         const sweeps = this.stateManager.getParameterSweeps();
-        const sweep = sweeps.find(s => s.id === id);
+        const sweep = sweeps.find((s) => s.id === id);
         if (sweep) {
             this.stateManager.updateParameterSweep(id, { enabled: !sweep.enabled });
             this.autoSave();
@@ -2110,7 +2116,7 @@ export class OptimizationWidget extends ReactWidget {
      */
     private duplicateSweep(id: number): void {
         const sweeps = this.stateManager.getParameterSweeps();
-        const sweep = sweeps.find(s => s.id === id);
+        const sweep = sweeps.find((s) => s.id === id);
         if (sweep) {
             const newId = this.stateManager.getNextParameterSweepId();
             const duplicate: OpenMCParameterSweep = {
@@ -2157,7 +2163,7 @@ export class OptimizationWidget extends ReactWidget {
      * Validate sweeps and start a new batch optimization run.
      */
     private async startBatchRun(): Promise<void> {
-        const sweeps = this.stateManager.getParameterSweeps().filter(s => s.enabled);
+        const sweeps = this.stateManager.getParameterSweeps().filter((s) => s.enabled);
         if (sweeps.length === 0) {
             this.runnerValidation = {
                 valid: false,
@@ -2177,12 +2183,12 @@ export class OptimizationWidget extends ReactWidget {
             warnings: validation.warnings,
             showDetails: !validation.valid || validation.warnings.length > 0
         };
-        
+
         if (!validation.valid) {
             this.update();
             return;
         }
-        
+
         // Clear validation on successful start
         this.runnerValidation = { valid: true, errors: [], warnings: [], showDetails: false };
 
@@ -2204,13 +2210,13 @@ export class OptimizationWidget extends ReactWidget {
         try {
             // Calculate total iterations
             let totalIterations = 1;
-            sweeps.forEach(s => {
+            sweeps.forEach((s) => {
                 const values = this.stateManager.computeSweepValues(s);
                 totalIterations *= values.length;
             });
 
             const runId = `run-${Date.now()}`;
-            
+
             // Calculate output directory
             let projectDir: string;
             if (projectPath && projectPath.includes('/')) {
@@ -2225,7 +2231,7 @@ export class OptimizationWidget extends ReactWidget {
             const outputDir = projectDir.length > 0 ? `${projectDir}/optimization/${runId}` : `optimization/${runId}`;
             // Store relative path for portability (relative to project directory)
             const relativeOutputDir = `optimization/${runId}`;
-            
+
             const startTime = new Date().toISOString();
             const newRun: OpenMCOptimizationRun = {
                 id: runId,
@@ -2303,7 +2309,7 @@ export class OptimizationWidget extends ReactWidget {
         }
 
         // Start progress polling
-        
+
         // Load iteration logs index when starting
         this.loadIterationLogsIndex(runId);
 
@@ -2312,14 +2318,14 @@ export class OptimizationWidget extends ReactWidget {
             try {
                 // Polling iteration logs
                 const status = await this.backendService.getOptimizationStatus(runId);
-                
+
                 this.stateManager.updateOptimizationRun(runId, {
                     currentIteration: status.currentIteration,
                     status: status.status
                 });
 
                 // Status polled
-                
+
                 // Refresh iteration logs index to detect new iterations
                 if (status.running && status.currentIteration > 0) {
                     // Loading iteration logs
@@ -2332,7 +2338,7 @@ export class OptimizationWidget extends ReactWidget {
                         window.clearInterval(this.progressInterval);
                         this.progressInterval = undefined;
                     }
-                    
+
                     if (status.status === 'completed') {
                         this.messageService.info('Optimization run completed!');
                     } else if (status.status === 'failed') {
@@ -2465,11 +2471,11 @@ export class OptimizationWidget extends ReactWidget {
         const uri = await this.fileDialogService.showSaveDialog(props);
         if (!uri) return;
 
-        const sweepVars = run.sweepConfig.map(s => s.parameterPath || s.variable);
-        
+        const sweepVars = run.sweepConfig.map((s) => s.parameterPath || s.variable);
+
         const header = ['Iteration', ...sweepVars, 'k-eff', 'sigma', 'Time (s)', 'Status'].join(',');
-        const rows = run.results.map(r => {
-            const values = sweepVars.map(v => r.parameterValues[v] ?? '');
+        const rows = run.results.map((r) => {
+            const values = sweepVars.map((v) => r.parameterValues[v] ?? '');
             const status = r.success ? 'success' : 'failed';
             return [
                 r.iteration,
@@ -2480,7 +2486,7 @@ export class OptimizationWidget extends ReactWidget {
                 status
             ].join(',');
         });
-        
+
         const csvContent = [header, ...rows].join('\n');
 
         try {

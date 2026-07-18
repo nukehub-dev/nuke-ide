@@ -62,11 +62,7 @@ export class SysmonBackendService {
 
     async initialize(): Promise<void> {
         // Collect static system info once
-        const [osInfo, cpuData, processes] = await Promise.all([
-            si.osInfo(),
-            si.cpu(),
-            si.processes().catch(() => ({ all: 0 }))
-        ]);
+        const [osInfo, cpuData, processes] = await Promise.all([si.osInfo(), si.cpu(), si.processes().catch(() => ({ all: 0 }))]);
 
         this.systemInfo = {
             hostname: osInfo.hostname,
@@ -115,11 +111,11 @@ export class SysmonBackendService {
     getHistoricalData(points: number = this.historyLength): Promise<HistoricalData> {
         const data = this.history.slice(-points);
         const result: HistoricalData = {
-            timestamps: data.map(m => m.timestamp),
-            cpu: data.map(m => m.cpu.usagePercent),
-            memory: data.map(m => m.memory.usagePercent),
-            networkDownload: data.map(m => m.network.downloadSpeed),
-            networkUpload: data.map(m => m.network.uploadSpeed)
+            timestamps: data.map((m) => m.timestamp),
+            cpu: data.map((m) => m.cpu.usagePercent),
+            memory: data.map((m) => m.memory.usagePercent),
+            networkDownload: data.map((m) => m.network.downloadSpeed),
+            networkUpload: data.map((m) => m.network.uploadSpeed)
         };
         return Promise.resolve(result);
     }
@@ -178,7 +174,7 @@ export class SysmonBackendService {
                 this.history.shift();
             }
 
-            this.callbacks.forEach(cb => {
+            this.callbacks.forEach((cb) => {
                 try {
                     cb(metrics);
                 } catch (e) {
@@ -209,7 +205,7 @@ export class SysmonBackendService {
 
     private async getMemoryMetrics(): Promise<MemoryMetrics> {
         const mem = await si.mem();
-        
+
         const usedMemory = mem.total - mem.available;
         const usagePercent = mem.total > 0 ? Math.round((usedMemory / mem.total) * 100) : 0;
 
@@ -234,11 +230,11 @@ export class SysmonBackendService {
     private async getDiskMetrics(): Promise<DiskMetrics> {
         try {
             const fsSize = await si.fsSize();
-            
+
             // Store all physical disks for selection
             this.allDisks = fsSize
-                .filter(fs => fs.size > 10 * 1024 * 1024 * 1024) // > 10GB
-                .map(fs => ({
+                .filter((fs) => fs.size > 10 * 1024 * 1024 * 1024) // > 10GB
+                .map((fs) => ({
                     fs: fs.fs,
                     type: fs.type,
                     size: fs.size,
@@ -250,8 +246,8 @@ export class SysmonBackendService {
                 .sort((a, b) => b.size - a.size);
 
             // Use selected disk or default to largest
-            const mainFs = this.allDisks[this.selectedDiskIndex] || this.allDisks[0] || 
-                          { size: 0, used: 0, available: 0, use: 0, fs: '', mount: '' };
+            const mainFs = this.allDisks[this.selectedDiskIndex] ||
+                this.allDisks[0] || { size: 0, used: 0, available: 0, use: 0, fs: '', mount: '' };
 
             return {
                 total: mainFs.size,
@@ -267,11 +263,10 @@ export class SysmonBackendService {
 
     private async getNetworkMetrics(): Promise<NetworkMetrics> {
         const networkStats = await si.networkStats();
-        
+
         const activeInterface = networkStats
-            .filter(n => n.iface && !n.iface.includes('lo'))
-            .sort((a, b) => (b.rx_bytes + b.tx_bytes) - (a.rx_bytes + a.tx_bytes))[0] 
-            || { rx_bytes: 0, tx_bytes: 0, iface: 'unknown' };
+            .filter((n) => n.iface && !n.iface.includes('lo'))
+            .sort((a, b) => b.rx_bytes + b.tx_bytes - (a.rx_bytes + a.tx_bytes))[0] || { rx_bytes: 0, tx_bytes: 0, iface: 'unknown' };
 
         const now = Date.now();
         let downloadSpeed = 0;

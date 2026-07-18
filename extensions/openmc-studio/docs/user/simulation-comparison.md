@@ -7,12 +7,15 @@ The Simulation Comparison widget lets you analyze results from multiple OpenMC r
 ## Opening the Comparison Widget
 
 ### Method 1: Menu
+
 `Tools → OpenMC Studio → Simulation → Compare Simulations`
 
 ### Method 2: Command Palette
+
 `Ctrl+Shift+P` → **"Open Simulation Comparison"**
 
 ### Method 3: Dashboard
+
 In the **Simulation Dashboard**, click **"Compare Runs"** after selecting two or more completed simulations.
 
 ---
@@ -28,11 +31,11 @@ In the **Simulation Dashboard**, click **"Compare Runs"** after selecting two or
 
 ### Supported Statepoint Versions
 
-| Statepoint Version | Compatible? | Notes |
-|--------------------|-------------|-------|
-| Same major OpenMC version | Yes | Best results when all files come from the same OpenMC release |
-| Different minor versions | Usually | A warning banner is shown if version mismatches are detected |
-| Mixed eigenvalue / fixed source | Partial | k-effective comparisons are only available for eigenvalue runs |
+| Statepoint Version              | Compatible? | Notes                                                          |
+| ------------------------------- | ----------- | -------------------------------------------------------------- |
+| Same major OpenMC version       | Yes         | Best results when all files come from the same OpenMC release  |
+| Different minor versions        | Usually     | A warning banner is shown if version mismatches are detected   |
+| Mixed eigenvalue / fixed source | Partial     | k-effective comparisons are only available for eigenvalue runs |
 
 ---
 
@@ -42,12 +45,12 @@ Once two or more statepoints are loaded, the **k-Effective** tab becomes active.
 
 ### Summary Table
 
-| Column | Description |
-|--------|-------------|
-| **Run Label** | User-defined name for the run |
-| **k-combined** | Combined k-effective ± 1σ |
+| Column                | Description                                     |
+| --------------------- | ----------------------------------------------- |
+| **Run Label**         | User-defined name for the run                   |
+| **k-combined**        | Combined k-effective ± 1σ                       |
 | **Δk from Reference** | Absolute difference versus the first loaded run |
-| **Relative Δk (pcm)** | Difference in per-cent-mille |
+| **Relative Δk (pcm)** | Difference in per-cent-mille                    |
 
 ### k-Generation Overlay Plot
 
@@ -70,21 +73,21 @@ Click **"Run Statistical Tests"** to evaluate whether differences between runs a
 
 A paired t-test is performed between the selected reference run and every other run.
 
-| Field | Description |
-|-------|-------------|
-| **t-statistic** | Test statistic magnitude |
-| **p-value** | Probability that the difference is due to random noise |
-| **Significant?** | `Yes` if p < 0.05 (configurable threshold) |
+| Field            | Description                                            |
+| ---------------- | ------------------------------------------------------ |
+| **t-statistic**  | Test statistic magnitude                               |
+| **p-value**      | Probability that the difference is due to random noise |
+| **Significant?** | `Yes` if p < 0.05 (configurable threshold)             |
 
 > **Interpretation:** A low p-value (< 0.05) suggests the perturbation genuinely changed k-effective. A high p-value means the observed difference could be statistical noise.
 
 ### Test Configuration
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **Confidence Level** | 95% | Threshold for significance |
-| **Discard Inactive** | On | Exclude inactive batches from the test |
-| **Minimum Batches** | 10 | Runs with fewer active batches are skipped |
+| Parameter            | Default | Description                                |
+| -------------------- | ------- | ------------------------------------------ |
+| **Confidence Level** | 95%     | Threshold for significance                 |
+| **Discard Inactive** | On      | Exclude inactive batches from the test     |
+| **Minimum Batches**  | 10      | Runs with fewer active batches are skipped |
 
 ---
 
@@ -121,10 +124,10 @@ If statepoints contain Shannon entropy data, overlay plots show entropy versus b
 
 A table shows the slope of the cumulative mean over the last N batches:
 
-| Run Label | Slope (Δk / batch) | Stable? |
-|-----------|-------------------|---------|
-| Nominal | +1.2e-05 | ✓ Yes |
-| Perturbed A | -4.5e-04 | ✗ No — extend batches |
+| Run Label   | Slope (Δk / batch) | Stable?               |
+| ----------- | ------------------ | --------------------- |
+| Nominal     | +1.2e-05           | ✓ Yes                 |
+| Perturbed A | -4.5e-04           | ✗ No — extend batches |
 
 > **Recommendation:** If any run shows `Stable? = No`, consider re-running with more active batches before drawing conclusions.
 
@@ -136,12 +139,12 @@ Click **"Export"** in the Comparison widget toolbar.
 
 ### Export Formats
 
-| Format | Contents | Use Case |
-|--------|----------|----------|
-| **CSV** | Summary table (k, Δk, p-values) | Spreadsheets, reports |
-| **JSON** | Full metadata + raw k-generation arrays | Post-processing scripts |
-| **HTML Report** | Styled tables + embedded plots | Sharing with stakeholders |
-| **LaTeX Table** | Summary statistics | Academic papers |
+| Format          | Contents                                | Use Case                  |
+| --------------- | --------------------------------------- | ------------------------- |
+| **CSV**         | Summary table (k, Δk, p-values)         | Spreadsheets, reports     |
+| **JSON**        | Full metadata + raw k-generation arrays | Post-processing scripts   |
+| **HTML Report** | Styled tables + embedded plots          | Sharing with stakeholders |
+| **LaTeX Table** | Summary statistics                      | Academic papers           |
 
 ### Bulk Export
 

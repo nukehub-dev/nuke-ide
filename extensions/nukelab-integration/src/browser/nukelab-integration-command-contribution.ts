@@ -5,23 +5,23 @@ import { NukeLabContext } from '../common/nukelab-integration-protocol';
 export namespace NukeLabCommands {
     export const BACK_TO_NUKELAB: Command = {
         id: 'nukelab.backToNukeLab',
-        label: 'NukeLab: Back to Dashboard',
+        label: 'NukeLab: Back to Dashboard'
     };
     export const OPEN_SERVER_DETAILS: Command = {
         id: 'nukelab.openServerDetails',
-        label: 'NukeLab: Open Server Details',
+        label: 'NukeLab: Open Server Details'
     };
     export const INSTALL_NUKELAB_APP: Command = {
         id: 'nukelab.installNukeLabApp',
-        label: 'NukeLab: Install NukeLab App',
+        label: 'NukeLab: Install NukeLab App'
     };
     export const OPEN_NUKELAB_APP: Command = {
         id: 'nukelab.openNukeLabApp',
-        label: 'NukeLab: Open NukeLab App',
+        label: 'NukeLab: Open NukeLab App'
     };
     export const LOGOUT: Command = {
         id: 'nukelab.logout',
-        label: 'NukeLab: Log Out',
+        label: 'NukeLab: Log Out'
     };
 }
 
@@ -35,25 +35,25 @@ export class NukeLabCommandContribution implements CommandContribution {
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeLabCommands.BACK_TO_NUKELAB, {
-            execute: () => this.navigateTop(this.context?.dashboardUrl || '/'),
+            execute: () => this.navigateTop(this.context?.dashboardUrl || '/')
         });
         commands.registerCommand(NukeLabCommands.OPEN_SERVER_DETAILS, {
             execute: () => {
                 const url = this.context?.labUrl || '/';
                 this.navigateTop(url.replace(/\/$/, '') + '/servers/' + (this.context?.serverId || ''));
             },
-            isEnabled: () => !!this.context?.serverId,
+            isEnabled: () => !!this.context?.serverId
         });
         commands.registerCommand(NukeLabCommands.INSTALL_NUKELAB_APP, {
             execute: () => this.openTab(this.context?.dashboardUrl || '/'),
-            isEnabled: () => !this.isAppInstalled(),
+            isEnabled: () => !this.isAppInstalled()
         });
         commands.registerCommand(NukeLabCommands.OPEN_NUKELAB_APP, {
             execute: () => this.openTab(this.context?.dashboardUrl || '/'),
-            isEnabled: () => this.isAppInstalled() && !this.isStandalone(),
+            isEnabled: () => this.isAppInstalled() && !this.isStandalone()
         });
         commands.registerCommand(NukeLabCommands.LOGOUT, {
-            execute: () => this.navigateTop('/api/auth/signout'),
+            execute: () => this.navigateTop('/api/auth/signout')
         });
     }
 

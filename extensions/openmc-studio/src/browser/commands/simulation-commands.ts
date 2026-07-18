@@ -27,9 +27,9 @@
 
 /**
  * Simulation Commands
- * 
+ *
  * Commands for running and managing simulations.
- * 
+ *
  * @module openmc-studio/browser/commands
  */
 
@@ -38,7 +38,6 @@ import { Command, CommandRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
-
 
 export namespace OpenMCSimulationCommands {
     /** Command category for all simulation control commands. */
@@ -94,7 +93,6 @@ export namespace OpenMCSimulationCommands {
  */
 @injectable()
 export class SimulationCommands {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -113,20 +111,20 @@ export class SimulationCommands {
             execute: () => this.runSimulation(),
             isEnabled: () => !this.isSimulationRunning()
         });
-        
+
         registry.registerCommand(OpenMCSimulationCommands.STOP_SIMULATION, {
             execute: () => this.stopSimulation(),
             isEnabled: () => this.isSimulationRunning()
         });
-        
+
         registry.registerCommand(OpenMCSimulationCommands.VALIDATE_MODEL, {
             execute: () => this.validateModel()
         });
-        
+
         registry.registerCommand(OpenMCSimulationCommands.GENERATE_XML, {
             execute: () => this.generateXML()
         });
-        
+
         registry.registerCommand(OpenMCSimulationCommands.IMPORT_XML, {
             execute: () => this.importXML()
         });

@@ -61,7 +61,6 @@ import { NukeMenus } from '../nuke-core-menus';
 
 @injectable()
 export class NukeEnvironmentCommandContribution implements CommandContribution, MenuContribution {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
@@ -152,11 +151,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
             const current = await this.nukeCore.getSelectedEnvironment();
 
             if (environments.length === 0) {
-                const action = await this.messageService.warn(
-                    'No Python environments found.',
-                    'Create Environment',
-                    'Open Settings'
-                );
+                const action = await this.messageService.warn('No Python environments found.', 'Create Environment', 'Open Settings');
                 if (action === 'Create Environment') {
                     await this.createEnvironment();
                 }
@@ -198,11 +193,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
             const environments = await this.nukeCore.listEnvironments(true);
 
             if (environments.length === 0) {
-                const action = await this.messageService.warn(
-                    'No Python environments found.',
-                    'Create Environment',
-                    'Open Settings'
-                );
+                const action = await this.messageService.warn('No Python environments found.', 'Create Environment', 'Open Settings');
                 if (action === 'Create Environment') {
                     await this.createEnvironment();
                 }
@@ -272,15 +263,17 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
             // Step 3: Optional Python specifier
             let pythonSpecifier: string | undefined;
             if (envType === 'conda') {
-                pythonSpecifier = await this.quickInput.input({
-                    prompt: 'Python version (optional)',
-                    placeHolder: 'e.g., 3.14 (leave empty for default)'
-                }) || undefined;
+                pythonSpecifier =
+                    (await this.quickInput.input({
+                        prompt: 'Python version (optional)',
+                        placeHolder: 'e.g., 3.14 (leave empty for default)'
+                    })) || undefined;
             } else {
-                pythonSpecifier = await this.quickInput.input({
-                    prompt: 'Python executable path (optional)',
-                    placeHolder: 'e.g., /usr/bin/python3 (leave empty for python3)'
-                }) || undefined;
+                pythonSpecifier =
+                    (await this.quickInput.input({
+                        prompt: 'Python executable path (optional)',
+                        placeHolder: 'e.g., /usr/bin/python3 (leave empty for python3)'
+                    })) || undefined;
             }
 
             // Get workspace root for env creation
@@ -312,7 +305,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
 
             // After terminal closes or process exits, try to detect the new environment
             const envs = await this.nukeCore.listEnvironments(true);
-            const newEnv = envs.find(e => e.pythonPath === cmdInfo.expectedPythonPath);
+            const newEnv = envs.find((e) => e.pythonPath === cmdInfo.expectedPythonPath);
 
             if (newEnv) {
                 const switchAction = await this.messageService.info(
@@ -326,7 +319,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
             } else {
                 this.messageService.warn(
                     `Environment creation may still be in progress, or the new environment was not detected. ` +
-                    `Check the terminal for details.`,
+                        `Check the terminal for details.`,
                     'Refresh Environments'
                 );
             }
@@ -337,7 +330,7 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
 
             if (existingName) {
                 const envs = await this.nukeCore.listEnvironments(true);
-                const foundEnv = envs.find(e => e.name === existingName || e.name === `${existingName} (workspace)`);
+                const foundEnv = envs.find((e) => e.name === existingName || e.name === `${existingName} (workspace)`);
                 if (foundEnv) {
                     const action = await this.messageService.warn(
                         `Environment '${existingName}' already exists.`,
@@ -433,12 +426,12 @@ export class NukeEnvironmentCommandContribution implements CommandContribution, 
         environments: NukeEnvironment[],
         current?: NukeEnvironment,
         includeActions = true
-    ): Array<QuickPickItem & { value?: unknown } | QuickPickSeparator> {
-        const condaEnvs = environments.filter(e => e.type === 'conda');
-        const venvEnvs = environments.filter(e => e.type === 'venv' || e.type === 'virtualenv');
-        const otherEnvs = environments.filter(e => !['conda', 'venv', 'virtualenv'].includes(e.type));
+    ): Array<(QuickPickItem & { value?: unknown }) | QuickPickSeparator> {
+        const condaEnvs = environments.filter((e) => e.type === 'conda');
+        const venvEnvs = environments.filter((e) => e.type === 'venv' || e.type === 'virtualenv');
+        const otherEnvs = environments.filter((e) => !['conda', 'venv', 'virtualenv'].includes(e.type));
 
-        const items: Array<QuickPickItem & { value?: unknown } | QuickPickSeparator> = [];
+        const items: Array<(QuickPickItem & { value?: unknown }) | QuickPickSeparator> = [];
 
         const addGroup = (label: string, envs: NukeEnvironment[], icon: string) => {
             if (envs.length === 0) return;

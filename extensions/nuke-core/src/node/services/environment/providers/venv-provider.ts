@@ -69,7 +69,7 @@ export class VenvProvider implements EnvironmentProvider {
      */
     async findPython(envName?: string): Promise<string | undefined> {
         const venvs = await this.findWorkspaceVenvs();
-        const match = venvs.find(v => v.name === envName || v.name === `${envName} (workspace)`);
+        const match = venvs.find((v) => v.name === envName || v.name === `${envName} (workspace)`);
         return match?.pythonPath;
     }
 
@@ -89,10 +89,7 @@ export class VenvProvider implements EnvironmentProvider {
 
             for (const venvName of commonVenvNames) {
                 const venvPath = path.join(workspaceRoot, venvName);
-                const pythonPath = path.join(
-                    venvPath,
-                    isWindows ? 'Scripts\\python.exe' : 'bin/python'
-                );
+                const pythonPath = path.join(venvPath, isWindows ? 'Scripts\\python.exe' : 'bin/python');
 
                 try {
                     await fs.promises.access(pythonPath);

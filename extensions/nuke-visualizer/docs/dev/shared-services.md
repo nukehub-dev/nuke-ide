@@ -31,27 +31,27 @@ protected init(): void {
 
 ### API
 
-| Method | Description |
-|--------|-------------|
+| Method                            | Description                              |
+| --------------------------------- | ---------------------------------------- |
 | `registerHealthRequirements(req)` | Register a plugin's package requirements |
-| `getRequirements(pluginId)` | Get registered requirements for a plugin |
-| `getAllRequirements()` | Get all registered requirements |
-| `runHealthCheck(pluginId)` | Run health check for one plugin |
-| `runAllHealthChecks()` | Run health checks for all plugins |
+| `getRequirements(pluginId)`       | Get registered requirements for a plugin |
+| `getAllRequirements()`            | Get all registered requirements          |
+| `runHealthCheck(pluginId)`        | Run health check for one plugin          |
+| `runAllHealthChecks()`            | Run health checks for all plugins        |
 
 ### Health Check Result
 
 ```typescript
 interface UnifiedHealthReport {
-    healthy: boolean;           // true if ALL plugins pass
-    plugins: PluginHealthReport[];
+  healthy: boolean; // true if ALL plugins pass
+  plugins: PluginHealthReport[];
 }
 
 interface PluginHealthReport {
-    pluginId: string;
-    pluginName: string;
-    healthy: boolean;           // true if all required packages found
-    checks: HealthCheckItem[];
+  pluginId: string;
+  pluginName: string;
+  healthy: boolean; // true if all required packages found
+  checks: HealthCheckItem[];
 }
 ```
 
@@ -76,7 +76,7 @@ protected readonly pythonHelper: PythonCommandHelper;
 async runAnalysis(filePath: string): Promise<MyResult> {
     // Detect Python with required packages
     const python = await this.pythonHelper.detectPython(MY_REQUIREMENTS);
-    
+
     // Execute a script and parse JSON output
     const result = await this.pythonHelper.executeScriptJson<MyResult>(
         'my_script.py',
@@ -89,19 +89,20 @@ async runAnalysis(filePath: string): Promise<MyResult> {
 
 ### API
 
-| Method | Description |
-|--------|-------------|
-| `detectPython(requirements?, envs?)` | Find a Python with required packages |
-| `detectPythonForBaseVisualizer(envs?)` | Shorthand for base viz requirements |
-| `checkPackages(command, requirements?)` | Check if a specific Python has packages |
-| `executeScript(path, args, options?)` | Run a script, return `{stdout, stderr, status}` |
-| `executeScriptJson(path, args, options?)` | Run a script and parse stdout as JSON |
-| `findScript(name)` | Resolve a script in `python/` directory |
-| `getExtensionPath()` | Get root path of nuke-visualizer |
+| Method                                    | Description                                     |
+| ----------------------------------------- | ----------------------------------------------- |
+| `detectPython(requirements?, envs?)`      | Find a Python with required packages            |
+| `detectPythonForBaseVisualizer(envs?)`    | Shorthand for base viz requirements             |
+| `checkPackages(command, requirements?)`   | Check if a specific Python has packages         |
+| `executeScript(path, args, options?)`     | Run a script, return `{stdout, stderr, status}` |
+| `executeScriptJson(path, args, options?)` | Run a script and parse stdout as JSON           |
+| `findScript(name)`                        | Resolve a script in `python/` directory         |
+| `getExtensionPath()`                      | Get root path of nuke-visualizer                |
 
 ### Script Discovery
 
 `findScript('my_script.py')` searches in this order:
+
 1. `lib/python/my_script.py` (installed)
 2. `src/python/my_script.py` (development)
 3. Fallback relative paths from `__dirname`
@@ -135,19 +136,19 @@ async showSpectrum(data: OpenMCSpectrumData): Promise<void> {
 
 ### API
 
-| Method | Description |
-|--------|-------------|
+| Method                        | Description                                          |
+| ----------------------------- | ---------------------------------------------------- |
 | `showPlot(figure, widgetId?)` | Create or update a plot widget with the given figure |
 
 ### PlotlyFigure
 
 ```typescript
 interface PlotlyFigure {
-    data: Partial<Plotly.Data>[];
-    layout: Partial<Plotly.Layout>;
-    config?: Partial<Plotly.Config>;
-    title?: string;
-    id?: string;
+  data: Partial<Plotly.Data>[];
+  layout: Partial<Plotly.Layout>;
+  config?: Partial<Plotly.Config>;
+  title?: string;
+  id?: string;
 }
 ```
 
@@ -157,11 +158,11 @@ interface PlotlyFigure {
 
 Helper namespace for converting domain data to Plotly traces:
 
-| Function | Input | Output |
-|----------|-------|--------|
-| `createSpectrumTrace(data, name)` | `OpenMCSpectrumData` | Scatter trace with error bars |
-| `createSpatialTrace(data, name)` | `OpenMCSpatialPlotData` | Scatter trace with error bars |
-| `createMultiScoreTraces(data, type)` | `OpenMCMultiScoreData` | Array of traces |
+| Function                             | Input                   | Output                        |
+| ------------------------------------ | ----------------------- | ----------------------------- |
+| `createSpectrumTrace(data, name)`    | `OpenMCSpectrumData`    | Scatter trace with error bars |
+| `createSpatialTrace(data, name)`     | `OpenMCSpatialPlotData` | Scatter trace with error bars |
+| `createMultiScoreTraces(data, type)` | `OpenMCMultiScoreData`  | Array of traces               |
 
 ---
 
@@ -175,10 +176,10 @@ The standard iframe-based widget for Python-rendered visualizations (Trame, Dash
 
 ```typescript
 // Create via WidgetFactory
-const widget = await this.widgetManager.getOrCreateWidget(
-    VisualizerWidget.ID,
-    { uri: fileUri.toString(), id: 'my-prefix-' + filePath }
-) as VisualizerWidget;
+const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, {
+  uri: fileUri.toString(),
+  id: 'my-prefix-' + filePath
+})) as VisualizerWidget;
 
 // Set the server URL once the Python server is ready
 widget.setServerUrl('http://127.0.0.1:8080', 8080);
@@ -186,14 +187,14 @@ widget.setServerUrl('http://127.0.0.1:8080', 8080);
 
 ### Key Properties & Methods
 
-| Member | Description |
-|--------|-------------|
-| `static ID` | Widget type identifier (`nuke-visualizer.widget`) |
-| `setUri(uri, volumeId?)` | Associate a file and update the widget ID |
-| `setServerUrl(url, port)` | Point the iframe to a running server |
-| `getServerPort()` | Get the current server port |
-| `loadFile(uri)` | Full lifecycle: start server, convert if needed, set URL |
-| `static onServerStop(port)` | Static callback when any server stops |
+| Member                      | Description                                              |
+| --------------------------- | -------------------------------------------------------- |
+| `static ID`                 | Widget type identifier (`nuke-visualizer.widget`)        |
+| `setUri(uri, volumeId?)`    | Associate a file and update the widget ID                |
+| `setServerUrl(url, port)`   | Point the iframe to a running server                     |
+| `getServerPort()`           | Get the current server port                              |
+| `loadFile(uri)`             | Full lifecycle: start server, convert if needed, set URL |
+| `static onServerStop(port)` | Static callback when any server stops                    |
 
 ### States
 
@@ -221,17 +222,17 @@ widget.id = `${VisualizerWidget.ID}:${filePath}`;
 
 The frontend counterpart to `PythonCommandHelper`. Provides:
 
-| Event | Fires When |
-|-------|-----------|
-| `onEnvironmentChanged` | User switches Python env |
+| Event                   | Fires When                                          |
+| ----------------------- | --------------------------------------------------- |
+| `onEnvironmentChanged`  | User switches Python env                            |
 | `onEnvironmentFallback` | Fallback env is used because primary lacks packages |
 
 Plugins should listen to these events and clear cached data when the environment changes:
 
 ```typescript
-this.nukeCoreService.onEnvironmentChanged(event => {
-    this.clearStatepoint();
-    this.messageService.info('Environment changed — reload your data.');
+this.nukeCoreService.onEnvironmentChanged((event) => {
+  this.clearStatepoint();
+  this.messageService.info('Environment changed — reload your data.');
 });
 ```
 
@@ -239,12 +240,12 @@ this.nukeCoreService.onEnvironmentChanged(event => {
 
 ## Summary: Which Service Do I Need?
 
-| Task | Service |
-|------|---------|
-| Check if Python packages are installed | `HealthCheckFramework` |
-| Run a Python script | `PythonCommandHelper` |
-| Show a 2D chart | `PlotlyService` |
-| Embed a Python server UI | `VisualizerWidget` |
-| React to env changes | `NukeCoreService` |
-| Log to output channel | `OutputChannelManager` (Theia) |
-| Show toast notifications | `MessageService` (Theia) |
+| Task                                   | Service                        |
+| -------------------------------------- | ------------------------------ |
+| Check if Python packages are installed | `HealthCheckFramework`         |
+| Run a Python script                    | `PythonCommandHelper`          |
+| Show a 2D chart                        | `PlotlyService`                |
+| Embed a Python server UI               | `VisualizerWidget`             |
+| React to env changes                   | `NukeCoreService`              |
+| Log to output channel                  | `OutputChannelManager` (Theia) |
+| Show toast notifications               | `MessageService` (Theia)       |

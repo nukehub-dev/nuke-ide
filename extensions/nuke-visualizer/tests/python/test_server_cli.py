@@ -8,7 +8,7 @@ import sys
 import pytest
 
 _SERVER_PY = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', '..', 'python', 'server.py')
+    os.path.join(os.path.dirname(__file__), "..", "..", "python", "server.py")
 )
 
 # Discovery imports every command module; tally_viz pulls in paraview/vtk
@@ -31,19 +31,19 @@ def test_no_args_prints_usage_and_exits_1():
     proc = _run_server()
 
     assert proc.returncode == 1
-    assert 'usage' in proc.stdout.lower()
+    assert "usage" in proc.stdout.lower()
     # Help should advertise at least one registered command.
-    assert 'openmc.check' in proc.stdout
+    assert "openmc.check" in proc.stdout
 
 
 def test_bogus_command_fails():
     """An unknown command is rejected by argparse (exit code 2 with a
     usage error on stderr — argparse handles it before server.main can
     return its own exit code 1)."""
-    proc = _run_server('bogus-command')
+    proc = _run_server("bogus-command")
 
     assert proc.returncode != 0
-    assert 'invalid choice' in proc.stderr
+    assert "invalid choice" in proc.stderr
 
 
 def test_openmc_check_command_json_shape():
@@ -53,26 +53,26 @@ def test_openmc_check_command_json_shape():
     Exit code 0 + available=true when openmc is installed,
     exit code 1 + available=false otherwise.
     """
-    proc = _run_server('openmc.check')
+    proc = _run_server("openmc.check")
 
     payload = json.loads(proc.stdout.strip())
-    assert 'available' in payload
+    assert "available" in payload
 
-    if payload['available']:
+    if payload["available"]:
         assert proc.returncode == 0
-        assert 'version' in payload
+        assert "version" in payload
     else:
         assert proc.returncode == 1
-        assert 'error' in payload
+        assert "error" in payload
 
 
 def test_help_lists_registered_commands():
     """-h exits successfully and lists commands from both plugins."""
-    proc = _run_server('-h')
+    proc = _run_server("-h")
 
     assert proc.returncode == 0
-    assert 'openmc.check' in proc.stdout
+    assert "openmc.check" in proc.stdout
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__]))

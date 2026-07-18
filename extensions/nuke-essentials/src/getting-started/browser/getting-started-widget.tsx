@@ -52,7 +52,6 @@ import { Logo } from '../../theme/browser/components';
  */
 @injectable()
 export class GettingStartedWidget extends ReactWidget {
-
     /**
      * The widget `id`.
      */
@@ -124,7 +123,7 @@ export class GettingStartedWidget extends ReactWidget {
         super(options);
         this.scrollOptions = undefined;
     }
-    
+
     @postConstruct()
     protected init(): void {
         this.doInit();
@@ -141,8 +140,8 @@ export class GettingStartedWidget extends ReactWidget {
         this.home = new URI(await this.environments.getHomeDirUri()).path.toString();
 
         const extensions = await this.appServer.getExtensionsInfos();
-        this.aiIsIncluded = extensions.find(ext => ext.name === '@theia/ai-core') !== undefined;
-        
+        this.aiIsIncluded = extensions.find((ext) => ext.name === '@theia/ai-core') !== undefined;
+
         // Load a random quote from the backend service
         this.selectedQuote = await this.quoteService.getRandomQuote();
         this.update();
@@ -160,58 +159,54 @@ export class GettingStartedWidget extends ReactWidget {
      * Render the content of the widget.
      */
     protected render(): React.ReactNode {
-        return <div className='gs-container'>
-            <div className='gs-content-container'>
-                <div className='gs-left-column'>
-                    {this.renderHeader()}
-                    <hr className='gs-hr' />
-                    {this.renderStart()}
-                    {this.renderRecentWorkspaces()}
-                    {this.renderSettings()}
-                    {this.renderHelp()}
-                    {this.renderVersion()}
-                </div>
-                <div className='gs-right-column'>
-                    <div className='gs-right-column-content'>
-                        <div className='gs-logo'>
-                            <Logo />
-                        </div>
-                        {this.selectedQuote?.text && (
-                            <div className='gs-quote'>
-                                <span className='gs-quote-mark gs-quote-mark-open'>"</span>
-                                <span className='gs-quote-mark gs-quote-mark-close'>"</span>
-                                <p className='gs-quote-text'>{this.selectedQuote!.text}</p>
-                                <p className='gs-quote-author'>— {this.selectedQuote!.author}</p>
-                                {this.selectedQuote!.category && (
-                                    <span className='gs-quote-category'>
-                                        {this.selectedQuote!.category}
-                                    </span>
-                                )}
+        return (
+            <div className="gs-container">
+                <div className="gs-content-container">
+                    <div className="gs-left-column">
+                        {this.renderHeader()}
+                        <hr className="gs-hr" />
+                        {this.renderStart()}
+                        {this.renderRecentWorkspaces()}
+                        {this.renderSettings()}
+                        {this.renderHelp()}
+                        {this.renderVersion()}
+                    </div>
+                    <div className="gs-right-column">
+                        <div className="gs-right-column-content">
+                            <div className="gs-logo">
+                                <Logo />
                             </div>
-                        )}
+                            {this.selectedQuote?.text && (
+                                <div className="gs-quote">
+                                    <span className="gs-quote-mark gs-quote-mark-open">"</span>
+                                    <span className="gs-quote-mark gs-quote-mark-close">"</span>
+                                    <p className="gs-quote-text">{this.selectedQuote!.text}</p>
+                                    <p className="gs-quote-author">— {this.selectedQuote!.author}</p>
+                                    {this.selectedQuote!.category && (
+                                        <span className="gs-quote-category">{this.selectedQuote!.category}</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
+                <div className="gs-preference-container">{this.renderPreferences()}</div>
             </div>
-            <div className='gs-preference-container'>
-                {this.renderPreferences()}
-            </div>
-        </div>;
+        );
     }
 
     /**
      * Render the widget header.
      */
     protected renderHeader(): React.ReactNode {
-        return <div className='gs-header'>
-            <h1>
-                <span className='gs-header-title'>
-                    {this.applicationName}
-                </span>
-                <span className='gs-header-subtitle'>
-                    {GettingStartedWidget.LABEL}
-                </span>
-            </h1>
-        </div>;
+        return (
+            <div className="gs-header">
+                <h1>
+                    <span className="gs-header-title">{this.applicationName}</span>
+                    <span className="gs-header-subtitle">{GettingStartedWidget.LABEL}</span>
+                </h1>
+            </div>
+        );
     }
 
     /**
@@ -221,54 +216,64 @@ export class GettingStartedWidget extends ReactWidget {
     protected renderStart(): React.ReactNode {
         const requireSingleOpen = isOSX || !environment.electron.is();
 
-        const createFile = <div className='gs-action-container'>
-            <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doCreateFile} onKeyDown={this.doCreateFileEnter}>
-                <span className={`${codicon('new-file')} gs-link-icon`} />
-                {nls.localizeByDefault('New File...')}
-            </a>
-        </div>;
+        const createFile = (
+            <div className="gs-action-container">
+                <a role={'button'} tabIndex={0} className="gs-link" onClick={this.doCreateFile} onKeyDown={this.doCreateFileEnter}>
+                    <span className={`${codicon('new-file')} gs-link-icon`} />
+                    {nls.localizeByDefault('New File...')}
+                </a>
+            </div>
+        );
 
-        const open = requireSingleOpen && <div className='gs-action-container'>
-            <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpen} onKeyDown={this.doOpenEnter}>
-                <span className={`${codicon('folder-opened')} gs-link-icon`} />
-                {nls.localizeByDefault('Open')}
-            </a>
-        </div>;
+        const open = requireSingleOpen && (
+            <div className="gs-action-container">
+                <a role={'button'} tabIndex={0} className="gs-link" onClick={this.doOpen} onKeyDown={this.doOpenEnter}>
+                    <span className={`${codicon('folder-opened')} gs-link-icon`} />
+                    {nls.localizeByDefault('Open')}
+                </a>
+            </div>
+        );
 
-        const openFile = !requireSingleOpen && <div className='gs-action-container'>
-            <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpenFile} onKeyDown={this.doOpenFileEnter}>
-                <span className={`${codicon('file')} gs-link-icon`} />
-                {nls.localizeByDefault('Open File')}
-            </a>
-        </div>;
+        const openFile = !requireSingleOpen && (
+            <div className="gs-action-container">
+                <a role={'button'} tabIndex={0} className="gs-link" onClick={this.doOpenFile} onKeyDown={this.doOpenFileEnter}>
+                    <span className={`${codicon('file')} gs-link-icon`} />
+                    {nls.localizeByDefault('Open File')}
+                </a>
+            </div>
+        );
 
-        const openFolder = !requireSingleOpen && <div className='gs-action-container'>
-            <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpenFolder} onKeyDown={this.doOpenFolderEnter}>
-                <span className={`${codicon('folder')} gs-link-icon`} />
-                {nls.localizeByDefault('Open Folder')}
-            </a>
-        </div>;
+        const openFolder = !requireSingleOpen && (
+            <div className="gs-action-container">
+                <a role={'button'} tabIndex={0} className="gs-link" onClick={this.doOpenFolder} onKeyDown={this.doOpenFolderEnter}>
+                    <span className={`${codicon('folder')} gs-link-icon`} />
+                    {nls.localizeByDefault('Open Folder')}
+                </a>
+            </div>
+        );
 
         const openWorkspace = (
-            <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpenWorkspace} onKeyDown={this.doOpenWorkspaceEnter}>
+            <div className="gs-action-container">
+                <a role={'button'} tabIndex={0} className="gs-link" onClick={this.doOpenWorkspace} onKeyDown={this.doOpenWorkspaceEnter}>
                     <span className={`${codicon('window')} gs-link-icon`} />
                     {nls.localizeByDefault('Open Workspace')}
                 </a>
             </div>
         );
 
-        return <div className='gs-section gs-section-1'>
-            <h3 className='gs-section-header'>
-                <span className={`${codicon('play-circle')} gs-section-icon`} />
-                {nls.localizeByDefault('Start')}
-            </h3>
-            {createFile}
-            {open}
-            {openFile}
-            {openFolder}
-            {openWorkspace}
-        </div>;
+        return (
+            <div className="gs-section gs-section-1">
+                <h3 className="gs-section-header">
+                    <span className={`${codicon('play-circle')} gs-section-icon`} />
+                    {nls.localizeByDefault('Start')}
+                </h3>
+                {createFile}
+                {open}
+                {openFile}
+                {openFolder}
+                {openWorkspace}
+            </div>
+        );
     }
 
     /**
@@ -278,58 +283,65 @@ export class GettingStartedWidget extends ReactWidget {
         const items = this.recentWorkspaces;
         const paths = this.buildPaths(items);
 
-        const content = paths.slice(0, this.recentLimit).map((item, index) =>
-            <div className='gs-action-container-recent' key={index}>
+        const content = paths.slice(0, this.recentLimit).map((item, index) => (
+            <div className="gs-action-container-recent" key={index}>
                 <a
                     role={'button'}
                     tabIndex={0}
-                    className='gs-link-recent'
+                    className="gs-link-recent"
                     onClick={() => this.open(new URI(items[index]))}
-                    onKeyDown={(e: React.KeyboardEvent) => this.openEnter(e, new URI(items[index]))}>
-                    <div className='gs-recent-item'>
+                    onKeyDown={(e: React.KeyboardEvent) => this.openEnter(e, new URI(items[index]))}
+                >
+                    <div className="gs-recent-item">
                         <span className={`${codicon('folder')} gs-section-icon`} />
-                        <span className='gs-recent-name'>
-                            {this.labelProvider.getName(new URI(items[index]))}
-                        </span>
+                        <span className="gs-recent-name">{this.labelProvider.getName(new URI(items[index]))}</span>
                     </div>
-                    <span className='gs-recent-path'>
-                        {item}
-                    </span>
+                    <span className="gs-recent-path">{item}</span>
+                </a>
+            </div>
+        ));
+
+        const more = paths.length > this.recentLimit && (
+            <div className="gs-action-container" style={{ marginTop: '8px' }}>
+                <a
+                    role={'button'}
+                    tabIndex={0}
+                    className="gs-link-recent"
+                    onClick={this.doOpenRecentWorkspace}
+                    onKeyDown={this.doOpenRecentWorkspaceEnter}
+                >
+                    <span className={`${codicon('more')} gs-link-icon`} />
+                    {nls.localizeByDefault('More...')}
                 </a>
             </div>
         );
 
-        const more = paths.length > this.recentLimit && <div className='gs-action-container' style={{ marginTop: '8px' }}>
-            <a
-                role={'button'}
-                tabIndex={0}
-                className='gs-link-recent'
-                onClick={this.doOpenRecentWorkspace}
-                onKeyDown={this.doOpenRecentWorkspaceEnter}>
-                <span className={`${codicon('more')} gs-link-icon`} />
-                {nls.localizeByDefault('More...')}
-            </a>
-        </div>;
-
-        return <div className='gs-section gs-section-2'>
-            <h3 className='gs-section-header'>
-                <span className={`${codicon('history')} gs-section-icon`} />
-                {nls.localizeByDefault('Recent')}
-            </h3>
-            {items.length > 0 ? content : <p className='gs-no-recent'>
-                {nls.localizeByDefault('You have no recent folders,') + ' '}
-                <a
-                    role={'button'}
-                    tabIndex={0}
-                    className='gs-no-recent-link'
-                    onClick={this.doOpenFolder}
-                    onKeyDown={this.doOpenFolderEnter}>
-                    {nls.localizeByDefault('open a folder')}
-                </a>
-                {' ' + nls.localizeByDefault('to start.')}
-            </p>}
-            {more}
-        </div>;
+        return (
+            <div className="gs-section gs-section-2">
+                <h3 className="gs-section-header">
+                    <span className={`${codicon('history')} gs-section-icon`} />
+                    {nls.localizeByDefault('Recent')}
+                </h3>
+                {items.length > 0 ? (
+                    content
+                ) : (
+                    <p className="gs-no-recent">
+                        {nls.localizeByDefault('You have no recent folders,') + ' '}
+                        <a
+                            role={'button'}
+                            tabIndex={0}
+                            className="gs-no-recent-link"
+                            onClick={this.doOpenFolder}
+                            onKeyDown={this.doOpenFolderEnter}
+                        >
+                            {nls.localizeByDefault('open a folder')}
+                        </a>
+                        {' ' + nls.localizeByDefault('to start.')}
+                    </p>
+                )}
+                {more}
+            </div>
+        );
     }
 
     /**
@@ -337,62 +349,92 @@ export class GettingStartedWidget extends ReactWidget {
      * Generally used to display useful links.
      */
     protected renderSettings(): React.ReactNode {
-        return <div className='gs-section gs-section-3'>
-            <h3 className='gs-section-header'>
-                <span className={`${codicon('settings-gear')} gs-section-icon`} />
-                {nls.localizeByDefault('Settings')}
-            </h3>
-            <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpenPreferences} onKeyDown={this.doOpenPreferencesEnter}>
-                    <span className={`${codicon('settings')} gs-link-icon`} />
-                    {nls.localizeByDefault('Open Settings')}
-                </a>
+        return (
+            <div className="gs-section gs-section-3">
+                <h3 className="gs-section-header">
+                    <span className={`${codicon('settings-gear')} gs-section-icon`} />
+                    {nls.localizeByDefault('Settings')}
+                </h3>
+                <div className="gs-action-container">
+                    <a
+                        role={'button'}
+                        tabIndex={0}
+                        className="gs-link"
+                        onClick={this.doOpenPreferences}
+                        onKeyDown={this.doOpenPreferencesEnter}
+                    >
+                        <span className={`${codicon('settings')} gs-link-icon`} />
+                        {nls.localizeByDefault('Open Settings')}
+                    </a>
+                </div>
+                <div className="gs-action-container">
+                    <a
+                        role={'button'}
+                        tabIndex={0}
+                        className="gs-link"
+                        onClick={this.doOpenKeyboardShortcuts}
+                        onKeyDown={this.doOpenKeyboardShortcutsEnter}
+                    >
+                        <span className={`${codicon('keyboard')} gs-link-icon`} />
+                        {nls.localizeByDefault('Open Keyboard Shortcuts')}
+                    </a>
+                </div>
             </div>
-            <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={this.doOpenKeyboardShortcuts} onKeyDown={this.doOpenKeyboardShortcutsEnter}>
-                    <span className={`${codicon('keyboard')} gs-link-icon`} />
-                    {nls.localizeByDefault('Open Keyboard Shortcuts')}
-                </a>
-            </div>
-        </div>;
+        );
     }
 
     /**
      * Render the help section.
      */
     protected renderHelp(): React.ReactNode {
-        return <div className='gs-section gs-section-4'>
-            <h3 className='gs-section-header'>
-                <span className={`${codicon('question')} gs-section-icon`} />
-                {nls.localizeByDefault('Help')}
-            </h3>
-            <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={() => this.openDocsWidget()} onKeyDown={(e: React.KeyboardEvent) => this.openDocsWidgetEnter(e)}>
-                    <span className={`${codicon('book')} gs-link-icon`} />
-                    {nls.localizeByDefault('NukeIDE Documentation')}
-                </a>
+        return (
+            <div className="gs-section gs-section-4">
+                <h3 className="gs-section-header">
+                    <span className={`${codicon('question')} gs-section-icon`} />
+                    {nls.localizeByDefault('Help')}
+                </h3>
+                <div className="gs-action-container">
+                    <a
+                        role={'button'}
+                        tabIndex={0}
+                        className="gs-link"
+                        onClick={() => this.openDocsWidget()}
+                        onKeyDown={(e: React.KeyboardEvent) => this.openDocsWidgetEnter(e)}
+                    >
+                        <span className={`${codicon('book')} gs-link-icon`} />
+                        {nls.localizeByDefault('NukeIDE Documentation')}
+                    </a>
+                </div>
+                <div className="gs-action-container">
+                    <a
+                        role={'button'}
+                        tabIndex={0}
+                        className="gs-link"
+                        onClick={() => this.doOpenExternalLink(this.neutronicsWorkshopUrl)}
+                        onKeyDown={(e: React.KeyboardEvent) => this.doOpenExternalLinkEnter(e, this.neutronicsWorkshopUrl)}
+                    >
+                        <span className={`${codicon('code')} gs-link-icon`} />
+                        {nls.localizeByDefault('Nuclear Simulation Workshop')}
+                    </a>
+                </div>
             </div>
-            <div className='gs-action-container'>
-                <a role={'button'} tabIndex={0} className='gs-link' onClick={() => this.doOpenExternalLink(this.neutronicsWorkshopUrl)} onKeyDown={(e: React.KeyboardEvent) => this.doOpenExternalLinkEnter(e, this.neutronicsWorkshopUrl)}>
-                    <span className={`${codicon('code')} gs-link-icon`} />
-                    {nls.localizeByDefault('Nuclear Simulation Workshop')}
-                </a>
-            </div>
-        </div>;
+        );
     }
 
     /**
      * Render the version section.
      */
     protected renderVersion(): React.ReactNode {
-        return <div className='gs-section gs-section-5'>
-            <div className='gs-version'>
-                <span className={`${codicon('versions')} gs-version-icon`} />
-                <p className='gs-version-text'>
-                    {this.applicationInfo ? nls.localizeByDefault('Version: {0}', this.applicationInfo.version) : ''}
-                </p>
+        return (
+            <div className="gs-section gs-section-5">
+                <div className="gs-version">
+                    <span className={`${codicon('versions')} gs-version-icon`} />
+                    <p className="gs-version-text">
+                        {this.applicationInfo ? nls.localizeByDefault('Version: {0}', this.applicationInfo.version) : ''}
+                    </p>
+                </div>
             </div>
-        </div>;
+        );
     }
 
     protected renderPreferences(): React.ReactNode {
@@ -406,7 +448,7 @@ export class GettingStartedWidget extends ReactWidget {
      */
     protected buildPaths(workspaces: string[]): string[] {
         const paths: string[] = [];
-        workspaces.forEach(workspace => {
+        workspaces.forEach((workspace) => {
             const uri = new URI(workspace);
             const pathLabel = this.labelProvider.getLongName(uri);
             const path = this.home ? Path.tildify(pathLabel, this.home) : pathLabel;
@@ -568,17 +610,15 @@ function WelcomePreferences(props: PreferencesProps): JSX.Element {
 
     if (!isReady) {
         return (
-            <div className='gs-preference' style={{ opacity: 0.5 }}>
-                <div className='gs-toggle gs-toggle-off' />
-                <span className='gs-preference-label'>
-                    {nls.localizeByDefault('Show NukeIDE welcome page on startup')}
-                </span>
+            <div className="gs-preference" style={{ opacity: 0.5 }}>
+                <div className="gs-toggle gs-toggle-off" />
+                <span className="gs-preference-label">{nls.localizeByDefault('Show NukeIDE welcome page on startup')}</span>
             </div>
         );
     }
 
     return (
-        <div className='gs-preference'>
+        <div className="gs-preference">
             <div
                 role="switch"
                 aria-checked={isEnabled}
@@ -594,7 +634,7 @@ function WelcomePreferences(props: PreferencesProps): JSX.Element {
             >
                 <div className={`gs-toggle-thumb ${isEnabled ? 'gs-toggle-thumb-on' : 'gs-toggle-thumb-off'}`} />
             </div>
-            <span className='gs-preference-label' onClick={handleToggle}>
+            <span className="gs-preference-label" onClick={handleToggle}>
                 {nls.localizeByDefault('Show NukeIDE welcome page on startup')}
             </span>
         </div>

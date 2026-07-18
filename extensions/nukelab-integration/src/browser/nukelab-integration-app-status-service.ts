@@ -6,7 +6,6 @@ export const NUKELAB_APP_STANDALONE_KEY = 'nukelabAppStandalone';
 
 @injectable()
 export class NukeLabAppStatusService {
-
     @inject(ContextKeyService)
     protected readonly contextKeyService: ContextKeyService;
 

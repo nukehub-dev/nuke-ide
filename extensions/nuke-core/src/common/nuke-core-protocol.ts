@@ -27,10 +27,10 @@
 
 /**
  * Nuke Core Extension Protocol
- * 
+ *
  * Core infrastructure protocol for NukeIDE - Python environment, configuration,
  * and shared utilities across extensions.
- * 
+ *
  * @module nuke-core/common
  */
 
@@ -304,19 +304,19 @@ export interface NukeCoreBackendServiceInterface {
      * @returns A promise that resolves when the configuration is set.
      */
     setConfig(config: PythonConfig): Promise<void>;
-    
+
     /**
      * Get current configuration.
      * @returns A promise resolving to the current Python configuration.
      */
     getConfig(): Promise<PythonConfig>;
-    
+
     /**
      * Detect Python command based on current config.
      * @returns A promise resolving to the detection result.
      */
     detectPython(): Promise<PythonDetectionResult>;
-    
+
     /**
      * Detect Python with specific package requirements.
      * This will find a Python environment that has all required packages.
@@ -324,7 +324,7 @@ export interface NukeCoreBackendServiceInterface {
      * @returns A promise resolving to the detection result, including any missing packages.
      */
     detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }>;
-    
+
     /**
      * Check if specific packages are available in a Python environment.
      * If pythonPath is not provided, uses the currently configured/detected Python.
@@ -333,14 +333,14 @@ export interface NukeCoreBackendServiceInterface {
      * @returns A promise resolving to the dependency check result.
      */
     checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult>;
-    
+
     /**
      * List available Python environments.
      * @param searchWorkspace Whether to search for virtual environments in the workspace.
      * @returns A promise resolving to the list of environments.
      */
     listEnvironments(searchWorkspace?: boolean): Promise<ListEnvironmentsResult>;
-    
+
     /**
      * Get the Python command to use (cached detection result).
      * @returns A promise resolving to the Python command string, or undefined if not detected.
@@ -460,7 +460,7 @@ export interface EnvironmentStatus {
     visibilityRequested: boolean;
 }
 
-/** 
+/**
  * Symbol for the status bar visibility service.
  * Extensions can use this to request status bar visibility when their tools are active.
  */
@@ -468,16 +468,16 @@ export const NukeCoreStatusBarVisibility = Symbol('NukeCoreStatusBarVisibility')
 
 /**
  * Service for managing status bar visibility requests from dependent extensions.
- * 
+ *
  * Example usage:
  * ```typescript
  * // In your extension's widget or contribution
  * @inject(NukeCoreStatusBarVisibility)
  * private readonly visibility: NukeCoreStatusBarVisibilityService;
- * 
+ *
  * // When your tool opens
  * const handle = this.visibility.requestVisibility('my-extension');
- * 
+ *
  * // When your tool closes
  * handle.dispose();
  * ```
@@ -489,13 +489,13 @@ export interface NukeCoreStatusBarVisibilityService {
      * @returns A disposable handle. Call dispose() when visibility is no longer needed.
      */
     requestVisibility(source: string): { dispose: () => void };
-    
+
     /**
      * Check if any extension is currently requesting visibility.
      * @returns Whether visibility has been requested.
      */
     isVisibilityRequested(): boolean;
-    
+
     /**
      * Event fired when visibility requests change.
      * @returns An event that emits the new visibility state.

@@ -4,15 +4,15 @@ This section is for developers who want to understand, modify, or extend `openmc
 
 ## Getting Started
 
-| Doc | What You'll Learn |
-|-----|-------------------|
-| [**Architecture**](architecture.md) | How the frontend React widgets, Theia backend services, and Python scripts fit together |
-| [**Frontend Module**](frontend-module.md) | DI bindings, command/menu contributions, OpenHandler registration, and state management |
-| [**Backend Services**](backend-services.md) | Runner, validation, CAD import, DAGMC editing, optimization, and XML generation services |
-| [**Widget Patterns**](widget-patterns.md) | When to use React widgets vs iframe widgets, state propagation, and CSS theming |
-| [**RPC Protocols**](rpc-protocols.md) | How TypeScript interfaces define the frontend/backend contract and state schema |
-| [**Python Backends**](python-backends.md) | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
-| [**Adding a Feature**](adding-a-feature.md) | Step-by-step guide to adding a new simulation feature or UI panel |
+| Doc                                         | What You'll Learn                                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [**Architecture**](architecture.md)         | How the frontend React widgets, Theia backend services, and Python scripts fit together             |
+| [**Frontend Module**](frontend-module.md)   | DI bindings, command/menu contributions, OpenHandler registration, and state management             |
+| [**Backend Services**](backend-services.md) | Runner, validation, CAD import, DAGMC editing, optimization, and XML generation services            |
+| [**Widget Patterns**](widget-patterns.md)   | When to use React widgets vs iframe widgets, state propagation, and CSS theming                     |
+| [**RPC Protocols**](rpc-protocols.md)       | How TypeScript interfaces define the frontend/backend contract and state schema                     |
+| [**Python Backends**](python-backends.md)   | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
+| [**Adding a Feature**](adding-a-feature.md) | Step-by-step guide to adding a new simulation feature or UI panel                                   |
 
 ## Architecture Summary
 
@@ -114,27 +114,28 @@ We do **not** maintain a separate API reference in Markdown (it goes stale too q
 
 Key files to read for API details:
 
-| Purpose | File |
-|---------|------|
-| RPC protocol definition | `src/common/openmc-studio-protocol.ts` |
-| State schema | `src/common/openmc-state-schema.ts` |
-| Frontend DI module | `src/browser/openmc-studio-frontend-module.ts` |
-| State manager | `src/browser/openmc-state-manager.ts` |
-| Backend DI module | `src/node/openmc-studio-backend-module.ts` |
-| Main backend service | `src/node/openmc-studio-backend-service.ts` |
-| Simulation runner | `src/node/openmc-runner-service.ts` |
-| Validation service | `src/node/openmc-validation-backend-service.ts` |
-| Optimization backend | `src/node/optimization-backend-service.ts` |
-| CAD import backend | `src/node/cad-import-service.ts` |
-| XML generation (backend) | `src/node/xml-generation-service.ts` |
-| Python exporter | `src/browser/script-generator/python-exporter.ts` |
-| Frontend XML service | `src/browser/xml-generator/xml-generation-service.ts` |
+| Purpose                  | File                                                  |
+| ------------------------ | ----------------------------------------------------- |
+| RPC protocol definition  | `src/common/openmc-studio-protocol.ts`                |
+| State schema             | `src/common/openmc-state-schema.ts`                   |
+| Frontend DI module       | `src/browser/openmc-studio-frontend-module.ts`        |
+| State manager            | `src/browser/openmc-state-manager.ts`                 |
+| Backend DI module        | `src/node/openmc-studio-backend-module.ts`            |
+| Main backend service     | `src/node/openmc-studio-backend-service.ts`           |
+| Simulation runner        | `src/node/openmc-runner-service.ts`                   |
+| Validation service       | `src/node/openmc-validation-backend-service.ts`       |
+| Optimization backend     | `src/node/optimization-backend-service.ts`            |
+| CAD import backend       | `src/node/cad-import-service.ts`                      |
+| XML generation (backend) | `src/node/xml-generation-service.ts`                  |
+| Python exporter          | `src/browser/script-generator/python-exporter.ts`     |
+| Frontend XML service     | `src/browser/xml-generator/xml-generation-service.ts` |
 
 ---
 
 ## Contributing
 
 When adding a new feature:
+
 1. Write or update the **user doc** if it affects end-user workflows.
 2. Write or update the **dev doc** if it introduces new patterns or architecture changes.
 3. Add **JSDoc/TSDoc** to new public APIs.

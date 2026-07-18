@@ -26,6 +26,7 @@ const scriptPath = this.pythonHelper.findScript('server.py');
 ```
 
 This resolves to:
+
 1. `lib/python/server.py` (production build)
 2. `src/python/server.py` (development)
 3. Fallback relative to `__dirname`
@@ -251,7 +252,7 @@ If you need multiple ports (rare), discuss with the backend service author.
 Paths are passed as absolute strings from the TypeScript side:
 
 ```typescript
-const filePath = uri.path.toString();  // e.g., "/home/user/project/geometry.xml"
+const filePath = uri.path.toString(); // e.g., "/home/user/project/geometry.xml"
 ```
 
 In Python, verify the file exists before opening:
@@ -268,6 +269,7 @@ if not os.path.exists(file_path):
 ## Concurrency
 
 Each widget gets its own Python process. There is no shared state between processes. This is intentional — it prevents:
+
 - Memory leaks from accumulating VTK pipelines
 - State corruption when switching files
 - Port conflicts
@@ -374,12 +376,13 @@ The Node backend invokes them via `server.py` and parses JSON:
 ```typescript
 const scriptPath = this.pythonHelper.findScript('server.py');
 const result = await this.pythonHelper.executeScriptJson<{
-    vtk_path: string;
-    from_cache: boolean;
+  vtk_path: string;
+  from_cache: boolean;
 }>(scriptPath, ['base.convert-step', '--file', filePath]);
 ```
 
 **Rule of thumb:**
+
 - Library code → `python/plugins/<plugin>/lib/`
 - CLI commands → `python/plugins/<plugin>/commands/`
 - Unified entry point → `python/server.py`

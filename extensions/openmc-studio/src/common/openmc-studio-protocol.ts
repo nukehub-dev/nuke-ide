@@ -27,10 +27,10 @@
 
 /**
  * OpenMC Studio Protocol
- * 
+ *
  * Defines the JSON-RPC protocol for communication between the frontend
  * (TypeScript) and backend (Node.js/Python) of the OpenMC Studio extension.
- * 
+ *
  * @module openmc-studio/common
  */
 
@@ -505,113 +505,113 @@ export interface WWINPExportResult {
 /** Backend service interface for OpenMC Studio */
 export interface OpenMCStudioBackendService {
     // === Configuration ===
-    
+
     /** Set Python configuration (shared with nuke-visualizer) */
     setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void>;
-    
+
     // === XML Generation ===
-    
+
     /** Generate XML files from state */
     generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult>;
-    
+
     /** Import XML files into state */
     importXML(request: XMLImportRequest): Promise<XMLImportResult>;
-    
+
     /** Validate XML files without importing */
     validateXML(directory: string): Promise<XMLValidationResult>;
-    
+
     // === Simulation ===
-    
+
     /** Run OpenMC simulation (blocking - returns when complete) */
     runSimulation(request: SimulationRunRequest): Promise<SimulationRunResult>;
-    
+
     /** Start OpenMC simulation (non-blocking - returns immediately with processId) */
     startSimulation(request: SimulationRunRequest): Promise<StartSimulationResponse>;
-    
+
     /** Cancel running simulation */
     cancelSimulation(processId: string): Promise<boolean>;
-    
+
     /** Get simulation log file content */
     getSimulationLog(processId: string): Promise<SimulationLogResult>;
-    
+
     /** Check if OpenMC is available */
     checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }>;
-    
+
     /** Check if MPI is available */
     checkMPI(): Promise<{ available: boolean; version?: string; processes?: number; error?: string }>;
-    
+
     // === Validation ===
-    
+
     /** Validate simulation state */
     validateState(request: ValidationRequest): Promise<ValidationResult>;
-    
+
     /** Check for geometry overlaps */
     checkOverlaps(request: OverlapCheckRequest): Promise<OverlapCheckResult>;
-    
+
     /** Check if region expression is valid */
     validateRegion(region: string, surfaces: OpenMCSurface[]): Promise<{ valid: boolean; error?: string }>;
-    
+
     // === Project Management ===
-    
+
     /** Create new project */
     createProject(request: ProjectCreateRequest): Promise<ProjectCreateResult>;
-    
+
     /** Load project file */
     loadProject(projectPath: string): Promise<ProjectLoadResult>;
-    
+
     /** Save project file */
     saveProject(request: ProjectSaveRequest): Promise<{ success: boolean; error?: string }>;
-    
+
     /** Get available templates */
     getTemplates(): Promise<TemplatesResponse>;
-    
+
     /** Apply template to create initial state */
     applyTemplate(request: ApplyTemplateRequest): Promise<{ success: boolean; state?: OpenMCState; error?: string }>;
-    
+
     // === WWINP Import/Export ===
-    
+
     /** Import MCNP WWINP file */
     importWWINP(request: WWINPImportRequest): Promise<WWINPImportResult>;
-    
+
     /** Export to MCNP WWINP file */
     exportWWINP(request: WWINPExportRequest): Promise<WWINPExportResult>;
-    
+
     // === Statepoint Comparison ===
-    
+
     /** Read a single statepoint file and extract data */
     readStatepoint(request: ReadStatepointRequest): Promise<ReadStatepointResult>;
-    
+
     /** Compare multiple statepoint files */
     compareStatepoints(request: CompareStatepointsRequest): Promise<CompareStatepointsResult>;
-    
+
     /** Read depletion results file */
     readDepletionResults(request: ReadDepletionRequest): Promise<DepletionResults>;
-    
+
     /** Analyze k-effective convergence */
     analyzeConvergence(request: AnalyzeConvergenceRequest): Promise<KeffConvergenceAnalysis>;
-    
+
     // === Utility ===
-    
+
     /** Get cross-sections path from environment */
     getCrossSectionsPath(): Promise<{ path?: string; found: boolean }>;
-    
+
     /** Suggest material ID */
     suggestMaterialId(state: OpenMCState): Promise<number>;
-    
+
     /** Suggest cell ID */
     suggestCellId(state: OpenMCState): Promise<number>;
-    
+
     /** Suggest surface ID */
     suggestSurfaceId(state: OpenMCState): Promise<number>;
-    
+
     /** Suggest tally ID */
     suggestTallyId(state: OpenMCState): Promise<number>;
-    
+
     /** Suggest mesh ID */
     suggestMeshId(state: OpenMCState): Promise<number>;
-    
+
     // === CAD Import ===
-    
+
     /** Check if CAD import dependencies are available */
     checkCADSupport(): Promise<{
         available: boolean;
@@ -622,10 +622,10 @@ export interface OpenMCStudioBackendService {
         };
         pythonPath?: string;
     }>;
-    
+
     /** Import a CAD file and convert to OpenMC-compatible CSG */
     importCAD(request: CADImportRequest): Promise<CADImportResult>;
-    
+
     /** Preview CAD file info without full import */
     previewCAD(filePath: string): Promise<{
         format: string;
@@ -633,9 +633,9 @@ export interface OpenMCStudioBackendService {
         faceCount: number;
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }>;
-    
+
     // === DAGMC Editor ===
-    
+
     /** Load DAGMC file and return model information */
     dagmcLoad(filePath: string): Promise<{
         success: boolean;
@@ -663,23 +663,34 @@ export interface OpenMCStudioBackendService {
         };
         error?: string;
     }>;
-    
+
     /** Assign material to a volume in DAGMC file */
-    dagmcAssignMaterial(filePath: string, volumeId: number, materialName: string): Promise<{
+    dagmcAssignMaterial(
+        filePath: string,
+        volumeId: number,
+        materialName: string
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
     }>;
-    
+
     /** Create a new group in DAGMC file */
-    dagmcCreateGroup(filePath: string, groupName: string, volumeIds?: number[]): Promise<{
+    dagmcCreateGroup(
+        filePath: string,
+        groupName: string,
+        volumeIds?: number[]
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
     }>;
-    
+
     /** Delete a group from DAGMC file */
-    dagmcDeleteGroup(filePath: string, groupName: string): Promise<{
+    dagmcDeleteGroup(
+        filePath: string,
+        groupName: string
+    ): Promise<{
         success: boolean;
         message?: string;
         error?: string;
@@ -698,7 +709,11 @@ export interface OpenMCStudioBackendService {
     }>;
 
     /** Re-export a DAGMC file from source CAD with new faceting tolerance */
-    dagmcRefacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<{
+    dagmcRefacet(
+        filePath: string,
+        sourceCadPath: string,
+        tolerance: number
+    ): Promise<{
         success: boolean;
         data?: {
             outputPath: string;
@@ -709,15 +724,15 @@ export interface OpenMCStudioBackendService {
 
     /** Cancel any active re-faceting operation */
     dagmcCancelRefacet(): Promise<void>;
-    
+
     // === Optimization Framework ===
-    
+
     /** Start an optimization run with parameter sweeps */
     startOptimization(request: StartOptimizationRequest): Promise<StartOptimizationResult>;
-    
+
     /** Stop/cancel a running optimization */
     stopOptimization(request: StopOptimizationRequest): Promise<StopOptimizationResult>;
-    
+
     /** Get status of an optimization run */
     getOptimizationStatus(runId: string): Promise<{
         running: boolean;
@@ -726,23 +741,30 @@ export interface OpenMCStudioBackendService {
         status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
     }>;
 
-    /** 
+    /**
      * Get iteration logs index for an optimization run
      * @param runId The run ID
      * @param outputDirectory Optional output directory (absolute path). If not provided, will look up active runs.
      */
-    getIterationLogsIndex(runId: string, outputDirectory?: string): Promise<{
+    getIterationLogsIndex(
+        runId: string,
+        outputDirectory?: string
+    ): Promise<{
         iterations: { iteration: number; hasLog: boolean; timestamp: string }[];
         outputDirectory: string;
     }>;
 
-    /** 
+    /**
      * Get log content for a specific iteration
      * @param runId The run ID
      * @param iteration The iteration number
      * @param outputDirectory Optional output directory (absolute path). If not provided, will look up active runs.
      */
-    getIterationLog(runId: string, iteration: number, outputDirectory?: string): Promise<{
+    getIterationLog(
+        runId: string,
+        iteration: number,
+        outputDirectory?: string
+    ): Promise<{
         success: boolean;
         logContent?: string;
         error?: string;

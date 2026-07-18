@@ -7,7 +7,7 @@ const path = require('path');
 
 // Prevent webpack from bundling 'electron' in browser builds.
 // electron-only extensions (e.g., updater) may be reachable in some build environments.
-configs.forEach(config => {
+configs.forEach((config) => {
     if (!config.resolve) {
         config.resolve = {};
     }
@@ -21,9 +21,7 @@ configs.forEach(config => {
     }
     config.plugins.push(
         new CopyWebpackPlugin({
-            patterns: [
-                { from: path.resolve(__dirname, '../../resources'), to: '.' }
-            ]
+            patterns: [{ from: path.resolve(__dirname, '../../resources'), to: '.' }]
         })
     );
 });
@@ -35,12 +33,9 @@ if (process.platform !== 'win32') {
     }
     nodeConfig.config.plugins.push(
         new webpack.IgnorePlugin({
-            checkResource: resource => resource.includes('conpty_console_list')
+            checkResource: (resource) => resource.includes('conpty_console_list')
         })
     );
 }
 
-module.exports = [
-    ...configs,
-    nodeConfig.config
-];
+module.exports = [...configs, nodeConfig.config];

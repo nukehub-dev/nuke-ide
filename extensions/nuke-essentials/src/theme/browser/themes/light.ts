@@ -31,11 +31,11 @@ export const lightTheme = {
     type: 'light',
     colors: {
         // Brand Colors - Orange accent
-        'focusBorder': '#e06010',
-        'foreground': '#2c3e50',
-        'descriptionForeground': '#5a6c7d',
-        'errorForeground': '#d13b3b',
-        
+        focusBorder: '#e06010',
+        foreground: '#2c3e50',
+        descriptionForeground: '#5a6c7d',
+        errorForeground: '#d13b3b',
+
         // Button
         'button.background': '#f37524',
         'button.hoverBackground': '#e06010',
@@ -43,11 +43,11 @@ export const lightTheme = {
         'button.secondaryBackground': '#e4e4e4',
         'button.secondaryHoverBackground': '#d4d4d4',
         'button.secondaryForeground': '#2c3e50',
-        
+
         // Links
         'textLink.foreground': '#e06010',
         'textLink.activeForeground': '#f37524',
-        
+
         // Activity Bar
         'activityBar.background': '#f3f3f3',
         'activityBar.foreground': '#424242',
@@ -55,7 +55,7 @@ export const lightTheme = {
         'activityBar.border': '#d4d4d4',
         'activityBarBadge.background': '#4a4a4a',
         'activityBarBadge.foreground': '#ffffff',
-        
+
         // Side Bar
         'sideBar.background': '#f3f3f3',
         'sideBar.foreground': '#424242',
@@ -64,7 +64,7 @@ export const lightTheme = {
         'sideBarSectionHeader.background': '#e8e8e8',
         'sideBarSectionHeader.foreground': '#24292f',
         'sideBarSectionHeader.border': '#d4d4d4',
-        
+
         // Status Bar
         'statusBar.background': '#eeeeee',
         'statusBar.foreground': '#424242',
@@ -74,14 +74,14 @@ export const lightTheme = {
         'statusBarItem.remoteForeground': '#ffffff',
         'statusBarItem.hoverBackground': '#d4d4d4',
         'statusBarItem.activeBackground': '#d0d7de',
-        
+
         // Title Bar
         'titleBar.activeBackground': '#eeeeee',
         'titleBar.activeForeground': '#2c3e50',
         'titleBar.border': '#d4d4d4',
         'titleBar.inactiveBackground': '#eeeeee',
         'titleBar.inactiveForeground': '#6c757d',
-        
+
         // Menubar
         'menubar.selectionBackground': '#e1e4e8',
         'menubar.selectionForeground': '#2c3e50',
@@ -92,7 +92,7 @@ export const lightTheme = {
         'menu.selectionForeground': '#2c3e50',
         'menu.selectionBorder': '#e1e4e8',
         'menu.separatorBackground': '#e1e4e8',
-        
+
         // Lists
         'list.activeSelectionBackground': '#e0e0e0',
         'list.activeSelectionForeground': '#2c3e50',
@@ -104,7 +104,7 @@ export const lightTheme = {
         'list.focusBackground': '#eeeeee',
         'list.focusForeground': '#2c3e50',
         'list.focusOutline': '#e06010',
-        
+
         // Input
         'input.background': '#ffffff',
         'input.foreground': '#2c3e50',
@@ -118,32 +118,32 @@ export const lightTheme = {
         'inputValidation.warningBorder': '#ffa000',
         'inputValidation.errorBackground': '#ffebee',
         'inputValidation.errorBorder': '#d32f2f',
-        
+
         // Dropdown
         'dropdown.background': '#ffffff',
         'dropdown.foreground': '#2c3e50',
         'dropdown.border': '#d4d4d4',
-        
+
         // Badge
         'badge.background': '#f37524',
         'badge.foreground': '#ffffff',
-        
+
         // Progress Bar
         'progressBar.background': '#f37524',
-        
+
         // Panel
         'panel.background': '#f3f3f3',
         'panel.border': '#d4d4d4',
         'panelTitle.activeForeground': '#2c3e50',
         'panelTitle.activeBorder': '#f37524',
         'panelTitle.inactiveForeground': '#6c757d',
-        
+
         // Terminal
         'terminal.background': '#ffffff',
         'terminal.foreground': '#2c3e50',
         'terminal.border': '#d4d4d4',
         'terminal.selectionBackground': '#add6ff66',
-        
+
         // Tabs
         'tab.activeBackground': '#ffffff',
         'tab.activeForeground': '#2c3e50',
@@ -156,7 +156,7 @@ export const lightTheme = {
         'tab.border': '#d4d4d4',
         'tab.unfocusedActiveBorder': '#d4d4d4',
         'tab.unfocusedActiveBorderTop': '#d4d4d4',
-        
+
         // Editor
         'editor.background': '#ffffff',
         'editor.foreground': '#2c3e50',
@@ -174,14 +174,14 @@ export const lightTheme = {
         'editorWidget.foreground': '#2c3e50',
         'editorWidget.border': '#d4d4d4',
         'editorWidget.resizeBorder': '#e06010',
-        
+
         // Breadcrumb
         'breadcrumb.background': '#ffffff',
         'breadcrumb.foreground': '#6c757d',
         'breadcrumb.focusForeground': '#2c3e50',
         'breadcrumb.activeSelectionForeground': '#2c3e50',
         'breadcrumbPicker.background': '#f3f3f3',
-        
+
         // Picker
         'pickerGroup.foreground': '#e06010',
         'pickerGroup.border': '#d4d4d4',
@@ -189,7 +189,7 @@ export const lightTheme = {
         'quickInput.foreground': '#2c3e50',
         'quickInputList.focusBackground': '#e1e4e8',
         'quickInputList.focusForeground': '#2c3e50',
-        
+
         // Notifications
         'notificationCenter.border': '#d4d4d4',
         'notificationCenterHeader.foreground': '#2c3e50',
@@ -199,7 +199,7 @@ export const lightTheme = {
         'notifications.background': '#f3f3f3',
         'notifications.border': '#d4d4d4',
         'notificationLink.foreground': '#e06010',
-        
+
         // Settings
         'settings.headerForeground': '#2c3e50',
         'settings.modifiedItemIndicator': '#4a4a4a',
@@ -215,18 +215,18 @@ export const lightTheme = {
         'settings.numberInputBackground': '#ffffff',
         'settings.numberInputForeground': '#2c3e50',
         'settings.numberInputBorder': '#d4d4d4',
-        
+
         // Scrollbar
         'scrollbar.shadow': '#d4d4d4',
         'scrollbarSlider.background': '#6c757d30',
         'scrollbarSlider.hoverBackground': '#6c757d50',
         'scrollbarSlider.activeBackground': '#6c757d70',
-        
+
         // Keybinding
         'keybindingLabel.background': '#e4e4e4',
         'keybindingLabel.foreground': '#2c3e50',
         'keybindingLabel.border': '#d4d4d4',
-        'keybindingLabel.bottomBorder': '#d4d4d4',
+        'keybindingLabel.bottomBorder': '#d4d4d4'
     },
     tokenColors: [],
     semanticHighlighting: true

@@ -19,18 +19,36 @@
 }
 
 @keyframes builder-fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes card-pop {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 @keyframes slide-up {
-    from { opacity: 0; transform: translateY(15px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* ============================================================================
@@ -1628,19 +1646,19 @@
     .csg-builder .surface-gallery {
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     }
-    
+
     .csg-builder .coefficients-grid {
         grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     }
-    
+
     .csg-builder .header-stats {
         gap: 16px;
     }
-    
+
     .csg-builder .form-row {
         flex-direction: column;
     }
-    
+
     .csg-builder .csg-builder-header {
         flex-direction: column;
         align-items: flex-start;
@@ -1668,7 +1686,7 @@
         grid-template-columns: 1fr;
         grid-template-rows: auto 1fr;
     }
-    
+
     .csg-builder .surface-gallery-section {
         max-height: 300px;
     }

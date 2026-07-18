@@ -216,12 +216,7 @@ export interface OpenMCBackendService {
     listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
 
     /** Visualize a mesh tally from statepoint file */
-    visualizeMeshTally(
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        nuclide?: string
-    ): Promise<OpenMCVisualizationResult>;
+    visualizeMeshTally(statepointPath: string, tallyId: number, score?: string, nuclide?: string): Promise<OpenMCVisualizationResult>;
 
     /** Visualize source distribution from source.h5 */
     visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
@@ -259,12 +254,7 @@ export interface OpenMCBackendService {
     ): Promise<OpenMCVisualizationResult>;
 
     /** Get energy spectrum data for a tally */
-    getEnergySpectrum(
-        statepointPath: string,
-        tallyId: number,
-        scoreIndex?: number,
-        nuclideIndex?: number
-    ): Promise<OpenMCSpectrumData>;
+    getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex?: number, nuclideIndex?: number): Promise<OpenMCSpectrumData>;
 
     /** Get spatial plot data for a mesh tally */
     getSpatialPlot(
@@ -339,7 +329,11 @@ export interface OpenMCBackendService {
     getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
 
     /** Visualize geometry in 3D */
-    visualizeGeometry(filePath: string, highlightCellIds?: number[], overlaps?: any[]): Promise<{
+    visualizeGeometry(
+        filePath: string,
+        highlightCellIds?: number[],
+        overlaps?: any[]
+    ): Promise<{
         success: boolean;
         port?: number;
         url?: string;
@@ -432,7 +426,7 @@ export const XS_ENERGY_REGIONS: Record<XSEnergyRegion, XSEnergyRegionConfig> = {
     thermal: { label: 'Thermal', range: [1e-5, 1], description: 'Thermal region (< 1 eV)' },
     resonance: { label: 'Resonance', range: [1, 1e5], description: 'Resonance region (1 eV - 100 keV)' },
     epithermal: { label: 'Epithermal', range: [1e-3, 1e5], description: 'Epithermal region (1 meV - 100 keV)' },
-    fast: { label: 'Fast', range: [1e5, 2e7], description: 'Fast region (> 100 keV)' },
+    fast: { label: 'Fast', range: [1e5, 2e7], description: 'Fast region (> 100 keV)' }
 };
 
 /** Temperature comparison request */
@@ -659,7 +653,7 @@ export const COMMON_XS_REACTIONS: XSReaction[] = [
     { mt: 17, label: '3n (n,3n)', selected: false },
     { mt: 22, label: 'nα (n,nα)', selected: false },
     { mt: 28, label: 'np (n,np)', selected: false },
-    { mt: 41, label: '2np (n,2np)', selected: false },
+    { mt: 41, label: '2np (n,2np)', selected: false }
 ];
 
 /** XS Integral Quantities calculated from cross-section data */
@@ -953,11 +947,24 @@ export interface DepletionTimeStep {
 
 /** Type of surface in OpenMC CSG geometry */
 export type OpenMCSurfaceType =
-    | 'sphere' | 'x-cylinder' | 'y-cylinder' | 'z-cylinder'
-    | 'x-plane' | 'y-plane' | 'z-plane' | 'plane'
-    | 'x-cone' | 'y-cone' | 'z-cone'
-    | 'x-torus' | 'y-torus' | 'z-torus'
-    | 'quadric' | 'cylinder' | 'sphere-general' | 'unknown';
+    | 'sphere'
+    | 'x-cylinder'
+    | 'y-cylinder'
+    | 'z-cylinder'
+    | 'x-plane'
+    | 'y-plane'
+    | 'z-plane'
+    | 'plane'
+    | 'x-cone'
+    | 'y-cone'
+    | 'z-cone'
+    | 'x-torus'
+    | 'y-torus'
+    | 'z-torus'
+    | 'quadric'
+    | 'cylinder'
+    | 'sphere-general'
+    | 'unknown';
 
 /** Surface definition in OpenMC geometry */
 export interface OpenMCSurface {
@@ -1092,9 +1099,12 @@ export interface OpenMCCellProperties {
     }>;
     /** Bounding box if calculable */
     bounds?: {
-        xmin: number; xmax: number;
-        ymin: number; ymax: number;
-        zmin: number; zmax: number;
+        xmin: number;
+        xmax: number;
+        ymin: number;
+        ymax: number;
+        zmin: number;
+        zmax: number;
     };
     /** Temperature */
     temperature?: number;

@@ -37,10 +37,10 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     if (boundBefore) {
         unbind(ChatWelcomeMessageProvider);
     }
-    
+
     // Bind our custom provider with higher priority (101)
     bind(ChatWelcomeMessageProvider).to(NukeChatWelcomeMessageProvider).inSingletonScope();
-    
+
     // Bind the sessions provider (original priority)
     bind(ChatWelcomeMessageProvider).to(ChatSessionsWelcomeMessageProvider).inSingletonScope();
 });

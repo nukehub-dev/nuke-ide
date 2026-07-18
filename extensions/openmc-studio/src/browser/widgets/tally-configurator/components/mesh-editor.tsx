@@ -27,12 +27,12 @@
 
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { 
-    OpenMCMesh, 
-    OpenMCRegularMesh, 
-    OpenMCCylindricalMesh, 
+import {
+    OpenMCMesh,
+    OpenMCRegularMesh,
+    OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
-    OpenMCMeshType 
+    OpenMCMeshType
 } from '../../../../common/openmc-state-schema';
 
 /**
@@ -75,74 +75,78 @@ export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, 
     };
 
     return (
-        <div className='mesh-editor'>
-            <div className='editor-header'>
+        <div className="mesh-editor">
+            <div className="editor-header">
                 <h3>
-                    <i className='codicon codicon-table'></i>
+                    <i className="codicon codicon-table"></i>
                     Edit Mesh #{mesh.id}
                 </h3>
-                <p className='editor-description'>Configure mesh geometry for spatial tallying</p>
+                <p className="editor-description">Configure mesh geometry for spatial tallying</p>
             </div>
-            
-            <div className='editor-sections'>
-                <div className='editor-section'>
+
+            <div className="editor-sections">
+                <div className="editor-section">
                     <h4>
-                        <i className='codicon codicon-settings-gear'></i>
+                        <i className="codicon codicon-settings-gear"></i>
                         Mesh Settings
                     </h4>
-                    <p className='section-description'>Define the mesh name and coordinate system for spatial tallying.</p>
-                    <div className='form-group'>
+                    <p className="section-description">Define the mesh name and coordinate system for spatial tallying.</p>
+                    <div className="form-group">
                         <label>Name</label>
-                        <input 
-                            type='text' 
-                            value={mesh.name || ''} 
+                        <input
+                            type="text"
+                            value={mesh.name || ''}
                             onChange={(e) => onUpdate({ name: e.target.value })}
                             placeholder={`Mesh ${mesh.id}`}
                         />
-                        <p className='form-hint'>Optional descriptive name for this mesh</p>
+                        <p className="form-hint">Optional descriptive name for this mesh</p>
                     </div>
-                    <div className='form-group'>
-                        <Tooltip content='Coordinate system for spatial discretization' position='top'>
+                    <div className="form-group">
+                        <Tooltip content="Coordinate system for spatial discretization" position="top">
                             <label>Type</label>
                         </Tooltip>
                         <select value={mesh.type} onChange={handleTypeChange}>
-                            <option value='regular'>Regular (Cartesian)</option>
-                            <option value='cylindrical'>Cylindrical</option>
-                            <option value='spherical'>Spherical</option>
+                            <option value="regular">Regular (Cartesian)</option>
+                            <option value="cylindrical">Cylindrical</option>
+                            <option value="spherical">Spherical</option>
                         </select>
-                        <p className='form-hint'>Coordinate system for mesh grid: Cartesian, cylindrical, or spherical</p>
+                        <p className="form-hint">Coordinate system for mesh grid: Cartesian, cylindrical, or spherical</p>
                     </div>
                 </div>
-                
+
                 {mesh.type === 'regular' && (
-                    <div className='editor-section'>
+                    <div className="editor-section">
                         <h4>
-                            <i className='codicon codicon-graph'></i>
+                            <i className="codicon codicon-graph"></i>
                             Cartesian Grid
                         </h4>
-                        <p className='section-description'>Define bounding box and number of cells in X, Y, Z directions.</p>
+                        <p className="section-description">Define bounding box and number of cells in X, Y, Z directions.</p>
                         {renderRegularMeshEditor(mesh as OpenMCRegularMesh, onUpdate, dagmcBoundingBox)}
                     </div>
                 )}
-                
+
                 {mesh.type === 'cylindrical' && (
-                    <div className='editor-section'>
+                    <div className="editor-section">
                         <h4>
-                            <i className='codicon codicon-circle-outline'></i>
+                            <i className="codicon codicon-circle-outline"></i>
                             Cylindrical Grid
                         </h4>
-                        <p className='section-description'>Define grid boundaries in cylindrical coordinates: r (radius), φ (azimuthal), z (vertical).</p>
+                        <p className="section-description">
+                            Define grid boundaries in cylindrical coordinates: r (radius), φ (azimuthal), z (vertical).
+                        </p>
                         {renderCylindricalMeshEditor(mesh as OpenMCCylindricalMesh, onUpdate)}
                     </div>
                 )}
-                
+
                 {mesh.type === 'spherical' && (
-                    <div className='editor-section'>
+                    <div className="editor-section">
                         <h4>
-                            <i className='codicon codicon-globe'></i>
+                            <i className="codicon codicon-globe"></i>
                             Spherical Grid
                         </h4>
-                        <p className='section-description'>Define grid boundaries in spherical coordinates: r (radius), θ (polar), φ (azimuthal).</p>
+                        <p className="section-description">
+                            Define grid boundaries in spherical coordinates: r (radius), θ (polar), φ (azimuthal).
+                        </p>
                         {renderSphericalMeshEditor(mesh as OpenMCSphericalMesh, onUpdate)}
                     </div>
                 )}
@@ -158,7 +162,7 @@ export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, 
  * @param dagmcBoundingBox - Optional geometry bounds for auto-fill.
  */
 function renderRegularMeshEditor(
-    mesh: OpenMCRegularMesh, 
+    mesh: OpenMCRegularMesh,
     onUpdate: (updates: Partial<OpenMCRegularMesh>) => void,
     dagmcBoundingBox?: { min: [number, number, number]; max: [number, number, number] }
 ) {
@@ -188,47 +192,47 @@ function renderRegularMeshEditor(
     };
 
     return (
-        <div className='mesh-type-editor'>
+        <div className="mesh-type-editor">
             {dagmcBoundingBox && (
-                <div className='editor-toolbar'>
-                    <Tooltip content='Set mesh bounds from DAGMC geometry bounding box' position='top'>
-                        <button className='add-button' onClick={setFromGeometry}>
-                            <i className='codicon codicon-target'></i> Set from Geometry Bounds
+                <div className="editor-toolbar">
+                    <Tooltip content="Set mesh bounds from DAGMC geometry bounding box" position="top">
+                        <button className="add-button" onClick={setFromGeometry}>
+                            <i className="codicon codicon-target"></i> Set from Geometry Bounds
                         </button>
                     </Tooltip>
                 </div>
             )}
-            <div className='form-row'>
-                <div className='form-group'>
+            <div className="form-row">
+                <div className="form-group">
                     <label>Lower Left (x, y, z)</label>
-                    <div className='coord-inputs'>
-                        <input type='number' value={mesh.lowerLeft[0]} onChange={(e) => updateCoord('lowerLeft', 0, e.target.value)} />
-                        <input type='number' value={mesh.lowerLeft[1]} onChange={(e) => updateCoord('lowerLeft', 1, e.target.value)} />
-                        <input type='number' value={mesh.lowerLeft[2]} onChange={(e) => updateCoord('lowerLeft', 2, e.target.value)} />
+                    <div className="coord-inputs">
+                        <input type="number" value={mesh.lowerLeft[0]} onChange={(e) => updateCoord('lowerLeft', 0, e.target.value)} />
+                        <input type="number" value={mesh.lowerLeft[1]} onChange={(e) => updateCoord('lowerLeft', 1, e.target.value)} />
+                        <input type="number" value={mesh.lowerLeft[2]} onChange={(e) => updateCoord('lowerLeft', 2, e.target.value)} />
                     </div>
-                    <p className='form-hint'>Minimum coordinates of bounding box (cm)</p>
+                    <p className="form-hint">Minimum coordinates of bounding box (cm)</p>
                 </div>
             </div>
-            <div className='form-row'>
-                <div className='form-group'>
+            <div className="form-row">
+                <div className="form-group">
                     <label>Upper Right (x, y, z)</label>
-                    <div className='coord-inputs'>
-                        <input type='number' value={mesh.upperRight[0]} onChange={(e) => updateCoord('upperRight', 0, e.target.value)} />
-                        <input type='number' value={mesh.upperRight[1]} onChange={(e) => updateCoord('upperRight', 1, e.target.value)} />
-                        <input type='number' value={mesh.upperRight[2]} onChange={(e) => updateCoord('upperRight', 2, e.target.value)} />
+                    <div className="coord-inputs">
+                        <input type="number" value={mesh.upperRight[0]} onChange={(e) => updateCoord('upperRight', 0, e.target.value)} />
+                        <input type="number" value={mesh.upperRight[1]} onChange={(e) => updateCoord('upperRight', 1, e.target.value)} />
+                        <input type="number" value={mesh.upperRight[2]} onChange={(e) => updateCoord('upperRight', 2, e.target.value)} />
                     </div>
-                    <p className='form-hint'>Maximum coordinates of bounding box (cm)</p>
+                    <p className="form-hint">Maximum coordinates of bounding box (cm)</p>
                 </div>
             </div>
-            <div className='form-row'>
-                <div className='form-group'>
+            <div className="form-row">
+                <div className="form-group">
                     <label>Dimension (nx, ny, nz)</label>
-                    <div className='coord-inputs'>
-                        <input type='number' value={mesh.dimension[0]} onChange={(e) => updateDim(0, e.target.value)} min='1' />
-                        <input type='number' value={mesh.dimension[1]} onChange={(e) => updateDim(1, e.target.value)} min='1' />
-                        <input type='number' value={mesh.dimension[2]} onChange={(e) => updateDim(2, e.target.value)} min='1' />
+                    <div className="coord-inputs">
+                        <input type="number" value={mesh.dimension[0]} onChange={(e) => updateDim(0, e.target.value)} min="1" />
+                        <input type="number" value={mesh.dimension[1]} onChange={(e) => updateDim(1, e.target.value)} min="1" />
+                        <input type="number" value={mesh.dimension[2]} onChange={(e) => updateDim(2, e.target.value)} min="1" />
                     </div>
-                    <p className='form-hint'>Number of mesh cells in each direction (must be ≥1)</p>
+                    <p className="form-hint">Number of mesh cells in each direction (must be ≥1)</p>
                 </div>
             </div>
         </div>
@@ -242,41 +246,44 @@ function renderRegularMeshEditor(
  */
 function renderCylindricalMeshEditor(mesh: OpenMCCylindricalMesh, onUpdate: (updates: Partial<OpenMCCylindricalMesh>) => void) {
     const handleGridChange = (field: 'rGrid' | 'phiGrid' | 'zGrid', value: string) => {
-        const parts = value.split(/\s+/).map(p => parseFloat(p)).filter(p => !isNaN(p));
+        const parts = value
+            .split(/\s+/)
+            .map((p) => parseFloat(p))
+            .filter((p) => !isNaN(p));
         onUpdate({ [field]: parts });
     };
 
     return (
-        <div className='mesh-type-editor'>
-            <div className='form-group'>
+        <div className="mesh-type-editor">
+            <div className="form-group">
                 <label>r-Grid (boundaries)</label>
-                <input 
-                    type='text' 
-                    value={mesh.rGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.rGrid.join(' ')}
                     onChange={(e) => handleGridChange('rGrid', e.target.value)}
-                    placeholder='e.g. 0 5 10'
+                    placeholder="e.g. 0 5 10"
                 />
-                <p className='form-hint'>Radial grid boundaries (cm), space-separated values</p>
+                <p className="form-hint">Radial grid boundaries (cm), space-separated values</p>
             </div>
-            <div className='form-group'>
+            <div className="form-group">
                 <label>phi-Grid (boundaries in radians)</label>
-                <input 
-                    type='text' 
-                    value={mesh.phiGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.phiGrid.join(' ')}
                     onChange={(e) => handleGridChange('phiGrid', e.target.value)}
-                    placeholder='e.g. 0 1.57 3.14 4.71 6.28'
+                    placeholder="e.g. 0 1.57 3.14 4.71 6.28"
                 />
-                <p className='form-hint'>Azimuthal grid boundaries (radians), 0 to 2π, space-separated</p>
+                <p className="form-hint">Azimuthal grid boundaries (radians), 0 to 2π, space-separated</p>
             </div>
-            <div className='form-group'>
+            <div className="form-group">
                 <label>z-Grid (boundaries)</label>
-                <input 
-                    type='text' 
-                    value={mesh.zGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.zGrid.join(' ')}
                     onChange={(e) => handleGridChange('zGrid', e.target.value)}
-                    placeholder='e.g. -10 0 10'
+                    placeholder="e.g. -10 0 10"
                 />
-                <p className='form-hint'>Vertical grid boundaries (cm), space-separated values</p>
+                <p className="form-hint">Vertical grid boundaries (cm), space-separated values</p>
             </div>
         </div>
     );
@@ -289,41 +296,44 @@ function renderCylindricalMeshEditor(mesh: OpenMCCylindricalMesh, onUpdate: (upd
  */
 function renderSphericalMeshEditor(mesh: OpenMCSphericalMesh, onUpdate: (updates: Partial<OpenMCSphericalMesh>) => void) {
     const handleGridChange = (field: 'rGrid' | 'thetaGrid' | 'phiGrid', value: string) => {
-        const parts = value.split(/\s+/).map(p => parseFloat(p)).filter(p => !isNaN(p));
+        const parts = value
+            .split(/\s+/)
+            .map((p) => parseFloat(p))
+            .filter((p) => !isNaN(p));
         onUpdate({ [field]: parts });
     };
 
     return (
-        <div className='mesh-type-editor'>
-            <div className='form-group'>
+        <div className="mesh-type-editor">
+            <div className="form-group">
                 <label>r-Grid (boundaries)</label>
-                <input 
-                    type='text' 
-                    value={mesh.rGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.rGrid.join(' ')}
                     onChange={(e) => handleGridChange('rGrid', e.target.value)}
-                    placeholder='e.g. 0 5 10'
+                    placeholder="e.g. 0 5 10"
                 />
-                <p className='form-hint'>Radial grid boundaries (cm), space-separated values</p>
+                <p className="form-hint">Radial grid boundaries (cm), space-separated values</p>
             </div>
-            <div className='form-group'>
+            <div className="form-group">
                 <label>theta-Grid (boundaries in radians, 0 to π)</label>
-                <input 
-                    type='text' 
-                    value={mesh.thetaGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.thetaGrid.join(' ')}
                     onChange={(e) => handleGridChange('thetaGrid', e.target.value)}
-                    placeholder='e.g. 0 1.57 3.14'
+                    placeholder="e.g. 0 1.57 3.14"
                 />
-                <p className='form-hint'>Polar angle grid boundaries (radians), 0 to π, space-separated</p>
+                <p className="form-hint">Polar angle grid boundaries (radians), 0 to π, space-separated</p>
             </div>
-            <div className='form-group'>
+            <div className="form-group">
                 <label>phi-Grid (boundaries in radians, 0 to 2π)</label>
-                <input 
-                    type='text' 
-                    value={mesh.phiGrid.join(' ')} 
+                <input
+                    type="text"
+                    value={mesh.phiGrid.join(' ')}
                     onChange={(e) => handleGridChange('phiGrid', e.target.value)}
-                    placeholder='e.g. 0 3.14 6.28'
+                    placeholder="e.g. 0 3.14 6.28"
                 />
-                <p className='form-hint'>Azimuthal grid boundaries (radians), 0 to 2π, space-separated</p>
+                <p className="form-hint">Azimuthal grid boundaries (radians), 0 to 2π, space-separated</p>
             </div>
         </div>
     );

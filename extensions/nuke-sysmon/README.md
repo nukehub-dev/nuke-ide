@@ -17,6 +17,7 @@ Real-time system resource monitor for NukeIDE.
 ## Opening the Monitor
 
 Open the **System Monitor** widget via:
+
 - **Command Palette**: `Ctrl+Shift+P` → "System Monitor"
 - **Status bar**: Click the system status indicator
 
@@ -24,10 +25,10 @@ Open the **System Monitor** widget via:
 
 Settings are available in **Settings → System Monitor**:
 
-| Preference | Description | Default |
-|-----------|-------------|---------|
-| `sysmon.refreshInterval` | Data refresh interval in milliseconds | `2000` |
-| `sysmon.showInStatusBar` | Show compact status in the status bar | `true` |
+| Preference               | Description                           | Default |
+| ------------------------ | ------------------------------------- | ------- |
+| `sysmon.refreshInterval` | Data refresh interval in milliseconds | `2000`  |
+| `sysmon.showInStatusBar` | Show compact status in the status bar | `true`  |
 
 ## License
 

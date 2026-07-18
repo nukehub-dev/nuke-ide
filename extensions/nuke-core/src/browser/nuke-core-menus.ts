@@ -47,7 +47,6 @@ export namespace NukeMenus {
  */
 @injectable()
 export class NukeCoreMenuContribution implements MenuContribution {
-
     /**
      * Registers the Nuke Tools submenu in the application's menu model registry.
      *

@@ -5,12 +5,11 @@ import { ElectronMainApplicationContribution } from '@theia/core/lib/electron-ma
 import { NukeUpdaterService, NukeUpdaterServicePath } from '../common/updater-protocol';
 import { NukeUpdaterMainImpl } from './updater-main-impl';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     bind(NukeUpdaterMainImpl).toSelf().inSingletonScope();
     bind(NukeUpdaterService).toService(NukeUpdaterMainImpl);
     bind(ElectronMainApplicationContribution).toService(NukeUpdaterMainImpl);
-    bind(ElectronConnectionHandler).toDynamicValue(context =>
-        new RpcConnectionHandler(NukeUpdaterServicePath,
-            () => context.container.get(NukeUpdaterService))
-    ).inSingletonScope();
+    bind(ElectronConnectionHandler)
+        .toDynamicValue((context) => new RpcConnectionHandler(NukeUpdaterServicePath, () => context.container.get(NukeUpdaterService)))
+        .inSingletonScope();
 });

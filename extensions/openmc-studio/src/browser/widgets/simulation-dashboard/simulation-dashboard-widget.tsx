@@ -133,14 +133,14 @@ export class SimulationDashboardWidget extends ReactWidget {
     private consoleMaximized = false;
     private consoleContentRef = React.createRef<HTMLDivElement>();
     private consolePanelRef = React.createRef<HTMLDivElement>();
-    
+
     // File-based log support
     private currentProcessId?: string;
     private logPollInterval?: number;
     private loadedLogContent = '';
     private filteredLogContent = '';
     private logFilter = '';
-    
+
     // Track last working directory for simulations
     private lastSimulationDirectory?: string;
 
@@ -210,9 +210,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.newMaterialName = 'Graphite';
                 this.newMaterialDensity = 1.7;
                 this.newMaterialDensityUnit = 'g/cm3';
-                this.newMaterialNuclides = [
-                    { name: 'C0', fraction: 1.0, fractionType: 'ao' }
-                ];
+                this.newMaterialNuclides = [{ name: 'C0', fraction: 1.0, fractionType: 'ao' }];
                 this.newMaterialThermalScattering = [{ name: 'c_Graphite', fraction: 1.0 }];
                 this.newMaterialColor = '#2C3E50';
             }
@@ -225,9 +223,9 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.newMaterialDensity = 8.0;
                 this.newMaterialDensityUnit = 'g/cm3';
                 this.newMaterialNuclides = [
-                    { name: 'Fe56', fraction: 0.70, fractionType: 'wo' },
-                    { name: 'Cr52', fraction: 0.20, fractionType: 'wo' },
-                    { name: 'Ni58', fraction: 0.10, fractionType: 'wo' }
+                    { name: 'Fe56', fraction: 0.7, fractionType: 'wo' },
+                    { name: 'Cr52', fraction: 0.2, fractionType: 'wo' },
+                    { name: 'Ni58', fraction: 0.1, fractionType: 'wo' }
                 ];
                 this.newMaterialColor = '#95A5A6';
             }
@@ -267,9 +265,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.newMaterialName = 'Helium';
                 this.newMaterialDensity = 0.00018;
                 this.newMaterialDensityUnit = 'g/cm3';
-                this.newMaterialNuclides = [
-                    { name: 'He4', fraction: 1.0, fractionType: 'ao' }
-                ];
+                this.newMaterialNuclides = [{ name: 'He4', fraction: 1.0, fractionType: 'ao' }];
                 this.newMaterialColor = '#F39C12';
             }
         }
@@ -293,23 +289,25 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.stateManager.onDirtyChange(() => this.updateTitle());
 
         // Listen to simulation progress
-        this.simulationRunner.onProgress(progress => {
+        this.simulationRunner.onProgress((progress) => {
             this.simulationProgress = progress;
             this.update();
         });
 
-        this.simulationRunner.onStatusChange(event => {
+        this.simulationRunner.onStatusChange((event) => {
             const wasRunning = this.isRunning;
             this.isRunning = event.status === 'running' || event.status === 'starting';
-            
+
             // Track processId for file-based logs
             if (event.processId) {
                 this.currentProcessId = event.processId;
             }
-            
+
             // Log state change for debugging
-            console.log(`[Simulation] Status: ${event.status}, isRunning: ${this.isRunning} (was: ${wasRunning}), processId: ${this.currentProcessId}`);
-            
+            console.log(
+                `[Simulation] Status: ${event.status}, isRunning: ${this.isRunning} (was: ${wasRunning}), processId: ${this.currentProcessId}`
+            );
+
             // Log status changes to console
             if (event.status === 'completed') {
                 this.logToConsole('Simulation completed successfully');
@@ -325,13 +323,13 @@ export class SimulationDashboardWidget extends ReactWidget {
                 // Start polling for logs when simulation is running
                 this.startLogPolling();
             }
-            
+
             if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
                 this.simulationProgress = undefined;
                 // Force a reset of running state for terminal states
                 this.isRunning = false;
             }
-            
+
             // Force immediate re-render
             this.update();
         });
@@ -356,7 +354,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         window.addEventListener('openmc-simulation-status', ((evt: CustomEvent) => {
             const event = evt.detail as SimulationStatusEvent;
             console.log('[Simulation] Status event:', event.status, 'processId:', event.processId);
-            
+
             // Update running state based on status
             if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
                 this.isRunning = false;
@@ -364,7 +362,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 if (event.result) {
                     this.simulationRunner.onSimulationFinished(event.result);
                 }
-                
+
                 // Log final status to console
                 if (event.status === 'completed') {
                     this.logToConsole('Simulation completed successfully');
@@ -379,13 +377,13 @@ export class SimulationDashboardWidget extends ReactWidget {
             } else if (event.status === 'running' || event.status === 'starting') {
                 this.isRunning = true;
             }
-            
+
             this.update();
         }) as EventListener);
 
         this.updateTitle();
         this.update();
-        
+
         // Set up periodic state sync to prevent UI from getting stuck
         setInterval(() => {
             // If we think we're running but the runner doesn't, sync the state
@@ -397,7 +395,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             }
         }, 2000); // Check every 2 seconds
     }
-    
+
     /**
      * Called when the widget is activated (becomes visible/focused).
      * Sync the running state with the simulation runner.
@@ -467,10 +465,10 @@ export class SimulationDashboardWidget extends ReactWidget {
         const state = this.stateManager.getState();
 
         return (
-            <div className='simulation-dashboard'>
+            <div className="simulation-dashboard">
                 {this.renderHeader(state)}
                 {this.renderTabs()}
-                <div className='dashboard-content'>
+                <div className="dashboard-content">
                     {this.activeTab === 'settings' && this.renderSettingsTab(state)}
                     {this.activeTab === 'materials' && this.renderMaterialsTab(state)}
                     {this.activeTab === 'tallies' && this.renderTalliesTab(state)}
@@ -493,95 +491,80 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private renderHeader(state: OpenMCState): React.ReactNode {
         return (
-            <div className='dashboard-header'>
-                <div className='project-info'>
+            <div className="dashboard-header">
+                <div className="project-info">
                     {this.editingProjectName ? (
-                        <div className='project-name-edit'>
+                        <div className="project-name-edit">
                             <input
-                                type='text'
-                                className='project-name-input'
+                                type="text"
+                                className="project-name-input"
                                 value={this.newProjectName}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newProjectName = e.target.value;
                                     this.update();
                                 }}
-                                placeholder='Project name'
+                                placeholder="Project name"
                                 autoFocus
                             />
                             <input
-                                type='text'
-                                className='project-desc-input'
+                                type="text"
+                                className="project-desc-input"
                                 value={this.newProjectDescription}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newProjectDescription = e.target.value;
                                     this.update();
                                 }}
-                                placeholder='Description (optional)'
+                                placeholder="Description (optional)"
                             />
-                            <Tooltip content='Save' position='top'>
-                                <button
-                                    className='theia-button primary small'
-                                    onClick={() => this.saveProjectName()}
-                                >
-                                    <i className='codicon codicon-check'></i>
+                            <Tooltip content="Save" position="top">
+                                <button className="theia-button primary small" onClick={() => this.saveProjectName()}>
+                                    <i className="codicon codicon-check"></i>
                                 </button>
                             </Tooltip>
-                            <Tooltip content='Cancel' position='top'>
+                            <Tooltip content="Cancel" position="top">
                                 <button
-                                    className='theia-button secondary small'
+                                    className="theia-button secondary small"
                                     onClick={() => {
                                         this.editingProjectName = false;
                                         this.update();
                                     }}
                                 >
-                                    <i className='codicon codicon-close'></i>
+                                    <i className="codicon codicon-close"></i>
                                 </button>
                             </Tooltip>
                         </div>
                     ) : (
-                        <Tooltip content='Click to rename' position='bottom'>
+                        <Tooltip content="Click to rename" position="bottom">
                             <h2 onClick={() => this.startEditProjectName()}>
-                                <i className='codicon codicon-symbol-method'></i>
+                                <i className="codicon codicon-symbol-method"></i>
                                 {state.metadata.name}
-                                <i className='codicon codicon-edit edit-icon'></i>
+                                <i className="codicon codicon-edit edit-icon"></i>
                             </h2>
                         </Tooltip>
                     )}
                     {state.metadata.description && !this.editingProjectName && (
-                        <p className='project-description'>{state.metadata.description}</p>
+                        <p className="project-description">{state.metadata.description}</p>
                     )}
                 </div>
-                <div className='project-actions'>
-                    <Tooltip content='New Project' position='bottom'>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.newProject()}
-                        >
-                            <i className='codicon codicon-new-file'></i>
+                <div className="project-actions">
+                    <Tooltip content="New Project" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.newProject()}>
+                            <i className="codicon codicon-new-file"></i>
                         </button>
                     </Tooltip>
-                    <Tooltip content='Open Project' position='bottom'>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.openProject()}
-                        >
-                            <i className='codicon codicon-folder-opened'></i>
+                    <Tooltip content="Open Project" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.openProject()}>
+                            <i className="codicon codicon-folder-opened"></i>
                         </button>
                     </Tooltip>
-                    <Tooltip content='Save Project' position='bottom'>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.saveProject()}
-                        >
-                            <i className='codicon codicon-save'></i>
+                    <Tooltip content="Save Project" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.saveProject()}>
+                            <i className="codicon codicon-save"></i>
                         </button>
                     </Tooltip>
-                    <Tooltip content='Generate XML Files' position='bottom'>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.generateXML()}
-                        >
-                            <i className='codicon codicon-file-code'></i>
+                    <Tooltip content="Generate XML Files" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.generateXML()}>
+                            <i className="codicon codicon-file-code"></i>
                         </button>
                     </Tooltip>
                 </div>
@@ -604,8 +587,8 @@ export class SimulationDashboardWidget extends ReactWidget {
         ];
 
         return (
-            <div className='dashboard-tabs'>
-                {tabs.map(tab => (
+            <div className="dashboard-tabs">
+                {tabs.map((tab) => (
                     <button
                         key={tab.id}
                         className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
@@ -636,110 +619,132 @@ export class SimulationDashboardWidget extends ReactWidget {
         const runSettings = settings.run;
 
         return (
-            <div className='settings-tab'>
+            <div className="settings-tab">
                 {/* DAGMC Mode Indicator */}
                 {settings.dagmcFile && (
-                    <div className='dagmc-mode-banner'>
-                        <div className='dagmc-icon'><i className='codicon codicon-file-code'></i></div>
-                        <div className='dagmc-info'>
+                    <div className="dagmc-mode-banner">
+                        <div className="dagmc-icon">
+                            <i className="codicon codicon-file-code"></i>
+                        </div>
+                        <div className="dagmc-info">
                             <strong>DAGMC Geometry Active</strong>
                             <span>{settings.dagmcFile.split('/').pop()}</span>
                         </div>
-                        <div className='dagmc-actions'>
-                            <Tooltip content='Edit DAGMC geometry' position='bottom'>
-                                <button
-                                    className='dagmc-edit-btn'
-                                    onClick={() => this.openDagmcEditor()}
-                                >
-                                    <i className='codicon codicon-edit'></i>
+                        <div className="dagmc-actions">
+                            <Tooltip content="Edit DAGMC geometry" position="bottom">
+                                <button className="dagmc-edit-btn" onClick={() => this.openDagmcEditor()}>
+                                    <i className="codicon codicon-edit"></i>
                                     Edit
                                 </button>
                             </Tooltip>
-                            <span className='dagmc-badge'>DAGMC Mode</span>
+                            <span className="dagmc-badge">DAGMC Mode</span>
                         </div>
                     </div>
                 )}
-                
+
                 {/* Quick Start Guide */}
-                <div className='quick-start-guide'>
-                    <h4><i className='codicon codicon-book'></i> Quick Start Guide</h4>
-                    <div className='guide-cards'>
-                        <div className='guide-card'>
-                            <div className='guide-icon'><i className='codicon codicon-flame'></i></div>
+                <div className="quick-start-guide">
+                    <h4>
+                        <i className="codicon codicon-book"></i> Quick Start Guide
+                    </h4>
+                    <div className="guide-cards">
+                        <div className="guide-card">
+                            <div className="guide-icon">
+                                <i className="codicon codicon-flame"></i>
+                            </div>
                             <h5>Eigenvalue Mode</h5>
                             <p>For criticality calculations (k-effective). Use for reactors, critical assemblies.</p>
-                            <code>Particles: 1000-10000<br/>Batches: 100-500</code>
+                            <code>
+                                Particles: 1000-10000
+                                <br />
+                                Batches: 100-500
+                            </code>
                         </div>
-                        <div className='guide-card'>
-                            <div className='guide-icon'><i className='codicon codicon-target'></i></div>
+                        <div className="guide-card">
+                            <div className="guide-icon">
+                                <i className="codicon codicon-target"></i>
+                            </div>
                             <h5>Fixed Source</h5>
                             <p>For shielding, dose calculations. Neutrons from defined source only.</p>
-                            <code>Particles: 10000+<br/>No inactive batches</code>
+                            <code>
+                                Particles: 10000+
+                                <br />
+                                No inactive batches
+                            </code>
                         </div>
-                        <div className='guide-card'>
-                            <div className='guide-icon'><i className='codicon codicon-rocket'></i></div>
+                        <div className="guide-card">
+                            <div className="guide-icon">
+                                <i className="codicon codicon-rocket"></i>
+                            </div>
                             <h5>Getting Started</h5>
                             <p>Start with fewer particles for testing, increase for production runs.</p>
-                            <code>Test: 100 particles<br/>Production: 10000+</code>
+                            <code>
+                                Test: 100 particles
+                                <br />
+                                Production: 10000+
+                            </code>
                         </div>
                     </div>
                 </div>
 
-                <div className='settings-section'>
+                <div className="settings-section">
                     <h3>
-                        <i className='codicon codicon-run'></i>
+                        <i className="codicon codicon-run"></i>
                         Run Configuration
                     </h3>
 
-                    <div className='form-group'>
+                    <div className="form-group">
                         <label>Run Mode</label>
-                        <select
-                            value={runSettings.mode}
-                            onChange={e => this.updateRunMode(e.target.value as OpenMCRunSettings['mode'])}
-                        >
-                            <option value='eigenvalue'>Eigenvalue (Criticality)</option>
-                            <option value='fixed source'>Fixed Source</option>
-                            <option value='volume'>Volume Calculation</option>
+                        <select value={runSettings.mode} onChange={(e) => this.updateRunMode(e.target.value as OpenMCRunSettings['mode'])}>
+                            <option value="eigenvalue">Eigenvalue (Criticality)</option>
+                            <option value="fixed source">Fixed Source</option>
+                            <option value="volume">Volume Calculation</option>
                         </select>
                     </div>
 
                     {runSettings.mode === 'eigenvalue' && (
                         <>
-                            <div className='form-row'>
-                                <div className='form-group'>
+                            <div className="form-row">
+                                <div className="form-group">
                                     <label>Particles per Generation</label>
                                     <input
-                                        type='number'
+                                        type="number"
                                         min={1}
                                         value={runSettings.particles}
-                                        onChange={e => this.updateSetting('run', {
-                                            ...runSettings,
-                                            particles: parseInt(e.target.value) || 1000
-                                        })}
+                                        onChange={(e) =>
+                                            this.updateSetting('run', {
+                                                ...runSettings,
+                                                particles: parseInt(e.target.value) || 1000
+                                            })
+                                        }
                                     />
                                 </div>
-                                <div className='form-group'>
+                                <div className="form-group">
                                     <label>Inactive Batches</label>
                                     <input
-                                        type='number'
+                                        type="number"
                                         min={0}
                                         value={runSettings.inactive}
-                                        onChange={e => this.updateSetting('run', {
-                                            ...runSettings,
-                                            inactive: parseInt(e.target.value) || 0
-                                        })}
+                                        onChange={(e) =>
+                                            this.updateSetting('run', {
+                                                ...runSettings,
+                                                inactive: parseInt(e.target.value) || 0
+                                            })
+                                        }
                                     />
                                 </div>
-                                <div className='form-group'>
+                                <div className="form-group">
                                     <label>Active Batches</label>
                                     <input
-                                        type='number'
+                                        type="number"
                                         min={1}
                                         value={runSettings.batches}
-                                        onChange={e => this.updateSetting('run', {
-                                            ...runSettings,
-                                            batches: parseInt(e.target.value) || 10
-                                        })}
+                                        onChange={(e) =>
+                                            this.updateSetting('run', {
+                                                ...runSettings,
+                                                batches: parseInt(e.target.value) || 10
+                                            })
+                                        }
                                     />
                                 </div>
                             </div>
@@ -747,63 +752,63 @@ export class SimulationDashboardWidget extends ReactWidget {
                     )}
 
                     {runSettings.mode === 'fixed source' && (
-                        <div className='form-row'>
-                            <div className='form-group'>
+                        <div className="form-row">
+                            <div className="form-group">
                                 <label>Particles per Batch</label>
                                 <input
-                                    type='number'
+                                    type="number"
                                     min={1}
                                     value={runSettings.particles}
-                                    onChange={e => this.updateSetting('run', {
-                                        ...runSettings,
-                                        particles: parseInt(e.target.value) || 1000
-                                    })}
+                                    onChange={(e) =>
+                                        this.updateSetting('run', {
+                                            ...runSettings,
+                                            particles: parseInt(e.target.value) || 1000
+                                        })
+                                    }
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Batches</label>
                                 <input
-                                    type='number'
+                                    type="number"
                                     min={1}
                                     value={runSettings.batches}
-                                    onChange={e => this.updateSetting('run', {
-                                        ...runSettings,
-                                        batches: parseInt(e.target.value) || 10
-                                    })}
+                                    onChange={(e) =>
+                                        this.updateSetting('run', {
+                                            ...runSettings,
+                                            batches: parseInt(e.target.value) || 10
+                                        })
+                                    }
                                 />
                             </div>
                         </div>
                     )}
                 </div>
 
-                <div className='settings-section'>
+                <div className="settings-section">
                     <h3>
-                        <i className='codicon codicon-source-control'></i>
+                        <i className="codicon codicon-source-control"></i>
                         Source Definition
-                            <button
-                                className='theia-button secondary small'
-                                onClick={() => this.addSource()}
-                            >
-                                <i className='codicon codicon-add'></i> Add Source
-                            </button>
+                        <button className="theia-button secondary small" onClick={() => this.addSource()}>
+                            <i className="codicon codicon-add"></i> Add Source
+                        </button>
                     </h3>
 
                     {settings.sources.length === 0 ? (
-                        <div className='empty-state'>
-                            <i className='codicon codicon-info'></i>
-                            <p>No sources defined. {runSettings.mode === 'eigenvalue' && 'A default point source at origin will be used.'}</p>
+                        <div className="empty-state">
+                            <i className="codicon codicon-info"></i>
+                            <p>
+                                No sources defined. {runSettings.mode === 'eigenvalue' && 'A default point source at origin will be used.'}
+                            </p>
                         </div>
                     ) : (
                         settings.sources.map((source, index) => (
-                            <div key={index} className='source-card'>
-                                <div className='source-header'>
+                            <div key={index} className="source-card">
+                                <div className="source-header">
                                     <span>Source {index + 1}</span>
-                                    <Tooltip content='Remove Source' position='top'>
-                                        <button
-                                            className='theia-button secondary small'
-                                            onClick={() => this.removeSource(index)}
-                                        >
-                                            <i className='codicon codicon-trash'></i>
+                                    <Tooltip content="Remove Source" position="top">
+                                        <button className="theia-button secondary small" onClick={() => this.removeSource(index)}>
+                                            <i className="codicon codicon-trash"></i>
                                         </button>
                                     </Tooltip>
                                 </div>
@@ -813,71 +818,71 @@ export class SimulationDashboardWidget extends ReactWidget {
                     )}
                 </div>
 
-                <div className='settings-section'>
+                <div className="settings-section">
                     <h3>
-                        <i className='codicon codicon-gear'></i>
+                        <i className="codicon codicon-gear"></i>
                         Advanced Settings
                     </h3>
 
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>Random Seed</label>
                             <input
-                                type='number'
+                                type="number"
                                 value={settings.seed || ''}
-                                placeholder='Random'
-                                onChange={e => this.updateSetting('seed', e.target.value ? parseInt(e.target.value) : undefined)}
+                                placeholder="Random"
+                                onChange={(e) => this.updateSetting('seed', e.target.value ? parseInt(e.target.value) : undefined)}
                             />
                         </div>
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Threads</label>
                             <input
-                                type='number'
+                                type="number"
                                 min={1}
                                 value={settings.threads || ''}
-                                placeholder='Auto'
-                                onChange={e => this.updateSetting('threads', e.target.value ? parseInt(e.target.value) : undefined)}
+                                placeholder="Auto"
+                                onChange={(e) => this.updateSetting('threads', e.target.value ? parseInt(e.target.value) : undefined)}
                             />
                         </div>
                     </div>
 
-                    <div className='form-group checkbox'>
+                    <div className="form-group checkbox">
                         <label>
                             <input
-                                type='checkbox'
+                                type="checkbox"
                                 checked={settings.photonTransport || false}
-                                onChange={e => this.updateSetting('photonTransport', e.target.checked)}
+                                onChange={(e) => this.updateSetting('photonTransport', e.target.checked)}
                             />
                             Enable Photon Transport
                         </label>
                     </div>
 
-                    <div className='form-group checkbox'>
+                    <div className="form-group checkbox">
                         <label>
                             <input
-                                type='checkbox'
+                                type="checkbox"
                                 checked={settings.outputSummary !== false}
-                                onChange={e => this.updateSetting('outputSummary', e.target.checked)}
+                                onChange={(e) => this.updateSetting('outputSummary', e.target.checked)}
                             />
                             Generate Summary File
                         </label>
                     </div>
 
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>Source Rejection Fraction (0-1)</label>
                             <input
-                                type='number'
+                                type="number"
                                 min={0}
                                 max={1}
                                 step={0.01}
                                 value={settings.sourceRejectionFraction ?? 0.0}
-                                placeholder='0.0'
-                                onChange={e => this.updateSetting('sourceRejectionFraction', e.target.value ? parseFloat(e.target.value) : undefined)}
+                                placeholder="0.0"
+                                onChange={(e) =>
+                                    this.updateSetting('sourceRejectionFraction', e.target.value ? parseFloat(e.target.value) : undefined)
+                                }
                             />
-                            <span className='form-hint'>
-                                Lower values allow more source sites. Set to 0.0 to disable rejection.
-                            </span>
+                            <span className="form-hint">Lower values allow more source sites. Set to 0.0 to disable rejection.</span>
                         </div>
                     </div>
                 </div>
@@ -908,43 +913,36 @@ export class SimulationDashboardWidget extends ReactWidget {
                 { label: 'Enclose All', icon: 'expand-all', action: () => this.snapSourceToEncloseGeometry(index) }
             ]
         };
-        
+
         return (
-            <div className='source-editor'>
+            <div className="source-editor">
                 {/* Source Header */}
-                <div className='source-header'>
-                    <div className='source-type-select'>
+                <div className="source-header">
+                    <div className="source-type-select">
                         <label>Spatial Distribution</label>
                         <select
                             value={source.spatial.type}
-                            onChange={e => this.updateSourceSpatial(index, e.target.value as OpenMCSourceSpatial['type'])}
+                            onChange={(e) => this.updateSourceSpatial(index, e.target.value as OpenMCSourceSpatial['type'])}
                         >
-                            <option value='point'>Point</option>
-                            <option value='box'>Box</option>
-                            <option value='sphere'>Sphere</option>
-                            <option value='cylinder'>Cylinder</option>
+                            <option value="point">Point</option>
+                            <option value="box">Box</option>
+                            <option value="sphere">Sphere</option>
+                            <option value="cylinder">Cylinder</option>
                         </select>
                     </div>
-                    <button
-                        className='theia-button secondary snap-main-btn'
-                        onClick={() => this.snapSourceToGeometry(index)}
-                    >
-                        <i className='codicon codicon-target'></i>
+                    <button className="theia-button secondary snap-main-btn" onClick={() => this.snapSourceToGeometry(index)}>
+                        <i className="codicon codicon-target"></i>
                         <span>Snap to Geometry</span>
                     </button>
                 </div>
 
                 {/* Quick Snap Actions */}
                 {snapActions[source.spatial.type] && (
-                    <div className='source-quick-snaps'>
-                        <span className='quick-snaps-label'>Quick Position:</span>
-                        <div className='quick-snaps-buttons'>
+                    <div className="source-quick-snaps">
+                        <span className="quick-snaps-label">Quick Position:</span>
+                        <div className="quick-snaps-buttons">
                             {snapActions[source.spatial.type].map((btn, btnIdx) => (
-                                <button
-                                    key={btnIdx}
-                                    className='theia-button secondary small'
-                                    onClick={btn.action}
-                                >
+                                <button key={btnIdx} className="theia-button secondary small" onClick={btn.action}>
                                     <i className={`codicon codicon-${btn.icon}`}></i>
                                     {btn.label}
                                 </button>
@@ -954,32 +952,32 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 {source.spatial.type === 'point' && (
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>X</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={spatial.origin?.[0] || 0}
-                                onChange={e => this.updateSourceOrigin(index, 0, parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceOrigin(index, 0, parseFloat(e.target.value))}
                             />
                         </div>
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Y</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={spatial.origin?.[1] || 0}
-                                onChange={e => this.updateSourceOrigin(index, 1, parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceOrigin(index, 1, parseFloat(e.target.value))}
                             />
                         </div>
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Z</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={spatial.origin?.[2] || 0}
-                                onChange={e => this.updateSourceOrigin(index, 2, parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceOrigin(index, 2, parseFloat(e.target.value))}
                             />
                         </div>
                     </div>
@@ -987,61 +985,61 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {source.spatial.type === 'box' && (
                     <>
-                        <div className='form-row'>
-                            <div className='form-group'>
+                        <div className="form-row">
+                            <div className="form-group">
                                 <label>Min X</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.lowerLeft?.[0] ?? -5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 0, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'lowerLeft', 0, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Min Y</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.lowerLeft?.[1] ?? -5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 1, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'lowerLeft', 1, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Min Z</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.lowerLeft?.[2] ?? -5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'lowerLeft', 2, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'lowerLeft', 2, parseFloat(e.target.value))}
                                 />
                             </div>
                         </div>
-                        <div className='form-row'>
-                            <div className='form-group'>
+                        <div className="form-row">
+                            <div className="form-group">
                                 <label>Max X</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.upperRight?.[0] ?? 5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 0, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'upperRight', 0, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Max Y</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.upperRight?.[1] ?? 5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 1, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'upperRight', 1, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Max Z</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.upperRight?.[2] ?? 5}
-                                    onChange={e => this.updateSourceBoxBound(index, 'upperRight', 2, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceBoxBound(index, 'upperRight', 2, parseFloat(e.target.value))}
                                 />
                             </div>
                         </div>
@@ -1050,116 +1048,116 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {source.spatial.type === 'sphere' && (
                     <>
-                        <div className='form-row'>
-                            <div className='form-group'>
+                        <div className="form-row">
+                            <div className="form-group">
                                 <label>Center X</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.center?.[0] || 0}
-                                    onChange={e => this.updateSourceSphereCenter(index, 0, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceSphereCenter(index, 0, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Center Y</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.center?.[1] || 0}
-                                    onChange={e => this.updateSourceSphereCenter(index, 1, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceSphereCenter(index, 1, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Center Z</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={spatial.center?.[2] || 0}
-                                    onChange={e => this.updateSourceSphereCenter(index, 2, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceSphereCenter(index, 2, parseFloat(e.target.value))}
                                 />
                             </div>
-                            <div className='form-group'>
+                            <div className="form-group">
                                 <label>Radius</label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     min={0}
                                     value={spatial.radius || 1}
-                                    onChange={e => this.updateSourceSphereRadius(index, parseFloat(e.target.value))}
+                                    onChange={(e) => this.updateSourceSphereRadius(index, parseFloat(e.target.value))}
                                 />
                             </div>
                         </div>
                     </>
                 )}
 
-                <div className='form-group'>
+                <div className="form-group">
                     <label>Energy Distribution</label>
                     <select
                         value={source.energy.type}
-                        onChange={e => this.updateSourceEnergy(index, e.target.value as OpenMCSourceEnergy['type'])}
+                        onChange={(e) => this.updateSourceEnergy(index, e.target.value as OpenMCSourceEnergy['type'])}
                     >
-                        <option value='discrete'>Discrete</option>
-                        <option value='uniform'>Uniform</option>
-                        <option value='maxwell'>Maxwell</option>
-                        <option value='watt'>Watt</option>
+                        <option value="discrete">Discrete</option>
+                        <option value="uniform">Uniform</option>
+                        <option value="maxwell">Maxwell</option>
+                        <option value="watt">Watt</option>
                     </select>
                 </div>
 
                 {source.energy.type === 'discrete' && (
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>Energy (eV)</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={(source.energy as any).energies?.[0] || 1.0}
-                                onChange={e => this.updateSourceDiscreteEnergy(index, parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceDiscreteEnergy(index, parseFloat(e.target.value))}
                             />
                         </div>
                     </div>
                 )}
 
                 {source.energy.type === 'uniform' && (
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>Min Energy (eV)</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={(source.energy as any).min || 0}
-                                onChange={e => this.updateSourceUniformEnergy(index, 'min', parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceUniformEnergy(index, 'min', parseFloat(e.target.value))}
                             />
                         </div>
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>Max Energy (eV)</label>
                             <input
-                                type='number'
-                                step='0.1'
+                                type="number"
+                                step="0.1"
                                 value={(source.energy as any).max || 10}
-                                onChange={e => this.updateSourceUniformEnergy(index, 'max', parseFloat(e.target.value))}
+                                onChange={(e) => this.updateSourceUniformEnergy(index, 'max', parseFloat(e.target.value))}
                             />
                         </div>
                     </div>
                 )}
 
-                <div className='form-row'>
-                    <div className='form-group'>
+                <div className="form-row">
+                    <div className="form-group">
                         <label>Particle Type</label>
                         <select
                             value={source.particle || 'neutron'}
-                            onChange={e => this.updateSourceParticle(index, e.target.value as 'neutron' | 'photon')}
+                            onChange={(e) => this.updateSourceParticle(index, e.target.value as 'neutron' | 'photon')}
                         >
-                            <option value='neutron'>Neutron</option>
-                            <option value='photon'>Photon</option>
+                            <option value="neutron">Neutron</option>
+                            <option value="photon">Photon</option>
                         </select>
                     </div>
-                    <div className='form-group'>
+                    <div className="form-group">
                         <label>Strength</label>
                         <input
-                            type='number'
+                            type="number"
                             min={0}
                             value={source.strength || 1}
-                            onChange={e => this.updateSourceStrength(index, parseFloat(e.target.value))}
+                            onChange={(e) => this.updateSourceStrength(index, parseFloat(e.target.value))}
                         />
                     </div>
                 </div>
@@ -1178,39 +1176,40 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private renderMaterialsTab(state: OpenMCState): React.ReactNode {
         // Get DAGMC materials from fileInfo if available
-        const dagmcMaterials = state.settings.dagmcFile ? 
-            (this.getDAGMCMaterialsFromState(state) || {}) : {};
+        const dagmcMaterials = state.settings.dagmcFile ? this.getDAGMCMaterialsFromState(state) || {} : {};
         const hasDagmcMaterials = Object.keys(dagmcMaterials).length > 0;
-        
+
         return (
-            <div className='materials-tab'>
+            <div className="materials-tab">
                 {/* DAGMC Materials Section */}
                 {hasDagmcMaterials && (
-                    <div className='dagmc-materials-panel'>
-                        <div className='dagmc-panel-header'>
-                            <h4><i className='codicon codicon-file-code'></i> DAGMC Materials</h4>
-                            <span className='dagmc-badge'>From {state.settings.dagmcFile?.split('/').pop()}</span>
+                    <div className="dagmc-materials-panel">
+                        <div className="dagmc-panel-header">
+                            <h4>
+                                <i className="codicon codicon-file-code"></i> DAGMC Materials
+                            </h4>
+                            <span className="dagmc-badge">From {state.settings.dagmcFile?.split('/').pop()}</span>
                         </div>
-                        <p className='dagmc-panel-description'>
-                            These materials are defined in the DAGMC geometry file. 
-                            You should create matching materials below for OpenMC to use.
+                        <p className="dagmc-panel-description">
+                            These materials are defined in the DAGMC geometry file. You should create matching materials below for OpenMC to
+                            use.
                         </p>
-                        <div className='dagmc-materials-grid'>
+                        <div className="dagmc-materials-grid">
                             {Object.entries(dagmcMaterials).map(([name, data]) => (
-                                <div key={name} className='dagmc-material-card'>
-                                    <div className='dagmc-mat-name'>{name}</div>
-                                    <div className='dagmc-mat-stats'>
-                                        {data.volumeCount} volume{(data.volumeCount || 0) !== 1 ? 's' : ''}, {' '}
+                                <div key={name} className="dagmc-material-card">
+                                    <div className="dagmc-mat-name">{name}</div>
+                                    <div className="dagmc-mat-stats">
+                                        {data.volumeCount} volume{(data.volumeCount || 0) !== 1 ? 's' : ''},{' '}
                                         {(data.totalTriangles || 0).toLocaleString()} triangles
                                     </div>
                                     {/* Check if matching material exists */}
-                                    {state.materials.some(m => m.name.toLowerCase() === name.toLowerCase()) ? (
-                                        <span className='dagmc-mat-status matched'>
-                                            <i className='codicon codicon-check'></i> Matched
+                                    {state.materials.some((m) => m.name.toLowerCase() === name.toLowerCase()) ? (
+                                        <span className="dagmc-mat-status matched">
+                                            <i className="codicon codicon-check"></i> Matched
                                         </span>
                                     ) : (
-                                        <span className='dagmc-mat-status missing'>
-                                            <i className='codicon codicon-warning'></i> No match
+                                        <span className="dagmc-mat-status missing">
+                                            <i className="codicon codicon-warning"></i> No match
                                         </span>
                                     )}
                                 </div>
@@ -1221,32 +1220,34 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {/* Instructions */}
                 {!hasDagmcMaterials && (
-                    <div className='instructions-panel'>
-                        <h4><i className='codicon codicon-lightbulb'></i> How to Create Materials</h4>
-                        <div className='instruction-steps'>
-                            <div className='step'>
-                                <span className='step-number'>1</span>
+                    <div className="instructions-panel">
+                        <h4>
+                            <i className="codicon codicon-lightbulb"></i> How to Create Materials
+                        </h4>
+                        <div className="instruction-steps">
+                            <div className="step">
+                                <span className="step-number">1</span>
                                 <span>Enter a name and density for your material</span>
                             </div>
-                            <div className='step'>
-                                <span className='step-number'>2</span>
+                            <div className="step">
+                                <span className="step-number">2</span>
                                 <span>Add nuclides (e.g., U235, O16) with fractions</span>
                             </div>
-                            <div className='step'>
-                                <span className='step-number'>3</span>
+                            <div className="step">
+                                <span className="step-number">3</span>
                                 <span>For depletion: Check "Depletable" and enter volume</span>
                             </div>
-                            <div className='step'>
-                                <span className='step-number'>4</span>
+                            <div className="step">
+                                <span className="step-number">4</span>
                                 <span>For moderators: Add S(α,β) thermal scattering data</span>
                             </div>
                         </div>
                     </div>
                 )}
 
-                <div className='materials-toolbar'>
+                <div className="materials-toolbar">
                     <button
-                        className='theia-button primary'
+                        className="theia-button primary"
                         onClick={() => {
                             this.showNewMaterialForm = true;
                             this.editingMaterial = undefined;
@@ -1254,102 +1255,107 @@ export class SimulationDashboardWidget extends ReactWidget {
                             this.update();
                         }}
                     >
-                        <i className='codicon codicon-add'></i> Add Material
+                        <i className="codicon codicon-add"></i> Add Material
                     </button>
                 </div>
 
                 {this.showNewMaterialForm && (
-                    <div className='material-form-container'>
+                    <div className="material-form-container">
                         <h4>{this.editingMaterial ? 'Edit Material' : 'New Material'}</h4>
                         {this.renderMaterialForm()}
                     </div>
                 )}
 
-                <div className='materials-list'>
+                <div className="materials-list">
                     {state.materials.length === 0 && !hasDagmcMaterials ? (
-                        <div className='empty-state'>
-                            <i className='codicon codicon-info'></i>
+                        <div className="empty-state">
+                            <i className="codicon codicon-info"></i>
                             <p>No materials defined. Click "Add Material" to create your first material.</p>
                         </div>
                     ) : state.materials.length === 0 && hasDagmcMaterials ? (
-                        <div className='empty-state dagmc-info'>
-                            <i className='codicon codicon-file-code'></i>
+                        <div className="empty-state dagmc-info">
+                            <i className="codicon codicon-file-code"></i>
                             <p>No OpenMC materials defined yet.</p>
-                            <p className='empty-hint'>DAGMC geometry has {Object.keys(dagmcMaterials).length} material(s). Create matching materials above.</p>
+                            <p className="empty-hint">
+                                DAGMC geometry has {Object.keys(dagmcMaterials).length} material(s). Create matching materials above.
+                            </p>
                         </div>
                     ) : (
-                        state.materials.map(material => (
-                            <div key={material.id} className='material-card' style={{ borderLeft: `4px solid ${material.color || '#4A90D9'}` }}>
-                                <div className='material-card-header'>
-                                    <div className='material-info'>
-                                        <span className='material-id'>#{material.id}</span>
-                                        <span className='material-name'>{material.name}</span>
+                        state.materials.map((material) => (
+                            <div
+                                key={material.id}
+                                className="material-card"
+                                style={{ borderLeft: `4px solid ${material.color || '#4A90D9'}` }}
+                            >
+                                <div className="material-card-header">
+                                    <div className="material-info">
+                                        <span className="material-id">#{material.id}</span>
+                                        <span className="material-name">{material.name}</span>
                                         {material.isDepletable && (
-                                            <Tooltip content='Depletable material' position='top'>
-                                                <span className='depletable-badge'>
-                                                    <i className='codicon codicon-history'></i>
+                                            <Tooltip content="Depletable material" position="top">
+                                                <span className="depletable-badge">
+                                                    <i className="codicon codicon-history"></i>
                                                 </span>
                                             </Tooltip>
                                         )}
                                         {material.thermalScattering && material.thermalScattering.length > 0 && (
-                                            <Tooltip content='Has thermal scattering' position='top'>
-                                                <span className='thermal-badge'>
-                                                    <i className='codicon codicon-flame'></i>
+                                            <Tooltip content="Has thermal scattering" position="top">
+                                                <span className="thermal-badge">
+                                                    <i className="codicon codicon-flame"></i>
                                                 </span>
                                             </Tooltip>
                                         )}
                                     </div>
-                                    <div className='material-actions'>
-                                        <Tooltip content='Duplicate Material' position='top'>
+                                    <div className="material-actions">
+                                        <Tooltip content="Duplicate Material" position="top">
                                             <button
-                                                className='theia-button secondary small'
+                                                className="theia-button secondary small"
                                                 onClick={() => this.duplicateMaterial(material)}
                                             >
-                                                <i className='codicon codicon-copy'></i>
+                                                <i className="codicon codicon-copy"></i>
                                             </button>
                                         </Tooltip>
-                                        <Tooltip content='Edit Material' position='top'>
-                                            <button
-                                                className='theia-button secondary small'
-                                                onClick={() => this.editMaterial(material)}
-                                            >
-                                                <i className='codicon codicon-edit'></i>
+                                        <Tooltip content="Edit Material" position="top">
+                                            <button className="theia-button secondary small" onClick={() => this.editMaterial(material)}>
+                                                <i className="codicon codicon-edit"></i>
                                             </button>
                                         </Tooltip>
-                                        <Tooltip content='Delete Material' position='top'>
+                                        <Tooltip content="Delete Material" position="top">
                                             <button
-                                                className='theia-button secondary small danger'
+                                                className="theia-button secondary small danger"
                                                 onClick={() => this.deleteMaterial(material.id)}
                                             >
-                                                <i className='codicon codicon-trash'></i>
+                                                <i className="codicon codicon-trash"></i>
                                             </button>
                                         </Tooltip>
                                     </div>
                                 </div>
-                                <div className='material-card-body'>
-                                    <div className='material-property'>
+                                <div className="material-card-body">
+                                    <div className="material-property">
                                         <label>Density:</label>
-                                        <span>{material.density.toFixed(4)} {material.densityUnit}</span>
+                                        <span>
+                                            {material.density.toFixed(4)} {material.densityUnit}
+                                        </span>
                                     </div>
-                                    <div className='material-property'>
+                                    <div className="material-property">
                                         <label>Nuclides:</label>
                                         <span>{material.nuclides.length}</span>
                                     </div>
                                     {material.temperature && (
-                                        <div className='material-property'>
+                                        <div className="material-property">
                                             <label>Temperature:</label>
                                             <span>{material.temperature} K</span>
                                         </div>
                                     )}
                                 </div>
-                                <div className='material-nuclides-preview'>
-                                    {material.nuclides.slice(0, 5).map(n => (
-                                        <span key={n.name} className='nuclide-tag'>
+                                <div className="material-nuclides-preview">
+                                    {material.nuclides.slice(0, 5).map((n) => (
+                                        <span key={n.name} className="nuclide-tag">
                                             {n.name}: {n.fraction.toExponential(2)} {n.fractionType}
                                         </span>
                                     ))}
                                     {material.nuclides.length > 5 && (
-                                        <span className='nuclide-tag more'>+{material.nuclides.length - 5} more</span>
+                                        <span className="nuclide-tag more">+{material.nuclides.length - 5} more</span>
                                     )}
                                 </div>
                             </div>
@@ -1366,15 +1372,17 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private renderMaterialForm(): React.ReactNode {
         return (
-            <div className='material-form'>
+            <div className="material-form">
                 {/* Template Selector */}
                 {!this.editingMaterial && (
-                    <div className='form-group template-selector'>
-                        <label><i className='codicon codicon-symbol-snippet'></i> Start from Template (Optional)</label>
+                    <div className="form-group template-selector">
+                        <label>
+                            <i className="codicon codicon-symbol-snippet"></i> Start from Template (Optional)
+                        </label>
                         <select
-                            value=''
-                            onChange={e => {
-                                const template = this.MATERIAL_TEMPLATES.find(t => t.name === e.target.value);
+                            value=""
+                            onChange={(e) => {
+                                const template = this.MATERIAL_TEMPLATES.find((t) => t.name === e.target.value);
                                 if (template) {
                                     template.setup();
                                     this.update();
@@ -1382,8 +1390,8 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 e.target.value = '';
                             }}
                         >
-                            <option value=''>Select a template...</option>
-                            {this.MATERIAL_TEMPLATES.map(template => (
+                            <option value="">Select a template...</option>
+                            {this.MATERIAL_TEMPLATES.map((template) => (
                                 <option key={template.name} value={template.name}>
                                     {template.name} - {template.description}
                                 </option>
@@ -1392,21 +1400,23 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
                 )}
 
-                <div className='form-row'>
-                    <div className='form-group'>
+                <div className="form-row">
+                    <div className="form-group">
                         <label>Name</label>
                         <input
-                            type='text'
+                            type="text"
                             value={this.newMaterialName}
-                            onChange={e => {
+                            onChange={(e) => {
                                 this.newMaterialName = e.target.value;
                                 this.update();
                             }}
-                            placeholder='e.g., UO2 Fuel'
+                            placeholder="e.g., UO2 Fuel"
                         />
                     </div>
-                    <div className='form-group color-picker-group'>
-                        <label>Color <span className='color-value'>{this.newMaterialColor}</span></label>
+                    <div className="form-group color-picker-group">
+                        <label>
+                            Color <span className="color-value">{this.newMaterialColor}</span>
+                        </label>
                         <ColorPicker
                             value={this.newMaterialColor}
                             onChange={(color) => {
@@ -1417,32 +1427,32 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <div className='form-row'>
-                    <div className='form-group'>
+                <div className="form-row">
+                    <div className="form-group">
                         <label>Density Unit</label>
                         <select
                             value={this.newMaterialDensityUnit}
-                            onChange={e => {
+                            onChange={(e) => {
                                 this.newMaterialDensityUnit = e.target.value as OpenMCMaterial['densityUnit'];
                                 this.update();
                             }}
                         >
-                            <option value='g/cm3'>g/cm³</option>
-                            <option value='kg/m3'>kg/m³</option>
-                            <option value='atom/b-cm'>atom/b-cm</option>
-                            <option value='sum'>Sum</option>
+                            <option value="g/cm3">g/cm³</option>
+                            <option value="kg/m3">kg/m³</option>
+                            <option value="atom/b-cm">atom/b-cm</option>
+                            <option value="sum">Sum</option>
                         </select>
                     </div>
                 </div>
 
                 {this.newMaterialDensityUnit !== 'sum' && (
-                    <div className='form-group'>
+                    <div className="form-group">
                         <label>Density</label>
                         <input
-                            type='number'
-                            step='0.01'
+                            type="number"
+                            step="0.01"
                             value={this.newMaterialDensity}
-                            onChange={e => {
+                            onChange={(e) => {
                                 this.newMaterialDensity = parseFloat(e.target.value) || 0;
                                 this.update();
                             }}
@@ -1451,184 +1461,181 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 {/* Depletable Material Options */}
-                <div className='form-section-title'>Depletion Options</div>
-                <div className='depletion-section'>
-                    <div className='depletion-toggle'>
-                        <label className='toggle-label'>
+                <div className="form-section-title">Depletion Options</div>
+                <div className="depletion-section">
+                    <div className="depletion-toggle">
+                        <label className="toggle-label">
                             <input
-                                type='checkbox'
+                                type="checkbox"
                                 checked={this.newMaterialIsDepletable}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialIsDepletable = e.target.checked;
                                     this.update();
                                 }}
                             />
-                            <span className='toggle-text'>Depletable Material</span>
+                            <span className="toggle-text">Depletable Material</span>
                         </label>
-                        <span className='depletion-description'>
-                            Enable for burnup/depletion calculations
-                        </span>
+                        <span className="depletion-description">Enable for burnup/depletion calculations</span>
                     </div>
                     {this.newMaterialIsDepletable && (
-                        <div className='depletion-fields'>
-                            <div className='form-group'>
-                                <label>Volume (cm³) <span className='required'>*</span></label>
+                        <div className="depletion-fields">
+                            <div className="form-group">
+                                <label>
+                                    Volume (cm³) <span className="required">*</span>
+                                </label>
                                 <input
-                                    type='number'
-                                    step='0.1'
+                                    type="number"
+                                    step="0.1"
                                     value={this.newMaterialVolume || ''}
-                                    onChange={e => {
+                                    onChange={(e) => {
                                         this.newMaterialVolume = e.target.value ? parseFloat(e.target.value) : undefined;
                                         this.update();
                                     }}
-                                    placeholder='Required for depletion'
+                                    placeholder="Required for depletion"
                                 />
-                                <span className='form-hint'>Material volume for burnup calculations</span>
+                                <span className="form-hint">Material volume for burnup calculations</span>
                             </div>
                         </div>
                     )}
                 </div>
 
-                <div className='form-row'>
-                    <div className='form-group'>
+                <div className="form-row">
+                    <div className="form-group">
                         <label>Temperature (K, optional)</label>
                         <input
-                            type='number'
-                            step='1'
+                            type="number"
+                            step="1"
                             value={this.newMaterialTemperature || ''}
-                            onChange={e => {
+                            onChange={(e) => {
                                 this.newMaterialTemperature = e.target.value ? parseFloat(e.target.value) : undefined;
                                 this.update();
                             }}
-                            placeholder='e.g., 600'
+                            placeholder="e.g., 600"
                         />
-                        <span className='form-hint'>For Doppler broadening</span>
+                        <span className="form-hint">For Doppler broadening</span>
                     </div>
                 </div>
 
                 {/* Thermal Scattering */}
-                <div className='nuclides-section thermal-section'>
+                <div className="nuclides-section thermal-section">
                     <h5>
-                        <i className='codicon codicon-flame'></i>
+                        <i className="codicon codicon-flame"></i>
                         Thermal Scattering (S(α,β))
-                        <span className='optional-badge'>Optional</span>
+                        <span className="optional-badge">Optional</span>
                     </h5>
-                    <span className='section-hint'>Add thermal scattering data for moderators like water, graphite</span>
+                    <span className="section-hint">Add thermal scattering data for moderators like water, graphite</span>
                     {this.newMaterialThermalScattering.map((sab, index) => (
-                        <div key={index} className='nuclide-row'>
+                        <div key={index} className="nuclide-row">
                             <input
-                                type='text'
-                                placeholder='e.g., c_Graphite or h_H2O'
+                                type="text"
+                                placeholder="e.g., c_Graphite or h_H2O"
                                 value={sab.name}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialThermalScattering[index].name = e.target.value;
                                     this.update();
                                 }}
                             />
                             <input
-                                type='number'
-                                step='0.1'
-                                placeholder='Fraction'
+                                type="number"
+                                step="0.1"
+                                placeholder="Fraction"
                                 value={sab.fraction}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialThermalScattering[index].fraction = parseFloat(e.target.value) || 1.0;
                                     this.update();
                                 }}
                             />
-                            <Tooltip content='Remove' position='top'>
+                            <Tooltip content="Remove" position="top">
                                 <button
-                                    className='theia-button secondary small'
+                                    className="theia-button secondary small"
                                     onClick={() => {
                                         this.newMaterialThermalScattering.splice(index, 1);
                                         this.update();
                                     }}
                                 >
-                                    <i className='codicon codicon-trash'></i>
+                                    <i className="codicon codicon-trash"></i>
                                 </button>
                             </Tooltip>
                         </div>
                     ))}
-                    <Tooltip content='Add thermal scattering data' position='right'>
+                    <Tooltip content="Add thermal scattering data" position="right">
                         <button
-                            className='theia-button secondary small'
+                            className="theia-button secondary small"
                             onClick={() => {
                                 this.newMaterialThermalScattering.push({ name: '', fraction: 1.0 });
                                 this.update();
                             }}
                         >
-                            <i className='codicon codicon-add'></i> Add S(α,β)
+                            <i className="codicon codicon-add"></i> Add S(α,β)
                         </button>
                     </Tooltip>
                 </div>
 
-                <div className='nuclides-section'>
+                <div className="nuclides-section">
                     <h5>Nuclides</h5>
                     {this.newMaterialNuclides.map((nuclide, index) => (
-                        <div key={index} className='nuclide-row'>
+                        <div key={index} className="nuclide-row">
                             <input
-                                type='text'
-                                placeholder='e.g., U235'
+                                type="text"
+                                placeholder="e.g., U235"
                                 value={nuclide.name}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialNuclides[index].name = e.target.value;
                                     this.update();
                                 }}
                             />
                             <input
-                                type='number'
-                                step='0.0001'
-                                placeholder='Fraction'
+                                type="number"
+                                step="0.0001"
+                                placeholder="Fraction"
                                 value={nuclide.fraction}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialNuclides[index].fraction = parseFloat(e.target.value) || 0;
                                     this.update();
                                 }}
                             />
                             <select
                                 value={nuclide.fractionType}
-                                onChange={e => {
+                                onChange={(e) => {
                                     this.newMaterialNuclides[index].fractionType = e.target.value as 'ao' | 'wo';
                                     this.update();
                                 }}
                             >
-                                <option value='ao'>ao (atom)</option>
-                                <option value='wo'>wo (weight)</option>
+                                <option value="ao">ao (atom)</option>
+                                <option value="wo">wo (weight)</option>
                             </select>
-                            <Tooltip content='Remove Nuclide' position='top'>
+                            <Tooltip content="Remove Nuclide" position="top">
                                 <button
-                                    className='theia-button secondary small'
+                                    className="theia-button secondary small"
                                     onClick={() => {
                                         this.newMaterialNuclides.splice(index, 1);
                                         this.update();
                                     }}
                                 >
-                                    <i className='codicon codicon-trash'></i>
+                                    <i className="codicon codicon-trash"></i>
                                 </button>
                             </Tooltip>
                         </div>
                     ))}
-                    <Tooltip content='Add Nuclide' position='right'>
+                    <Tooltip content="Add Nuclide" position="right">
                         <button
-                            className='theia-button secondary small'
+                            className="theia-button secondary small"
                             onClick={() => {
                                 this.newMaterialNuclides.push({ name: '', fraction: 1.0, fractionType: 'ao' });
                                 this.update();
                             }}
                         >
-                            <i className='codicon codicon-add'></i> Add Nuclide
+                            <i className="codicon codicon-add"></i> Add Nuclide
                         </button>
                     </Tooltip>
                 </div>
 
-                <div className='form-actions'>
-                    <button
-                        className='theia-button primary'
-                        onClick={() => this.saveMaterial()}
-                    >
+                <div className="form-actions">
+                    <button className="theia-button primary" onClick={() => this.saveMaterial()}>
                         {this.editingMaterial ? 'Update Material' : 'Create Material'}
                     </button>
                     <button
-                        className='theia-button secondary'
+                        className="theia-button secondary"
                         onClick={() => {
                             this.showNewMaterialForm = false;
                             this.editingMaterial = undefined;
@@ -1656,39 +1663,38 @@ export class SimulationDashboardWidget extends ReactWidget {
         const meshes = state.meshes || [];
 
         return (
-            <div className='tallies-tab'>
-                <div className='instructions-panel'>
-                    <h4><i className='codicon codicon-graph-line'></i> Tally Configuration</h4>
+            <div className="tallies-tab">
+                <div className="instructions-panel">
+                    <h4>
+                        <i className="codicon codicon-graph-line"></i> Tally Configuration
+                    </h4>
                     <p>Tallies allow you to record physical quantities during the simulation (flux, reaction rates, etc.).</p>
-                    <button 
-                        className='theia-button primary'
-                        onClick={() => this.openTallyConfigurator()}
-                    >
-                        <i className='codicon codicon-edit'></i> Open Tally Configurator
+                    <button className="theia-button primary" onClick={() => this.openTallyConfigurator()}>
+                        <i className="codicon codicon-edit"></i> Open Tally Configurator
                     </button>
                 </div>
 
-                <div className='summary-cards'>
-                    <div className='summary-card'>
-                        <div className='summary-value'>{tallies.length}</div>
-                        <div className='summary-label'>Tallies Defined</div>
+                <div className="summary-cards">
+                    <div className="summary-card">
+                        <div className="summary-value">{tallies.length}</div>
+                        <div className="summary-label">Tallies Defined</div>
                     </div>
-                    <div className='summary-card'>
-                        <div className='summary-value'>{meshes.length}</div>
-                        <div className='summary-label'>Meshes Defined</div>
+                    <div className="summary-card">
+                        <div className="summary-value">{meshes.length}</div>
+                        <div className="summary-label">Meshes Defined</div>
                     </div>
                 </div>
 
                 {tallies.length > 0 && (
-                    <div className='tallies-list-preview'>
+                    <div className="tallies-list-preview">
                         <h4>Active Tallies</h4>
-                        {tallies.map(tally => (
-                            <div key={tally.id} className='tally-preview-card'>
-                                <div className='tally-preview-header'>
+                        {tallies.map((tally) => (
+                            <div key={tally.id} className="tally-preview-card">
+                                <div className="tally-preview-header">
                                     <strong>{tally.name || `Tally ${tally.id}`}</strong>
-                                    <span className='tally-id'>#{tally.id}</span>
+                                    <span className="tally-id">#{tally.id}</span>
                                 </div>
-                                <div className='tally-preview-details'>
+                                <div className="tally-preview-details">
                                     <span>Scores: {tally.scores.join(', ')}</span>
                                     <span>Filters: {tally.filters.length}</span>
                                 </div>
@@ -1721,7 +1727,7 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private renderDepletionTab(state: OpenMCState): React.ReactNode {
         const depletion = state.depletion || { timeSteps: [], power: 0, enabled: false };
-        const hasDepletableMaterials = state.materials.some(m => m.isDepletable);
+        const hasDepletableMaterials = state.materials.some((m) => m.isDepletable);
         const isEnabled = depletion.enabled;
 
         // Get default chain file from preferences
@@ -1729,20 +1735,22 @@ export class SimulationDashboardWidget extends ReactWidget {
         const chainFile = depletion.chainFile || defaultChainFile || '';
 
         return (
-            <div className='depletion-tab'>
+            <div className="depletion-tab">
                 {/* Enable/Disable Card */}
                 <div className={`depletion-enable-card ${isEnabled ? 'enabled' : ''}`}>
-                    <div className='enable-card-content'>
-                        <div className='enable-icon'>
+                    <div className="enable-card-content">
+                        <div className="enable-icon">
                             <i className={`codicon ${isEnabled ? 'codicon-check' : 'codicon-history'}`}></i>
                         </div>
-                        <div className='enable-text'>
+                        <div className="enable-text">
                             <h3>Depletion Analysis</h3>
-                            <p>{isEnabled 
-                                ? 'Track fuel burnup and isotopic evolution over time.' 
-                                : 'Enable to track how material composition changes during reactor operation.'}</p>
+                            <p>
+                                {isEnabled
+                                    ? 'Track fuel burnup and isotopic evolution over time.'
+                                    : 'Enable to track how material composition changes during reactor operation.'}
+                            </p>
                         </div>
-                        <button 
+                        <button
                             className={`theia-button ${isEnabled ? 'secondary' : 'primary'}`}
                             onClick={() => this.stateManager.updateDepletion({ enabled: !isEnabled })}
                         >
@@ -1750,19 +1758,19 @@ export class SimulationDashboardWidget extends ReactWidget {
                             {isEnabled ? 'Disable' : 'Enable'}
                         </button>
                     </div>
-                    
+
                     {!isEnabled && (
-                        <div className='enable-benefits'>
-                            <div className='benefit-item'>
-                                <i className='codicon codicon-flame'></i>
+                        <div className="enable-benefits">
+                            <div className="benefit-item">
+                                <i className="codicon codicon-flame"></i>
                                 <span>Track fuel burnup</span>
                             </div>
-                            <div className='benefit-item'>
-                                <i className='codicon codicon-radioactive'></i>
+                            <div className="benefit-item">
+                                <i className="codicon codicon-radioactive"></i>
                                 <span>Monitor waste buildup</span>
                             </div>
-                            <div className='benefit-item'>
-                                <i className='codicon codicon-graph-line'></i>
+                            <div className="benefit-item">
+                                <i className="codicon codicon-graph-line"></i>
                                 <span>Analyze reactivity changes</span>
                             </div>
                         </div>
@@ -1772,63 +1780,65 @@ export class SimulationDashboardWidget extends ReactWidget {
                 {isEnabled && (
                     <>
                         {/* Physics Configuration */}
-                        <div className='settings-section depletion-config'>
-                            <h3><i className='codicon codicon-gear'></i> Physics Configuration</h3>
-                            
-                            <div className='config-grid'>
-                                <div className='config-item'>
+                        <div className="settings-section depletion-config">
+                            <h3>
+                                <i className="codicon codicon-gear"></i> Physics Configuration
+                            </h3>
+
+                            <div className="config-grid">
+                                <div className="config-item">
                                     <label>
-                                        <i className='codicon codicon-file-code'></i>
+                                        <i className="codicon codicon-file-code"></i>
                                         Chain File
-                                        <Tooltip content='XML file with decay constants and fission yields for all isotopes' position='top'>
-                                            <i className='codicon codicon-info info-icon'></i>
+                                        <Tooltip content="XML file with decay constants and fission yields for all isotopes" position="top">
+                                            <i className="codicon codicon-info info-icon"></i>
                                         </Tooltip>
                                     </label>
-                                    <div className='file-input-group'>
-                                        <input 
-                                            type='text' 
-                                            value={chainFile} 
+                                    <div className="file-input-group">
+                                        <input
+                                            type="text"
+                                            value={chainFile}
                                             onChange={(e) => this.stateManager.updateDepletion({ chainFile: e.target.value })}
-                                            placeholder='Select chain.xml file...'
+                                            placeholder="Select chain.xml file..."
                                         />
-                                        <button className='theia-button secondary' onClick={() => this.browseChainFile()}>
-                                            <i className='codicon codicon-folder-opened'></i>
+                                        <button className="theia-button secondary" onClick={() => this.browseChainFile()}>
+                                            <i className="codicon codicon-folder-opened"></i>
                                             Browse
                                         </button>
                                     </div>
-                                    <span className='config-hint'>Contains nuclide decay and fission yield data</span>
+                                    <span className="config-hint">Contains nuclide decay and fission yield data</span>
                                 </div>
-                                
-                                <div className='config-item'>
+
+                                <div className="config-item">
                                     <label>
-                                        <i className='codicon codicon-symbol-method'></i>
+                                        <i className="codicon codicon-symbol-method"></i>
                                         Integration Method
                                     </label>
-                                    <select 
-                                        value={(depletion as any).solver || 'predictor-corrector'} 
+                                    <select
+                                        value={(depletion as any).solver || 'predictor-corrector'}
                                         onChange={(e) => this.stateManager.updateDepletion({ solver: e.target.value as any })}
                                     >
-                                        <option value='predictor-corrector'>Predictor-Corrector (Standard)</option>
-                                        <option value='ce-cm'>CE-CM (High Accuracy)</option>
-                                        <option value='leapfrog'>Leapfrog</option>
-                                        <option value='si-rk4'>SI-RK4 (Stochastic Implicit)</option>
+                                        <option value="predictor-corrector">Predictor-Corrector (Standard)</option>
+                                        <option value="ce-cm">CE-CM (High Accuracy)</option>
+                                        <option value="leapfrog">Leapfrog</option>
+                                        <option value="si-rk4">SI-RK4 (Stochastic Implicit)</option>
                                     </select>
-                                    <span className='config-hint'>Algorithm for solving depletion equations</span>
+                                    <span className="config-hint">Algorithm for solving depletion equations</span>
                                 </div>
                             </div>
 
-                            <div className='config-grid single'>
-                                <div className='config-item'>
+                            <div className="config-grid single">
+                                <div className="config-item">
                                     <label>
-                                        <i className='codicon codicon-zap'></i>
+                                        <i className="codicon codicon-zap"></i>
                                         Power Level
                                     </label>
-                                    <div className='power-input-unit'>
-                                        <input 
-                                            type='number' 
+                                    <div className="power-input-unit">
+                                        <input
+                                            type="number"
                                             min={0}
-                                            step='any'
-                                            value={depletion.power || depletion.powerDensity || 0} 
+                                            step="any"
+                                            value={depletion.power || depletion.powerDensity || 0}
                                             onChange={(e) => {
                                                 const val = parseFloat(e.target.value);
                                                 if (depletion.powerDensity !== undefined) {
@@ -1838,7 +1848,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                                                 }
                                             }}
                                         />
-                                        <select 
+                                        <select
                                             value={depletion.powerDensity !== undefined ? 'power_density' : 'power'}
                                             onChange={(e) => {
                                                 const val = depletion.power || depletion.powerDensity || 0;
@@ -1849,41 +1859,50 @@ export class SimulationDashboardWidget extends ReactWidget {
                                                 }
                                             }}
                                         >
-                                            <option value='power'>Watts (Total)</option>
-                                            <option value='power_density'>W/g (Density)</option>
+                                            <option value="power">Watts (Total)</option>
+                                            <option value="power_density">W/g (Density)</option>
                                         </select>
                                     </div>
-                                    <span className='config-hint'>Reactor operating power for depletion calculations</span>
+                                    <span className="config-hint">Reactor operating power for depletion calculations</span>
                                 </div>
                             </div>
                         </div>
 
                         {/* Materials Section */}
-                        <div className='settings-section'>
-                            <h3><i className='codicon codicon-layers'></i> Depletable Materials</h3>
-                            
+                        <div className="settings-section">
+                            <h3>
+                                <i className="codicon codicon-layers"></i> Depletable Materials
+                            </h3>
+
                             {!hasDepletableMaterials ? (
-                                <div className='depletion-warning-box'>
-                                    <i className='codicon codicon-warning'></i>
-                                    <div className='warning-content'>
+                                <div className="depletion-warning-box">
+                                    <i className="codicon codicon-warning"></i>
+                                    <div className="warning-content">
                                         <strong>No Depletable Materials Configured</strong>
-                                        <p>Go to the <strong>Materials</strong> tab and enable "Depletable" for fuel materials you want to track.</p>
+                                        <p>
+                                            Go to the <strong>Materials</strong> tab and enable "Depletable" for fuel materials you want to
+                                            track.
+                                        </p>
                                     </div>
-                                    <button className='theia-button primary' onClick={() => { this.activeTab = 'materials'; this.update(); }}>
+                                    <button
+                                        className="theia-button primary"
+                                        onClick={() => {
+                                            this.activeTab = 'materials';
+                                            this.update();
+                                        }}
+                                    >
                                         Go to Materials
                                     </button>
                                 </div>
                             ) : (
-                                <div className='depletion-materials-grid'>
-                                    {this.renderDepletableMaterialsSection(state)}
-                                </div>
+                                <div className="depletion-materials-grid">{this.renderDepletableMaterialsSection(state)}</div>
                             )}
                         </div>
 
                         {/* Timeline Editor */}
                         {hasDepletableMaterials && (
-                            <div className='settings-section timeline-section'>
-                                <DepletionTimeline 
+                            <div className="settings-section timeline-section">
+                                <DepletionTimeline
                                     depletion={depletion as any}
                                     onChange={(updates) => this.stateManager.updateDepletion(updates)}
                                     onToggleDecayOnly={(idx) => this.stateManager.toggleDecayOnlyStep(idx)}
@@ -1922,16 +1941,16 @@ export class SimulationDashboardWidget extends ReactWidget {
      * @returns Depletable materials React node.
      */
     private renderDepletableMaterialsSection(state: OpenMCState): React.ReactNode {
-        const depletableMaterials = state.materials.filter(m => m.isDepletable);
+        const depletableMaterials = state.materials.filter((m) => m.isDepletable);
 
-        return depletableMaterials.map(mat => (
-            <div key={mat.id} className='material-card' style={{ borderLeft: `4px solid ${mat.color || '#4A90D9'}` }}>
-                <div className='material-card-header'>
-                    <div className='material-info'>
-                        <span className='material-id'>#{mat.id}</span>
-                        <span className='material-name'>{mat.name}</span>
+        return depletableMaterials.map((mat) => (
+            <div key={mat.id} className="material-card" style={{ borderLeft: `4px solid ${mat.color || '#4A90D9'}` }}>
+                <div className="material-card-header">
+                    <div className="material-info">
+                        <span className="material-id">#{mat.id}</span>
+                        <span className="material-name">{mat.name}</span>
                     </div>
-                    <i className='codicon codicon-check' style={{ color: 'var(--theia-focusBorder)', fontSize: '14px' }}></i>
+                    <i className="codicon codicon-check" style={{ color: 'var(--theia-focusBorder)', fontSize: '14px' }}></i>
                 </div>
             </div>
         ));
@@ -1952,52 +1971,54 @@ export class SimulationDashboardWidget extends ReactWidget {
         const meshes = state.meshes || [];
 
         return (
-            <div className='variance-reduction-tab'>
+            <div className="variance-reduction-tab">
                 {/* Info Banner */}
-                <div className='info-banner vr-info-banner'>
-                    <i className='codicon codicon-info'></i>
-                    <div className='info-content'>
+                <div className="info-banner vr-info-banner">
+                    <i className="codicon codicon-info"></i>
+                    <div className="info-content">
                         <strong>Variance Reduction Techniques</strong>
                         <span>Use these methods to improve simulation efficiency for deep penetration and shielding problems.</span>
                     </div>
                 </div>
 
                 {/* Survival Biasing Toggle */}
-                <div className='settings-section survival-biasing-section'>
+                <div className="settings-section survival-biasing-section">
                     <h3>
-                        <i className='codicon codicon-shield'></i>
+                        <i className="codicon codicon-shield"></i>
                         Survival Biasing
                     </h3>
-                    <div className='form-group checkbox'>
+                    <div className="form-group checkbox">
                         <label>
                             <input
-                                type='checkbox'
+                                type="checkbox"
                                 checked={vr.survivalBiasing || false}
-                                onChange={(e) => this.stateManager.updateVarianceReduction({
-                                    ...vr,
-                                    survivalBiasing: e.target.checked
-                                })}
+                                onChange={(e) =>
+                                    this.stateManager.updateVarianceReduction({
+                                        ...vr,
+                                        survivalBiasing: e.target.checked
+                                    })
+                                }
                             />
                             Enable Survival Biasing (Implicit Capture)
                         </label>
                     </div>
-                    <span className='form-hint'>
-                        Instead of terminating absorption events, reduce particle weight and continue tracking.
-                        Recommended for problems with strong absorption.
+                    <span className="form-hint">
+                        Instead of terminating absorption events, reduce particle weight and continue tracking. Recommended for problems
+                        with strong absorption.
                     </span>
                 </div>
 
                 {/* Uniform Fission Site (UFS) */}
                 {state.settings.run.mode === 'eigenvalue' && (
-                    <div className='settings-section ufs-section'>
+                    <div className="settings-section ufs-section">
                         <h3>
-                            <i className='codicon codicon-radio-tower'></i>
+                            <i className="codicon codicon-radio-tower"></i>
                             Uniform Fission Site (UFS)
                         </h3>
-                        <div className='form-group checkbox'>
+                        <div className="form-group checkbox">
                             <label>
                                 <input
-                                    type='checkbox'
+                                    type="checkbox"
                                     checked={vr.ufs?.enabled || false}
                                     onChange={(e) => {
                                         if (e.target.checked) {
@@ -2016,13 +2037,13 @@ export class SimulationDashboardWidget extends ReactWidget {
                                 Enable Uniform Fission Site
                             </label>
                         </div>
-                        <span className='form-hint'>
-                            For eigenvalue calculations: sample fission sites uniformly across the fissionable mesh.
-                            Improves source convergence for problems with localized fission sources.
+                        <span className="form-hint">
+                            For eigenvalue calculations: sample fission sites uniformly across the fissionable mesh. Improves source
+                            convergence for problems with localized fission sources.
                         </span>
 
                         {vr.ufs?.enabled && meshes.length > 0 && (
-                            <div className='form-group' style={{ marginTop: '12px' }}>
+                            <div className="form-group" style={{ marginTop: '12px' }}>
                                 <label>UFS Mesh (optional)</label>
                                 <select
                                     value={vr.ufs.meshId || ''}
@@ -2034,14 +2055,14 @@ export class SimulationDashboardWidget extends ReactWidget {
                                         });
                                     }}
                                 >
-                                    <option value=''>Use weight window mesh</option>
-                                    {meshes.map(mesh => (
+                                    <option value="">Use weight window mesh</option>
+                                    {meshes.map((mesh) => (
                                         <option key={mesh.id} value={mesh.id}>
                                             {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
                                         </option>
                                     ))}
                                 </select>
-                                <span className='form-hint'>Select a specific mesh or use the weight window mesh</span>
+                                <span className="form-hint">Select a specific mesh or use the weight window mesh</span>
                             </div>
                         )}
                     </div>
@@ -2106,16 +2127,16 @@ export class SimulationDashboardWidget extends ReactWidget {
                 </div>
 
                 {/* Weight Window Generator */}
-                <div className='settings-section ww-generator-section'>
+                <div className="settings-section ww-generator-section">
                     <h3>
-                        <i className='codicon codicon-rocket'></i>
+                        <i className="codicon codicon-rocket"></i>
                         Weight Window Generator
                     </h3>
 
-                    <div className='form-group checkbox'>
+                    <div className="form-group checkbox">
                         <label>
                             <input
-                                type='checkbox'
+                                type="checkbox"
                                 checked={!!vr.weightWindowGenerator}
                                 onChange={(e) => {
                                     if (e.target.checked) {
@@ -2136,42 +2157,46 @@ export class SimulationDashboardWidget extends ReactWidget {
                     </div>
 
                     {vr.weightWindowGenerator && (
-                        <div className='ww-generator-config'>
-                            <div className='form-row'>
-                                <div className='form-group'>
+                        <div className="ww-generator-config">
+                            <div className="form-row">
+                                <div className="form-group">
                                     <label>Iterations</label>
                                     <input
-                                        type='number'
+                                        type="number"
                                         min={1}
                                         max={20}
                                         value={vr.weightWindowGenerator.iterations || 5}
-                                        onChange={(e) => this.stateManager.updateVarianceReduction({
-                                            ...vr,
-                                            weightWindowGenerator: {
-                                                ...vr.weightWindowGenerator,
-                                                iterations: parseInt(e.target.value) || 5
-                                            }
-                                        })}
+                                        onChange={(e) =>
+                                            this.stateManager.updateVarianceReduction({
+                                                ...vr,
+                                                weightWindowGenerator: {
+                                                    ...vr.weightWindowGenerator,
+                                                    iterations: parseInt(e.target.value) || 5
+                                                }
+                                            })
+                                        }
                                     />
-                                    <span className='form-hint'>Number of generations to run for optimization</span>
+                                    <span className="form-hint">Number of generations to run for optimization</span>
                                 </div>
 
-                                <div className='form-group'>
+                                <div className="form-group">
                                     <label>Particle Type</label>
                                     <select
                                         value={vr.weightWindowGenerator.particleType || 'neutron'}
-                                        onChange={(e) => this.stateManager.updateVarianceReduction({
-                                            ...vr,
-                                            weightWindowGenerator: {
-                                                ...vr.weightWindowGenerator,
-                                                particleType: e.target.value as 'neutron' | 'photon'
-                                            }
-                                        })}
+                                        onChange={(e) =>
+                                            this.stateManager.updateVarianceReduction({
+                                                ...vr,
+                                                weightWindowGenerator: {
+                                                    ...vr.weightWindowGenerator,
+                                                    particleType: e.target.value as 'neutron' | 'photon'
+                                                }
+                                            })
+                                        }
                                     >
-                                        <option value='neutron'>Neutron</option>
-                                        <option value='photon'>Photon</option>
+                                        <option value="neutron">Neutron</option>
+                                        <option value="photon">Photon</option>
                                     </select>
-                                    <span className='form-hint'>Particle type to generate weight windows for</span>
+                                    <span className="form-hint">Particle type to generate weight windows for</span>
                                 </div>
                             </div>
                         </div>
@@ -2182,18 +2207,20 @@ export class SimulationDashboardWidget extends ReactWidget {
                 <WeightWindowEditor
                     weightWindows={vr.weightWindows}
                     meshes={meshes}
-                    onChange={(updates) => this.stateManager.updateVarianceReduction({
-                        ...vr,
-                        weightWindows: { ...vr.weightWindows, ...updates } as any
-                    })}
+                    onChange={(updates) =>
+                        this.stateManager.updateVarianceReduction({
+                            ...vr,
+                            weightWindows: { ...vr.weightWindows, ...updates } as any
+                        })
+                    }
                     onToggle={(enabled) => {
                         if (enabled) {
                             this.stateManager.updateVarianceReduction({
                                 ...vr,
-                                weightWindows: { 
-                                    meshId: meshes[0]?.id || 0, 
+                                weightWindows: {
+                                    meshId: meshes[0]?.id || 0,
                                     lowerBound: 0.5,
-                                    energyBounds: [0.0, 2e7]  // Default: 0 to 20 MeV
+                                    energyBounds: [0.0, 2e7] // Default: 0 to 20 MeV
                                 }
                             });
                         } else {
@@ -2210,10 +2237,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                 {/* Source Biasing Editor */}
                 <SourceBiasingEditor
                     sourceBiasing={vr.sourceBiasing}
-                    onChange={(updates) => this.stateManager.updateVarianceReduction({
-                        ...vr,
-                        sourceBiasing: { ...vr.sourceBiasing, ...updates }
-                    })}
+                    onChange={(updates) =>
+                        this.stateManager.updateVarianceReduction({
+                            ...vr,
+                            sourceBiasing: { ...vr.sourceBiasing, ...updates }
+                        })
+                    }
                     onToggle={(enabled) => {
                         if (enabled) {
                             this.stateManager.updateVarianceReduction({
@@ -2239,31 +2268,32 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private renderSimulationTab(state: OpenMCState): React.ReactNode {
         return (
-            <div className='simulation-tab'>
+            <div className="simulation-tab">
                 {/* Quick Actions */}
-                <div className='quick-actions-panel'>
-                    <h4><i className='codicon codicon-rocket'></i> Setup Checklist</h4>
-                    <div className='checklist-grid'>
+                <div className="quick-actions-panel">
+                    <h4>
+                        <i className="codicon codicon-rocket"></i> Setup Checklist
+                    </h4>
+                    <div className="checklist-grid">
                         {/* Materials Check - only counts OpenMC materials */}
                         {(() => {
                             const openMCMaterialCount = state.materials.length;
                             const dagmcMaterials = state.settings.dagmcInfo?.materials;
                             const dagmcMaterialCount = dagmcMaterials ? Object.keys(dagmcMaterials).length : 0;
                             const hasDagmcFile = !!state.settings.dagmcFile;
-                            
+
                             // For DAGMC mode: materials are 'done' only when user has created OpenMC materials
                             // that match the DAGMC material names
                             let isMaterialsDone: boolean;
                             let statusText: string;
                             let statusClass: string;
-                            
+
                             if (hasDagmcFile) {
                                 if (dagmcMaterialCount === 0) {
                                     // No materials in DAGMC file - user needs to check their geometry export
                                     isMaterialsDone = openMCMaterialCount > 0;
-                                    statusText = openMCMaterialCount > 0 
-                                        ? `${openMCMaterialCount} defined` 
-                                        : '0 defined (no DAGMC mats found)';
+                                    statusText =
+                                        openMCMaterialCount > 0 ? `${openMCMaterialCount} defined` : '0 defined (no DAGMC mats found)';
                                     statusClass = openMCMaterialCount > 0 ? 'done' : '';
                                 } else if (openMCMaterialCount === 0) {
                                     // DAGMC has materials but user hasn't created OpenMC materials yet
@@ -2272,12 +2302,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                                     statusClass = '';
                                 } else {
                                     // Check if all DAGMC materials have matching OpenMC materials
-                                    const openMCMaterialNames = new Set(state.materials.map(m => m.name.toLowerCase()));
+                                    const openMCMaterialNames = new Set(state.materials.map((m) => m.name.toLowerCase()));
                                     const missingDagmcMats = Object.keys(dagmcMaterials!).filter(
-                                        dm => !openMCMaterialNames.has(dm.toLowerCase())
+                                        (dm) => !openMCMaterialNames.has(dm.toLowerCase())
                                     );
                                     const definedCount = dagmcMaterialCount - missingDagmcMats.length;
-                                    
+
                                     isMaterialsDone = missingDagmcMats.length === 0;
                                     statusText = `${definedCount} / ${dagmcMaterialCount} DAGMC materials defined`;
                                     statusClass = isMaterialsDone ? 'done' : 'partial';
@@ -2285,107 +2315,104 @@ export class SimulationDashboardWidget extends ReactWidget {
                             } else {
                                 // CSG mode
                                 isMaterialsDone = openMCMaterialCount > 0;
-                                statusText = openMCMaterialCount > 0 
-                                    ? `${openMCMaterialCount} defined` 
-                                    : 'Not configured';
+                                statusText = openMCMaterialCount > 0 ? `${openMCMaterialCount} defined` : 'Not configured';
                                 statusClass = isMaterialsDone ? 'done' : '';
                             }
-                            
+
                             return (
                                 <div className={`checklist-item ${statusClass}`}>
-                                    <div className='checklist-icon'>
+                                    <div className="checklist-icon">
                                         <i className={`codicon codicon-${isMaterialsDone ? 'check' : 'circle-outline'}`}></i>
                                     </div>
-                                    <div className='checklist-content'>
-                                        <span className='checklist-title'>Materials</span>
-                                        <span className='checklist-status'>{statusText}</span>
+                                    <div className="checklist-content">
+                                        <span className="checklist-title">Materials</span>
+                                        <span className="checklist-status">{statusText}</span>
                                     </div>
                                 </div>
                             );
                         })()}
-                        
+
                         {/* Geometry Check - includes both CSG and DAGMC geometry */}
                         {(() => {
                             const hasCSG = state.geometry.cells.length > 0;
                             const hasDagmc = !!state.settings.dagmcFile;
                             const dagmcVolumeCount = state.settings.dagmcInfo?.volumeCount || 0;
                             const isGeometryDone = hasCSG || hasDagmc;
-                            
+
                             return (
                                 <div className={`checklist-item ${isGeometryDone ? 'done' : ''}`}>
-                                    <div className='checklist-icon'>
+                                    <div className="checklist-icon">
                                         <i className={`codicon codicon-${isGeometryDone ? 'check' : 'circle-outline'}`}></i>
                                     </div>
-                                    <div className='checklist-content'>
-                                        <span className='checklist-title'>Geometry</span>
-                                        <span className='checklist-status'>
-                                            {hasCSG 
+                                    <div className="checklist-content">
+                                        <span className="checklist-title">Geometry</span>
+                                        <span className="checklist-status">
+                                            {hasCSG
                                                 ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces`
-                                                : hasDagmc 
-                                                    ? `${dagmcVolumeCount} DAGMC volumes`
-                                                    : 'Not configured'}
+                                                : hasDagmc
+                                                  ? `${dagmcVolumeCount} DAGMC volumes`
+                                                  : 'Not configured'}
                                         </span>
                                     </div>
-                                    {!hasDagmc && (
-                                        state.geometry.cells.length === 0 ? (
-                                            <Tooltip content='Create geometry using CSG Builder'>
+                                    {!hasDagmc &&
+                                        (state.geometry.cells.length === 0 ? (
+                                            <Tooltip content="Create geometry using CSG Builder">
                                                 <button
-                                                    className='theia-button primary small open-csg-btn'
+                                                    className="theia-button primary small open-csg-btn"
                                                     onClick={() => this.openCSGBuilder()}
                                                 >
-                                                    <i className='codicon codicon-graph'></i> Open CSG Builder
+                                                    <i className="codicon codicon-graph"></i> Open CSG Builder
                                                 </button>
                                             </Tooltip>
                                         ) : (
-                                            <Tooltip content='Edit geometry in CSG Builder'>
+                                            <Tooltip content="Edit geometry in CSG Builder">
                                                 <button
-                                                    className='theia-button secondary small open-csg-btn'
+                                                    className="theia-button secondary small open-csg-btn"
                                                     onClick={() => this.openCSGBuilder()}
                                                 >
-                                                    <i className='codicon codicon-edit'></i> Edit
+                                                    <i className="codicon codicon-edit"></i> Edit
                                                 </button>
                                             </Tooltip>
-                                        )
-                                    )}
+                                        ))}
                                     {hasDagmc && (
-                                        <Tooltip content='View DAGMC geometry in CSG Builder'>
+                                        <Tooltip content="View DAGMC geometry in CSG Builder">
                                             <button
-                                                className='theia-button secondary small open-csg-btn'
+                                                className="theia-button secondary small open-csg-btn"
                                                 onClick={() => this.openCSGBuilder()}
                                             >
-                                                <i className='codicon codicon-file-code'></i> View
+                                                <i className="codicon codicon-file-code"></i> View
                                             </button>
                                         </Tooltip>
                                     )}
                                 </div>
                             );
                         })()}
-                        
+
                         <div className={`checklist-item ${state.settings.sources.length > 0 ? 'done' : ''}`}>
-                            <div className='checklist-icon'>
+                            <div className="checklist-icon">
                                 <i className={`codicon codicon-${state.settings.sources.length > 0 ? 'check' : 'circle-outline'}`}></i>
                             </div>
-                            <div className='checklist-content'>
-                                <span className='checklist-title'>Source</span>
-                                <span className='checklist-status'>
+                            <div className="checklist-content">
+                                <span className="checklist-title">Source</span>
+                                <span className="checklist-status">
                                     {state.settings.sources.length > 0 ? `${state.settings.sources.length} defined` : 'Not configured'}
                                 </span>
                             </div>
                         </div>
-                        
+
                         {/* Tallies Check */}
                         {(() => {
                             const tallies = state.tallies || [];
                             const hasTallies = tallies.length > 0;
-                            
+
                             return (
                                 <div className={`checklist-item ${hasTallies ? 'done' : ''}`}>
-                                    <div className='checklist-icon'>
+                                    <div className="checklist-icon">
                                         <i className={`codicon codicon-${hasTallies ? 'check' : 'circle-outline'}`}></i>
                                     </div>
-                                    <div className='checklist-content'>
-                                        <span className='checklist-title'>Tallies</span>
-                                        <span className='checklist-status'>
+                                    <div className="checklist-content">
+                                        <span className="checklist-title">Tallies</span>
+                                        <span className="checklist-status">
                                             {hasTallies ? `${tallies.length} defined` : 'Optional - none configured'}
                                         </span>
                                     </div>
@@ -2399,20 +2426,22 @@ export class SimulationDashboardWidget extends ReactWidget {
                             const isEnabled = !!depletion?.enabled;
                             const stepCount = depletion?.timeSteps?.length || 0;
                             const isDone = !isEnabled || (isEnabled && stepCount > 0 && !!depletion?.chainFile);
-                            
+
                             return (
                                 <div className={`checklist-item ${isEnabled ? (isDone ? 'done' : 'partial') : ''}`}>
-                                    <div className='checklist-icon'>
-                                        <i className={`codicon codicon-${isEnabled ? (isDone ? 'check' : 'warning') : 'circle-outline'}`}></i>
+                                    <div className="checklist-icon">
+                                        <i
+                                            className={`codicon codicon-${isEnabled ? (isDone ? 'check' : 'warning') : 'circle-outline'}`}
+                                        ></i>
                                     </div>
-                                    <div className='checklist-content'>
-                                        <span className='checklist-title'>Depletion</span>
-                                        <span className='checklist-status'>
-                                            {!isEnabled 
-                                                ? 'Disabled' 
-                                                : isDone 
-                                                    ? `Enabled (${stepCount} steps)` 
-                                                    : `Enabled (Missing ${!depletion?.chainFile ? 'chain file' : 'steps'})`}
+                                    <div className="checklist-content">
+                                        <span className="checklist-title">Depletion</span>
+                                        <span className="checklist-status">
+                                            {!isEnabled
+                                                ? 'Disabled'
+                                                : isDone
+                                                  ? `Enabled (${stepCount} steps)`
+                                                  : `Enabled (Missing ${!depletion?.chainFile ? 'chain file' : 'steps'})`}
                                         </span>
                                     </div>
                                 </div>
@@ -2422,166 +2451,156 @@ export class SimulationDashboardWidget extends ReactWidget {
                         {/* Variance Reduction Check */}
                         {(() => {
                             const vr = state.varianceReduction;
-                            const hasVR = !!vr && (
-                                vr.survivalBiasing ||
-                                vr.weightWindows ||
-                                vr.sourceBiasing ||
-                                vr.weightWindowGenerator ||
-                                (vr.cutoff?.weight !== undefined)
-                            );
-                            
+                            const hasVR =
+                                !!vr &&
+                                (vr.survivalBiasing ||
+                                    vr.weightWindows ||
+                                    vr.sourceBiasing ||
+                                    vr.weightWindowGenerator ||
+                                    vr.cutoff?.weight !== undefined);
+
                             return (
                                 <>
                                     <div className={`checklist-item ${hasVR ? 'done' : ''}`}>
-                                        <div className='checklist-icon'>
+                                        <div className="checklist-icon">
                                             <i className={`codicon codicon-${hasVR ? 'check' : 'circle-outline'}`}></i>
                                         </div>
-                                        <div className='checklist-content'>
-                                            <span className='checklist-title'>Variance Reduction</span>
-                                            <span className='checklist-status'>
-                                                {hasVR 
-                                                    ? 'Enabled' 
-                                                    : 'Optional - none configured'}
-                                            </span>
+                                        <div className="checklist-content">
+                                            <span className="checklist-title">Variance Reduction</span>
+                                            <span className="checklist-status">{hasVR ? 'Enabled' : 'Optional - none configured'}</span>
                                         </div>
                                     </div>
-                        
                                 </>
                             );
                         })()}
                     </div>
                 </div>
 
-                <div className='simulation-status'>
+                <div className="simulation-status">
                     {this.isRunning ? (
-                        <div className='status-running'>
-                            <i className='codicon codicon-sync codicon-spin'></i>
+                        <div className="status-running">
+                            <i className="codicon codicon-sync codicon-spin"></i>
                             <span>Simulation running...</span>
                         </div>
                     ) : (
-                        <div className='status-ready'>
-                            <i className='codicon codicon-check'></i>
+                        <div className="status-ready">
+                            <i className="codicon codicon-check"></i>
                             <span>Ready to run</span>
                         </div>
                     )}
                 </div>
 
                 {this.simulationProgress && (
-                    <div className='progress-section'>
-                        <div className='progress-bar-container'>
+                    <div className="progress-section">
+                        <div className="progress-bar-container">
                             <div
-                                className='progress-bar'
+                                className="progress-bar"
                                 style={{
                                     width: `${(this.simulationProgress.batch / this.simulationProgress.totalBatches) * 100}%`
                                 }}
                             ></div>
                         </div>
-                        <div className='progress-info'>
-                            <span>Batch {this.simulationProgress.batch} / {this.simulationProgress.totalBatches}</span>
+                        <div className="progress-info">
+                            <span>
+                                Batch {this.simulationProgress.batch} / {this.simulationProgress.totalBatches}
+                            </span>
                             {this.simulationProgress.kEff !== undefined && (
-                                <span>k-eff: {this.simulationProgress.kEff.toFixed(5)} ± {this.simulationProgress.kEffStd?.toFixed(5)}</span>
+                                <span>
+                                    k-eff: {this.simulationProgress.kEff.toFixed(5)} ± {this.simulationProgress.kEffStd?.toFixed(5)}
+                                </span>
                             )}
                             <span>Elapsed: {this.formatTime(this.simulationProgress.elapsedTime)}</span>
                         </div>
                     </div>
                 )}
 
-                <div className='simulation-actions'>
+                <div className="simulation-actions">
                     <Tooltip content={this.isRunning ? 'Simulation is running' : 'Start the simulation'}>
-                        <button
-                            className='theia-button primary large'
-                            onClick={() => this.runSimulation()}
-                            disabled={this.isRunning}
-                        >
-                            <i className='codicon codicon-play'></i>
+                        <button className="theia-button primary large" onClick={() => this.runSimulation()} disabled={this.isRunning}>
+                            <i className="codicon codicon-play"></i>
                             {this.isRunning ? 'Running...' : 'Run Simulation'}
                         </button>
                     </Tooltip>
-                    <Tooltip content='Stop the simulation'>
-                        <button
-                            className='theia-button secondary large'
-                            onClick={() => this.stopSimulation()}
-                            disabled={!this.isRunning}
-                        >
-                            <i className='codicon codicon-stop'></i>
+                    <Tooltip content="Stop the simulation">
+                        <button className="theia-button secondary large" onClick={() => this.stopSimulation()} disabled={!this.isRunning}>
+                            <i className="codicon codicon-stop"></i>
                             Stop
                         </button>
                     </Tooltip>
-                    <Tooltip content='Validate model before running'>
-                        <button
-                            className='theia-button secondary large'
-                            onClick={() => this.validateModel()}
-                            disabled={this.isRunning}
-                        >
-                            <i className='codicon codicon-check-all'></i>
+                    <Tooltip content="Validate model before running">
+                        <button className="theia-button secondary large" onClick={() => this.validateModel()} disabled={this.isRunning}>
+                            <i className="codicon codicon-check-all"></i>
                             Validate
                         </button>
                     </Tooltip>
-                    <div className='toolbar-separator'></div>
-                    <Tooltip content='Run parameter sweeps and batch optimization studies'>
-                        <button
-                            className='theia-button secondary large'
-                            onClick={() => this.openOptimizationStudy()}
-                        >
-                            <i className='codicon codicon-symbol-variable'></i>
+                    <div className="toolbar-separator"></div>
+                    <Tooltip content="Run parameter sweeps and batch optimization studies">
+                        <button className="theia-button secondary large" onClick={() => this.openOptimizationStudy()}>
+                            <i className="codicon codicon-symbol-variable"></i>
                             Optimization
                         </button>
                     </Tooltip>
                 </div>
 
                 {this.validationIssues.length > 0 && (
-                    <div className='validation-results'>
+                    <div className="validation-results">
                         <h4>Validation Results</h4>
                         {this.validationIssues.map((issue, index) => (
                             <div key={index} className={`validation-issue ${issue.severity}`}>
-                                <i className={`codicon codicon-${issue.severity === 'error' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'}`}></i>
-                                <span className='issue-category'>[{issue.category}]</span>
-                                <span className='issue-message'>{issue.message}</span>
+                                <i
+                                    className={`codicon codicon-${issue.severity === 'error' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'}`}
+                                ></i>
+                                <span className="issue-category">[{issue.category}]</span>
+                                <span className="issue-message">{issue.message}</span>
                             </div>
                         ))}
                     </div>
                 )}
 
-                <div className='simulation-info'>
-                    <div className='info-header'>
+                <div className="simulation-info">
+                    <div className="info-header">
                         <h4>Run Summary</h4>
                     </div>
-                    <div className='info-grid'>
-                        <div className='info-item'>
+                    <div className="info-grid">
+                        <div className="info-item">
                             <label>Mode:</label>
                             <span>{state.settings.run.mode}</span>
                         </div>
                         {state.settings.run.mode !== 'volume' && (
                             <>
-                                <div className='info-item'>
+                                <div className="info-item">
                                     <label>Particles:</label>
-                                    <span>{(state.settings.run as OpenMCEigenvalueSettings | OpenMCFixedSourceSettings).particles.toLocaleString()}</span>
+                                    <span>
+                                        {(
+                                            state.settings.run as OpenMCEigenvalueSettings | OpenMCFixedSourceSettings
+                                        ).particles.toLocaleString()}
+                                    </span>
                                 </div>
-                                <div className='info-item'>
+                                <div className="info-item">
                                     <label>Batches:</label>
                                     <span>{(state.settings.run as OpenMCEigenvalueSettings | OpenMCFixedSourceSettings).batches}</span>
                                 </div>
                             </>
                         )}
                         {state.settings.run.mode === 'eigenvalue' && (
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Inactive:</label>
                                 <span>{(state.settings.run as OpenMCEigenvalueSettings).inactive}</span>
                             </div>
                         )}
-                        <div className='info-item'>
+                        <div className="info-item">
                             <label>Materials:</label>
                             <span>{state.materials.length}</span>
                         </div>
-                        <div className='info-item'>
+                        <div className="info-item">
                             <label>Cells:</label>
                             <span>{state.geometry.cells.length}</span>
                         </div>
-                        <div className='info-item'>
+                        <div className="info-item">
                             <label>Tallies:</label>
                             <span>{state.tallies?.length || 0}</span>
                         </div>
-                        <div className='info-item'>
+                        <div className="info-item">
                             <label>Meshes:</label>
                             <span>{state.meshes?.length || 0}</span>
                         </div>
@@ -2590,28 +2609,29 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {/* Depletion Summary */}
                 {state.depletion?.enabled && (
-                    <div className='simulation-info'>
-                        <div className='info-header'>
+                    <div className="simulation-info">
+                        <div className="info-header">
                             <h4>Depletion Summary</h4>
                         </div>
-                        <div className='info-grid'>
-                            <div className='info-item'>
+                        <div className="info-grid">
+                            <div className="info-item">
                                 <label>Steps:</label>
                                 <span>{state.depletion.timeSteps.length}</span>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Power:</label>
-                                <span>{state.depletion.power || state.depletion.powerDensity || 0} {state.depletion.powerDensity ? 'W/g' : 'Watts'}</span>
+                                <span>
+                                    {state.depletion.power || state.depletion.powerDensity || 0}{' '}
+                                    {state.depletion.powerDensity ? 'W/g' : 'Watts'}
+                                </span>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Chain File:</label>
-                                <Tooltip content={state.depletion.chainFile || 'Not set'} position='top'>
-                                    <span className='file-path-summary'>
-                                        {state.depletion.chainFile?.split('/').pop() || 'Not set'}
-                                    </span>
+                                <Tooltip content={state.depletion.chainFile || 'Not set'} position="top">
+                                    <span className="file-path-summary">{state.depletion.chainFile?.split('/').pop() || 'Not set'}</span>
                                 </Tooltip>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Solver:</label>
                                 <span style={{ textTransform: 'uppercase' }}>{state.depletion.solver}</span>
                             </div>
@@ -2620,87 +2640,85 @@ export class SimulationDashboardWidget extends ReactWidget {
                 )}
 
                 {/* Variance Reduction Summary */}
-                {state.varianceReduction && (
+                {state.varianceReduction &&
                     (state.varianceReduction.survivalBiasing ||
-                     state.varianceReduction.weightWindows ||
-                     state.varianceReduction.sourceBiasing ||
-                     state.varianceReduction.weightWindowGenerator) && (
-                        <div className='simulation-info'>
-                            <div className='info-header'>
-                                <h4><i className='codicon codicon-dashboard'></i> Variance Reduction</h4>
+                        state.varianceReduction.weightWindows ||
+                        state.varianceReduction.sourceBiasing ||
+                        state.varianceReduction.weightWindowGenerator) && (
+                        <div className="simulation-info">
+                            <div className="info-header">
+                                <h4>
+                                    <i className="codicon codicon-dashboard"></i> Variance Reduction
+                                </h4>
                             </div>
-                            <div className='info-grid'>
+                            <div className="info-grid">
                                 {state.varianceReduction.survivalBiasing && (
-                                    <div className='info-item'>
+                                    <div className="info-item">
                                         <label>Survival Biasing:</label>
                                         <span>Enabled</span>
                                     </div>
                                 )}
                                 {state.varianceReduction.weightWindows && (
-                                    <div className='info-item'>
+                                    <div className="info-item">
                                         <label>Weight Windows:</label>
                                         <span>Mesh {state.varianceReduction.weightWindows.meshId}</span>
                                     </div>
                                 )}
                                 {state.varianceReduction.sourceBiasing && (
-                                    <div className='info-item'>
+                                    <div className="info-item">
                                         <label>Source Biasing:</label>
                                         <span>Enabled</span>
                                     </div>
                                 )}
                                 {state.varianceReduction.weightWindowGenerator && (
-                                    <div className='info-item'>
+                                    <div className="info-item">
                                         <label>WW Generator:</label>
                                         <span>{state.varianceReduction.weightWindowGenerator.iterations} iterations</span>
                                     </div>
                                 )}
                                 {state.varianceReduction.cutoff?.weight !== undefined && (
-                                    <div className='info-item'>
+                                    <div className="info-item">
                                         <label>Weight Cutoff:</label>
                                         <span>{state.varianceReduction.cutoff.weight}</span>
                                     </div>
                                 )}
                             </div>
                         </div>
-                    )
-                )}
+                    )}
 
                 {/* Geometry Summary - CSG */}
                 {state.geometry.cells.length > 0 && !state.settings.dagmcFile && (
-                    <div className='simulation-info'>
-                        <div className='info-header'>
+                    <div className="simulation-info">
+                        <div className="info-header">
                             <h4>CSG Geometry Summary</h4>
-                            <Tooltip content='Open CSG Builder to edit geometry'>
-                                <button
-                                    className='theia-button secondary small'
-                                    onClick={() => this.openCSGBuilder()}
-                                >
-                                    <i className='codicon codicon-edit'></i> Edit in CSG Builder
+                            <Tooltip content="Open CSG Builder to edit geometry">
+                                <button className="theia-button secondary small" onClick={() => this.openCSGBuilder()}>
+                                    <i className="codicon codicon-edit"></i> Edit in CSG Builder
                                 </button>
                             </Tooltip>
                         </div>
-                        <div className='info-grid'>
-                            <div className='info-item'>
+                        <div className="info-grid">
+                            <div className="info-item">
                                 <label>Surfaces:</label>
                                 <span>{state.geometry.surfaces.length}</span>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Cells:</label>
                                 <span>{state.geometry.cells.length}</span>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Universes:</label>
                                 <span>{state.geometry.universes.length}</span>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Root Universe:</label>
                                 <span>{state.geometry.rootUniverseId}</span>
                             </div>
                         </div>
                         {state.geometry.surfaces.length > 0 && (
-                            <div className='info-footer'>
-                                <i className='codicon codicon-info'></i>
-                                <span>Surface types: {Array.from(new Set(state.geometry.surfaces.map(s => s.type))).join(', ')}</span>
+                            <div className="info-footer">
+                                <i className="codicon codicon-info"></i>
+                                <span>Surface types: {Array.from(new Set(state.geometry.surfaces.map((s) => s.type))).join(', ')}</span>
                             </div>
                         )}
                     </div>
@@ -2708,34 +2726,31 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {/* Geometry Summary - DAGMC */}
                 {state.settings.dagmcFile && (
-                    <div className='simulation-info dagmc-geometry'>
-                        <div className='info-header'>
-                            <h4><i className='codicon codicon-file-code'></i> DAGMC Geometry</h4>
-                            <Tooltip content='Open CSG Builder to view DAGMC details'>
-                                <button
-                                    className='theia-button secondary small'
-                                    onClick={() => this.openCSGBuilder()}
-                                >
-                                    <i className='codicon codicon-eye'></i> View Details
+                    <div className="simulation-info dagmc-geometry">
+                        <div className="info-header">
+                            <h4>
+                                <i className="codicon codicon-file-code"></i> DAGMC Geometry
+                            </h4>
+                            <Tooltip content="Open CSG Builder to view DAGMC details">
+                                <button className="theia-button secondary small" onClick={() => this.openCSGBuilder()}>
+                                    <i className="codicon codicon-eye"></i> View Details
                                 </button>
                             </Tooltip>
                         </div>
-                        <div className='info-grid'>
-                            <div className='info-item'>
+                        <div className="info-grid">
+                            <div className="info-item">
                                 <label>File:</label>
-                                <Tooltip content={state.settings.dagmcFile} position='bottom'>
-                                    <span className='dagmc-filename'>
-                                        {state.settings.dagmcFile.split('/').pop()}
-                                    </span>
+                                <Tooltip content={state.settings.dagmcFile} position="bottom">
+                                    <span className="dagmc-filename">{state.settings.dagmcFile.split('/').pop()}</span>
                                 </Tooltip>
                             </div>
-                            <div className='info-item'>
+                            <div className="info-item">
                                 <label>Type:</label>
                                 <span>Faceted Mesh (DAGMC)</span>
                             </div>
                         </div>
-                        <div className='info-footer dagmc-note'>
-                            <i className='codicon codicon-info'></i>
+                        <div className="info-footer dagmc-note">
+                            <i className="codicon codicon-info"></i>
                             <span>DAGMC geometry is used directly. No CSG surfaces/cells needed.</span>
                         </div>
                     </div>
@@ -2743,41 +2758,37 @@ export class SimulationDashboardWidget extends ReactWidget {
 
                 {/* Console Output - File-based logs with filter */}
                 <div ref={this.consolePanelRef} className={`console-panel ${this.consoleMaximized ? 'maximized' : ''}`}>
-                    <div className='console-header'>
-                        <h4><i className='codicon codicon-terminal'></i> Simulation Output</h4>
-                        <div className='console-actions'>
+                    <div className="console-header">
+                        <h4>
+                            <i className="codicon codicon-terminal"></i> Simulation Output
+                        </h4>
+                        <div className="console-actions">
                             <input
-                                type='text'
-                                className='console-filter'
-                                placeholder='Filter logs...'
+                                type="text"
+                                className="console-filter"
+                                placeholder="Filter logs..."
                                 value={this.logFilter}
                                 onChange={(e) => this.filterLogContent(e.target.value)}
                             />
                             <Tooltip content={this.consoleMaximized ? 'Restore' : 'Maximize'}>
-                                <button
-                                    className='theia-button secondary small'
-                                    onClick={() => this.toggleConsoleMaximize()}
-                                >
+                                <button className="theia-button secondary small" onClick={() => this.toggleConsoleMaximize()}>
                                     <i className={`codicon codicon-${this.consoleMaximized ? 'collapse-all' : 'expand-all'}`}></i>
                                 </button>
                             </Tooltip>
-                            <Tooltip content='Clear console'>
-                                <button
-                                    className='theia-button secondary small'
-                                    onClick={() => this.clearConsole()}
-                                >
-                                    <i className='codicon codicon-clear-all'></i>
+                            <Tooltip content="Clear console">
+                                <button className="theia-button secondary small" onClick={() => this.clearConsole()}>
+                                    <i className="codicon codicon-clear-all"></i>
                                 </button>
                             </Tooltip>
                         </div>
                     </div>
-                    <div className='console-content' ref={this.consoleContentRef}>
+                    <div className="console-content" ref={this.consoleContentRef}>
                         {this.loadedLogContent || this.consoleOutput.length > 0 ? (
-                            <pre className='console-log'>
-                                {this.filteredLogContent || this.loadedLogContent || this.consoleOutput.map(l => l.message).join('\n')}
+                            <pre className="console-log">
+                                {this.filteredLogContent || this.loadedLogContent || this.consoleOutput.map((l) => l.message).join('\n')}
                             </pre>
                         ) : (
-                            <div className='console-empty'>No output yet. Run a simulation to see logs here.</div>
+                            <div className="console-empty">No output yet. Run a simulation to see logs here.</div>
                         )}
                     </div>
                 </div>
@@ -2809,7 +2820,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
 
         this.messageService.info(`Importing WWINP from ${uri.path.toString()}...`);
-        
+
         try {
             // Call backend service to parse WWINP
             const result = await this.studioService.getBackendService().importWWINP({
@@ -2839,7 +2850,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     private async exportWWINP(): Promise<void> {
         const state = this.stateManager.getState();
         const vr = state.varianceReduction;
-        
+
         if (!vr?.weightWindows) {
             this.messageService.warn('No weight windows configured to export');
             return;
@@ -2856,7 +2867,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
 
         this.messageService.info(`Exporting WWINP to ${uri.path.toString()}...`);
-        
+
         try {
             // Call backend service to generate WWINP
             const result = await this.studioService.getBackendService().exportWWINP({
@@ -2946,11 +2957,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (this.logPollInterval) {
             window.clearInterval(this.logPollInterval);
         }
-        
+
         // Poll for log updates every 2 seconds
         this.logPollInterval = window.setInterval(async () => {
             if (!this.currentProcessId) return;
-            
+
             try {
                 const result = await this.simulationRunner.getSimulationLog(this.currentProcessId);
                 if (result.success && result.logContent) {
@@ -2959,7 +2970,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                         this.loadedLogContent = result.logContent;
                         this.applyLogFilter();
                         this.update();
-                        
+
                         // Auto-scroll to bottom
                         setTimeout(() => {
                             const content = this.consoleContentRef.current;
@@ -2994,7 +3005,7 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private async loadFinalLog(): Promise<void> {
         if (!this.currentProcessId) return;
-        
+
         try {
             const result = await this.simulationRunner.getSimulationLog(this.currentProcessId);
             if (result.success && result.logContent) {
@@ -3015,12 +3026,10 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.filteredLogContent = '';
             return;
         }
-        
+
         const filterLower = this.logFilter.toLowerCase();
         const lines = this.loadedLogContent.split('\n');
-        const filtered = lines.filter(line => 
-            line.toLowerCase().includes(filterLower)
-        ).join('\n');
+        const filtered = lines.filter((line) => line.toLowerCase().includes(filterLower)).join('\n');
         this.filteredLogContent = filtered;
     }
 
@@ -3115,12 +3124,12 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.messageService.error('Project name cannot be empty');
             return;
         }
-        
+
         this.stateManager.updateMetadata({
             name: this.newProjectName.trim(),
             description: this.newProjectDescription.trim() || undefined
         });
-        
+
         this.editingProjectName = false;
         this.updateTitle();
         this.messageService.info('Project renamed');
@@ -3216,7 +3225,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             const dir = this.lastSimulationDirectory.replace(/[\\/]logs$/, '');
             defaultFolder = FileStat.dir(new URI(dir));
         }
-        
+
         const props: OpenFileDialogProps = {
             title: 'Select Output Directory for XML Files',
             canSelectFiles: false,
@@ -3227,7 +3236,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (!uri) {
             return;
         }
-        
+
         // Save the selected directory for next time
         this.lastSimulationDirectory = uri.path.toString();
 
@@ -3236,7 +3245,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const hasCSG = state.geometry.cells.length > 0;
         const hasDagmc = !!state.settings.dagmcFile;
-        
+
         try {
             const result = await this.xmlService.generateXML({
                 state,
@@ -3244,15 +3253,15 @@ export class SimulationDashboardWidget extends ReactWidget {
                 files: {
                     materials: true,
                     settings: true,
-                    geometry: hasCSG || hasDagmc,  // Generate for DAGMC too (needs dagmc_universe reference)
+                    geometry: hasCSG || hasDagmc, // Generate for DAGMC too (needs dagmc_universe reference)
                     tallies: state.tallies.length > 0,
                     plots: false
                 }
             });
 
             if (result.success) {
-                this.messageService.info(`Generated XML files: ${result.generatedFiles.map(f => f.split('/').pop()).join(', ')}`);
-                this.logToConsole(`Generated: ${result.generatedFiles.map(f => f.split('/').pop()).join(', ')}`);
+                this.messageService.info(`Generated XML files: ${result.generatedFiles.map((f) => f.split('/').pop()).join(', ')}`);
+                this.logToConsole(`Generated: ${result.generatedFiles.map((f) => f.split('/').pop()).join(', ')}`);
             } else {
                 this.messageService.error(`Failed to generate XML: ${result.error}`);
                 this.logToConsole(`XML generation failed: ${result.error}`, 'error');
@@ -3274,7 +3283,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             const dir = this.lastSimulationDirectory.replace(/[\\/]logs$/, '');
             defaultFolder = FileStat.dir(new URI(dir));
         }
-        
+
         const props: OpenFileDialogProps = {
             title: 'Select Directory with XML Files',
             canSelectFiles: false,
@@ -3285,7 +3294,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (!uri) {
             return;
         }
-        
+
         // Save the selected directory for next time
         this.lastSimulationDirectory = uri.path.toString();
 
@@ -3307,16 +3316,16 @@ export class SimulationDashboardWidget extends ReactWidget {
                 const surfCount = result.state.geometry?.surfaces?.length || 0;
                 this.messageService.info(`Imported XML files with ${result.warnings?.length || 0} warnings`);
                 this.logToConsole(`Imported ${matCount} materials, ${cellCount} cells, ${surfCount} surfaces`);
-                
+
                 // Debug: log first surface
                 if (result.state.geometry?.surfaces?.length > 0) {
                     const firstSurf = result.state.geometry.surfaces[0];
                     console.log('[ImportXML] First surface:', firstSurf);
                 }
-                
+
                 if (result.warnings && result.warnings.length > 0) {
                     console.warn('[OpenMC Studio] Import warnings:', result.warnings);
-                    result.warnings.forEach(w => this.logToConsole(`Warning: ${w}`, 'warn'));
+                    result.warnings.forEach((w) => this.logToConsole(`Warning: ${w}`, 'warn'));
                 }
             } else {
                 this.messageService.error(`Failed to import XML: ${result.errors.join(', ')}`);
@@ -3336,7 +3345,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         // First validate
         const validation = await this.validateModel();
         if (!validation.valid) {
-            const errors = validation.issues.filter(i => i.severity === 'error').length;
+            const errors = validation.issues.filter((i) => i.severity === 'error').length;
             this.messageService.error(`Cannot run simulation: ${errors} validation errors. Check the Simulation tab for details.`);
             this.logToConsole(`Validation failed: ${errors} errors`, 'error');
             return;
@@ -3369,7 +3378,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 defaultFolder = FileStat.dir(new URI(this.lastSimulationDirectory.replace(/[\\/]logs$/, '')));
             }
         }
-        
+
         const props: OpenFileDialogProps = {
             title: 'Select Working Directory for Simulation',
             canSelectFiles: false,
@@ -3383,7 +3392,7 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         // Save the selected directory for next time
         this.lastSimulationDirectory = uri.path.toString();
-        
+
         this.logToConsole(`Starting simulation in ${uri.path.toString()}...`);
 
         const simState = this.stateManager.getState();
@@ -3399,7 +3408,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 files: {
                     materials: true,
                     settings: true,
-                    geometry: simHasCSG || simHasDagmc,  // Generate for DAGMC too (needs dagmc_universe reference)
+                    geometry: simHasCSG || simHasDagmc, // Generate for DAGMC too (needs dagmc_universe reference)
                     tallies: simState.tallies.length > 0,
                     plots: false
                 }
@@ -3457,7 +3466,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     public async stopSimulation(): Promise<void> {
         this.logToConsole('Stopping simulation...');
         const success = await this.simulationRunner.stopSimulation();
-        
+
         if (success) {
             this.messageService.info('Simulation stopped');
             this.logToConsole('Simulation stopped by user');
@@ -3465,7 +3474,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.messageService.warn('Failed to stop simulation');
             this.logToConsole('Failed to stop simulation', 'warn');
         }
-        
+
         // Force reset of running state regardless of success
         this.isRunning = false;
         this.simulationProgress = undefined;
@@ -3488,24 +3497,24 @@ export class SimulationDashboardWidget extends ReactWidget {
         const result = await this.stateManager.validate();
         this.validationIssues = result.issues;
         this.activeTab = 'simulation';
-        
-        const errorCount = result.issues.filter(i => i.severity === 'error').length;
-        const warnCount = result.issues.filter(i => i.severity === 'warning').length;
-        
+
+        const errorCount = result.issues.filter((i) => i.severity === 'error').length;
+        const warnCount = result.issues.filter((i) => i.severity === 'warning').length;
+
         if (result.valid) {
             this.logToConsole('Validation passed');
         } else {
             this.logToConsole(`Validation failed: ${errorCount} errors, ${warnCount} warnings`, 'error');
         }
-        
-        result.issues.forEach(issue => {
+
+        result.issues.forEach((issue) => {
             if (issue.severity === 'error') {
                 this.logToConsole(`[${issue.category}] ${issue.message}`, 'error');
             } else if (issue.severity === 'warning') {
                 this.logToConsole(`[${issue.category}] ${issue.message}`, 'warn');
             }
         });
-        
+
         this.update();
         return result;
     }
@@ -3719,31 +3728,27 @@ export class SimulationDashboardWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
+
         // Find first sphere
-        const sphere = state.geometry.surfaces.find(s => s.type === 'sphere');
+        const sphere = state.geometry.surfaces.find((s) => s.type === 'sphere');
         if (!sphere) {
             this.messageService.warn('No sphere found. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const c = sphere.coefficients as any;
-        const x0 = c.x0 !== undefined ? c.x0 : (Array.isArray(c) ? c[0] : 0);
-        const y0 = c.y0 !== undefined ? c.y0 : (Array.isArray(c) ? c[1] : 0);
-        const z0 = c.z0 !== undefined ? c.z0 : (Array.isArray(c) ? c[2] : 0);
-        
+        const x0 = c.x0 !== undefined ? c.x0 : Array.isArray(c) ? c[0] : 0;
+        const y0 = c.y0 !== undefined ? c.y0 : Array.isArray(c) ? c[1] : 0;
+        const z0 = c.z0 !== undefined ? c.z0 : Array.isArray(c) ? c[2] : 0;
+
         if (x0 === undefined || y0 === undefined || z0 === undefined) {
             this.messageService.error('Could not read sphere center coordinates');
             return;
         }
-        
+
         (source.spatial as any).origin = [x0, y0, z0];
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.messageService.info(`Source ${index + 1} set to sphere center: (${x0}, ${y0}, ${z0})`);
@@ -3757,28 +3762,26 @@ export class SimulationDashboardWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
+
         // Debug: log geometry info
         console.log('[SnapToGeometry] Geometry info:', {
             surfaces: state.geometry.surfaces.length,
             cells: state.geometry.cells.length,
-            surfaceTypes: state.geometry.surfaces.map(s => s.type),
-            firstSurface: state.geometry.surfaces[0] ? {
-                id: state.geometry.surfaces[0].id,
-                type: state.geometry.surfaces[0].type,
-                coeffs: state.geometry.surfaces[0].coefficients
-            } : null
+            surfaceTypes: state.geometry.surfaces.map((s) => s.type),
+            firstSurface: state.geometry.surfaces[0]
+                ? {
+                      id: state.geometry.surfaces[0].id,
+                      type: state.geometry.surfaces[0].type,
+                      coeffs: state.geometry.surfaces[0].coefficients
+                  }
+                : null
         });
-        
+
         // Calculate bounds from surfaces
         const bounds = this.calculateGeometryBounds(state);
-        
+
         if (!bounds) {
             this.messageService.warn('No geometry defined. Open CSG Builder to create geometry?');
             this.logToConsole('No geometry found. Open CSG Builder to create geometry.', 'error');
@@ -3786,10 +3789,10 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.openCSGBuilder();
             return;
         }
-        
+
         // Update source based on its type
         const spatial = source.spatial as any;
-        
+
         console.log(`[SnapToGeometry] Source type: ${spatial.type}, current bounds:`, {
             lowerLeft: spatial.lowerLeft,
             upperRight: spatial.upperRight,
@@ -3797,7 +3800,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             center: spatial.center,
             radius: spatial.radius
         });
-        
+
         if (spatial.type === 'point') {
             // Set point to center of geometry
             spatial.origin = [
@@ -3805,53 +3808,41 @@ export class SimulationDashboardWidget extends ReactWidget {
                 (bounds.min[1] + bounds.max[1]) / 2,
                 (bounds.min[2] + bounds.max[2]) / 2
             ];
-            this.messageService.info(`Source ${index + 1} set to geometry center: (${spatial.origin.map((v: number) => v.toFixed(2)).join(', ')})`);
+            this.messageService.info(
+                `Source ${index + 1} set to geometry center: (${spatial.origin.map((v: number) => v.toFixed(2)).join(', ')})`
+            );
         } else if (spatial.type === 'box') {
             // Set box to geometry bounds with 10% padding
             const padding = 0.1;
-            const size = [
-                bounds.max[0] - bounds.min[0],
-                bounds.max[1] - bounds.min[1],
-                bounds.max[2] - bounds.min[2]
-            ];
-            spatial.lowerLeft = [
-                bounds.min[0] - size[0] * padding,
-                bounds.min[1] - size[1] * padding,
-                bounds.min[2] - size[2] * padding
-            ];
-            spatial.upperRight = [
-                bounds.max[0] + size[0] * padding,
-                bounds.max[1] + size[1] * padding,
-                bounds.max[2] + size[2] * padding
-            ];
+            const size = [bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1], bounds.max[2] - bounds.min[2]];
+            spatial.lowerLeft = [bounds.min[0] - size[0] * padding, bounds.min[1] - size[1] * padding, bounds.min[2] - size[2] * padding];
+            spatial.upperRight = [bounds.max[0] + size[0] * padding, bounds.max[1] + size[1] * padding, bounds.max[2] + size[2] * padding];
             this.messageService.info(`Source ${index + 1} box set to geometry bounds with padding`);
-            
+
             // Warn if geometry has complex regions
-            if (state.geometry.cells.some(c => c.regionString && (c.regionString.includes('-') || c.regionString.includes('|')))) {
+            if (state.geometry.cells.some((c) => c.regionString && (c.regionString.includes('-') || c.regionString.includes('|')))) {
                 this.logToConsole('Note: Geometry has complex regions. Box source may include areas outside cells.', 'warn');
-                this.logToConsole('Tip: If simulation fails with "Too few source sites", try using a Point source at the geometry center instead.', 'warn');
+                this.logToConsole(
+                    'Tip: If simulation fails with "Too few source sites", try using a Point source at the geometry center instead.',
+                    'warn'
+                );
             }
         } else if (spatial.type === 'sphere') {
             // Set sphere to enclose geometry
-            const center = [
-                (bounds.min[0] + bounds.max[0]) / 2,
-                (bounds.min[1] + bounds.max[1]) / 2,
-                (bounds.min[2] + bounds.max[2]) / 2
-            ];
-            const radius = Math.sqrt(
-                Math.pow(bounds.max[0] - center[0], 2) +
-                Math.pow(bounds.max[1] - center[1], 2) +
-                Math.pow(bounds.max[2] - center[2], 2)
-            ) * 1.2; // 20% padding
+            const center = [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
+            const radius =
+                Math.sqrt(
+                    Math.pow(bounds.max[0] - center[0], 2) + Math.pow(bounds.max[1] - center[1], 2) + Math.pow(bounds.max[2] - center[2], 2)
+                ) * 1.2; // 20% padding
             spatial.center = center;
             spatial.radius = radius;
             this.messageService.info(`Source ${index + 1} sphere set to enclose geometry (radius: ${radius.toFixed(2)})`);
         }
-        
+
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.logToConsole(`Source ${index + 1} snapped to geometry bounds`);
         this.logToConsole(`  New bounds: lowerLeft=[${spatial.lowerLeft?.join(', ')}], upperRight=[${spatial.upperRight?.join(', ')}]`);
-        
+
         // Force immediate update
         this.update();
     }
@@ -3862,28 +3853,24 @@ export class SimulationDashboardWidget extends ReactWidget {
     private snapSourceToGeometryCenter(index: number): void {
         const state = this.stateManager.getState();
         const bounds = this.calculateGeometryBounds(state);
-        
+
         if (!bounds) {
             this.messageService.warn('No geometry defined. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
+
         (source.spatial as any).origin = [
             (bounds.min[0] + bounds.max[0]) / 2,
             (bounds.min[1] + bounds.max[1]) / 2,
             (bounds.min[2] + bounds.max[2]) / 2
         ];
-        
+
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.messageService.info(`Source ${index + 1} set to geometry center`);
         this.logToConsole(`Source ${index + 1} positioned at geometry center (${(source.spatial as any).origin.join(', ')})`);
@@ -3895,28 +3882,20 @@ export class SimulationDashboardWidget extends ReactWidget {
     private snapSourceToGeometryBounds(index: number, padding: number): void {
         const state = this.stateManager.getState();
         const bounds = this.calculateGeometryBounds(state);
-        
+
         if (!bounds) {
             this.messageService.warn('No geometry defined. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
-        const size = [
-            bounds.max[0] - bounds.min[0],
-            bounds.max[1] - bounds.min[1],
-            bounds.max[2] - bounds.min[2]
-        ];
-        
+
+        const size = [bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1], bounds.max[2] - bounds.min[2]];
+
         (source.spatial as any).lowerLeft = [
             bounds.min[0] - size[0] * padding,
             bounds.min[1] - size[1] * padding,
@@ -3927,7 +3906,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             bounds.max[1] + size[1] * padding,
             bounds.max[2] + size[2] * padding
         ];
-        
+
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         const paddingText = padding > 0 ? `with ${(padding * 100).toFixed(0)}% padding` : 'tight fit';
         this.messageService.info(`Source ${index + 1} box set to ${paddingText}`);
@@ -3939,32 +3918,28 @@ export class SimulationDashboardWidget extends ReactWidget {
      */
     private snapSourceToMatchSphere(index: number): void {
         const state = this.stateManager.getState();
-        const sphere = state.geometry.surfaces.find(s => s.type === 'sphere');
-        
+        const sphere = state.geometry.surfaces.find((s) => s.type === 'sphere');
+
         if (!sphere) {
             this.messageService.warn('No sphere found. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
+
         const c = sphere.coefficients as any;
-        const x0 = c.x0 !== undefined ? c.x0 : (Array.isArray(c) ? c[0] : 0);
-        const y0 = c.y0 !== undefined ? c.y0 : (Array.isArray(c) ? c[1] : 0);
-        const z0 = c.z0 !== undefined ? c.z0 : (Array.isArray(c) ? c[2] : 0);
-        const r = c.r !== undefined ? c.r : (Array.isArray(c) ? c[3] : 1);
-        
+        const x0 = c.x0 !== undefined ? c.x0 : Array.isArray(c) ? c[0] : 0;
+        const y0 = c.y0 !== undefined ? c.y0 : Array.isArray(c) ? c[1] : 0;
+        const z0 = c.z0 !== undefined ? c.z0 : Array.isArray(c) ? c[2] : 0;
+        const r = c.r !== undefined ? c.r : Array.isArray(c) ? c[3] : 1;
+
         (source.spatial as any).center = [x0, y0, z0];
         (source.spatial as any).radius = r;
-        
+
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.messageService.info(`Source ${index + 1} matched to sphere surface`);
         this.logToConsole(`Source ${index + 1} matched to sphere at (${x0}, ${y0}, ${z0}), radius ${r}`);
@@ -3976,36 +3951,27 @@ export class SimulationDashboardWidget extends ReactWidget {
     private snapSourceToEncloseGeometry(index: number): void {
         const state = this.stateManager.getState();
         const bounds = this.calculateGeometryBounds(state);
-        
+
         if (!bounds) {
             this.messageService.warn('No geometry defined. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
-        const center = [
-            (bounds.min[0] + bounds.max[0]) / 2,
-            (bounds.min[1] + bounds.max[1]) / 2,
-            (bounds.min[2] + bounds.max[2]) / 2
-        ];
-        const radius = Math.sqrt(
-            Math.pow(bounds.max[0] - center[0], 2) +
-            Math.pow(bounds.max[1] - center[1], 2) +
-            Math.pow(bounds.max[2] - center[2], 2)
-        ) * 1.2; // 20% padding
-        
+
+        const center = [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
+        const radius =
+            Math.sqrt(
+                Math.pow(bounds.max[0] - center[0], 2) + Math.pow(bounds.max[1] - center[1], 2) + Math.pow(bounds.max[2] - center[2], 2)
+            ) * 1.2; // 20% padding
+
         (source.spatial as any).center = center;
         (source.spatial as any).radius = radius;
-        
+
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.messageService.info(`Source ${index + 1} sphere encloses all geometry`);
         this.logToConsole(`Source ${index + 1} sphere set to enclose geometry (radius: ${radius.toFixed(2)})`);
@@ -4018,29 +3984,25 @@ export class SimulationDashboardWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const settings = state.settings;
         // Deep clone sources to avoid mutating original state
-        const newSources = settings.sources.map((s, i) => 
-            i === index 
-                ? { ...s, spatial: { ...s.spatial } }
-                : { ...s }
-        );
+        const newSources = settings.sources.map((s, i) => (i === index ? { ...s, spatial: { ...s.spatial } } : { ...s }));
         const source = newSources[index];
-        
+
         // Find first cylinder
-        const cylinder = state.geometry.surfaces.find(s => 
-            s.type === 'z-cylinder' || s.type === 'y-cylinder' || s.type === 'x-cylinder'
-        );
-        
+        const cylinder = state.geometry.surfaces.find((s) => s.type === 'z-cylinder' || s.type === 'y-cylinder' || s.type === 'x-cylinder');
+
         if (!cylinder) {
             this.messageService.warn('No cylinder found. Opening CSG Builder...');
             this.openCSGBuilder();
             return;
         }
-        
+
         const c = cylinder.coefficients as any;
-        const getValue = (key: string, idx: number) => c[key] !== undefined ? c[key] : (Array.isArray(c) ? c[idx] : 0);
-        
-        let x0 = 0, y0 = 0, z0 = 0;
-        
+        const getValue = (key: string, idx: number) => (c[key] !== undefined ? c[key] : Array.isArray(c) ? c[idx] : 0);
+
+        let x0 = 0,
+            y0 = 0,
+            z0 = 0;
+
         if (cylinder.type === 'z-cylinder') {
             x0 = getValue('x0', 0);
             y0 = getValue('y0', 1);
@@ -4054,13 +4016,13 @@ export class SimulationDashboardWidget extends ReactWidget {
             y0 = getValue('y0', 1);
             z0 = getValue('z0', 2);
         }
-        
+
         (source.spatial as any).origin = [x0, y0, z0];
         this.stateManager.updateSettings({ ...settings, sources: newSources });
         this.messageService.info(`Source ${index + 1} set to ${cylinder.type} axis: (${x0}, ${y0}, ${z0})`);
         this.logToConsole(`Source ${index + 1} positioned at ${cylinder.type} axis (${x0}, ${y0}, ${z0})`);
     }
-    
+
     /**
      * Calculate bounding box from geometry surfaces
      */
@@ -4078,36 +4040,43 @@ export class SimulationDashboardWidget extends ReactWidget {
                 max: state.settings.dagmcInfo.boundingBox.max
             };
         }
-        
+
         if (state.geometry.surfaces.length === 0) {
             console.log('[SnapToGeometry] No surfaces found');
             return null;
         }
-        
+
         console.log(`[SnapToGeometry] Calculating bounds from ${state.geometry.surfaces.length} surfaces`);
-        
-        let minX = Infinity, minY = Infinity, minZ = Infinity;
-        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        let minX = Infinity,
+            minY = Infinity,
+            minZ = Infinity;
+        let maxX = -Infinity,
+            maxY = -Infinity,
+            maxZ = -Infinity;
         let validSurfaceCount = 0;
-        
+
         for (const surface of state.geometry.surfaces) {
             const c = surface.coefficients as any;
             if (!c) {
                 console.log(`[SnapToGeometry] Surface ${surface.id}: no coefficients`);
                 continue;
             }
-            
+
             // Handle both object format (new) and array format (old)
             const getValue = (key: string, index: number): number | undefined => {
                 if (c[key] !== undefined) return c[key];
                 if (Array.isArray(c) && c.length > index) return c[index];
                 return undefined;
             };
-            
+
             switch (surface.type) {
                 case 'sphere': {
                     // Sphere: x0, y0, z0, r
-                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), z0 = getValue('z0', 2), r = getValue('r', 3);
+                    const x0 = getValue('x0', 0),
+                        y0 = getValue('y0', 1),
+                        z0 = getValue('z0', 2),
+                        r = getValue('r', 3);
                     if (x0 !== undefined && y0 !== undefined && z0 !== undefined && r !== undefined) {
                         minX = Math.min(minX, x0 - r);
                         minY = Math.min(minY, y0 - r);
@@ -4119,7 +4088,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'x-plane': {
                     // x - x0 = 0
                     const x0 = getValue('x0', 0);
@@ -4130,7 +4099,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'y-plane': {
                     // y - y0 = 0
                     const y0 = getValue('y0', 0);
@@ -4141,7 +4110,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'z-plane': {
                     // z - z0 = 0
                     const z0 = getValue('z0', 0);
@@ -4152,10 +4121,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'x-cylinder': {
                     // (y-y0)^2 + (z-z0)^2 = r^2
-                    const y0 = getValue('y0', 0), z0 = getValue('z0', 1), r = getValue('r', 2);
+                    const y0 = getValue('y0', 0),
+                        z0 = getValue('z0', 1),
+                        r = getValue('r', 2);
                     if (y0 !== undefined && z0 !== undefined && r !== undefined) {
                         minY = Math.min(minY, y0 - r);
                         minZ = Math.min(minZ, z0 - r);
@@ -4165,10 +4136,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'y-cylinder': {
                     // (x-x0)^2 + (z-z0)^2 = r^2
-                    const x0 = getValue('x0', 0), z0 = getValue('z0', 1), r = getValue('r', 2);
+                    const x0 = getValue('x0', 0),
+                        z0 = getValue('z0', 1),
+                        r = getValue('r', 2);
                     if (x0 !== undefined && z0 !== undefined && r !== undefined) {
                         minX = Math.min(minX, x0 - r);
                         minZ = Math.min(minZ, z0 - r);
@@ -4178,10 +4151,12 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 case 'z-cylinder': {
                     // (x-x0)^2 + (y-y0)^2 = r^2
-                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), r = getValue('r', 2);
+                    const x0 = getValue('x0', 0),
+                        y0 = getValue('y0', 1),
+                        r = getValue('r', 2);
                     if (x0 !== undefined && y0 !== undefined && r !== undefined) {
                         minX = Math.min(minX, x0 - r);
                         minY = Math.min(minY, y0 - r);
@@ -4191,12 +4166,15 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                
+
                 case 'x-cone':
                 case 'y-cone':
                 case 'z-cone': {
                     // Cone: x0, y0, z0, r2 (squared radius)
-                    const x0 = getValue('x0', 0), y0 = getValue('y0', 1), z0 = getValue('z0', 2), r2 = getValue('r2', 3);
+                    const x0 = getValue('x0', 0),
+                        y0 = getValue('y0', 1),
+                        z0 = getValue('z0', 2),
+                        r2 = getValue('r2', 3);
                     if (x0 !== undefined && y0 !== undefined && z0 !== undefined && r2 !== undefined) {
                         const r = Math.sqrt(Math.abs(r2));
                         minX = Math.min(minX, x0 - r);
@@ -4209,25 +4187,36 @@ export class SimulationDashboardWidget extends ReactWidget {
                     }
                     break;
                 }
-                    
+
                 default:
                     console.log(`[SnapToGeometry] Unknown surface type: ${surface.type}`);
             }
         }
-        
-        console.log(`[SnapToGeometry] Valid surfaces: ${validSurfaceCount}, Bounds: X[${minX}, ${maxX}], Y[${minY}, ${maxY}], Z[${minZ}, ${maxZ}]`);
-        
+
+        console.log(
+            `[SnapToGeometry] Valid surfaces: ${validSurfaceCount}, Bounds: X[${minX}, ${maxX}], Y[${minY}, ${maxY}], Z[${minZ}, ${maxZ}]`
+        );
+
         // If no valid bounds found, return null
         if (minX === Infinity || minY === Infinity || minZ === Infinity) {
             console.log('[SnapToGeometry] No valid bounds could be calculated');
             return null;
         }
-        
+
         // Add some default padding if bounds are zero in any dimension
-        if (maxX - minX < 0.001) { maxX += 1; minX -= 1; }
-        if (maxY - minY < 0.001) { maxY += 1; minY -= 1; }
-        if (maxZ - minZ < 0.001) { maxZ += 1; minZ -= 1; }
-        
+        if (maxX - minX < 0.001) {
+            maxX += 1;
+            minX -= 1;
+        }
+        if (maxY - minY < 0.001) {
+            maxY += 1;
+            minY -= 1;
+        }
+        if (maxZ - minZ < 0.001) {
+            maxZ += 1;
+            minZ -= 1;
+        }
+
         return {
             min: [minX, minY, minZ],
             max: [maxX, maxY, maxZ]
@@ -4247,11 +4236,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.newMaterialName = material.name;
         this.newMaterialDensity = material.density;
         this.newMaterialDensityUnit = material.densityUnit;
-        this.newMaterialNuclides = [...material.nuclides.map(n => ({ ...n }))];
+        this.newMaterialNuclides = [...material.nuclides.map((n) => ({ ...n }))];
         this.newMaterialIsDepletable = material.isDepletable || false;
         this.newMaterialVolume = material.volume;
         this.newMaterialTemperature = material.temperature;
-        this.newMaterialThermalScattering = material.thermalScattering?.map(s => ({ ...s })) || [];
+        this.newMaterialThermalScattering = material.thermalScattering?.map((s) => ({ ...s })) || [];
         this.newMaterialColor = material.color || '#4A90D9';
         this.showNewMaterialForm = true;
         this.update();
@@ -4280,11 +4269,11 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.newMaterialName = `${material.name} (Copy)`;
         this.newMaterialDensity = material.density;
         this.newMaterialDensityUnit = material.densityUnit;
-        this.newMaterialNuclides = [...material.nuclides.map(n => ({ ...n }))];
+        this.newMaterialNuclides = [...material.nuclides.map((n) => ({ ...n }))];
         this.newMaterialIsDepletable = material.isDepletable || false;
         this.newMaterialVolume = material.volume;
         this.newMaterialTemperature = material.temperature;
-        this.newMaterialThermalScattering = material.thermalScattering?.map(s => ({ ...s })) || [];
+        this.newMaterialThermalScattering = material.thermalScattering?.map((s) => ({ ...s })) || [];
         this.newMaterialColor = material.color || '#4A90D9';
         this.showNewMaterialForm = true;
         this.update();
@@ -4315,7 +4304,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         }
 
         // Filter out empty nuclides
-        const validNuclides = this.newMaterialNuclides.filter(n => n.name.trim() !== '');
+        const validNuclides = this.newMaterialNuclides.filter((n) => n.name.trim() !== '');
         if (validNuclides.length === 0) {
             this.messageService.error('At least one valid nuclide is required');
             return;
@@ -4332,14 +4321,14 @@ export class SimulationDashboardWidget extends ReactWidget {
             name: this.newMaterialName.trim(),
             density: this.newMaterialDensity,
             densityUnit: this.newMaterialDensityUnit,
-            nuclides: validNuclides.map(n => ({
+            nuclides: validNuclides.map((n) => ({
                 name: n.name.trim(),
                 fraction: n.fraction,
                 fractionType: n.fractionType
             })),
             thermalScattering: this.newMaterialThermalScattering
-                .filter(sab => sab.name.trim() !== '')
-                .map(sab => ({
+                .filter((sab) => sab.name.trim() !== '')
+                .map((sab) => ({
                     name: sab.name.trim(),
                     fraction: sab.fraction
                 })),

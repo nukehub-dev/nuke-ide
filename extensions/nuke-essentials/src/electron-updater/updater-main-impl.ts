@@ -6,7 +6,6 @@ const { autoUpdater } = require('electron-updater');
 
 @injectable()
 export class NukeUpdaterMainImpl implements NukeUpdaterService, ElectronMainApplicationContribution {
-
     private readyToUpdate = false;
 
     constructor() {

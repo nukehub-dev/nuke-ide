@@ -7,6 +7,7 @@ This guide covers the most common issues and how to fix them.
 ## "Python not found" or "Failed to detect Python"
 
 **Symptoms:**
+
 - Error message when opening a file
 - Health check shows red crosses for all packages
 
@@ -29,6 +30,7 @@ This guide covers the most common issues and how to fix them.
 ## Server Starts But Widget Shows Blank
 
 **Symptoms:**
+
 - Status says "Server ready" but the iframe is empty or white
 
 **Fixes:**
@@ -46,6 +48,7 @@ This guide covers the most common issues and how to fix them.
 ## "Failed to start server" / Timeout
 
 **Symptoms:**
+
 - Error: `Server not responding after N seconds`
 - Spinner stops with an error message
 
@@ -62,6 +65,7 @@ This guide covers the most common issues and how to fix them.
 ## Widget Reopens Instead of Creating a New One
 
 **Symptoms:**
+
 - Opening a different file reuses the existing tab
 
 **Cause:**
@@ -69,6 +73,7 @@ Widget IDs must be unique per file. This is usually handled automatically, but c
 
 **Fix:**
 Ensure any custom code uses a unique widget ID:
+
 ```typescript
 const widgetId = `my-plugin-${filePath}`;
 ```
@@ -78,6 +83,7 @@ const widgetId = `my-plugin-${filePath}`;
 ## Health Check Shows Wrong Environment
 
 **Symptoms:**
+
 - Health check passes but the actual operation fails
 - Packages are shown as missing even though they are installed somewhere
 
@@ -85,6 +91,7 @@ const widgetId = `my-plugin-${filePath}`;
 Health checks verify the **currently configured** environment, not fallback environments.
 
 **Fix:**
+
 1. Go to `Settings → Nuke Utils`.
 2. Switch to the correct Python path / conda environment.
 3. Re-run the health check (`Tools → Visualizer → Environment → Run Health Check`).
@@ -94,6 +101,7 @@ Health checks verify the **currently configured** environment, not fallback envi
 ## Commands Don't Appear in Menus
 
 **Symptoms:**
+
 - `Tools → Visualizer` menu is missing items
 
 **Fixes:**
@@ -113,6 +121,7 @@ Health checks verify the **currently configured** environment, not fallback envi
 ### "CAD conversion failed" for .step / .stp / .brep
 
 **Symptoms:**
+
 - Error message when opening a STEP file
 - Status shows "CAD conversion failed: gmsh is required..."
 

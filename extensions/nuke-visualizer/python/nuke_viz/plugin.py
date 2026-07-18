@@ -5,8 +5,8 @@ Provides the @command and @arg decorators for registering CLI commands,
 plus a Plugin base class for organizing commands into plugins.
 """
 
-from typing import Callable, Any, List, Tuple, Optional
 import argparse
+from collections.abc import Callable
 
 # Global command registry
 _COMMANDS: dict[str, Callable] = {}
@@ -24,12 +24,14 @@ def command(name: str, help: str = ""):
             ...
             return 0
     """
+
     def decorator(fn: Callable) -> Callable:
         fn._command_name = name
         fn._command_help = help
-        fn._command_args: List[Tuple[tuple, dict]] = getattr(fn, '_command_args', [])
+        fn._command_args: list[tuple[tuple, dict]] = getattr(fn, "_command_args", [])
         _COMMANDS[name] = fn
         return fn
+
     return decorator
 
 
@@ -45,11 +47,13 @@ def arg(*args_, **kwargs):
         def cmd_visualize_mesh(args):
             ...
     """
+
     def decorator(fn: Callable) -> Callable:
-        if not hasattr(fn, '_command_args'):
+        if not hasattr(fn, "_command_args"):
             fn._command_args = []
         fn._command_args.append((args_, kwargs))
         return fn
+
     return decorator
 
 
@@ -74,11 +78,11 @@ def setup_parser_for_handler(handler: Callable, subparser: argparse.ArgumentPars
     list to restore the original top-down declaration order.
     """
     # Apply @arg decorators in original declaration order
-    for args, kwargs in reversed(getattr(handler, '_command_args', [])):
+    for args, kwargs in reversed(getattr(handler, "_command_args", [])):
         subparser.add_argument(*args, **kwargs)
 
     # Call custom setup hook if present
-    if hasattr(handler, '_setup_parser'):
+    if hasattr(handler, "_setup_parser"):
         handler._setup_parser(subparser)
 
 
@@ -92,7 +96,7 @@ class Plugin:
 
     PLUGIN_NAME: str = ""
     PLUGIN_DISPLAY_NAME: str = ""
-    REQUIREMENTS: List[str] = []
+    REQUIREMENTS: list[str] = []
 
     @classmethod
     def register(cls) -> None:

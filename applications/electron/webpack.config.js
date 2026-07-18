@@ -6,15 +6,13 @@ const webpack = require('webpack');
 const path = require('path');
 
 // Add CopyWebpackPlugin to copy resources
-configs.forEach(config => {
+configs.forEach((config) => {
     if (!config.plugins) {
         config.plugins = [];
     }
     config.plugins.push(
         new CopyWebpackPlugin({
-            patterns: [
-                { from: path.resolve(__dirname, '../../resources'), to: '.' }
-            ]
+            patterns: [{ from: path.resolve(__dirname, '../../resources'), to: '.' }]
         })
     );
 });
@@ -26,12 +24,9 @@ if (process.platform !== 'win32') {
     }
     nodeConfig.config.plugins.push(
         new webpack.IgnorePlugin({
-            checkResource: resource => resource.includes('conpty_console_list')
+            checkResource: (resource) => resource.includes('conpty_console_list')
         })
     );
 }
 
-module.exports = [
-    ...configs,
-    nodeConfig.config
-];
+module.exports = [...configs, nodeConfig.config];

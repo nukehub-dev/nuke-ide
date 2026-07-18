@@ -80,7 +80,6 @@ import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
  */
 @injectable()
 export class NukeCoreService {
-
     @inject(NukeCoreBackendService)
     protected readonly backend: NukeCoreBackendServiceInterface;
 
@@ -126,7 +125,7 @@ export class NukeCoreService {
         this.syncFromPreferences();
 
         // Listen for preference changes
-        this.preferences.onPreferenceChanged(event => {
+        this.preferences.onPreferenceChanged((event) => {
             if (event.preferenceName.startsWith('nuke.')) {
                 console.log('[NukeCore] Preference changed:', event.preferenceName);
                 // Use setTimeout to ensure the preference has been fully processed
@@ -157,7 +156,9 @@ export class NukeCoreService {
         // Only use values if they are explicitly set (non-empty)
         // Priority: workspaceFolderValue > workspaceValue > globalValue (user)
         // This avoids the Theia scope merge bug where empty workspace overrides user settings
-        const pickValue = (inspect: { workspaceFolderValue?: unknown; workspaceValue?: unknown; globalValue?: unknown } | undefined): string | undefined => {
+        const pickValue = (
+            inspect: { workspaceFolderValue?: unknown; workspaceValue?: unknown; globalValue?: unknown } | undefined
+        ): string | undefined => {
             if (inspect?.workspaceFolderValue?.toString().trim()) {
                 return inspect.workspaceFolderValue as string;
             } else if (inspect?.workspaceValue?.toString().trim()) {
@@ -184,10 +185,12 @@ export class NukeCoreService {
         }
 
         // Also skip if values haven't changed
-        if (pythonPath === this.currentConfig.pythonPath &&
+        if (
+            pythonPath === this.currentConfig.pythonPath &&
             condaEnv === this.currentConfig.condaEnv &&
             condaChannels === this.currentConfig.condaChannels &&
-            pipExtraIndexUrl === this.currentConfig.pipExtraIndexUrl) {
+            pipExtraIndexUrl === this.currentConfig.pipExtraIndexUrl
+        ) {
             return;
         }
 
@@ -237,10 +240,12 @@ export class NukeCoreService {
         const previousEnv = this.currentEnvironment;
 
         // Skip if config hasn't actually changed
-        if (previous.pythonPath === config.pythonPath &&
+        if (
+            previous.pythonPath === config.pythonPath &&
             previous.condaEnv === config.condaEnv &&
             previous.condaChannels === config.condaChannels &&
-            previous.pipExtraIndexUrl === config.pipExtraIndexUrl) {
+            previous.pipExtraIndexUrl === config.pipExtraIndexUrl
+        ) {
             return;
         }
 
@@ -346,10 +351,7 @@ export class NukeCoreService {
      * @param pythonPath - Optional explicit Python path; falls back to configured path.
      * @returns Availability result and list of missing packages.
      */
-    async checkDependencies(
-        packages: PackageDependency[],
-        pythonPath?: string
-    ): Promise<DependencyCheckResult> {
+    async checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult> {
         return this.backend.checkDependencies(packages, pythonPath);
     }
 
@@ -364,9 +366,7 @@ export class NukeCoreService {
      * @returns Detection result with optional missing packages and warning message.
      * @see {@link onEnvironmentFallback}
      */
-    async detectPythonWithRequirements(
-        options: PythonDetectionOptions
-    ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+    async detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
         const requestedEnv = this.currentConfig.condaEnv || this.currentConfig.pythonPath;
         const result = await this.backend.detectPythonWithRequirements(options);
 
@@ -394,7 +394,7 @@ export class NukeCoreService {
                     requestedEnv,
                     fallbackEnv: result.environment,
                     warning: result.warning,
-                    requiredPackages: options.requiredPackages?.map(p => p.name) || []
+                    requiredPackages: options.requiredPackages?.map((p) => p.name) || []
                 };
                 this._onEnvironmentFallback.fire(fallbackEvent);
             }
@@ -633,13 +633,13 @@ export class NukeCoreService {
      * @param options - Detection options including required packages.
      * @returns Detection result with suggestion for missing packages.
      */
-    async detectWithInstallSuggestion(
-        options: PythonDetectionOptions
-    ): Promise<PythonDetectionResult & {
-        missingPackages?: string[];
-        suggestInstall?: boolean;
-        installCommand?: string;
-    }> {
+    async detectWithInstallSuggestion(options: PythonDetectionOptions): Promise<
+        PythonDetectionResult & {
+            missingPackages?: string[];
+            suggestInstall?: boolean;
+            installCommand?: string;
+        }
+    > {
         const result = await this.backend.detectPythonWithRequirements(options);
 
         if (result.success) {
@@ -649,7 +649,7 @@ export class NukeCoreService {
         // If detection failed due to missing packages, suggest installation
         if (result.missingPackages && result.missingPackages.length > 0) {
             const packages = result.missingPackages;
-            const cmd = result.command || await this.getPythonCommand() || 'python';
+            const cmd = result.command || (await this.getPythonCommand()) || 'python';
 
             return {
                 ...result,
@@ -672,11 +672,11 @@ export class NukeCoreService {
 
             if (configuredConda) {
                 // Look for an environment whose name matches the configured conda env
-                const match = result.environments.find(e => e.name === configuredConda);
+                const match = result.environments.find((e) => e.name === configuredConda);
                 this.currentEnvironment = match;
             } else if (configuredPath) {
                 // Look for an environment whose pythonPath matches the configured path
-                const match = result.environments.find(e => e.pythonPath === configuredPath);
+                const match = result.environments.find((e) => e.pythonPath === configuredPath);
                 this.currentEnvironment = match;
             } else {
                 // No specific env configured — use the default selected one

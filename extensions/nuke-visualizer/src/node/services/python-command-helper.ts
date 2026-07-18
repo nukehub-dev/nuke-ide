@@ -77,20 +77,20 @@ export class PythonCommandHelper {
      * @param autoDetectEnvs Preferred conda/virtualenv names to check first
      * @returns Python command path and optional warning
      */
-    async detectPython(
-        requirements: PackageDependency[] = OPENMC_REQUIREMENTS,
-        autoDetectEnvs?: string[]
-    ): Promise<PythonCommandResult> {
+    async detectPython(requirements: PackageDependency[] = OPENMC_REQUIREMENTS, autoDetectEnvs?: string[]): Promise<PythonCommandResult> {
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
             requiredPackages: requirements,
             autoDetectEnvs
         });
 
         if (!detectionResult.success || !detectionResult.command) {
-            const reqList = requirements.filter(r => r.required !== false).map(r => r.name).join(', ') || 'required packages';
+            const reqList =
+                requirements
+                    .filter((r) => r.required !== false)
+                    .map((r) => r.name)
+                    .join(', ') || 'required packages';
             throw new Error(
-                detectionResult.error ||
-                `Failed to detect Python environment with ${reqList}. Configure in Settings → Nuke Utils.`
+                detectionResult.error || `Failed to detect Python environment with ${reqList}. Configure in Settings → Nuke Utils.`
             );
         }
 
@@ -106,9 +106,7 @@ export class PythonCommandHelper {
      *
      * @param autoDetectEnvs Preferred environment names
      */
-    async detectPythonForBaseVisualizer(
-        autoDetectEnvs?: string[]
-    ): Promise<PythonCommandResult> {
+    async detectPythonForBaseVisualizer(autoDetectEnvs?: string[]): Promise<PythonCommandResult> {
         return this.detectPython(BASE_VISUALIZER_REQUIREMENTS, autoDetectEnvs);
     }
 
@@ -212,8 +210,10 @@ export class PythonCommandHelper {
         if (resolved) {
             return resolved;
         }
-        throw new Error(`Python script not found: ${scriptName}. ` +
-            `Checked extraResources, node_modules (asarUnpack), extensions/, and development paths.`);
+        throw new Error(
+            `Python script not found: ${scriptName}. ` +
+                `Checked extraResources, node_modules (asarUnpack), extensions/, and development paths.`
+        );
     }
 
     /**

@@ -7,6 +7,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "OpenMC not found"
 
 **Symptoms:**
+
 - Error banner: `OpenMC Python module could not be imported`
 - Health check shows a red cross next to `openmc`
 - The Simulation Dashboard is disabled or grayed out
@@ -32,6 +33,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "Cross-sections not set"
 
 **Symptoms:**
+
 - Error when exporting XML or starting a simulation: `No cross_section.xml file was specified`
 - Materials show yellow warning icons in the Material Editor
 
@@ -53,6 +55,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "XML generation failed"
 
 **Symptoms:**
+
 - Export or pre-run check fails with `XML generation failed`
 - The error message references `geometry.xml` or `materials.xml`
 
@@ -80,6 +83,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "Simulation fails immediately"
 
 **Symptoms:**
+
 - The run stops within seconds with a non-zero exit code
 - The Simulation Dashboard shows `Failed` with no statepoint written
 
@@ -107,6 +111,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "MPI not working"
 
 **Symptoms:**
+
 - Simulation runs but only uses a single CPU core
 - Error: `mpiexec` not found or MPI initialization failed
 - The MPI checkbox in Simulation Settings is grayed out
@@ -114,6 +119,7 @@ This guide covers the most common issues encountered when building, running, and
 **Fixes:**
 
 1. **Verify MPI is installed:**
+
    ```bash
    which mpiexec
    mpiexec --version
@@ -124,9 +130,11 @@ This guide covers the most common issues encountered when building, running, and
    - Do not exceed the number of physical cores on your machine.
 
 3. **Install MPI-enabled OpenMC:**
+
    ```bash
    conda install -c conda-forge "openmc=*=mpi*"
    ```
+
    Or ensure your pip-installed OpenMC was built with MPI support.
 
 4. **Check environment consistency:**
@@ -137,6 +145,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "DAGMC file won't open"
 
 **Symptoms:**
+
 - Error when loading a `.h5m` file in the DAGMC Editor
 - Blank 3D view after clicking a DAGMC file
 - Error: `pydagmc` or `moab` not found
@@ -144,14 +153,17 @@ This guide covers the most common issues encountered when building, running, and
 **Fixes:**
 
 1. **Install DAGMC dependencies:**
+
    ```bash
    conda install -c conda-forge pydagmc moab ocp
    ```
 
 2. **Verify the file:**
+
    ```bash
    h5dump -n model.h5m | head
    ```
+
    You should see DAGMC group names such as `/tstt`.
 
 3. **Check the health check:**
@@ -166,6 +178,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "Some DAGMC volumes failed to load"
 
 **Symptoms:**
+
 - Warning toast: "Skipped N volumes"
 - Some volumes are missing from the DAGMC Editor grid
 - Error in output channel: `MB_INDEX_OUT_OF_RANGE` or similar
@@ -179,6 +192,7 @@ This guide covers the most common issues encountered when building, running, and
    - The native writer handles edge cases (empty elements, invalid topology) better than older pipelines.
 
 3. **Check with `pydagmc` directly:**
+
    ```python
    from pydagmc import Model
    m = Model("model.h5m")
@@ -196,6 +210,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "CAD import mesh is too dense / too coarse"
 
 **Symptoms:**
+
 - DAGMC file is unexpectedly large (hundreds of MB) or tiny (few triangles)
 - Visual inspection shows jagged or oversimplified surfaces
 - Import takes much longer than expected
@@ -228,6 +243,7 @@ This guide covers the most common issues encountered when building, running, and
 ## "Statepoint comparison shows no data"
 
 **Symptoms:**
+
 - The Simulation Comparison widget is empty after loading statepoints
 - Error banner: `Incompatible statepoint version`
 
@@ -243,9 +259,11 @@ This guide covers the most common issues encountered when building, running, and
    - Fixed-source statepoints will not show k-effective data.
 
 3. **Check file integrity:**
+
    ```bash
    h5dump -n statepoint.h5 | head
    ```
+
    If this fails, the file was truncated (likely by a crashed simulation).
 
 4. **Re-run the simulation** with the same OpenMC version if version mismatch is unavoidable.
@@ -256,17 +274,17 @@ This guide covers the most common issues encountered when building, running, and
 
 The environment health check (`Tools → OpenMC Studio → Environment → Run Health Check`) may report warnings even when things appear to work. Here is how to interpret them.
 
-| Warning | Meaning | Suggested Fix |
-|---------|---------|---------------|
-| `openmc` version mismatch | Installed version differs from the version used to create the current project | Update OpenMC, or verify the project XML is still compatible |
-| `h5py` missing | Cannot read statepoint or depletion HDF5 files | `conda install -c conda-forge h5py` or `pip install h5py` |
-| `numpy` outdated | Some features rely on newer NumPy APIs | `pip install -U numpy` |
-| `pydagmc` missing | DAGMC geometry features are disabled | Install only if you work with `.h5m` files |
-| `moab` missing | CAD import and DAGMC conversion are limited | Install only if you need CAD → DAGMC workflows |
-| `OCP` missing | Refacet and CAD import fallback are unavailable | Install if you need to re-facet or convert STEP/IGES to DAGMC |
-| `mpi4py` missing | MPI parallel execution is unavailable | Install only if you plan to run multi-process simulations |
-| Cross-section path invalid | `nuke.openmcCrossSections` points to a missing file | Update the path in settings to a valid `cross_sections.xml` |
-| Python path not set | NukeIDE does not know which interpreter to use | Set `Settings → Nuke Utils → Python Path` |
+| Warning                    | Meaning                                                                       | Suggested Fix                                                 |
+| -------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `openmc` version mismatch  | Installed version differs from the version used to create the current project | Update OpenMC, or verify the project XML is still compatible  |
+| `h5py` missing             | Cannot read statepoint or depletion HDF5 files                                | `conda install -c conda-forge h5py` or `pip install h5py`     |
+| `numpy` outdated           | Some features rely on newer NumPy APIs                                        | `pip install -U numpy`                                        |
+| `pydagmc` missing          | DAGMC geometry features are disabled                                          | Install only if you work with `.h5m` files                    |
+| `moab` missing             | CAD import and DAGMC conversion are limited                                   | Install only if you need CAD → DAGMC workflows                |
+| `OCP` missing              | Refacet and CAD import fallback are unavailable                               | Install if you need to re-facet or convert STEP/IGES to DAGMC |
+| `mpi4py` missing           | MPI parallel execution is unavailable                                         | Install only if you plan to run multi-process simulations     |
+| Cross-section path invalid | `nuke.openmcCrossSections` points to a missing file                           | Update the path in settings to a valid `cross_sections.xml`   |
+| Python path not set        | NukeIDE does not know which interpreter to use                                | Set `Settings → Nuke Utils → Python Path`                     |
 
 > **Tip:** Warnings in yellow are advisory; red crosses indicate blockers. You can often proceed with yellow warnings if you are not using the related feature.
 

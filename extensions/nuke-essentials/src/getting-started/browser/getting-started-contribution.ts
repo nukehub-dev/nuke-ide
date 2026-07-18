@@ -27,7 +27,13 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ArrayUtils, CommandRegistry, MenuModelRegistry, PreferenceService } from '@theia/core/lib/common';
-import { CommonCommands, CommonMenus, AbstractViewContribution, FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
+import {
+    CommonCommands,
+    CommonMenus,
+    AbstractViewContribution,
+    FrontendApplicationContribution,
+    FrontendApplication
+} from '@theia/core/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser/editor-manager';
 import { GettingStartedWidget } from './getting-started-widget';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
@@ -40,12 +46,11 @@ import { WorkspaceService } from '@theia/workspace/lib/browser';
  */
 export const GettingStartedCommand = {
     id: GettingStartedWidget.ID,
-    label: 'Getting Started',
+    label: 'Getting Started'
 };
 
 @injectable()
 export class GettingStartedContribution extends AbstractViewContribution<GettingStartedWidget> implements FrontendApplicationContribution {
-
     @inject(CommandRegistry)
     protected readonly commandRegistry: CommandRegistry;
 
@@ -72,7 +77,7 @@ export class GettingStartedContribution extends AbstractViewContribution<Getting
             widgetId: GettingStartedWidget.ID,
             widgetName: GettingStartedWidget.LABEL,
             defaultWidgetOptions: {
-                area: 'main',
+                area: 'main'
             }
         });
     }
@@ -104,12 +109,16 @@ export class GettingStartedContribution extends AbstractViewContribution<Getting
 
     protected async openReadme(): Promise<void> {
         const roots = await this.workspaceService.roots;
-        const readmes = await Promise.all(roots.map(async folder => {
-            const folderStat = await this.fileService.resolve(folder.resource);
-            const fileArr = folderStat?.children?.sort((a, b) => a.name.localeCompare(b.name)) || [];
-            const filePath = fileArr.find(file => file.name.toLowerCase() === 'readme.md') || fileArr.find(file => file.name.toLowerCase().startsWith('readme'));
-            return filePath?.resource;
-        }));
+        const readmes = await Promise.all(
+            roots.map(async (folder) => {
+                const folderStat = await this.fileService.resolve(folder.resource);
+                const fileArr = folderStat?.children?.sort((a, b) => a.name.localeCompare(b.name)) || [];
+                const filePath =
+                    fileArr.find((file) => file.name.toLowerCase() === 'readme.md') ||
+                    fileArr.find((file) => file.name.toLowerCase().startsWith('readme'));
+                return filePath?.resource;
+            })
+        );
         const validReadmes = ArrayUtils.coalesce(readmes);
         if (validReadmes.length) {
             for (const readme of validReadmes) {
@@ -123,7 +132,7 @@ export class GettingStartedContribution extends AbstractViewContribution<Getting
 
     override registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(GettingStartedCommand, {
-            execute: () => this.openView({ reveal: true, activate: true }),
+            execute: () => this.openView({ reveal: true, activate: true })
         });
     }
 

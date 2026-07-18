@@ -51,7 +51,6 @@ import { PreferenceLayout, PreferenceLayoutProvider } from '@theia/preferences/l
  */
 @injectable()
 export class NukePreferenceLayoutProvider extends PreferenceLayoutProvider {
-
     /**
      * Returns the merged preference layout with the Nuke Utils category prepended.
      *

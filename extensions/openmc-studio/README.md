@@ -8,18 +8,18 @@ No-code graphical interface for building, configuring, and running OpenMC Monte 
 
 ## Features
 
-| Feature | What It Does | Key File Types |
-|---------|--------------|----------------|
-| **Simulation Dashboard** | Central control panel for simulation status, runtime metrics, and batch monitoring | `.xml`, `.h5` |
-| **CSG Builder** | Graphical constructive solid geometry editor for cells, surfaces, and universes | `.xml` |
-| **DAGMC Editor** | Visual editor for DAGMC faceted geometry, group tagging, and imprint/merge operations | `.h5m`, `.stl` |
-| **Tally Configurator** | Point-and-click tally setup with mesh, filter, score, and nuclide selectors | `.xml` |
-| **Optimization Framework** | Automated parameter sweeps and surrogate-model-driven optimization | `.json` |
-| **Simulation Comparison** | Side-by-side comparison of statepoints, k-eff convergence, and tally differences | `statepoint*.h5` |
-| **XML Generation / Import** | Round-trip XML generation and import for geometry, materials, settings, and tallies | `*.xml` |
-| **Project Management** | OpenMC project scaffolding, file tracking, and run history | — |
-| **CAD Import** | Import CAD models (STEP, IGES) and convert to DAGMC or CSG representations | `.step`, `.iges`, `.stp` |
-| **Simulation Runner** | Execute OpenMC runs (criticality, fixed-source, depletion) with live log streaming | — |
+| Feature                     | What It Does                                                                          | Key File Types           |
+| --------------------------- | ------------------------------------------------------------------------------------- | ------------------------ |
+| **Simulation Dashboard**    | Central control panel for simulation status, runtime metrics, and batch monitoring    | `.xml`, `.h5`            |
+| **CSG Builder**             | Graphical constructive solid geometry editor for cells, surfaces, and universes       | `.xml`                   |
+| **DAGMC Editor**            | Visual editor for DAGMC faceted geometry, group tagging, and imprint/merge operations | `.h5m`, `.stl`           |
+| **Tally Configurator**      | Point-and-click tally setup with mesh, filter, score, and nuclide selectors           | `.xml`                   |
+| **Optimization Framework**  | Automated parameter sweeps and surrogate-model-driven optimization                    | `.json`                  |
+| **Simulation Comparison**   | Side-by-side comparison of statepoints, k-eff convergence, and tally differences      | `statepoint*.h5`         |
+| **XML Generation / Import** | Round-trip XML generation and import for geometry, materials, settings, and tallies   | `*.xml`                  |
+| **Project Management**      | OpenMC project scaffolding, file tracking, and run history                            | —                        |
+| **CAD Import**              | Import CAD models (STEP, IGES) and convert to DAGMC or CSG representations            | `.step`, `.iges`, `.stp` |
+| **Simulation Runner**       | Execute OpenMC runs (criticality, fixed-source, depletion) with live log streaming    | —                        |
 
 ## What the Extension Provides
 
@@ -38,9 +38,11 @@ No-code graphical interface for building, configuring, and running OpenMC Monte 
 This extension has two documentation paths:
 
 ### 👤 User Documentation
+
 For end users who want to build and run OpenMC simulations.
 
 → See [`docs/user/`](docs/user/) for guides on:
+
 - Getting started (prerequisites, first project, health checks)
 - Simulation Dashboard (monitoring runs, metrics, batch control)
 - CSG Builder (geometry construction, surfaces, cells, universes)
@@ -54,9 +56,11 @@ For end users who want to build and run OpenMC simulations.
 - Troubleshooting common issues
 
 ### 🛠️ Developer Documentation
+
 For developers who want to understand or extend the codebase.
 
 → See [`docs/dev/`](docs/dev/) for guides on:
+
 - Architecture (frontend/backend/Python layers)
 - Frontend module and DI wiring
 - Backend services (runner, validation, CAD import, optimization)
@@ -67,11 +71,11 @@ For developers who want to understand or extend the codebase.
 
 ## Quick Links
 
-| Resource | Path |
-|----------|------|
-| User docs landing page | [`docs/user/index.md`](docs/user/index.md) |
-| Developer docs landing page | [`docs/dev/index.md`](docs/dev/index.md) |
-| Troubleshooting | [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md) |
+| Resource                    | Path                                                           |
+| --------------------------- | -------------------------------------------------------------- |
+| User docs landing page      | [`docs/user/index.md`](docs/user/index.md)                     |
+| Developer docs landing page | [`docs/dev/index.md`](docs/dev/index.md)                       |
+| Troubleshooting             | [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md) |
 
 ## Dependencies
 

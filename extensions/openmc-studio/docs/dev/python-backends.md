@@ -122,13 +122,13 @@ See [`statepoint_reader.py`](../../python/statepoint_reader.py) for the full imp
 
 ## Error Handling
 
-| Scenario | Action | Exit Code |
-|----------|--------|-----------|
-| Success | Print JSON result | `0` |
+| Scenario           | Action                                       | Exit Code                |
+| ------------------ | -------------------------------------------- | ------------------------ |
+| Success            | Print JSON result                            | `0`                      |
 | Missing dependency | Print JSON with `success: false` and `error` | `0` (JSON parsed) or `1` |
-| File not found | Print to stderr, exit non-zero | `1` |
-| Runtime exception | Print JSON with `error` + `traceback` | `0` or `1` |
-| Invalid arguments | `argparse` prints help, exits | `2` |
+| File not found     | Print to stderr, exit non-zero               | `1`                      |
+| Runtime exception  | Print JSON with `error` + `traceback`        | `0` or `1`               |
+| Invalid arguments  | `argparse` prints help, exits                | `2`                      |
 
 ### Example: Graceful Dependency Handling
 
@@ -227,6 +227,7 @@ async startSimulation(request: SimulationRunRequest): Promise<StartSimulationRes
     return { processId: uuid(), success: true };
 }
 ```
+
 ---
 
 ### Native DAGMC Writer
@@ -234,6 +235,7 @@ async startSimulation(request: SimulationRunRequest): Promise<StartSimulationRes
 The CAD import and refacet pipelines use a **native DAGMC H5M writer** built on `pymoab`. This avoids external meshing dependencies and handles edge cases (empty element lists, invalid topology) gracefully.
 
 **Key features:**
+
 - Tessellation via **OpenCASCADE BRepMesh_IncrementalMesh** with user-defined linear deflection
 - Direct STEP/IGES loading through `STEPControl_Reader` / `IGESControl_Reader`
 - Face-to-volume sense mapping via `TopExp_Explorer` and `BRep_Tool.Triangulation`
@@ -242,6 +244,7 @@ The CAD import and refacet pipelines use a **native DAGMC H5M writer** built on 
 - Triangle count scales predictably with faceting tolerance
 
 **Pipeline (`dagmc_editor_service.py` → `_step_to_dagmc_ocp`):**
+
 1. Load the source CAD with `STEPControl_Reader` or `IGESControl_Reader`
 2. Compute bounding-box diagonal; auto-adjust tolerance for very large models
 3. Tessellate with `BRepMesh_IncrementalMesh(shape, tolerance, parallel=True)`
@@ -340,7 +343,7 @@ export interface OpenMCStudioBackendService {
 ```typescript
 const stats = await this.backend.getDAGMCVolumeStats(filePath);
 if (stats.success) {
-    this.messageService.info(`${stats.volumeCount} volumes, ${stats.surfaceCount} surfaces`);
+  this.messageService.info(`${stats.volumeCount} volumes, ${stats.surfaceCount} surfaces`);
 }
 ```
 

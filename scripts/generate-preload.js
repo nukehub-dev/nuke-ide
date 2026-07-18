@@ -24,24 +24,26 @@ function loadTips() {
         try {
             const yamlContent = fs.readFileSync(TIPS_YML, 'utf8');
             const tipsData = yaml.load(yamlContent);
-            
+
             if (tipsData.tips && Array.isArray(tipsData.tips)) {
                 // Support both simple strings and objects with text/icon/category
-                tips = tipsData.tips.map(t => {
-                    if (typeof t === 'string') return { icon: '💡', text: t };
-                    if (t.text) {
-                        return { icon: t.icon || '💡', text: t.text };
-                    }
-                    return null;
-                }).filter(t => t); // Remove empty entries
+                tips = tipsData.tips
+                    .map((t) => {
+                        if (typeof t === 'string') return { icon: '💡', text: t };
+                        if (t.text) {
+                            return { icon: t.icon || '💡', text: t.text };
+                        }
+                        return null;
+                    })
+                    .filter((t) => t); // Remove empty entries
                 console.log(`[generate-preload] Loaded ${tips.length} tips from tips.yml`);
             }
-            
+
             if (tipsData.settings && tipsData.settings.tipDuration) {
                 tipDuration = tipsData.settings.tipDuration;
                 console.log(`[generate-preload] Tip duration: ${tipDuration}ms`);
             }
-            
+
             return { tips, tipDuration };
         } catch (e) {
             console.log(`[generate-preload] Error parsing tips.yml: ${e.message}`);
@@ -53,7 +55,7 @@ function loadTips() {
         try {
             const tipsData = JSON.parse(fs.readFileSync(TIPS_JSON, 'utf8'));
             if (tipsData.tips && Array.isArray(tipsData.tips)) {
-                tips = tipsData.tips.map(t => t.text || t).filter(t => t);
+                tips = tipsData.tips.map((t) => t.text || t).filter((t) => t);
                 console.log(`[generate-preload] Loaded ${tips.length} tips from tips.json`);
             }
             if (tipsData.settings && tipsData.settings.tipDuration) {
@@ -76,7 +78,7 @@ function main() {
         const version = packageJson.version || '0.0.0';
         const productName = packageJson.productName || 'NukeIDE';
         const repoUrl = packageJson.repository?.url?.replace(/\.git$/, '') || 'https://github.com/nukehub-dev/nuke-ide';
-        
+
         console.log(`[generate-preload] Using version: ${version}`);
         console.log(`[generate-preload] Product name: ${productName}`);
         console.log(`[generate-preload] Repository URL: ${repoUrl}`);
@@ -97,7 +99,7 @@ function main() {
         // Read template
         const templatePath = path.join(RESOURCES_DIR, 'preload.template.html');
         const outputPath = path.join(RESOURCES_DIR, 'preload.html');
-        
+
         if (!fs.existsSync(templatePath)) {
             console.error(`[generate-preload] Template not found: ${templatePath}`);
             process.exit(1);
@@ -116,10 +118,9 @@ function main() {
 
         // Write output
         fs.writeFileSync(outputPath, template, 'utf8');
-        
+
         console.log(`[generate-preload] Generated: ${outputPath}`);
         console.log(`[generate-preload] Done!`);
-
     } catch (error) {
         console.error('[generate-preload] Error:', error.message);
         process.exit(1);

@@ -15,25 +15,24 @@ export const MyBackendService = Symbol('MyBackendService');
 export const MY_BACKEND_PATH = '/services/my-plugin';
 
 export interface MyBackendService {
-    // Server management
-    startServer(filePath: string): Promise<{ port: number; url: string }>;
-    stopServer(port: number): Promise<void>;
-    
-    // Domain methods
-    getData(filePath: string): Promise<MyData>;
+  // Server management
+  startServer(filePath: string): Promise<{ port: number; url: string }>;
+  stopServer(port: number): Promise<void>;
+
+  // Domain methods
+  getData(filePath: string): Promise<MyData>;
 }
 
 export interface MyData {
-    value: number;
-    label: string;
+  value: number;
+  label: string;
 }
 
-export const MY_REQUIREMENTS: PackageDependency[] = [
-    { name: 'my-package', required: true }
-];
+export const MY_REQUIREMENTS: PackageDependency[] = [{ name: 'my-package', required: true }];
 ```
 
 **Rules:**
+
 - Use `Symbol('Name')` for the service token.
 - Export a constant path string starting with `/services/`.
 - Export requirements as `PackageDependency[]`.
@@ -51,25 +50,25 @@ Defines the contract for the base 3D mesh visualizer.
 
 ```typescript
 export interface VisualizerBackendService {
-    // Server lifecycle
-    startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
-    stopServer(port: number): Promise<void>;
-    
-    // Environment
-    checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
-    
-    // File conversion
-    convertDagmc(filePath: string, volumeId?: number): Promise<string>;
-    
-    // Visualization controls (placeholders for future API)
-    getVisualizationState(port: number): Promise<VisualizationState>;
-    updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
-    resetCamera(port: number): Promise<boolean>;
-    setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
-    captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
-    
-    // Client for log streaming
-    setClient(client: VisualizerClient): void;
+  // Server lifecycle
+  startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
+  stopServer(port: number): Promise<void>;
+
+  // Environment
+  checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
+
+  // File conversion
+  convertDagmc(filePath: string, volumeId?: number): Promise<string>;
+
+  // Visualization controls (placeholders for future API)
+  getVisualizationState(port: number): Promise<VisualizationState>;
+  updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
+  resetCamera(port: number): Promise<boolean>;
+  setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
+  captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
+
+  // Client for log streaming
+  setClient(client: VisualizerClient): void;
 }
 ```
 
@@ -79,21 +78,21 @@ The backend calls methods on the frontend via this client interface:
 
 ```typescript
 export interface VisualizerClient {
-    log(message: string): void;       // stdout
-    error(message: string): void;     // stderr / errors
-    warn(message: string): void;      // warnings (shown as toast)
-    onServerStop(port: number): void; // server process exited
+  log(message: string): void; // stdout
+  error(message: string): void; // stderr / errors
+  warn(message: string): void; // warnings (shown as toast)
+  onServerStop(port: number): void; // server process exited
 }
 ```
 
 ### Key Types
 
-| Type | Description |
-|------|-------------|
+| Type                 | Description                                                           |
+| -------------------- | --------------------------------------------------------------------- |
 | `VisualizationState` | Opacity, representation, colorBy, colorMap, clip settings, background |
-| `CameraViewType` | `isometric`, `front`, `back`, `left`, `right`, `top`, `bottom` |
-| `ScreenshotOptions` | Format, resolution, transparent background |
-| `PlotlyFigure` | Generic figure for PlotlyService |
+| `CameraViewType`     | `isometric`, `front`, `back`, `left`, `right`, `top`, `bottom`        |
+| `ScreenshotOptions`  | Format, resolution, transparent background                            |
+| `PlotlyFigure`       | Generic figure for PlotlyService                                      |
 
 ---
 
@@ -107,66 +106,66 @@ The largest protocol (~1400 lines), covering all OpenMC domain types.
 
 ```typescript
 export interface OpenMCBackendService {
-    setPythonConfig(config: PythonConfig): Promise<void>;
-    setClient(client: VisualizerClient): void;
-    
-    // Statepoint
-    loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
-    listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
-    getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
-    getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
-    
-    // Tally visualization
-    visualizeMeshTally(statepointPath, tallyId, score?, nuclide?): Promise<OpenMCVisualizationResult>;
-    visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
-    visualizeTallyOnGeometry(geometryPath, statepointPath, tallyId, score?, filterGraveyard?): Promise<OpenMCVisualizationResult>;
-    
-    // Plot data
-    getEnergySpectrum(statepointPath, tallyId, scoreIndex?, nuclideIndex?): Promise<OpenMCSpectrumData>;
-    getSpatialPlot(statepointPath, tallyId, axis, scoreIndex?, nuclideIndex?): Promise<OpenMCSpatialPlotData>;
-    getHeatmapSlice(statepointPath, tallyId, plane, sliceIndex, scoreIndex?, nuclideIndex?): Promise<OpenMCHeatmapData>;
-    getAllHeatmapSlices(statepointPath, tallyId, plane, scoreIndex?, nuclideIndex?): Promise<OpenMCHeatmapData[]>;
-    
-    // XS plotting
-    getXSData(request: XSPlotRequest): Promise<XSPlotData>;
-    getAvailableNuclides(crossSectionsPath?): Promise<string[]>;
-    getAvailableThermalMaterials(crossSectionsPath?): Promise<string[]>;
-    getGroupStructures(): Promise<XSGroupStructuresResponse>;
-    
-    // Depletion
-    getDepletionSummary(filePath: string): Promise<OpenMCDepletionSummary>;
-    getDepletionMaterials(filePath: string): Promise<OpenMCDepletionMaterial[]>;
-    getDepletionData(filePath, materialIndex, nuclides?, includeActivity?): Promise<OpenMCDepletionResponse>;
-    
-    // Geometry
-    getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
-    visualizeGeometry(filePath, highlightCellIds?, overlaps?): Promise<{success, port?, url?, error?}>;
-    checkOverlaps(request: OpenMCOverlapRequest): Promise<OpenMCOverlapResponse>;
-    getOverlapVisualization(geometryPath, overlaps): Promise<OpenMCOverlapVizData>;
-    
-    // Materials
-    getMaterials(filePath: string): Promise<OpenMCMaterialsResponse>;
-    getMaterialCellLinkage(materialsPath, geometryPath): Promise<OpenMCMaterialCellLinkageResponse>;
-    mixMaterials(request: OpenMCMaterialMixRequest): Promise<OpenMCMaterialMixResponse>;
-    addMaterial(filePath: string, materialXml: string): Promise<void>;
-    
-    // Server lifecycle
-    stopServer(port: number): Promise<void>;
-    checkOpenMCAvailable(): Promise<{available, message, warning?}>;
-    checkOpenMCPythonAvailable(): Promise<{available, message, warning?}>;
+  setPythonConfig(config: PythonConfig): Promise<void>;
+  setClient(client: VisualizerClient): void;
+
+  // Statepoint
+  loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
+  listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
+  getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
+  getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
+
+  // Tally visualization
+  visualizeMeshTally(statepointPath, tallyId, score?, nuclide?): Promise<OpenMCVisualizationResult>;
+  visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
+  visualizeTallyOnGeometry(geometryPath, statepointPath, tallyId, score?, filterGraveyard?): Promise<OpenMCVisualizationResult>;
+
+  // Plot data
+  getEnergySpectrum(statepointPath, tallyId, scoreIndex?, nuclideIndex?): Promise<OpenMCSpectrumData>;
+  getSpatialPlot(statepointPath, tallyId, axis, scoreIndex?, nuclideIndex?): Promise<OpenMCSpatialPlotData>;
+  getHeatmapSlice(statepointPath, tallyId, plane, sliceIndex, scoreIndex?, nuclideIndex?): Promise<OpenMCHeatmapData>;
+  getAllHeatmapSlices(statepointPath, tallyId, plane, scoreIndex?, nuclideIndex?): Promise<OpenMCHeatmapData[]>;
+
+  // XS plotting
+  getXSData(request: XSPlotRequest): Promise<XSPlotData>;
+  getAvailableNuclides(crossSectionsPath?): Promise<string[]>;
+  getAvailableThermalMaterials(crossSectionsPath?): Promise<string[]>;
+  getGroupStructures(): Promise<XSGroupStructuresResponse>;
+
+  // Depletion
+  getDepletionSummary(filePath: string): Promise<OpenMCDepletionSummary>;
+  getDepletionMaterials(filePath: string): Promise<OpenMCDepletionMaterial[]>;
+  getDepletionData(filePath, materialIndex, nuclides?, includeActivity?): Promise<OpenMCDepletionResponse>;
+
+  // Geometry
+  getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
+  visualizeGeometry(filePath, highlightCellIds?, overlaps?): Promise<{ success; port?; url?; error? }>;
+  checkOverlaps(request: OpenMCOverlapRequest): Promise<OpenMCOverlapResponse>;
+  getOverlapVisualization(geometryPath, overlaps): Promise<OpenMCOverlapVizData>;
+
+  // Materials
+  getMaterials(filePath: string): Promise<OpenMCMaterialsResponse>;
+  getMaterialCellLinkage(materialsPath, geometryPath): Promise<OpenMCMaterialCellLinkageResponse>;
+  mixMaterials(request: OpenMCMaterialMixRequest): Promise<OpenMCMaterialMixResponse>;
+  addMaterial(filePath: string, materialXml: string): Promise<void>;
+
+  // Server lifecycle
+  stopServer(port: number): Promise<void>;
+  checkOpenMCAvailable(): Promise<{ available; message; warning? }>;
+  checkOpenMCPythonAvailable(): Promise<{ available; message; warning? }>;
 }
 ```
 
 ### Key Domain Types
 
-| Type | Description |
-|------|-------------|
-| `OpenMCTallyInfo` | ID, name, scores, nuclides, filters, hasMesh |
-| `OpenMCStatepointInfo` | File, batches, kEff, nTallies |
-| `OpenMCGeometryHierarchy` | Universes, cells, surfaces, lattices |
-| `XSPlotRequest` | Nuclides, reactions, temperature, energy range, materials, flux, etc. |
-| `XSPlotData` | Array of `XSCurveData` + temperature + warnings |
-| `OpenMCDepletionSummary` | nMaterials, nSteps, nNuclides, timePoints, burnup |
+| Type                      | Description                                                           |
+| ------------------------- | --------------------------------------------------------------------- |
+| `OpenMCTallyInfo`         | ID, name, scores, nuclides, filters, hasMesh                          |
+| `OpenMCStatepointInfo`    | File, batches, kEff, nTallies                                         |
+| `OpenMCGeometryHierarchy` | Universes, cells, surfaces, lattices                                  |
+| `XSPlotRequest`           | Nuclides, reactions, temperature, energy range, materials, flux, etc. |
+| `XSPlotData`              | Array of `XSCurveData` + temperature + warnings                       |
+| `OpenMCDepletionSummary`  | nMaterials, nSteps, nNuclides, timePoints, burnup                     |
 
 ---
 
@@ -179,24 +178,26 @@ import { MyBackendService, MY_BACKEND_PATH } from '../common/my-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
 
-bind(MyBackendService).toDynamicValue(ctx => {
+bind(MyBackendService)
+  .toDynamicValue((ctx) => {
     const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
     const outputChannelManager = ctx.container.get(OutputChannelManager);
-    
+
     const client: VisualizerClient = {
-        log: (msg) => outputChannelManager.getChannel('My Plugin').appendLine(msg),
-        error: (msg) => outputChannelManager.getChannel('My Plugin').appendLine(`ERROR: ${msg}`),
-        warn: (msg) => {
-            const messageService = ctx.container.get(MessageService);
-            messageService.warn(msg);
-        },
-        onServerStop: (port) => {
-            console.log(`[My Plugin] Server on port ${port} stopped`);
-        }
+      log: (msg) => outputChannelManager.getChannel('My Plugin').appendLine(msg),
+      error: (msg) => outputChannelManager.getChannel('My Plugin').appendLine(`ERROR: ${msg}`),
+      warn: (msg) => {
+        const messageService = ctx.container.get(MessageService);
+        messageService.warn(msg);
+      },
+      onServerStop: (port) => {
+        console.log(`[My Plugin] Server on port ${port} stopped`);
+      }
     };
-    
+
     return connectionProvider.createProxy<MyBackendService>(MY_BACKEND_PATH, client);
-}).inSingletonScope();
+  })
+  .inSingletonScope();
 ```
 
 **Important:** Pass the `client` as the second argument to `createProxy`. This registers the frontend's `VisualizerClient` implementation so the backend can stream logs and warnings.
@@ -214,13 +215,16 @@ import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/
 
 bind(MyBackendServiceImpl).toSelf().inSingletonScope();
 bind(MyBackendService).toService(MyBackendServiceImpl);
-bind(ConnectionHandler).toDynamicValue(ctx =>
-    new RpcConnectionHandler<VisualizerClient>(MY_BACKEND_PATH, client => {
+bind(ConnectionHandler)
+  .toDynamicValue(
+    (ctx) =>
+      new RpcConnectionHandler<VisualizerClient>(MY_BACKEND_PATH, (client) => {
         const server = ctx.container.get<MyBackendServiceImpl>(MyBackendServiceImpl);
         server.setClient(client);
         return server;
-    })
-).inSingletonScope();
+      })
+  )
+  .inSingletonScope();
 ```
 
 ---

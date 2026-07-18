@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+**/.browser_modules
+
+# Build output (tsc / webpack / electron-builder)
+extensions/*/lib
+applications/*/lib
+applications/electron/dist
+**/src-gen
+**/gen-webpack.config.js
+**/gen-webpack.node.config.js
+**/tsconfig.tsbuildinfo
+
+# Downloaded Theia plugins (.vsix)
+plugins/
+
+# Generated files
+resources/preload.html
+
+# Caches and logs
+**/.electron-cache
+**/__pycache__
+.pytest_cache
+.ruff_cache
+*.log
+
+# Lockfiles (managed by the package manager)
+yarn.lock
+
+# Docker workspace volume
+applications/docker/workspace/

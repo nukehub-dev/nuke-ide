@@ -28,13 +28,7 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { Emitter, Event } from '@theia/core/lib/common';
-import {
-    SysmonService,
-    SYSMON_BACKEND_PATH,
-    SystemMetrics,
-    HistoricalData,
-    DiskInfo
-} from '../common/sysmon-protocol';
+import { SysmonService, SYSMON_BACKEND_PATH, SystemMetrics, HistoricalData, DiskInfo } from '../common/sysmon-protocol';
 
 @injectable()
 export class SysmonFrontendService implements SysmonService {

@@ -51,66 +51,60 @@ interface MeshPanelProps {
  * @see {@link MeshEditor}
  * @see {@link TallyConfiguratorWidget}
  */
-export const MeshPanel: React.FC<MeshPanelProps> = ({ 
-    meshes, 
-    selectedMeshId, 
-    onSelectMesh, 
-    onAddMesh, 
-    onDeleteMesh 
-}) => {
+export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, onSelectMesh, onAddMesh, onDeleteMesh }) => {
     return (
-        <div className='mesh-list-panel'>
-            <div className='panel-header'>
+        <div className="mesh-list-panel">
+            <div className="panel-header">
                 <h3>
-                    <i className='codicon codicon-table'></i>
+                    <i className="codicon codicon-table"></i>
                     Meshes ({meshes.length})
                 </h3>
-                <Tooltip content='Create a new mesh' position='bottom'>
-                    <button className='add-button' onClick={onAddMesh}>
-                        <i className='codicon codicon-add'></i> Add
+                <Tooltip content="Create a new mesh" position="bottom">
+                    <button className="add-button" onClick={onAddMesh}>
+                        <i className="codicon codicon-add"></i> Add
                     </button>
                 </Tooltip>
             </div>
-            <div className='list-container'>
+            <div className="list-container">
                 {meshes.length === 0 ? (
-                    <div className='empty-state'>
-                        <i className='codicon codicon-table'></i>
+                    <div className="empty-state">
+                        <i className="codicon codicon-table"></i>
                         <p>No meshes defined</p>
-                        <p className='empty-hint'>Click "Add" to create a new mesh</p>
+                        <p className="empty-hint">Click "Add" to create a new mesh</p>
                     </div>
                 ) : (
-                    meshes.map(mesh => (
-                        <div 
-                            key={mesh.id} 
+                    meshes.map((mesh) => (
+                        <div
+                            key={mesh.id}
                             className={`mesh-card ${selectedMeshId === mesh.id ? 'active' : ''}`}
                             onClick={() => onSelectMesh(mesh.id)}
                         >
-                            <div className='mesh-item-main'>
-                                <div className='mesh-item-info'>
-                                    <span className='mesh-item-id'>#{mesh.id}</span>
-                                    <span className='mesh-item-name'>{mesh.name || `Mesh ${mesh.id}`}</span>
+                            <div className="mesh-item-main">
+                                <div className="mesh-item-info">
+                                    <span className="mesh-item-id">#{mesh.id}</span>
+                                    <span className="mesh-item-name">{mesh.name || `Mesh ${mesh.id}`}</span>
                                     <span className={`mesh-type-badge ${mesh.type}`}>
                                         <i className={`codicon ${getMeshIcon(mesh.type)}`}></i>
                                         {mesh.type}
                                     </span>
                                 </div>
-                                <div className='mesh-item-actions'>
-                                    <Tooltip content='Delete this mesh' position='top'>
-                                        <button 
-                                            className='delete-item-btn' 
+                                <div className="mesh-item-actions">
+                                    <Tooltip content="Delete this mesh" position="top">
+                                        <button
+                                            className="delete-item-btn"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onDeleteMesh(mesh.id);
                                             }}
                                         >
-                                            <i className='codicon codicon-trash'></i>
+                                            <i className="codicon codicon-trash"></i>
                                         </button>
                                     </Tooltip>
                                 </div>
                             </div>
-                            <div className='mesh-item-details'>
-                                <div className='mesh-dimensions'>
-                                    <i className='codicon codicon-ruler'></i>
+                            <div className="mesh-item-details">
+                                <div className="mesh-dimensions">
+                                    <i className="codicon codicon-ruler"></i>
                                     <span>{getMeshDescription(mesh)}</span>
                                 </div>
                             </div>
@@ -129,10 +123,14 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({
  */
 function getMeshIcon(type: string): string {
     switch (type) {
-        case 'regular': return 'codicon-table';
-        case 'cylindrical': return 'codicon-circle-outline';
-        case 'spherical': return 'codicon-globe';
-        default: return 'codicon-symbol-misc';
+        case 'regular':
+            return 'codicon-table';
+        case 'cylindrical':
+            return 'codicon-circle-outline';
+        case 'spherical':
+            return 'codicon-globe';
+        default:
+            return 'codicon-symbol-misc';
     }
 }
 

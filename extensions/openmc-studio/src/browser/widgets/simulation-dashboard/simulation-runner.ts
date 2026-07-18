@@ -27,10 +27,10 @@
 
 /**
  * Simulation Runner
- * 
+ *
  * Frontend service for running OpenMC simulations and monitoring progress.
  * This is a placeholder for Phase 1 implementation.
- * 
+ *
  * @module openmc-studio/browser
  */
 
@@ -60,7 +60,6 @@ import { NukeCoreService } from 'nuke-core/lib/common';
  */
 @injectable()
 export class OpenMCSimulationRunner {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -135,7 +134,7 @@ export class OpenMCSimulationRunner {
 
             // Start simulation non-blocking - returns processId immediately
             const response = await this.backendService.startSimulation(fullRequest);
-            
+
             if (!response.success) {
                 this._isRunning = false;
                 const errorMsg = response.error || 'Failed to start simulation';
@@ -173,13 +172,12 @@ export class OpenMCSimulationRunner {
 
             // Store processId for cancellation
             this._currentProcessId = response.processId;
-            
+
             // Fire running status
             this._onStatusChange.fire({
                 processId: response.processId,
                 status: 'running'
             });
-
         } catch (error) {
             this._isRunning = false;
             this._currentProcessId = undefined;
@@ -209,7 +207,7 @@ export class OpenMCSimulationRunner {
         this._isRunning = false;
         this._currentProcessId = undefined;
         this._onSimulationComplete.fire(result);
-        
+
         this._onStatusChange.fire({
             processId: '',
             status: result.success ? 'completed' : 'failed',
@@ -254,17 +252,17 @@ export class OpenMCSimulationRunner {
     private async getCrossSectionsEnv(): Promise<{ [key: string]: string } | undefined> {
         // Use nuke-core cross-sections path
         let xsPath = this.nukeCoreService.getCrossSectionsPath();
-        
+
         // Check environment variable as last resort if nuke-core doesn't have it
         if (!xsPath && typeof process !== 'undefined' && process.env) {
             xsPath = process.env.OPENMC_CROSS_SECTIONS;
         }
-        
+
         if (xsPath) {
             console.log(`[OpenMC Studio] Using cross-sections path: ${xsPath}`);
             return { OPENMC_CROSS_SECTIONS: xsPath };
         }
-        
+
         return undefined;
     }
 
@@ -276,16 +274,16 @@ export class OpenMCSimulationRunner {
      */
     private async getChainFileEnv(): Promise<{ [key: string]: string } | undefined> {
         let chainPath = this.nukeCoreService.getChainFilePath();
-        
+
         if (!chainPath && typeof process !== 'undefined' && process.env) {
             chainPath = process.env.OPENMC_CHAIN_FILE;
         }
-        
+
         if (chainPath) {
             console.log(`[OpenMC Studio] Using chain file path: ${chainPath}`);
             return { OPENMC_CHAIN_FILE: chainPath };
         }
-        
+
         return undefined;
     }
 

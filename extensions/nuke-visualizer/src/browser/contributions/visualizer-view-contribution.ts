@@ -41,7 +41,7 @@ export class VisualizerViewContribution extends AbstractViewContribution<Visuali
             widgetId: VisualizerWidget.ID,
             widgetName: VisualizerWidget.LABEL,
             defaultWidgetOptions: {
-                area: 'main',
+                area: 'main'
             }
         });
     }

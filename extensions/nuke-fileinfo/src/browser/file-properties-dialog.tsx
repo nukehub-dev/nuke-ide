@@ -202,9 +202,14 @@ export class FilePropertiesDialog extends ReactDialog<void> {
                 {detailed?.atime !== undefined && this.renderRow('Accessed', this.formatDate(detailed.atime))}
                 {detailed?.isSymlink && this.renderRow('Target', detailed.symlinkTarget || '—', true, detailed.symlinkBroken)}
                 {detailed && this.renderRow('MIME Type', detailed.mimeType)}
-                {detailed?.permissions?.modeString && this.renderRow('Permissions', `${detailed.permissions.modeString} (${(detailed.permissions.mode || 0).toString(8).padStart(3, '0')})`)}
+                {detailed?.permissions?.modeString &&
+                    this.renderRow(
+                        'Permissions',
+                        `${detailed.permissions.modeString} (${(detailed.permissions.mode || 0).toString(8).padStart(3, '0')})`
+                    )}
                 {detailed?.textStats && this.renderTextStats(detailed.textStats)}
-                {detailed?.imageDimensions && this.renderRow('Dimensions', `${detailed.imageDimensions.width} × ${detailed.imageDimensions.height} px`)}
+                {detailed?.imageDimensions &&
+                    this.renderRow('Dimensions', `${detailed.imageDimensions.width} × ${detailed.imageDimensions.height} px`)}
                 {detailed?.gitInfo && this.renderGitInfo(detailed.gitInfo)}
                 {!stat.isDirectory && this.renderChecksumSection()}
             </div>
@@ -237,7 +242,10 @@ export class FilePropertiesDialog extends ReactDialog<void> {
         const stat = this.stat;
         if (stat.isDirectory) {
             if (this.state.folderSize !== undefined) {
-                return this.renderRow('Size', `${this.formatBytes(this.state.folderSize)} (${this.state.folderSize.toLocaleString()} bytes)`);
+                return this.renderRow(
+                    'Size',
+                    `${this.formatBytes(this.state.folderSize)} (${this.state.folderSize.toLocaleString()} bytes)`
+                );
             }
             return (
                 <div className="nuke-file-properties-row" key="Size">
@@ -276,7 +284,12 @@ export class FilePropertiesDialog extends ReactDialog<void> {
      * Render Git metadata section.
      * @param info - Latest commit information for the file.
      */
-    protected renderGitInfo(info: { lastCommitHash: string; lastCommitMessage: string; lastCommitAuthor: string; lastCommitDate: string }): React.ReactNode {
+    protected renderGitInfo(info: {
+        lastCommitHash: string;
+        lastCommitMessage: string;
+        lastCommitAuthor: string;
+        lastCommitDate: string;
+    }): React.ReactNode {
         return (
             <div className="nuke-file-properties-section" key="git-info">
                 <div className="nuke-file-properties-section-title">Git</div>

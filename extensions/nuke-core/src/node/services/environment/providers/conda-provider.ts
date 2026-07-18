@@ -82,10 +82,7 @@ export class CondaProvider implements EnvironmentProvider {
 
             for (const env of result.envs) {
                 const envPath: string = env;
-                const pythonPath = path.join(
-                    envPath,
-                    isWindows ? 'python.exe' : 'bin/python'
-                );
+                const pythonPath = path.join(envPath, isWindows ? 'python.exe' : 'bin/python');
 
                 try {
                     const fs = await import('fs');
@@ -93,7 +90,7 @@ export class CondaProvider implements EnvironmentProvider {
                     const envInfo = await getPythonInfo(pythonPath, 'conda');
                     if (envInfo) {
                         const baseName = path.basename(envPath);
-                        envInfo.name = (baseName === 'bin' || baseName === '') ? 'base' : baseName;
+                        envInfo.name = baseName === 'bin' || baseName === '' ? 'base' : baseName;
                         environments.push(envInfo);
                     }
                 } catch {
@@ -148,12 +145,9 @@ export class CondaProvider implements EnvironmentProvider {
 
             for (const envPath of result.envs as string[]) {
                 const baseName = path.basename(envPath);
-                const resolvedName = (baseName === 'bin' || baseName === '') ? 'base' : baseName;
+                const resolvedName = baseName === 'bin' || baseName === '' ? 'base' : baseName;
                 if (resolvedName === envName) {
-                    const pythonPath = path.join(
-                        envPath,
-                        isWindows ? 'python.exe' : 'bin/python'
-                    );
+                    const pythonPath = path.join(envPath, isWindows ? 'python.exe' : 'bin/python');
                     try {
                         await fs.promises.access(pythonPath);
                         return pythonPath;
@@ -169,13 +163,8 @@ export class CondaProvider implements EnvironmentProvider {
         // 3. Last resort: direct path fallback using discovered installations
         const installations = await this.getInstallations();
         for (const inst of installations) {
-            const envDir = envName === 'base'
-                ? inst.rootPath
-                : path.join(inst.rootPath, 'envs', envName);
-            const pythonPath = path.join(
-                envDir,
-                isWindows ? 'python.exe' : 'bin/python'
-            );
+            const envDir = envName === 'base' ? inst.rootPath : path.join(inst.rootPath, 'envs', envName);
+            const pythonPath = path.join(envDir, isWindows ? 'python.exe' : 'bin/python');
 
             try {
                 await fs.promises.access(pythonPath);
@@ -207,7 +196,7 @@ export class CondaProvider implements EnvironmentProvider {
 
             for (const envPath of result.envs as string[]) {
                 const baseName = envPath.replace(/\\/g, '/').split('/').pop();
-                const resolvedName = (baseName === 'bin' || baseName === '') ? 'base' : baseName;
+                const resolvedName = baseName === 'bin' || baseName === '' ? 'base' : baseName;
                 if (resolvedName === envName) {
                     return envPath;
                 }

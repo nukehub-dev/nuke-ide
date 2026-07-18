@@ -38,10 +38,7 @@
 
 ```typescript
 // Widget creation
-const widget = await this.widgetManager.getOrCreateWidget(
-    VisualizerWidget.ID,
-    { uri: fileUri.toString() }
-) as VisualizerWidget;
+const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: fileUri.toString() })) as VisualizerWidget;
 
 // Backend starts server
 const server = await this.visualizerBackend.startServer(filePath, undefined, theme);
@@ -52,12 +49,12 @@ widget.setServerUrl(server.url, server.port);
 
 ### Lifecycle
 
-| Event | Action |
-|-------|--------|
-| Widget created | Show loading spinner |
-| Server starts | Poll `http://localhost:PORT` every 2s |
-| Server ready | Set iframe `src`, hide spinner |
-| Widget closed | Call `backend.stopServer(port)` |
+| Event          | Action                                          |
+| -------------- | ----------------------------------------------- |
+| Widget created | Show loading spinner                            |
+| Server starts  | Poll `http://localhost:PORT` every 2s           |
+| Server ready   | Set iframe `src`, hide spinner                  |
+| Widget closed  | Call `backend.stopServer(port)`                 |
 | Server crashes | `VisualizerClient.onServerStop()` clears iframe |
 
 ### Multi-Instance
@@ -66,10 +63,7 @@ Each file gets its own widget and its own Python server:
 
 ```typescript
 const widgetId = `visualizer-${filePath}`;
-const widget = await this.widgetManager.getOrCreateWidget(
-    VisualizerWidget.ID,
-    { uri: fileUri.toString(), id: widgetId }
-);
+const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: fileUri.toString(), id: widgetId });
 ```
 
 ### Limitations
@@ -118,12 +112,12 @@ const widget = await this.widgetManager.getOrCreateWidget(
 export class OpenMCPlotWidget extends ReactWidget {
     static readonly ID = 'openmc-plot-widget';
     private figure?: PlotlyFigure;
-    
+
     setFigure(figure: PlotlyFigure): void {
         this.figure = figure;
         this.update();
     }
-    
+
     protected render(): React.ReactNode {
         if (!this.figure) return <div>No data</div>;
         return <PlotlyComponent data={this.figure.data} layout={this.figure.layout} />;
@@ -142,20 +136,20 @@ const trace = PlotlyUtils.createSpectrumTrace(data, 'Flux');
 
 // Show in React widget
 await this.plotlyService.showPlot({
-    data: [trace],
-    layout: { xaxis: { type: 'log' }, yaxis: { type: 'log' } },
-    title: 'Energy Spectrum'
+  data: [trace],
+  layout: { xaxis: { type: 'log' }, yaxis: { type: 'log' } },
+  title: 'Energy Spectrum'
 });
 ```
 
 ### Lifecycle
 
-| Event | Action |
-|-------|--------|
-| Widget created | Render empty state |
-| Data requested | Show loading indicator |
-| Data received | `setFigure()` or `setState()` triggers React render |
-| Widget closed | Nothing special (no server to kill) |
+| Event          | Action                                              |
+| -------------- | --------------------------------------------------- |
+| Widget created | Render empty state                                  |
+| Data requested | Show loading indicator                              |
+| Data received  | `setFigure()` or `setState()` triggers React render |
+| Widget closed  | Nothing special (no server to kill)                 |
 
 ### Advantages
 
@@ -170,10 +164,12 @@ await this.plotlyService.showPlot({
 Some features combine both patterns:
 
 **Example: Statepoint Viewer**
+
 - Main viewer is a **React widget** showing metadata, tables, and Plotly charts.
 - Clicking "View Source" spawns a **VisualizerWidget** with an iframe for the 3D scatter plot.
 
 **Example: Geometry Hierarchy**
+
 - Tree is a **React widget** in the sidebar.
 - Clicking "View 3D" spawns a **VisualizerWidget** with a Python server rendering the geometry.
 
@@ -201,16 +197,16 @@ Does your visualization need a Python rendering library
 
 ## Widget Reference
 
-| Widget | Pattern | Purpose |
-|--------|---------|---------|
-| `VisualizerWidget` | A (iframe) | Base 3D mesh/DAGMC viewer |
-| `OpenMCPlotWidget` | B (React+Plotly) | 2D tally plots (spectrum, spatial) |
-| `OpenMCHeatmapWidget` | B (React+Plotly) | 2D mesh tally slices |
-| `XSPlotWidget` | B (React+Plotly) | Cross-section plotting |
-| `OpenMCGeometryTreeWidget` | B (React) | Geometry hierarchy tree |
-| `OpenMCTallyTreeWidget` | B (React) | Tally list sidebar |
-| `OpenMCStatepointViewerWidget` | B (React+Plotly) | Statepoint dashboard |
-| `OpenMCDepletionWidget` | B (React+Plotly) | Depletion curves |
-| `OpenMCMaterialExplorerWidget` | B (React) | Material compositions |
-| `OpenMCOverlapWidget` | B (React) | Overlap checker UI |
-| `OpenMCGeometry3DWidget` | A (iframe) | 3D geometry renderer |
+| Widget                         | Pattern          | Purpose                            |
+| ------------------------------ | ---------------- | ---------------------------------- |
+| `VisualizerWidget`             | A (iframe)       | Base 3D mesh/DAGMC viewer          |
+| `OpenMCPlotWidget`             | B (React+Plotly) | 2D tally plots (spectrum, spatial) |
+| `OpenMCHeatmapWidget`          | B (React+Plotly) | 2D mesh tally slices               |
+| `XSPlotWidget`                 | B (React+Plotly) | Cross-section plotting             |
+| `OpenMCGeometryTreeWidget`     | B (React)        | Geometry hierarchy tree            |
+| `OpenMCTallyTreeWidget`        | B (React)        | Tally list sidebar                 |
+| `OpenMCStatepointViewerWidget` | B (React+Plotly) | Statepoint dashboard               |
+| `OpenMCDepletionWidget`        | B (React+Plotly) | Depletion curves                   |
+| `OpenMCMaterialExplorerWidget` | B (React)        | Material compositions              |
+| `OpenMCOverlapWidget`          | B (React)        | Overlap checker UI                 |
+| `OpenMCGeometry3DWidget`       | A (iframe)       | 3D geometry renderer               |

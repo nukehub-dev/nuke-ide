@@ -6,18 +6,19 @@ Provides CLI commands to load models, assign materials, and manage
 groups within DAGMC .h5m files.
 """
 
-import sys
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 try:
     from pydagmc import Model
 except ImportError:
     import site
+
     for site_path in site.getsitepackages():
-        if os.path.exists(os.path.join(site_path, 'pydagmc')):
+        if os.path.exists(os.path.join(site_path, "pydagmc")):
             sys.path.insert(0, site_path)
             break
     from pydagmc import Model
@@ -37,6 +38,7 @@ def _read_faceting_tolerance(model) -> float:
     """
     try:
         import pymoab
+
         tag = model.faceting_tol_tag
         # Try root set first
         try:
@@ -95,15 +97,17 @@ def load_model(file_path: str) -> dict:
                     except Exception:
                         pass
 
-                volumes.append({
-                    'id': int(vol.id),
-                    'material': vol.material,
-                    'numTriangles': int(vol.num_triangles),
-                    'boundingBox': {
-                        'min': [float(x) for x in bbox_min],
-                        'max': [float(x) for x in bbox_max]
+                volumes.append(
+                    {
+                        "id": int(vol.id),
+                        "material": vol.material,
+                        "numTriangles": int(vol.num_triangles),
+                        "boundingBox": {
+                            "min": [float(x) for x in bbox_min],
+                            "max": [float(x) for x in bbox_max],
+                        },
                     }
-                })
+                )
                 total_triangles += vol.num_triangles
             except Exception as e:
                 # Skip volumes that can't be read (e.g. MB_INDEX_OUT_OF_RANGE)
@@ -114,47 +118,51 @@ def load_model(file_path: str) -> dict:
         materials = {}
         for mat_name, vols in model.volumes_by_material.items():
             materials[mat_name] = {
-                'volumeCount': int(len(vols)),
-                'volumes': [int(v.id) for v in vols]
+                "volumeCount": int(len(vols)),
+                "volumes": [int(v.id) for v in vols],
             }
 
         # Build groups list
         groups = []
         for group in model.groups:
-            group_type = 'material' if group.name.startswith('mat:') else \
-                        'boundary' if group.name.startswith('boundary:') else 'other'
-            groups.append({
-                'name': group.name,
-                'type': group_type,
-                'volumeCount': int(len(group.volumes)),
-                'volumes': [int(v.id) for v in group.volumes]
-            })
+            group_type = (
+                "material"
+                if group.name.startswith("mat:")
+                else "boundary"
+                if group.name.startswith("boundary:")
+                else "other"
+            )
+            groups.append(
+                {
+                    "name": group.name,
+                    "type": group_type,
+                    "volumeCount": int(len(group.volumes)),
+                    "volumes": [int(v.id) for v in group.volumes],
+                }
+            )
 
         # Get file size
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
 
         return {
-            'success': True,
-            'data': {
-                'filePath': file_path,
-                'fileName': Path(file_path).name,
-                'fileSizeMB': round(file_size_mb, 2),
-                'volumeCount': len(model.volumes),
-                'surfaceCount': len(model.surfaces),
-                'vertices': total_triangles,
-                'materials': materials,
-                'volumes': volumes,
-                'groups': groups,
-                'boundingBox': {'min': [-25, -25, -25], 'max': [25, 25, 25]}  # Default for now
-            }
+            "success": True,
+            "data": {
+                "filePath": file_path,
+                "fileName": Path(file_path).name,
+                "fileSizeMB": round(file_size_mb, 2),
+                "volumeCount": len(model.volumes),
+                "surfaceCount": len(model.surfaces),
+                "vertices": total_triangles,
+                "materials": materials,
+                "volumes": volumes,
+                "groups": groups,
+                "boundingBox": {"min": [-25, -25, -25], "max": [25, 25, 25]},  # Default for now
+            },
         }
     except Exception as e:
         import traceback
-        return {
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def assign_material(file_path: str, volume_id: int, material_name: str) -> dict:
@@ -174,7 +182,7 @@ def assign_material(file_path: str, volume_id: int, material_name: str) -> dict:
 
         volume = model.volumes_by_id.get(volume_id)
         if volume is None:
-            return {'success': False, 'error': f'Volume {volume_id} not found'}
+            return {"success": False, "error": f"Volume {volume_id} not found"}
 
         # Assign material (empty string means remove)
         if material_name:
@@ -186,12 +194,13 @@ def assign_material(file_path: str, volume_id: int, material_name: str) -> dict:
         model.mb.write_file(file_path)
 
         return {
-            'success': True,
-            'message': f'Assigned material "{material_name}" to volume {volume_id}'
+            "success": True,
+            "message": f'Assigned material "{material_name}" to volume {volume_id}',
         }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def create_group(file_path: str, group_name: str, volume_ids: list = None) -> dict:
@@ -209,12 +218,13 @@ def create_group(file_path: str, group_name: str, volume_ids: list = None) -> di
         model = Model(file_path)
 
         if group_name in model.group_names:
-            return {'success': False, 'error': f'Group "{group_name}" already exists'}
+            return {"success": False, "error": f'Group "{group_name}" already exists'}
 
         from pymoab import types
+
         new_group_handle = model.mb.create_meshset(types.MBENTITYSET)
 
-        model.mb.tag_set_data(model.category_tag, new_group_handle, 'Group')
+        model.mb.tag_set_data(model.category_tag, new_group_handle, "Group")
         model.mb.tag_set_data(model.name_tag, new_group_handle, group_name)
 
         if volume_ids:
@@ -225,10 +235,11 @@ def create_group(file_path: str, group_name: str, volume_ids: list = None) -> di
 
         model.mb.write_file(file_path)
 
-        return {'success': True, 'message': f'Created group "{group_name}"'}
+        return {"success": True, "message": f'Created group "{group_name}"'}
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def delete_group(file_path: str, group_name: str) -> dict:
@@ -248,16 +259,17 @@ def delete_group(file_path: str, group_name: str) -> dict:
 
         group = model.groups_by_name.get(group_name)
         if group is None:
-            return {'success': False, 'error': f'Group "{group_name}" not found'}
+            return {"success": False, "error": f'Group "{group_name}" not found'}
 
         # Delete the group meshset (this removes the group but not the volumes)
         model.mb.delete_entities([group.handle])
         model.mb.write_file(file_path)
 
-        return {'success': True, 'message': f'Deleted group "{group_name}"'}
+        return {"success": True, "message": f'Deleted group "{group_name}"'}
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def add_volumes_to_group(file_path: str, group_name: str, volume_ids: list) -> dict:
@@ -276,7 +288,7 @@ def add_volumes_to_group(file_path: str, group_name: str, volume_ids: list) -> d
 
         group = model.groups_by_name.get(group_name)
         if group is None:
-            return {'success': False, 'error': f'Group "{group_name}" not found'}
+            return {"success": False, "error": f'Group "{group_name}" not found'}
 
         for vid in volume_ids:
             vol = model.volumes_by_id.get(vid)
@@ -285,10 +297,14 @@ def add_volumes_to_group(file_path: str, group_name: str, volume_ids: list) -> d
 
         model.mb.write_file(file_path)
 
-        return {'success': True, 'message': f'Added {len(volume_ids)} volumes to group "{group_name}"'}
+        return {
+            "success": True,
+            "message": f'Added {len(volume_ids)} volumes to group "{group_name}"',
+        }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def remove_volumes_from_group(file_path: str, group_name: str, volume_ids: list) -> dict:
@@ -307,7 +323,7 @@ def remove_volumes_from_group(file_path: str, group_name: str, volume_ids: list)
 
         group = model.groups_by_name.get(group_name)
         if group is None:
-            return {'success': False, 'error': f'Group "{group_name}" not found'}
+            return {"success": False, "error": f'Group "{group_name}" not found'}
 
         for vid in volume_ids:
             vol = model.volumes_by_id.get(vid)
@@ -316,10 +332,14 @@ def remove_volumes_from_group(file_path: str, group_name: str, volume_ids: list)
 
         model.mb.write_file(file_path)
 
-        return {'success': True, 'message': f'Removed {len(volume_ids)} volumes from group "{group_name}"'}
+        return {
+            "success": True,
+            "message": f'Removed {len(volume_ids)} volumes from group "{group_name}"',
+        }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def get_faceting_params(file_path: str) -> dict:
@@ -338,17 +358,18 @@ def get_faceting_params(file_path: str) -> dict:
         num_surfaces = len(model.surfaces)
 
         return {
-            'success': True,
-            'data': {
-                'facetingTolerance': tolerance,
-                'totalTriangles': int(total_triangles),
-                'volumeCount': len(model.volumes),
-                'surfaceCount': num_surfaces
-            }
+            "success": True,
+            "data": {
+                "facetingTolerance": tolerance,
+                "totalTriangles": int(total_triangles),
+                "volumeCount": len(model.volumes),
+                "surfaceCount": num_surfaces,
+            },
         }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
@@ -372,17 +393,17 @@ def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
     """
     try:
         current = get_faceting_params(file_path)
-        if not current['success']:
+        if not current["success"]:
             return current
 
-        current_tol = current['data']['facetingTolerance']
-        current_tri = current['data']['totalTriangles']
-        num_volumes = current['data']['volumeCount']
-        num_surfaces = current['data']['surfaceCount']
+        current_tol = current["data"]["facetingTolerance"]
+        current_tri = current["data"]["totalTriangles"]
+        num_volumes = current["data"]["volumeCount"]
+        num_surfaces = current["data"]["surfaceCount"]
 
         # Avoid division by zero
         if current_tol <= 0 or new_tolerance <= 0:
-            return {'success': False, 'error': 'Tolerance must be positive'}
+            return {"success": False, "error": "Tolerance must be positive"}
 
         ratio = current_tol / new_tolerance
 
@@ -390,10 +411,10 @@ def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
             # Coarsening (larger tolerance): sub-quadratic scaling.
             # Curvature and feature-size constraints prevent the full 1/tol^2 reduction.
             # Use square-root scaling, capped at a 50x reduction.
-            scale = max(ratio ** 0.5, 0.02)
+            scale = max(ratio**0.5, 0.02)
         else:
             # Refinement (smaller tolerance): super-linear but capped at 100x increase.
-            scale = min(ratio ** 1.5, 100.0)
+            scale = min(ratio**1.5, 100.0)
 
         estimated = int(current_tri * scale)
 
@@ -407,19 +428,20 @@ def estimate_triangles(file_path: str, new_tolerance: float) -> dict:
         estimated = min(estimated, max_estimate)
 
         return {
-            'success': True,
-            'data': {
-                'currentTolerance': current_tol,
-                'newTolerance': new_tolerance,
-                'currentTriangles': current_tri,
-                'estimatedTriangles': estimated,
-                'volumeCount': num_volumes,
-                'surfaceCount': num_surfaces
-            }
+            "success": True,
+            "data": {
+                "currentTolerance": current_tol,
+                "newTolerance": new_tolerance,
+                "currentTriangles": current_tri,
+                "estimatedTriangles": estimated,
+                "volumeCount": num_volumes,
+                "surfaceCount": num_surfaces,
+            },
         }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def _write_dagmc_streaming(
@@ -488,9 +510,13 @@ def _write_dagmc_streaming(
                 surface_sets[face_tag] = sset
 
                 # Extract triangles for this surface directly from gmsh
-                elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(face_dim, face_tag)
+                elem_types, elem_tags, elem_node_tags = gmsh.model.mesh.getElements(
+                    face_dim, face_tag
+                )
 
-                for etype, etags, enodes in zip(elem_types, elem_tags, elem_node_tags):
+                for etype, _etags, enodes in zip(
+                    elem_types, elem_tags, elem_node_tags, strict=True
+                ):
                     if etype == 2:  # 3-node triangle
                         for i in range(0, len(enodes), 3):
                             tri_verts = (
@@ -521,9 +547,9 @@ def _write_dagmc_streaming(
             moab_core.add_parent_child(volume_sets[vol_tag], surface_sets[face_tag])
 
         # Create material group for this volume using actual material from old model
-        mat_name = material_map.get(vol_tag, f'mat_{idx}')
+        mat_name = material_map.get(vol_tag, f"mat_{idx}")
         if mat_name is None:
-            mat_name = f'mat_{idx}'
+            mat_name = f"mat_{idx}"
         gset = moab_core.create_meshset()
         moab_core.tag_set_data(tag_cat, gset, "Group")
         moab_core.tag_set_data(tag_gdim, gset, 4)
@@ -552,8 +578,9 @@ def _write_dagmc_streaming(
     return volume_sets, surface_sets, group_sets
 
 
-def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
-                         material_map: dict = None) -> tuple:
+def _step_to_dagmc_ocp(
+    step_path: str, h5m_path: str, tolerance: float, material_map: dict = None
+) -> tuple:
     """STEP→DAGMC conversion using OpenCASCADE BRepMesh.
 
     Uses OCP.BRepMesh_IncrementalMesh for faceting-tolerance-based
@@ -562,19 +589,20 @@ def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
     Returns:
         Tuple of (num_volumes, num_vertices, num_triangles).
     """
-    from OCP.STEPControl import STEPControl_Reader
-    from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.BRep import BRep_Tool
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.STEPControl import STEPControl_Reader
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
     from OCP.TopExp import TopExp_Explorer
-    from OCP.TopAbs import TopAbs_SOLID, TopAbs_FACE
     from OCP.TopoDS import TopoDS
-    from pymoab import core as moab_core, types
+    from pymoab import core as moab_core
+    from pymoab import types
 
     # 1. Load STEP and tessellate with OpenCASCADE
     reader = STEPControl_Reader()
     status = reader.ReadFile(step_path)
     if status != 1:
-        raise RuntimeError(f'Failed to read STEP file, status={status}')
+        raise RuntimeError(f"Failed to read STEP file, status={status}")
     reader.TransferRoot()
     shape = reader.OneShape()
     BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
@@ -582,9 +610,9 @@ def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
     # 2. Extract geometry (two-pass: collect vertices first, then build MOAB)
     global_vertices = {}
     vertex_coords = []
-    volume_faces = []       # list of (vol_id, [face_hash, ...])
-    face_to_volumes = {}    # face_hash -> [vol_id, ...]
-    face_hashes = {}        # face_hash -> list of [v0,v1,v2] triangles
+    volume_faces = []  # list of (vol_id, [face_hash, ...])
+    face_to_volumes = {}  # face_hash -> [vol_id, ...]
+    face_hashes = {}  # face_hash -> list of [v0,v1,v2] triangles
 
     solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
     vol_id = 1
@@ -620,11 +648,13 @@ def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
                 face_tris = []
                 for i in range(1, tri.NbTriangles() + 1):
                     t = tri.Triangle(i)
-                    face_tris.append([
-                        local_to_global[t.Value(1)],
-                        local_to_global[t.Value(2)],
-                        local_to_global[t.Value(3)],
-                    ])
+                    face_tris.append(
+                        [
+                            local_to_global[t.Value(1)],
+                            local_to_global[t.Value(2)],
+                            local_to_global[t.Value(3)],
+                        ]
+                    )
                 face_hashes[face_hash] = face_tris
 
             faces.append(face_hash)
@@ -638,25 +668,32 @@ def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
     # 3. Build MOAB with proper DAGMC tags
     mb = moab_core.Core()
     tag_cat = mb.tag_get_handle(
-        types.CATEGORY_TAG_NAME, types.CATEGORY_TAG_SIZE,
-        types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
+        types.CATEGORY_TAG_NAME,
+        types.CATEGORY_TAG_SIZE,
+        types.MB_TYPE_OPAQUE,
+        types.MB_TAG_SPARSE,
+        create_if_missing=True,
     )
     tag_name = mb.tag_get_handle(
-        types.NAME_TAG_NAME, types.NAME_TAG_SIZE,
-        types.MB_TYPE_OPAQUE, types.MB_TAG_SPARSE, create_if_missing=True
+        types.NAME_TAG_NAME,
+        types.NAME_TAG_SIZE,
+        types.MB_TYPE_OPAQUE,
+        types.MB_TAG_SPARSE,
+        create_if_missing=True,
     )
     tag_gdim = mb.tag_get_handle(
-        types.GEOM_DIMENSION_TAG_NAME, 1,
-        types.MB_TYPE_INTEGER, types.MB_TAG_DENSE, create_if_missing=True
+        types.GEOM_DIMENSION_TAG_NAME,
+        1,
+        types.MB_TYPE_INTEGER,
+        types.MB_TAG_DENSE,
+        create_if_missing=True,
     )
     tag_gid = mb.tag_get_handle(types.GLOBAL_ID_TAG_NAME)
     tag_sense = mb.tag_get_handle(
-        "GEOM_SENSE_2", 2,
-        types.MB_TYPE_HANDLE, types.MB_TAG_SPARSE, create_if_missing=True
+        "GEOM_SENSE_2", 2, types.MB_TYPE_HANDLE, types.MB_TAG_SPARSE, create_if_missing=True
     )
     tag_facet_tol = mb.tag_get_handle(
-        "FACETING_TOL", 1,
-        types.MB_TYPE_DOUBLE, types.MB_TAG_SPARSE, create_if_missing=True
+        "FACETING_TOL", 1, types.MB_TYPE_DOUBLE, types.MB_TAG_SPARSE, create_if_missing=True
     )
 
     verts_array = np.array(vertex_coords, dtype=np.float64)
@@ -692,7 +729,9 @@ def _step_to_dagmc_ocp(step_path: str, h5m_path: str, tolerance: float,
         for fh in face_hash_list:
             mb.add_parent_child(vset, surface_sets[fh])
 
-        mat_name = material_map.get(vol_id, f"mat_{vol_id - 1}") if material_map else f"mat_{vol_id - 1}"
+        mat_name = (
+            material_map.get(vol_id, f"mat_{vol_id - 1}") if material_map else f"mat_{vol_id - 1}"
+        )
         if mat_name is None:
             mat_name = f"mat_{vol_id - 1}"
         gset = mb.create_meshset()
@@ -738,10 +777,12 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
         Dictionary with success flag and output file path.
     """
     import tempfile
+
     try:
-        from pymoab import core as moab_core, types
+        from pymoab import core as moab_core  # noqa: F401  # availability probe
+        from pymoab import types  # noqa: F401  # availability probe
     except ImportError:
-        return {'success': False, 'error': 'pymoab is not installed'}
+        return {"success": False, "error": "pymoab is not installed"}
 
     try:
         # 1. Extract material assignments from existing H5M, then free it immediately
@@ -752,10 +793,11 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
         old_vol_count = len(old_model.volumes)
         del old_model
         import gc
+
         gc.collect()
 
         # 2. Fast OCP-based conversion
-        fd, temp_h5m = tempfile.mkstemp(suffix='.h5m')
+        fd, temp_h5m = tempfile.mkstemp(suffix=".h5m")
         os.close(fd)
 
         n_vols, n_verts, n_tris = _step_to_dagmc_ocp(
@@ -765,31 +807,32 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
         warnings = []
         if old_vol_count != n_vols:
             warnings.append(
-                f'Volume count mismatch: old={old_vol_count}, new={n_vols}. '
-                f'Materials mapped by volume tag where possible.'
+                f"Volume count mismatch: old={old_vol_count}, new={n_vols}. "
+                f"Materials mapped by volume tag where possible."
             )
 
         # 3. Move to output path
         output_dir = Path(existing_h5m).parent
         base_name = Path(existing_h5m).stem
-        output_path = str(output_dir / f'{base_name}_refaceted.h5m')
+        output_path = str(output_dir / f"{base_name}_refaceted.h5m")
 
         if os.path.exists(output_path):
             os.unlink(output_path)
         shutil.move(temp_h5m, output_path)
 
         return {
-            'success': True,
-            'data': {
-                'outputPath': output_path,
-                'message': f'Re-faceted geometry saved to {Path(output_path).name} '
-                           f'({n_vols} volumes, {n_tris:,} triangles)'
+            "success": True,
+            "data": {
+                "outputPath": output_path,
+                "message": f"Re-faceted geometry saved to {Path(output_path).name} "
+                f"({n_vols} volumes, {n_tris:,} triangles)",
             },
-            'warnings': warnings
+            "warnings": warnings,
         }
     except Exception as e:
         import traceback
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def main():
@@ -799,21 +842,21 @@ def main():
     first command-line argument.
     """
     if len(sys.argv) < 2:
-        print(json.dumps({'success': False, 'error': 'No command specified'}))
+        print(json.dumps({"success": False, "error": "No command specified"}))
         sys.exit(1)
 
     command = sys.argv[1]
 
-    if command == 'load':
+    if command == "load":
         if len(sys.argv) < 3:
-            print(json.dumps({'success': False, 'error': 'No file path specified'}))
+            print(json.dumps({"success": False, "error": "No file path specified"}))
             sys.exit(1)
         result = load_model(sys.argv[2])
         print(json.dumps(result))
 
-    elif command == 'assign_material':
+    elif command == "assign_material":
         if len(sys.argv) < 5:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         file_path = sys.argv[2]
         volume_id = int(sys.argv[3])
@@ -821,70 +864,72 @@ def main():
         result = assign_material(file_path, volume_id, material_name)
         print(json.dumps(result))
 
-    elif command == 'create_group':
+    elif command == "create_group":
         if len(sys.argv) < 4:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         file_path = sys.argv[2]
         group_name = sys.argv[3]
-        volume_ids = [int(v) for v in sys.argv[4].split(',')] if len(sys.argv) > 4 and sys.argv[4] else None
+        volume_ids = (
+            [int(v) for v in sys.argv[4].split(",")] if len(sys.argv) > 4 and sys.argv[4] else None
+        )
         result = create_group(file_path, group_name, volume_ids)
         print(json.dumps(result))
 
-    elif command == 'delete_group':
+    elif command == "delete_group":
         if len(sys.argv) < 4:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         file_path = sys.argv[2]
         group_name = sys.argv[3]
         result = delete_group(file_path, group_name)
         print(json.dumps(result))
 
-    elif command == 'add_to_group':
+    elif command == "add_to_group":
         if len(sys.argv) < 5:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         file_path = sys.argv[2]
         group_name = sys.argv[3]
-        volume_ids = [int(v) for v in sys.argv[4].split(',')] if sys.argv[4] else []
+        volume_ids = [int(v) for v in sys.argv[4].split(",")] if sys.argv[4] else []
         result = add_volumes_to_group(file_path, group_name, volume_ids)
         print(json.dumps(result))
 
-    elif command == 'remove_from_group':
+    elif command == "remove_from_group":
         if len(sys.argv) < 5:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         file_path = sys.argv[2]
         group_name = sys.argv[3]
-        volume_ids = [int(v) for v in sys.argv[4].split(',')] if sys.argv[4] else []
+        volume_ids = [int(v) for v in sys.argv[4].split(",")] if sys.argv[4] else []
         result = remove_volumes_from_group(file_path, group_name, volume_ids)
         print(json.dumps(result))
 
-    elif command == 'get_faceting_params':
+    elif command == "get_faceting_params":
         if len(sys.argv) < 3:
-            print(json.dumps({'success': False, 'error': 'No file path specified'}))
+            print(json.dumps({"success": False, "error": "No file path specified"}))
             sys.exit(1)
         result = get_faceting_params(sys.argv[2])
         print(json.dumps(result))
 
-    elif command == 'estimate_triangles':
+    elif command == "estimate_triangles":
         if len(sys.argv) < 4:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         result = estimate_triangles(sys.argv[2], float(sys.argv[3]))
         print(json.dumps(result))
 
-    elif command == 'refacet':
+    elif command == "refacet":
         if len(sys.argv) < 5:
-            print(json.dumps({'success': False, 'error': 'Insufficient arguments'}))
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
         result = refacet(sys.argv[2], sys.argv[3], float(sys.argv[4]))
         print(json.dumps(result))
 
     else:
-        print(json.dumps({'success': False, 'error': f'Unknown command: {command}'}))
+        print(json.dumps({"success": False, "error": f"Unknown command: {command}"}))
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

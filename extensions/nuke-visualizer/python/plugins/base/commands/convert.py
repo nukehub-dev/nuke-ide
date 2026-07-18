@@ -6,14 +6,13 @@ These are invoked via: python server.py base.convert-dagmc --file <path>
 """
 
 import sys
-import os
 
-from nuke_viz.plugin import command, arg
+from nuke_viz.plugin import arg, command
 
 
-@command('base.convert-dagmc', help='Convert a DAGMC .h5m file to VTK')
-@arg('--file', required=True, help='Path to the input .h5m file')
-@arg('--volume', type=int, help='Extract only a specific volume ID')
+@command("base.convert-dagmc", help="Convert a DAGMC .h5m file to VTK")
+@arg("--file", required=True, help="Path to the input .h5m file")
+@arg("--volume", type=int, help="Extract only a specific volume ID")
 def cmd_convert_dagmc(args):
     """Convert DAGMC H5M to VTK."""
     try:
@@ -27,21 +26,14 @@ def cmd_convert_dagmc(args):
     if args.volume is not None:
         try:
             output_path = convert_h5m_volume_to_vtk(args.file, args.volume)
-            result = {
-                'vtk_path': output_path,
-                'from_cache': False,
-                'volume_id': args.volume
-            }
+            result = {"vtk_path": output_path, "from_cache": False, "volume_id": args.volume}
         except Exception as e:
             print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
             return 1
     else:
         try:
             result = convert_h5m_to_vtk_cached(
-                args.file,
-                use_cache=True,
-                do_filter_graveyard=True,
-                max_cell_area=100.0
+                args.file, use_cache=True, do_filter_graveyard=True, max_cell_area=100.0
             )
         except Exception as e:
             print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
@@ -51,9 +43,9 @@ def cmd_convert_dagmc(args):
     return 0
 
 
-@command('base.convert-step', help='Convert a STEP/STP/BREP file to VTK')
-@arg('--file', required=True, help='Path to the input STEP/STP/BREP file')
-@arg('--mesh-size', type=float, default=10.0, help='Maximum mesh element size')
+@command("base.convert-step", help="Convert a STEP/STP/BREP file to VTK")
+@arg("--file", required=True, help="Path to the input STEP/STP/BREP file")
+@arg("--mesh-size", type=float, default=10.0, help="Maximum mesh element size")
 def cmd_convert_step(args):
     """Convert STEP/STP/BREP to VTK via gmsh."""
     try:
@@ -65,11 +57,7 @@ def cmd_convert_step(args):
     import json
 
     try:
-        result = convert_step_to_vtk_cached(
-            args.file,
-            use_cache=True,
-            mesh_size_max=args.mesh_size
-        )
+        result = convert_step_to_vtk_cached(args.file, use_cache=True, mesh_size_max=args.mesh_size)
     except Exception as e:
         print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
         return 1

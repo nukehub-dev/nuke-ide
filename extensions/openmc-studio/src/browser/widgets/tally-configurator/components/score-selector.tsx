@@ -41,14 +41,14 @@ interface ScoreSelectorProps {
 /**
  * Categorized list of available OpenMC tally scores.
  */
-const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, label: string }[] }[] = [
+const AVAILABLE_SCORES: { category: string; scores: { value: OpenMCTallyScore; label: string }[] }[] = [
     {
         category: 'Basic',
         scores: [
             { value: 'flux', label: 'Flux' },
             { value: 'total', label: 'Total' },
             { value: 'absorption', label: 'Absorption' },
-            { value: 'fission', label: 'Fission' },
+            { value: 'fission', label: 'Fission' }
         ]
     },
     {
@@ -60,7 +60,7 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
             { value: 'nu-scatter', label: 'nu-Scatter' },
             { value: 'kappa-fission', label: 'kappa-Fission' },
             { value: 'prompt-nu-fission', label: 'Prompt nu-Fission' },
-            { value: 'delayed-nu-fission', label: 'Delayed nu-Fission' },
+            { value: 'delayed-nu-fission', label: 'Delayed nu-Fission' }
         ]
     },
     {
@@ -73,7 +73,7 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
             { value: 'nu-fission-1', label: 'P1 nu-Fission' },
             { value: 'nu-fission-2', label: 'P2 nu-Fission' },
             { value: 'nu-fission-3', label: 'P3 nu-Fission' },
-            { value: 'nu-fission-4', label: 'P4 nu-Fission' },
+            { value: 'nu-fission-4', label: 'P4 nu-Fission' }
         ]
     },
     {
@@ -84,7 +84,7 @@ const AVAILABLE_SCORES: { category: string, scores: { value: OpenMCTallyScore, l
             { value: 'heating-local', label: 'Heating (Local)' },
             { value: 'events', label: 'Events' },
             { value: 'inverse-velocity', label: 'Inverse Velocity' },
-            { value: 'activation', label: 'Activation' },
+            { value: 'activation', label: 'Activation' }
         ]
     }
 ];
@@ -100,26 +100,22 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
     /** Toggle a score in or out of the current selection. */
     const toggleScore = (score: OpenMCTallyScore) => {
         if (scores.includes(score)) {
-            onUpdate(scores.filter(s => s !== score));
+            onUpdate(scores.filter((s) => s !== score));
         } else {
             onUpdate([...scores, score]);
         }
     };
 
     return (
-        <div className='score-selector'>
-            <div className='score-categories'>
-                {AVAILABLE_SCORES.map(cat => (
-                    <div key={cat.category} className='score-category'>
-                        <div className='category-label'>{cat.category}</div>
-                        <div className='score-grid'>
-                            {cat.scores.map(s => (
-                                <label key={s.value} className='score-checkbox-label'>
-                                    <input 
-                                        type='checkbox' 
-                                        checked={scores.includes(s.value)} 
-                                        onChange={() => toggleScore(s.value)}
-                                    />
+        <div className="score-selector">
+            <div className="score-categories">
+                {AVAILABLE_SCORES.map((cat) => (
+                    <div key={cat.category} className="score-category">
+                        <div className="category-label">{cat.category}</div>
+                        <div className="score-grid">
+                            {cat.scores.map((s) => (
+                                <label key={s.value} className="score-checkbox-label">
+                                    <input type="checkbox" checked={scores.includes(s.value)} onChange={() => toggleScore(s.value)} />
                                     <span>{s.label}</span>
                                 </label>
                             ))}

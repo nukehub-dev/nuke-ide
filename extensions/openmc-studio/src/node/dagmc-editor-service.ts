@@ -27,9 +27,9 @@
 
 /**
  * DAGMC Editor Backend Service
- * 
+ *
  * Provides backend operations for the DAGMC Editor using pydagmc.
- * 
+ *
  * @module openmc-studio/node
  */
 
@@ -111,7 +111,6 @@ export interface RefacetJob {
  */
 @injectable()
 export class DAGMCEditorService {
-
     @inject(NukeCoreBackendService)
     protected readonly coreService!: NukeCoreBackendServiceInterface;
 
@@ -172,7 +171,7 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'load', filePath];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -201,8 +200,8 @@ export class DAGMCEditorService {
                 try {
                     // Find JSON output (last line that starts with {)
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({
                             success: false,
@@ -247,7 +246,7 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'assign_material', filePath, String(volumeId), materialName];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -270,8 +269,8 @@ export class DAGMCEditorService {
 
                 try {
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({ success: false, error: 'No JSON output found' });
                         return;
@@ -308,7 +307,7 @@ export class DAGMCEditorService {
         return new Promise((resolve) => {
             const volumeIdsStr = volumeIds?.join(',') || '';
             const args = [this.scriptPath!, 'create_group', filePath, groupName, volumeIdsStr];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -328,8 +327,8 @@ export class DAGMCEditorService {
 
                 try {
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({ success: false, error: 'No JSON output found' });
                         return;
@@ -364,7 +363,7 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'delete_group', filePath, groupName];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -384,8 +383,8 @@ export class DAGMCEditorService {
 
                 try {
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({ success: false, error: 'No JSON output found' });
                         return;
@@ -419,7 +418,7 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'get_faceting_params', filePath];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -439,8 +438,8 @@ export class DAGMCEditorService {
 
                 try {
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({ success: false, error: 'No JSON output found' });
                         return;
@@ -479,7 +478,7 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'refacet', filePath, sourceCadPath, String(tolerance)];
-            
+
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -513,8 +512,8 @@ export class DAGMCEditorService {
 
                 try {
                     const lines = stdout.split('\n');
-                    const jsonLine = lines.reverse().find(l => l.trim().startsWith('{'));
-                    
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
                     if (!jsonLine) {
                         resolve({ success: false, error: 'No JSON output found' });
                         return;

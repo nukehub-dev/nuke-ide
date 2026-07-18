@@ -27,9 +27,9 @@
 
 /**
  * View Commands
- * 
+ *
  * Commands for opening various OpenMC Studio views and widgets.
- * 
+ *
  * @module openmc-studio/browser/commands
  */
 
@@ -122,7 +122,6 @@ export namespace OpenMCViewCommands {
  */
 @injectable()
 export class ViewCommands {
-
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
@@ -140,35 +139,35 @@ export class ViewCommands {
         registry.registerCommand(OpenMCViewCommands.OPEN_SIMULATION_DASHBOARD, {
             execute: () => this.openWidget(SimulationDashboardWidget.ID)
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_CSG_BUILDER, {
             execute: () => this.openWidget(CSGBuilderWidget.ID)
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_DAGMC_EDITOR, {
             execute: (filePath?: string) => this.openDAGMCEditor(filePath)
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_TALLY_CONFIGURATOR, {
             execute: () => this.openWidget(TallyConfiguratorWidget.ID)
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_DEPLETION, {
             execute: () => this.openDashboardTab('depletion')
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_VARIANCE_REDUCTION, {
             execute: () => this.openDashboardTab('variance-reduction')
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_SCRIPT_GENERATOR, {
             execute: () => this.pythonExporter.exportToPython()
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_SIMULATION_COMPARISON, {
             execute: () => this.openWidget(SimulationComparisonWidget.ID)
         });
-        
+
         registry.registerCommand(OpenMCViewCommands.OPEN_OPTIMIZATION, {
             execute: () => this.openWidget(OptimizationWidget.ID)
         });
@@ -192,7 +191,7 @@ export class ViewCommands {
         const widget = await this.widgetManager.getOrCreateWidget<DAGMCEditorWidget>(DAGMCEditorWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
-        
+
         if (filePath && typeof (widget as any).loadFile === 'function') {
             await (widget as any).loadFile(filePath);
         }

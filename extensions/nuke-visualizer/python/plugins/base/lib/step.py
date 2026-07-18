@@ -5,17 +5,15 @@ This module converts CAD files (STEP, STP, BREP) to VTK format using gmsh's
 OpenCASCADE kernel. It generates a 2D surface mesh (suitable for visualization).
 """
 
-import os
-import sys
-import tempfile
-import multiprocessing
-from pathlib import Path
-from typing import Optional, Dict, Tuple
 import hashlib
+import multiprocessing
+import tempfile
+from pathlib import Path
 
 
-def convert_step_to_vtk(step_path: str, output_dir: str = None,
-                        mesh_size_max: float = 10.0) -> Dict:
+def convert_step_to_vtk(
+    step_path: str, output_dir: str = None, mesh_size_max: float = 10.0
+) -> dict:
     """
     Convert a STEP/STP/BREP file to VTK using gmsh.
 
@@ -58,7 +56,7 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
         gmsh.option.setNumber("Mesh.MeshSizeMin", mesh_size_max * 0.05)
         gmsh.option.setNumber("Mesh.Optimize", 1)
         gmsh.option.setNumber("Mesh.QualityType", 2)
-        gmsh.option.setNumber('General.NumThreads', multiprocessing.cpu_count())
+        gmsh.option.setNumber("General.NumThreads", multiprocessing.cpu_count())
 
         # Load the STEP file
         gmsh.open(str(step_path))
@@ -88,14 +86,10 @@ def convert_step_to_vtk(step_path: str, output_dir: str = None,
     finally:
         gmsh.finalize()
 
-    return {
-        'vtk_path': str(output_path),
-        'num_nodes': num_nodes,
-        'num_elements': num_elems
-    }
+    return {"vtk_path": str(output_path), "num_nodes": num_nodes, "num_elements": num_elems}
 
 
-def get_cache_path(step_path: str, cache_dir: str = None) -> Tuple[str, bool]:
+def get_cache_path(step_path: str, cache_dir: str = None) -> tuple[str, bool]:
     """
     Get the cached VTK path for a STEP file.
 
@@ -109,7 +103,7 @@ def get_cache_path(step_path: str, cache_dir: str = None) -> Tuple[str, bool]:
     step_path = Path(step_path)
 
     if cache_dir is None:
-        cache_dir = Path(tempfile.gettempdir()) / 'nuke-visualizer' / 'step'
+        cache_dir = Path(tempfile.gettempdir()) / "nuke-visualizer" / "step"
     else:
         cache_dir = Path(cache_dir)
 
@@ -125,9 +119,9 @@ def get_cache_path(step_path: str, cache_dir: str = None) -> Tuple[str, bool]:
     return str(cache_path), cache_path.exists()
 
 
-def convert_step_to_vtk_cached(step_path: str, use_cache: bool = True,
-                               cache_dir: str = None,
-                               mesh_size_max: float = 10.0) -> Dict:
+def convert_step_to_vtk_cached(
+    step_path: str, use_cache: bool = True, cache_dir: str = None, mesh_size_max: float = 10.0
+) -> dict:
     """
     Convert STEP/STP/BREP to VTK with caching.
 
@@ -142,29 +136,25 @@ def convert_step_to_vtk_cached(step_path: str, use_cache: bool = True,
     """
     step_path = Path(step_path)
 
-    result = {
-        'vtk_path': None,
-        'from_cache': False,
-        'num_nodes': 0,
-        'num_elements': 0
-    }
+    result = {"vtk_path": None, "from_cache": False, "num_nodes": 0, "num_elements": 0}
 
     # Check cache first
     if use_cache:
         cache_path, exists = get_cache_path(str(step_path), cache_dir)
         if exists:
             print(f"[STEP] Using cached VTK: {cache_path}")
-            result['vtk_path'] = cache_path
-            result['from_cache'] = True
+            result["vtk_path"] = cache_path
+            result["from_cache"] = True
             # Count nodes/elements from cached file using VTK (only when needed)
             try:
                 import vtk as vtk_module
+
                 reader = vtk_module.vtkUnstructuredGridReader()
                 reader.SetFileName(cache_path)
                 reader.Update()
                 mesh = reader.GetOutput()
-                result['num_nodes'] = mesh.GetNumberOfPoints()
-                result['num_elements'] = mesh.GetNumberOfCells()
+                result["num_nodes"] = mesh.GetNumberOfPoints()
+                result["num_elements"] = mesh.GetNumberOfCells()
             except Exception:
                 pass
             return result
@@ -172,20 +162,23 @@ def convert_step_to_vtk_cached(step_path: str, use_cache: bool = True,
         cache_path = None
 
     # Convert STEP to VTK
-    conv = convert_step_to_vtk(str(step_path),
-                               output_dir=Path(cache_path).parent if cache_path else None,
-                               mesh_size_max=mesh_size_max)
+    conv = convert_step_to_vtk(
+        str(step_path),
+        output_dir=Path(cache_path).parent if cache_path else None,
+        mesh_size_max=mesh_size_max,
+    )
 
-    vtk_path = conv['vtk_path']
-    result['num_nodes'] = conv['num_nodes']
-    result['num_elements'] = conv['num_elements']
+    vtk_path = conv["vtk_path"]
+    result["num_nodes"] = conv["num_nodes"]
+    result["num_elements"] = conv["num_elements"]
 
     # Move/rename to cache path if different
     if cache_path and Path(vtk_path) != Path(cache_path):
         import shutil
+
         shutil.move(vtk_path, cache_path)
-        result['vtk_path'] = cache_path
+        result["vtk_path"] = cache_path
     else:
-        result['vtk_path'] = vtk_path
+        result["vtk_path"] = vtk_path
 
     return result

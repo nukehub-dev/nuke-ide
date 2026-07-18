@@ -35,7 +35,7 @@ dependencies:
       # CAD import/conversion (openmc-studio cad_conversion)
       - gmsh
       - cadquery
-      - cadquery-ocp  # provides the OCP module used by cad_conversion
+      - cadquery-ocp # provides the OCP module used by cad_conversion
       # DAGMC workflows
       - pydagmc @ git+https://github.com/svalinn/pydagmc
       - moab

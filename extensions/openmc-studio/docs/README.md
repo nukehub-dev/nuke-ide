@@ -5,16 +5,19 @@ Welcome to the `openmc-studio` documentation. This extension provides a no-code 
 ## 📖 Choose Your Path
 
 ### 👤 I want to run simulations
+
 → Start with [**User Documentation**](user/index.md)
 
 Covers everything from creating your first OpenMC project to building CSG geometry, configuring tallies, running criticality calculations, and comparing statepoint results.
 
 ### 🛠️ I want to develop or extend it
+
 → Start with [**Developer Documentation**](dev/index.md)
 
 Covers architecture, frontend/backend services, widget patterns, RPC protocols, and how to add new simulation features or integrate additional Python backends.
 
 ### 🔧 I ran into a problem
+
 → Jump to [**Troubleshooting**](user/troubleshooting.md)
 
 ---
@@ -23,18 +26,18 @@ Covers architecture, frontend/backend services, widget patterns, RPC protocols, 
 
 **OpenMC Studio** is a no-code simulation builder with ten major feature areas:
 
-| Feature | What It Does | Typical Output |
-|---------|--------------|----------------|
-| **Simulation Dashboard** | Monitor live runs, view batch metrics, and control execution | Runtime logs, k-eff plots |
-| **CSG Builder** | Construct cells, surfaces, and universes graphically | `geometry.xml` |
-| **DAGMC Editor** | Edit faceted geometry, assign groups, and preview meshes | `.h5m`, `geometry.xml` |
-| **Tally Configurator** | Build tallies with filters, scores, meshes, and nuclides | `tallies.xml` |
-| **Optimization Framework** | Run parameter sweeps and surrogate-driven optimization | Optimized inputs, convergence plots |
-| **Simulation Comparison** | Compare multiple statepoints side-by-side | Delta tables, overlay plots |
-| **XML Generation / Import** | Generate OpenMC XML from the UI or import existing XML into the model | `*.xml` |
-| **Project Management** | Scaffold projects and track run history | Project folders, run metadata |
-| **CAD Import** | Convert STEP/IGES to DAGMC or CSG | `.h5m`, `geometry.xml` |
-| **Simulation Runner** | Execute OpenMC with live log streaming and cancellation | `statepoint*.h5`, `summary.h5` |
+| Feature                     | What It Does                                                          | Typical Output                      |
+| --------------------------- | --------------------------------------------------------------------- | ----------------------------------- |
+| **Simulation Dashboard**    | Monitor live runs, view batch metrics, and control execution          | Runtime logs, k-eff plots           |
+| **CSG Builder**             | Construct cells, surfaces, and universes graphically                  | `geometry.xml`                      |
+| **DAGMC Editor**            | Edit faceted geometry, assign groups, and preview meshes              | `.h5m`, `geometry.xml`              |
+| **Tally Configurator**      | Build tallies with filters, scores, meshes, and nuclides              | `tallies.xml`                       |
+| **Optimization Framework**  | Run parameter sweeps and surrogate-driven optimization                | Optimized inputs, convergence plots |
+| **Simulation Comparison**   | Compare multiple statepoints side-by-side                             | Delta tables, overlay plots         |
+| **XML Generation / Import** | Generate OpenMC XML from the UI or import existing XML into the model | `*.xml`                             |
+| **Project Management**      | Scaffold projects and track run history                               | Project folders, run metadata       |
+| **CAD Import**              | Convert STEP/IGES to DAGMC or CSG                                     | `.h5m`, `geometry.xml`              |
+| **Simulation Runner**       | Execute OpenMC with live log streaming and cancellation               | `statepoint*.h5`, `summary.h5`      |
 
 ---
 
@@ -72,6 +75,7 @@ docs/
 ## Maintenance Note
 
 API reference is **not duplicated** in these docs. Instead:
+
 - Key interfaces and services have enhanced **JSDoc/TSDoc** in the source code.
 - Developer docs explain **concepts and patterns**, then link directly to source files.
 - User docs describe **workflows and UI actions**, which stay stable even when internal APIs change.

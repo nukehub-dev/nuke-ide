@@ -63,7 +63,6 @@ import { CondaProvider } from './environment/providers/conda-provider';
 
 @injectable()
 export class PackageService {
-
     @inject(EnvironmentService)
     protected readonly environmentService: EnvironmentService;
 
@@ -90,8 +89,13 @@ export class PackageService {
      */
     async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
         const {
-            packages, pythonPath: explicitPythonPath, useConda = false,
-            extraArgs = [], cwd: explicitCwd, channels, extraIndexUrl
+            packages,
+            pythonPath: explicitPythonPath,
+            useConda = false,
+            extraArgs = [],
+            cwd: explicitCwd,
+            channels,
+            extraIndexUrl
         } = options;
 
         let targetPython = explicitPythonPath;
@@ -111,7 +115,7 @@ export class PackageService {
             }
         }
         if (!targetPython) {
-            targetPython = await this.environmentService.getPythonCommand() || 'python';
+            targetPython = (await this.environmentService.getPythonCommand()) || 'python';
         }
 
         const cwd = explicitCwd || process.cwd();
@@ -119,8 +123,11 @@ export class PackageService {
         // Resolve conda channels: explicit > preference > default
         const condaChannels = channels?.length
             ? channels
-            : this.environmentService.getConfig().condaChannels?.split(',').map(c => c.trim()).filter(Boolean)
-            || ['conda-forge'];
+            : this.environmentService
+                  .getConfig()
+                  .condaChannels?.split(',')
+                  .map((c) => c.trim())
+                  .filter(Boolean) || ['conda-forge'];
 
         // Resolve pip extra index: explicit > preference
         const pipExtraIndex = extraIndexUrl || this.environmentService.getConfig().pipExtraIndexUrl || undefined;
@@ -139,7 +146,7 @@ export class PackageService {
                 } else {
                     prefixArg = [];
                 }
-                const channelArgs = condaChannels.flatMap(c => ['-c', c]);
+                const channelArgs = condaChannels.flatMap((c) => ['-c', c]);
                 const args = ['install', '-y', ...channelArgs, ...prefixArg, ...packages, ...extraArgs];
                 return { command: `"${best.cmd}" ${args.join(' ')}`, cwd };
             }
@@ -159,5 +166,4 @@ export class PackageService {
         const args = ['-m', 'pip', 'install', ...packages, ...indexArgs, ...extraArgs];
         return { command: `"${targetPython}" ${args.join(' ')}`, cwd };
     }
-
 }

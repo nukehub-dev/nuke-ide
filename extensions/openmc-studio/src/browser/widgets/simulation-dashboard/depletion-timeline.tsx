@@ -53,11 +53,11 @@ interface ParsedStep {
 
 /** Mapping of supported time units to their labels and conversion factors. */
 const TIME_UNITS: { [key: string]: { label: string; seconds: number } } = {
-    's': { label: 'seconds', seconds: 1 },
-    'min': { label: 'minutes', seconds: 60 },
-    'h': { label: 'hours', seconds: 3600 },
-    'd': { label: 'days', seconds: 86400 },
-    'y': { label: 'years', seconds: 31536000 },
+    s: { label: 'seconds', seconds: 1 },
+    min: { label: 'minutes', seconds: 60 },
+    h: { label: 'hours', seconds: 3600 },
+    d: { label: 'days', seconds: 86400 },
+    y: { label: 'years', seconds: 31536000 },
     'MWd/kg': { label: 'MWd/kg', seconds: 0 }
 };
 
@@ -138,7 +138,7 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
 
     /** Append a new default time step to the schedule. */
     const handleAddStep = () => {
-        const currentSteps = [...timeSteps].map(s => String(s));
+        const currentSteps = [...timeSteps].map((s) => String(s));
         const newSteps = [...currentSteps, '30.0 d'];
         onChange({ timeSteps: newSteps });
         setSelectedStepIndex(newSteps.length - 1);
@@ -150,7 +150,7 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
      * @param index - The index of the step to remove.
      */
     const handleRemoveStep = (index: number) => {
-        const newSteps = [...timeSteps].map(s => String(s));
+        const newSteps = [...timeSteps].map((s) => String(s));
         newSteps.splice(index, 1);
         onChange({ timeSteps: newSteps });
         if (selectedStepIndex >= newSteps.length) {
@@ -166,7 +166,7 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
      * @param unit - The new unit.
      */
     const handleUpdateStep = (index: number, value: number, unit: string) => {
-        const newSteps = [...timeSteps].map(s => String(s));
+        const newSteps = [...timeSteps].map((s) => String(s));
         newSteps[index] = `${value} ${unit}`;
         onChange({ timeSteps: newSteps });
     };
@@ -177,15 +177,13 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
      * @param index - The step index to duplicate.
      */
     const handleDuplicateStep = (index: number) => {
-        const newSteps = [...timeSteps].map(s => String(s));
+        const newSteps = [...timeSteps].map((s) => String(s));
         newSteps.splice(index + 1, 0, String(timeSteps[index]));
         onChange({ timeSteps: newSteps });
         setSelectedStepIndex(index + 1);
     };
 
-    const currentStep = selectedStepIndex >= 0 && timeSteps[selectedStepIndex]
-        ? parseStep(timeSteps[selectedStepIndex])
-        : null;
+    const currentStep = selectedStepIndex >= 0 && timeSteps[selectedStepIndex] ? parseStep(timeSteps[selectedStepIndex]) : null;
 
     const cumulativeTimes = timeSteps.map((_, idx) => calculateAccumulatedTime(idx));
 
@@ -248,7 +246,9 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                                                     </div>
                                                     <div className="step-number-badge">{index + 1}</div>
                                                     <div className="step-details">
-                                                        <span className="step-value">{parsed.value} {parsed.unit}</span>
+                                                        <span className="step-value">
+                                                            {parsed.value} {parsed.unit}
+                                                        </span>
                                                         <span className="step-total">{formatAccumulatedTime(accumulatedSeconds)}</span>
                                                     </div>
                                                 </div>
@@ -271,7 +271,9 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                             </div>
                             <div className="stat-item">
                                 <span className="stat-label">Total Duration</span>
-                                <span className="stat-value highlight">{formatAccumulatedTime(cumulativeTimes[cumulativeTimes.length - 1])}</span>
+                                <span className="stat-value highlight">
+                                    {formatAccumulatedTime(cumulativeTimes[cumulativeTimes.length - 1])}
+                                </span>
                             </div>
                             <div className="stat-item">
                                 <span className="stat-label">Decay Steps</span>
@@ -318,7 +320,9 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                                             <input
                                                 type="number"
                                                 value={currentStep.value}
-                                                onChange={(e) => handleUpdateStep(selectedStepIndex, parseFloat(e.target.value), currentStep.unit)}
+                                                onChange={(e) =>
+                                                    handleUpdateStep(selectedStepIndex, parseFloat(e.target.value), currentStep.unit)
+                                                }
                                                 step="any"
                                                 min="0"
                                             />
@@ -344,14 +348,18 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                                         <div className="mode-selector">
                                             <button
                                                 className={`mode-btn ${!decayOnlySteps.includes(selectedStepIndex) ? 'active' : ''}`}
-                                                onClick={() => decayOnlySteps.includes(selectedStepIndex) && onToggleDecayOnly(selectedStepIndex)}
+                                                onClick={() =>
+                                                    decayOnlySteps.includes(selectedStepIndex) && onToggleDecayOnly(selectedStepIndex)
+                                                }
                                             >
                                                 <i className="codicon codicon-zap"></i>
                                                 Active
                                             </button>
                                             <button
                                                 className={`mode-btn decay ${decayOnlySteps.includes(selectedStepIndex) ? 'active' : ''}`}
-                                                onClick={() => !decayOnlySteps.includes(selectedStepIndex) && onToggleDecayOnly(selectedStepIndex)}
+                                                onClick={() =>
+                                                    !decayOnlySteps.includes(selectedStepIndex) && onToggleDecayOnly(selectedStepIndex)
+                                                }
                                             >
                                                 <i className="codicon codicon-flame"></i>
                                                 Decay

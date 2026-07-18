@@ -32,6 +32,7 @@ Or use the menu: `Tools → Visualizer → OpenMC → Tally → Visualize Tally`
 ### Options
 
 Before visualizing, you can select:
+
 - **Score** — Which score to display (e.g., `flux`, `heating`)
 - **Nuclide** — Which nuclide (e.g., `total`, `U235`)
 
@@ -60,6 +61,7 @@ Best for: Seeing tally results directly on your CAD/DAGMC geometry.
 Best for: Inspecting a specific cross-section of your geometry.
 
 **Options:**
+
 - **Plane** — X, Y, or Z cross-section
 - **Position** — Slice position in cm (shows geometry bounds; defaults to center)
 - **Resolution** — 100×100 (fast) to 400×400 (high quality)
@@ -70,6 +72,7 @@ Best for: Inspecting a specific cross-section of your geometry.
 Best for: Full spatial context of tally results on the complete geometry.
 
 **Options:**
+
 - **Graveyard Filtering** — Hide large graveyard surfaces (DAGMC only)
 - **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
 
@@ -107,10 +110,10 @@ Or use the menu: `Tools → Visualizer → OpenMC → Tally → Overlay Tally on
 
 In addition to the standard geometry overlay controls, the sidebar includes a **Source Particles** section:
 
-| Control | Description |
-|---------|-------------|
-| **Point Size** | Size of source particle points |
-| **Source Opacity** | Transparency of source particles |
+| Control             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| **Point Size**      | Size of source particle points                          |
+| **Source Opacity**  | Transparency of source particles                        |
 | **Source Color By** | Color particles by `energy`, `weight`, or `Solid Color` |
 
 > If the statepoint has no source bank, the visualization falls back to a standard geometry overlay.
@@ -201,12 +204,12 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 
 ## Summary Table
 
-| Visualization | Requires | Best For |
-|---------------|----------|----------|
-| 3D Mesh Tally | Mesh filter | Full 3D spatial understanding |
-| Overlay on Geometry | Geometry + mesh filter | CAD-integrated results (slice or full 3D) |
-| Energy Spectrum | Energy filter | Spectral analysis, flux shapes |
-| Spatial Plot | Mesh filter | 1D profiles along an axis |
-| 2D Heatmap | Mesh filter | Slice-by-slice inspection |
-| Source Distribution | `source.h5` or statepoint with source | Source convergence checks |
-| Overlay + Source | Geometry + statepoint with source bank | Correlating source birth with tally regions |
+| Visualization       | Requires                               | Best For                                    |
+| ------------------- | -------------------------------------- | ------------------------------------------- |
+| 3D Mesh Tally       | Mesh filter                            | Full 3D spatial understanding               |
+| Overlay on Geometry | Geometry + mesh filter                 | CAD-integrated results (slice or full 3D)   |
+| Energy Spectrum     | Energy filter                          | Spectral analysis, flux shapes              |
+| Spatial Plot        | Mesh filter                            | 1D profiles along an axis                   |
+| 2D Heatmap          | Mesh filter                            | Slice-by-slice inspection                   |
+| Source Distribution | `source.h5` or statepoint with source  | Source convergence checks                   |
+| Overlay + Source    | Geometry + statepoint with source bank | Correlating source birth with tally regions |

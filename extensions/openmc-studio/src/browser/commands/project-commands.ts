@@ -27,9 +27,9 @@
 
 /**
  * Project Commands
- * 
+ *
  * Commands for project management (new, open, save).
- * 
+ *
  * @module openmc-studio/browser/commands
  */
 
@@ -84,7 +84,6 @@ export namespace OpenMCProjectCommands {
  */
 @injectable()
 export class ProjectCommands {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -105,15 +104,15 @@ export class ProjectCommands {
         registry.registerCommand(OpenMCProjectCommands.NEW_PROJECT, {
             execute: () => this.newProject()
         });
-        
+
         registry.registerCommand(OpenMCProjectCommands.OPEN_PROJECT, {
             execute: () => this.openProject()
         });
-        
+
         registry.registerCommand(OpenMCProjectCommands.SAVE_PROJECT, {
             execute: () => this.saveProject()
         });
-        
+
         registry.registerCommand(OpenMCProjectCommands.SAVE_PROJECT_AS, {
             execute: () => this.saveProjectAs()
         });

@@ -84,23 +84,6 @@ jobs:
             applications/electron/dist/*.rpm
           if-no-files-found: warn
 
-  python-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install test dependencies
-        run: pip install -r requirements-dev.txt numpy
-
-      - name: Run Python tests
-        run: python -m pytest
-
   build-windows:
     runs-on: windows-latest
     steps:

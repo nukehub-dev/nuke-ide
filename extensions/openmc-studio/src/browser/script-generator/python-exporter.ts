@@ -87,7 +87,6 @@ export interface PythonExportResult {
 
 @injectable()
 export class OpenMCPythonExporter {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -310,7 +309,7 @@ export class OpenMCPythonExporter {
 
         const materialsArg = state.materials.length > 0 ? 'materials=materials' : '';
         const talliesArg = state.tallies.length > 0 ? ', tallies=tallies' : '';
-        const plotsArg = (state.plots && state.plots.length > 0) ? ', plots=plots' : '';
+        const plotsArg = state.plots && state.plots.length > 0 ? ', plots=plots' : '';
 
         lines.push(`model = openmc.Model(geometry=geometry, ${materialsArg}${talliesArg}${plotsArg}, settings=settings)`);
         lines.push('');
@@ -568,7 +567,7 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('');
-        lines.push(`materials = openmc.Materials([${state.materials.map(m => this.sanitizeVariableName(m.name)).join(', ')}])`);
+        lines.push(`materials = openmc.Materials([${state.materials.map((m) => this.sanitizeVariableName(m.name)).join(', ')}])`);
 
         return lines;
     }
@@ -662,7 +661,7 @@ export class OpenMCPythonExporter {
 
         // Create geometry object
         if (state.geometry.cells.length > 0) {
-            const cellVars = state.geometry.cells.map(c => `cell_${c.id}`).join(', ');
+            const cellVars = state.geometry.cells.map((c) => `cell_${c.id}`).join(', ');
             lines.push(`geometry = openmc.Geometry([${cellVars}])`);
         } else if (state.settings.dagmcFile) {
             if (options.includeComments) {
@@ -776,7 +775,7 @@ export class OpenMCPythonExporter {
 
         let fill = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
-            const material = state.materials.find(m => m.id === cell.fillId);
+            const material = state.materials.find((m) => m.id === cell.fillId);
             if (material) {
                 fill = `fill=${this.sanitizeVariableName(material.name)}`;
             }
@@ -948,20 +947,27 @@ export class OpenMCPythonExporter {
             }
             if (totalMassG > 0) {
                 powerVal = depletion.powerDensity * totalMassG;
-                lines.push(`# Calculated total power from power density (${depletion.powerDensity} W/g) and depletable mass (${totalMassG.toFixed(2)} g)`);
+                lines.push(
+                    `# Calculated total power from power density (${depletion.powerDensity} W/g) and depletable mass (${totalMassG.toFixed(2)} g)`
+                );
             }
         }
         lines.push(`power = ${powerVal || 1.0}  # Power in Watts`);
 
         // Timesteps in seconds
-        const timesteps = depletion.timeSteps.map(ts => {
+        const timesteps = depletion.timeSteps.map((ts) => {
             if (typeof ts === 'string') {
                 const match = ts.match(/^([\d.]+)\s*([smhdwy])$/i);
                 if (match) {
                     const value = parseFloat(match[1]);
                     const unit = match[2].toLowerCase();
                     const multipliers: { [key: string]: number } = {
-                        's': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800, 'y': 31536000
+                        s: 1,
+                        m: 60,
+                        h: 3600,
+                        d: 86400,
+                        w: 604800,
+                        y: 31536000
                     };
                     return value * (multipliers[unit] || 1);
                 }
@@ -972,13 +978,13 @@ export class OpenMCPythonExporter {
 
         // Setup Integrator
         const solverMap: Record<string, string> = {
-            'cecm': 'CECMIntegrator',
-            'epc': 'EPCRK4Integrator',
-            'predictor': 'PredictorIntegrator',
-            'cecmr': 'CECMIntegrator',
-            'epcr': 'EPCRK4Integrator',
+            cecm: 'CECMIntegrator',
+            epc: 'EPCRK4Integrator',
+            predictor: 'PredictorIntegrator',
+            cecmr: 'CECMIntegrator',
+            epcr: 'EPCRK4Integrator',
             'si-cesc': 'SICESCIntegrator',
-            'leqi': 'LEQIIntegrator'
+            leqi: 'LEQIIntegrator'
         };
         const solver = solverMap[depletion.solver || 'predictor'] || 'PredictorIntegrator';
         lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
@@ -1021,7 +1027,7 @@ export class OpenMCPythonExporter {
                 lines.push(`source_${index}.space = openmc.stats.CylindricalIndependent(`);
                 lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
                 lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
-                lines.push(`    z=openmc.stats.Uniform(-${cyl.height/2}, ${cyl.height/2}),`);
+                lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
                 lines.push(`    origin=[${cyl.center.join(', ')}]`);
                 lines.push(')');
                 break;
@@ -1103,7 +1109,7 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
-        const tallyVars = state.tallies.map(t => `tally_${t.id}`).join(', ');
+        const tallyVars = state.tallies.map((t) => `tally_${t.id}`).join(', ');
 
         if (state.meshes.length > 0 && state.tallies.length > 0) {
             lines.push(`tallies = openmc.Tallies([${tallyVars}])`);
@@ -1167,12 +1173,12 @@ export class OpenMCPythonExporter {
 
         // Scores
         if (tally.scores.length > 0) {
-            lines.push(`tally_${tally.id}.scores = [${tally.scores.map(s => `"${s}"`).join(', ')}]`);
+            lines.push(`tally_${tally.id}.scores = [${tally.scores.map((s) => `"${s}"`).join(', ')}]`);
         }
 
         // Nuclides
         if (tally.nuclides.length > 0) {
-            lines.push(`tally_${tally.id}.nuclides = [${tally.nuclides.map(n => `"${n}"`).join(', ')}]`);
+            lines.push(`tally_${tally.id}.nuclides = [${tally.nuclides.map((n) => `"${n}"`).join(', ')}]`);
         }
 
         // Filters
@@ -1217,7 +1223,9 @@ export class OpenMCPythonExporter {
                         lines.push(`${filterVar} = openmc.AzimuthalFilter([${filter.bins.join(', ')}])`);
                         break;
                     case 'particle':
-                        lines.push(`${filterVar} = openmc.ParticleFilter([${filter.bins.map(b => b === 1 ? '"neutron"' : '"photon"').join(', ')}])`);
+                        lines.push(
+                            `${filterVar} = openmc.ParticleFilter([${filter.bins.map((b) => (b === 1 ? '"neutron"' : '"photon"')).join(', ')}])`
+                        );
                         break;
                     default:
                         lines.push(`${filterVar} = openmc.Filter()  # ${filter.type} filter`);
@@ -1274,7 +1282,7 @@ export class OpenMCPythonExporter {
         }
 
         if (state.plots && state.plots.length > 0) {
-            const plotVars = state.plots.map(p => `plot_${p.id}`).join(', ');
+            const plotVars = state.plots.map((p) => `plot_${p.id}`).join(', ');
             lines.push(`plots = openmc.Plots([${plotVars}])`);
         }
 
@@ -1302,9 +1310,41 @@ export class OpenMCPythonExporter {
             sanitized = 'mat_' + sanitized;
         }
         // Avoid reserved words
-        const reserved = ['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else',
-            'except', 'False', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda',
-            'None', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield'];
+        const reserved = [
+            'and',
+            'as',
+            'assert',
+            'break',
+            'class',
+            'continue',
+            'def',
+            'del',
+            'elif',
+            'else',
+            'except',
+            'False',
+            'finally',
+            'for',
+            'from',
+            'global',
+            'if',
+            'import',
+            'in',
+            'is',
+            'lambda',
+            'None',
+            'nonlocal',
+            'not',
+            'or',
+            'pass',
+            'raise',
+            'return',
+            'True',
+            'try',
+            'while',
+            'with',
+            'yield'
+        ];
         if (reserved.includes(sanitized)) {
             sanitized = sanitized + '_';
         }
@@ -1336,10 +1376,14 @@ export class OpenMCPythonExporter {
         // Replace surface IDs with surface_ variables
         // Example: "1 -2 3" -> "+surface_1 & -surface_2 & +surface_3"
 
-        return region.replace(/([+-]?)(\d+)/g, (match, sign, id) => {
-            const surfaceSign = sign === '-' ? '-' : '+';
-            return `${surfaceSign}surface_${id}`;
-        }).replace(/\s+/g, ' & ').replace(/\|/g, ' | ').replace(/~/g, ' ~');
+        return region
+            .replace(/([+-]?)(\d+)/g, (match, sign, id) => {
+                const surfaceSign = sign === '-' ? '-' : '+';
+                return `${surfaceSign}surface_${id}`;
+            })
+            .replace(/\s+/g, ' & ')
+            .replace(/\|/g, ' | ')
+            .replace(/~/g, ' ~');
     }
 
     /**

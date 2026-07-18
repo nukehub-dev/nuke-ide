@@ -78,7 +78,7 @@ export class VisualizerHealthService {
             channel.appendLine(` ${plugin.pluginName}`);
             channel.appendLine('─'.repeat(40));
 
-            const infraChecks = plugin.checks.filter(c => !c.name.startsWith('Package:'));
+            const infraChecks = plugin.checks.filter((c) => !c.name.startsWith('Package:'));
             for (const check of infraChecks) {
                 const icon = check.passed ? '✓' : check.severity === 'error' ? '✗' : '⚠';
                 channel.appendLine(` ${icon} ${check.name}: ${check.message}`);
@@ -88,7 +88,7 @@ export class VisualizerHealthService {
                 }
             }
 
-            const packageChecks = plugin.checks.filter(c => c.name.startsWith('Package:'));
+            const packageChecks = plugin.checks.filter((c) => c.name.startsWith('Package:'));
             for (const check of packageChecks) {
                 const icon = check.passed ? '✓' : check.severity === 'error' ? '✗' : '⚠';
                 channel.appendLine(` ${icon} ${check.message}`);
@@ -114,9 +114,7 @@ export class VisualizerHealthService {
         if (report.healthy) {
             this.messageService.info('All visualization plugins are healthy!');
         } else {
-            this.messageService.warn(
-                `Health check found missing packages in ${envName}. See Nuke Visualizer output.`
-            );
+            this.messageService.warn(`Health check found missing packages in ${envName}. See Nuke Visualizer output.`);
         }
     }
 

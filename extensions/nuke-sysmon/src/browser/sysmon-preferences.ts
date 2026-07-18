@@ -60,10 +60,12 @@ export function createSysmonPreferences(preferences: PreferenceService): SysmonP
 export const SysmonPreferenceContribution = Symbol('SysmonPreferenceContribution');
 
 export function bindSysmonPreferences(bind: interfaces.Bind): void {
-    bind(SysmonPreferences).toDynamicValue(ctx => {
-        const preferences = ctx.container.get<PreferenceService>(PreferenceService);
-        return createSysmonPreferences(preferences);
-    }).inSingletonScope();
+    bind(SysmonPreferences)
+        .toDynamicValue((ctx) => {
+            const preferences = ctx.container.get<PreferenceService>(PreferenceService);
+            return createSysmonPreferences(preferences);
+        })
+        .inSingletonScope();
 
     bind(SysmonPreferenceContribution).toConstantValue({ schema: SysmonConfigSchema });
     bind(PreferenceContribution).toService(SysmonPreferenceContribution);

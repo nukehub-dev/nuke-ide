@@ -30,10 +30,10 @@ export const blueLightTheme = {
     name: 'Blue Light',
     type: 'light',
     colors: {
-        'focusBorder': '#0288d1',
-        'foreground': '#2c3e50',
-        'descriptionForeground': '#5a6c7d',
-        'errorForeground': '#d13b3b',
+        focusBorder: '#0288d1',
+        foreground: '#2c3e50',
+        descriptionForeground: '#5a6c7d',
+        errorForeground: '#d13b3b',
 
         'button.background': '#0288d1',
         'button.hoverBackground': '#039be5',
@@ -203,7 +203,7 @@ export const blueLightTheme = {
         'keybindingLabel.background': '#e4e4e4',
         'keybindingLabel.foreground': '#2c3e50',
         'keybindingLabel.border': '#ccd3d9',
-        'keybindingLabel.bottomBorder': '#ccd3d9',
+        'keybindingLabel.bottomBorder': '#ccd3d9'
     },
     tokenColors: [],
     semanticHighlighting: true

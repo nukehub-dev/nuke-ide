@@ -27,9 +27,9 @@
 
 /**
  * OpenMC OpenHandler Contribution
- * 
+ *
  * Handles opening .nuke-openmc project files and widget tracking.
- * 
+ *
  * @module openmc-studio/browser/contributions
  */
 
@@ -65,19 +65,19 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
     readonly id = 'openmc-studio';
     readonly label = 'OpenMC Project';
     readonly priority = 200;
-    
+
     @inject(MessageService)
     protected readonly messageService: MessageService;
-    
+
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
-    
+
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
-    
+
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
-    
+
     @inject(FileService)
     protected readonly fileService: FileService;
 
@@ -99,7 +99,7 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
         }
         return 0;
     }
-    
+
     /**
      * Open a `.nuke-openmc` project file, restore its state, and reveal the simulation dashboard.
      * @param uri - URI of the project file to open
@@ -109,26 +109,26 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
      */
     async open(uri: URI, options?: WidgetOpenerOptions): Promise<Widget> {
         console.log('[OpenMC Studio] Opening project file:', uri.toString());
-        
+
         try {
             // Read and parse the project file
             const content = await this.fileService.readFile(uri);
             const projectFile = JSON.parse(content.value.toString());
-            
+
             if (projectFile.state) {
                 // Load the state into the state manager
                 this.stateManager.setState(projectFile.state);
                 this.stateManager.setProjectPath(uri.path.toString());
                 this.stateManager.markClean();
-                
+
                 // Open the dashboard
                 const widget = await this.widgetManager.getOrCreateWidget<SimulationDashboardWidget>(SimulationDashboardWidget.ID);
                 await this.shell.addWidget(widget, { area: 'main' });
                 await this.shell.activateWidget(widget.id);
-                
+
                 this.currentWidget = widget;
                 this._onDidChangeCurrentWidget.fire();
-                
+
                 this.messageService.info(`Opened project: ${projectFile.state.metadata?.name || 'Untitled'}`);
                 return widget;
             } else {
@@ -140,7 +140,7 @@ export class OpenMCOpenHandlerContribution implements OpenHandler, FrontendAppli
             throw error;
         }
     }
-    
+
     /**
      * Initialize widget tracking to monitor when the simulation dashboard becomes active or inactive.
      * Fires {@link onDidChangeCurrentWidget} on focus changes.

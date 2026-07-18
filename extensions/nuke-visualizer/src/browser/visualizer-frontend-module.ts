@@ -34,15 +34,8 @@ import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
 import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
 import { VisualizerMenuContribution } from './contributions/visualizer-menu-contribution';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
-import { 
-    VisualizerBackendService, 
-    VISUALIZER_BACKEND_PATH, 
-    VisualizerClient
-} from '../common/base-visualizer-protocol';
-import {
-    OpenMCBackendService,
-    OPENMC_BACKEND_PATH
-} from '../common/openmc-protocol';
+import { VisualizerBackendService, VISUALIZER_BACKEND_PATH, VisualizerClient } from '../common/base-visualizer-protocol';
+import { OpenMCBackendService, OPENMC_BACKEND_PATH } from '../common/openmc-protocol';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
 import { bindVisualizerPreferences } from './visualizer-preferences';
 import { OutputChannelManager } from '@theia/output/lib/browser/output-channel';
@@ -88,32 +81,34 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bindVisualizerPreferences(bind);
 
     // Bind backend service proxy with client implementation for logging
-    bind(VisualizerBackendService).toDynamicValue(ctx => {
-        const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
-        
-        const client: VisualizerClient = {
-            log: (message: string) => {
-                const channel = outputChannelManager.getChannel('Nuke Visualizer');
-                channel.appendLine(message);
-            },
-            error: (message: string) => {
-                const channel = outputChannelManager.getChannel('Nuke Visualizer');
-                channel.appendLine(`ERROR: ${message}`);
-            },
-            warn: (message: string) => {
-                // Warnings from base visualizer - log to output channel
-                const channel = outputChannelManager.getChannel('Nuke Visualizer');
-                channel.appendLine(`WARNING: ${message}`);
-            },
-            onServerStop: (port: number) => {
-                VisualizerWidget.onServerStop(port);
-            }
-        };
-        
-        const proxy = connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, client);
-        return proxy;
-    }).inSingletonScope();
+    bind(VisualizerBackendService)
+        .toDynamicValue((ctx) => {
+            const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
+            const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
+
+            const client: VisualizerClient = {
+                log: (message: string) => {
+                    const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                    channel.appendLine(message);
+                },
+                error: (message: string) => {
+                    const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                    channel.appendLine(`ERROR: ${message}`);
+                },
+                warn: (message: string) => {
+                    // Warnings from base visualizer - log to output channel
+                    const channel = outputChannelManager.getChannel('Nuke Visualizer');
+                    channel.appendLine(`WARNING: ${message}`);
+                },
+                onServerStop: (port: number) => {
+                    VisualizerWidget.onServerStop(port);
+                }
+            };
+
+            const proxy = connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, client);
+            return proxy;
+        })
+        .inSingletonScope();
 
     // Bind view contribution (registers default view command + keybinding)
     bindViewContribution(bind, VisualizerViewContribution);
@@ -126,68 +121,72 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind custom menus
     bind(VisualizerMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(VisualizerMenuContribution);
-    
+
     // Note: XS Plot and OpenMC Tallies are handled by OpenMCContribution (not AbstractViewContribution)
     // to avoid automatic View-menu registration. They use manual Command+Menu+Keybinding contributions.
-    
+
     // Bind widget - NOT as singleton so fresh instances are created when reopened
     bind(VisualizerWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: VisualizerWidget.ID,
-        createWidget: (options?: { uri: string; id?: string; volumeId?: number }) => {
-            const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
-            if (options?.uri) {
-                widget.setUri(new URI(options.uri), options.volumeId);
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: VisualizerWidget.ID,
+            createWidget: (options?: { uri: string; id?: string; volumeId?: number }) => {
+                const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
+                if (options?.uri) {
+                    widget.setUri(new URI(options.uri), options.volumeId);
+                }
+                // Allow setting a custom widget ID for multiple instances
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            // Allow setting a custom widget ID for multiple instances
-            if (options?.id) {
-                widget.id = options.id;
-            }
-            return widget;
-        },
-    })).inSingletonScope();
-    
+        }))
+        .inSingletonScope();
+
     // Optional: bind status bar contribution (noop if not needed)
     bind(WidgetStatusBarContribution).toConstantValue(noopWidgetStatusBarContribution(VisualizerWidget));
 
     // === OpenMC Integration ===
-    
+
     // Bind OpenMC backend service proxy with client for receiving warnings
-    bind(OpenMCBackendService).toDynamicValue(ctx => {
-        const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        const messageService = ctx.container.get(MessageService);
-        const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
-        
-        const client: VisualizerClient = {
-            log: (message: string) => {
-                const channel = outputChannelManager.getChannel('OpenMC');
-                channel.appendLine(message);
-            },
-            error: (message: string) => {
-                const channel = outputChannelManager.getChannel('OpenMC');
-                channel.appendLine(`ERROR: ${message}`);
-            },
-            warn: (message: string) => {
-                // Show warning notification immediately
-                messageService.warn(message);
-                // Also log to output channel
-                const channel = outputChannelManager.getChannel('OpenMC');
-                channel.appendLine(`WARNING: ${message}`);
-            },
-            onServerStop: (port: number) => {
-                // Handle server stop if needed
-                console.log(`[OpenMC] Server on port ${port} stopped`);
-            }
-        };
-        
-        return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH, client);
-    }).inSingletonScope();
-    
+    bind(OpenMCBackendService)
+        .toDynamicValue((ctx) => {
+            const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
+            const messageService = ctx.container.get(MessageService);
+            const outputChannelManager = ctx.container.get<OutputChannelManager>(OutputChannelManager);
+
+            const client: VisualizerClient = {
+                log: (message: string) => {
+                    const channel = outputChannelManager.getChannel('OpenMC');
+                    channel.appendLine(message);
+                },
+                error: (message: string) => {
+                    const channel = outputChannelManager.getChannel('OpenMC');
+                    channel.appendLine(`ERROR: ${message}`);
+                },
+                warn: (message: string) => {
+                    // Show warning notification immediately
+                    messageService.warn(message);
+                    // Also log to output channel
+                    const channel = outputChannelManager.getChannel('OpenMC');
+                    channel.appendLine(`WARNING: ${message}`);
+                },
+                onServerStop: (port: number) => {
+                    // Handle server stop if needed
+                    console.log(`[OpenMC] Server on port ${port} stopped`);
+                }
+            };
+
+            return connectionProvider.createProxy<OpenMCBackendService>(OPENMC_BACKEND_PATH, client);
+        })
+        .inSingletonScope();
+
     // Bind OpenMC frontend services
     bind(OpenMCService).toSelf().inSingletonScope();
     bind(OpenMCWidgetFactory).toSelf().inSingletonScope();
     bind(OpenMCFileDiscoveryService).toSelf().inSingletonScope();
-    
+
     // Bind OpenMC contribution classes
     bind(OpenMCFileDiscovery).toSelf().inSingletonScope();
     bind(OpenMCStatepointContribution).toSelf().inSingletonScope();
@@ -196,7 +195,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCOverlayContribution).toSelf().inSingletonScope();
     bind(OpenMCPlottingContribution).toSelf().inSingletonScope();
     bind(OpenMCMenuContribution).toSelf().inSingletonScope();
-    
+
     // Bind OpenMC contribution
     bind(OpenMCContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(OpenMCContribution);
@@ -212,138 +211,160 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(CommandContribution).toService(OpenMCPlottingCommands);
     bind(OpenMCDepletionCommands).toSelf().inSingletonScope();
     bind(CommandContribution).toService(OpenMCDepletionCommands);
-    
+
     // Bind tally selector
     bind(OpenMCTallySelector).toSelf().inSingletonScope();
-    
+
     // Bind tally tree widget
     bind(OpenMCTallyTreeWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCTallyTreeWidget.ID,
-        createWidget: () => context.container.get<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget),
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCTallyTreeWidget.ID,
+            createWidget: () => context.container.get<OpenMCTallyTreeWidget>(OpenMCTallyTreeWidget)
+        }))
+        .inSingletonScope();
 
     // Bind plot widget
     bind(OpenMCPlotWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCPlotWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCPlotWidget>(OpenMCPlotWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCPlotWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCPlotWidget>(OpenMCPlotWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind XS plot widget
     bind(XSPlotWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: XSPlotWidget.ID,
-        createWidget: () => context.container.get<XSPlotWidget>(XSPlotWidget),
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: XSPlotWidget.ID,
+            createWidget: () => context.container.get<XSPlotWidget>(XSPlotWidget)
+        }))
+        .inSingletonScope();
 
     // Bind heatmap widget
     bind(OpenMCHeatmapWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCHeatmapWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCHeatmapWidget>(OpenMCHeatmapWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCHeatmapWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCHeatmapWidget>(OpenMCHeatmapWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind depletion widget
     bind(OpenMCDepletionWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCDepletionWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCDepletionWidget>(OpenMCDepletionWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCDepletionWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCDepletionWidget>(OpenMCDepletionWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind depletion comparison widget
     bind(OpenMCDepletionCompareWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCDepletionCompareWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCDepletionCompareWidget>(OpenMCDepletionCompareWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCDepletionCompareWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCDepletionCompareWidget>(OpenMCDepletionCompareWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind geometry tree widget
     bind(OpenMCGeometryTreeWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCGeometryTreeWidget.ID,
-        createWidget: () => context.container.get<OpenMCGeometryTreeWidget>(OpenMCGeometryTreeWidget),
-    })).inSingletonScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCGeometryTreeWidget.ID,
+            createWidget: () => context.container.get<OpenMCGeometryTreeWidget>(OpenMCGeometryTreeWidget)
+        }))
+        .inSingletonScope();
 
     // Bind geometry 3D widget
     bind(OpenMCGeometry3DWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCGeometry3DWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCGeometry3DWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind material explorer widget
     bind(OpenMCMaterialExplorerWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCMaterialExplorerWidget.ID,
-        createWidget: (options?: { uri?: string; id?: string }) => {
-            const widget = context.container.get<OpenMCMaterialExplorerWidget>(OpenMCMaterialExplorerWidget);
-            if (options?.uri) {
-                widget.setFileUri(new URI(options.uri));
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCMaterialExplorerWidget.ID,
+            createWidget: (options?: { uri?: string; id?: string }) => {
+                const widget = context.container.get<OpenMCMaterialExplorerWidget>(OpenMCMaterialExplorerWidget);
+                if (options?.uri) {
+                    widget.setFileUri(new URI(options.uri));
+                }
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            if (options?.id) {
-                widget.id = options.id;
-            }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind overlap checker widget
     bind(OpenMCOverlapWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCOverlapWidget.ID,
-        createWidget: (options?: { geometryUri?: string; id?: string }) => {
-            const widget = context.container.get<OpenMCOverlapWidget>(OpenMCOverlapWidget);
-            if (options?.geometryUri) {
-                widget.setGeometryUri(new URI(options.geometryUri));
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCOverlapWidget.ID,
+            createWidget: (options?: { geometryUri?: string; id?: string }) => {
+                const widget = context.container.get<OpenMCOverlapWidget>(OpenMCOverlapWidget);
+                if (options?.geometryUri) {
+                    widget.setGeometryUri(new URI(options.geometryUri));
+                }
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            if (options?.id) {
-                widget.id = options.id;
-            }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 
     // Bind statepoint viewer widget
     bind(OpenMCStatepointViewerWidget).toSelf().inTransientScope();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: OpenMCStatepointViewerWidget.ID,
-        createWidget: (options?: { id?: string }) => {
-            const widget = context.container.get<OpenMCStatepointViewerWidget>(OpenMCStatepointViewerWidget);
-            if (options?.id) {
-                widget.id = options.id;
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCStatepointViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCStatepointViewerWidget>(OpenMCStatepointViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
             }
-            return widget;
-        },
-    })).inSingletonScope();
+        }))
+        .inSingletonScope();
 });

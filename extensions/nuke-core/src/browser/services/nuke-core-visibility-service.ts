@@ -50,7 +50,6 @@ import { NukeCoreStatusBarVisibilityService } from '../../common/nuke-core-proto
  */
 @injectable()
 export class NukeCoreVisibilityService implements NukeCoreStatusBarVisibilityService {
-
     private requesters = new Set<string>();
 
     /** Emitted whenever the aggregated visibility state changes. */

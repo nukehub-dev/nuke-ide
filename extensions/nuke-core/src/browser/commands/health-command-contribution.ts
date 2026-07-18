@@ -51,7 +51,6 @@ import { NukeMenus } from '../nuke-core-menus';
 
 @injectable()
 export class NukeHealthCommandContribution implements CommandContribution, MenuContribution {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 

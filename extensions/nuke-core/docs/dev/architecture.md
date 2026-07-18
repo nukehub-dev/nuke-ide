@@ -56,30 +56,30 @@ Nuke Core is split into three layers: **Browser (Frontend)**, **Common (Protocol
 
 ### Frontend (Browser)
 
-| Component | Role |
-|-----------|------|
-| `NukeCoreService` | Primary API for other extensions. Receives injected dependencies, exposes high-level methods, and proxies backend calls via RPC. |
-| `EnvironmentActionsHelper` | Shared frontend helper for one-shot terminal operations: install packages, delete environments, open an activated terminal. Handles CWD resolution and terminal widget creation. |
-| `NukeCoreStatusBarContribution` | Renders the status bar widget with current environment info and a grouped picker (Conda, Venv, Other). |
-| `NukeCoreVisibilityService` | Reference-counted visibility requests so multiple extensions can temporarily show the status bar. |
-| Command Contributions | Wire user commands (switch, create, delete, install, health check) to the services above. |
-| `WorkspaceEnvContribution` | Scans workspace roots for `environment.yml` / `requirements.txt` and prompts the user to create/install. |
+| Component                       | Role                                                                                                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NukeCoreService`               | Primary API for other extensions. Receives injected dependencies, exposes high-level methods, and proxies backend calls via RPC.                                                 |
+| `EnvironmentActionsHelper`      | Shared frontend helper for one-shot terminal operations: install packages, delete environments, open an activated terminal. Handles CWD resolution and terminal widget creation. |
+| `NukeCoreStatusBarContribution` | Renders the status bar widget with current environment info and a grouped picker (Conda, Venv, Other).                                                                           |
+| `NukeCoreVisibilityService`     | Reference-counted visibility requests so multiple extensions can temporarily show the status bar.                                                                                |
+| Command Contributions           | Wire user commands (switch, create, delete, install, health check) to the services above.                                                                                        |
+| `WorkspaceEnvContribution`      | Scans workspace roots for `environment.yml` / `requirements.txt` and prompts the user to create/install.                                                                         |
 
 ### Backend (Node)
 
-| Component | Role |
-|-----------|------|
-| `NukeCoreBackendService` | Implements the RPC interface defined in the protocol. Entry point for all backend calls. |
-| `EnvironmentService` | Aggregates all `EnvironmentProvider` implementations, resolves configuration, validates that configured environments still exist, and deduplicates results. |
-| `PackageService` | Builds install and environment-creation commands. Determines which tool to use (mamba/conda → uv → pip) and resolves the target environment's Python path. |
-| `HealthService` | Runs diagnostics: Python availability, tool availability (conda, mamba, uv), and optional package checks. |
-| **Providers** | Each provider implements the `EnvironmentProvider` interface to discover environments from a specific source. See Provider Pattern below. |
-| **Utilities** | `CondaResolver` finds conda/mamba executables; `UvResolver` finds `uv`; `PythonInfo` inspects a Python executable for version and installed packages; `AsarHelper` converts `app.asar` paths to `app.asar.unpacked` so external processes (e.g. Python scripts) can access files in packaged Electron apps. |
+| Component                | Role                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NukeCoreBackendService` | Implements the RPC interface defined in the protocol. Entry point for all backend calls.                                                                                                                                                                                                                    |
+| `EnvironmentService`     | Aggregates all `EnvironmentProvider` implementations, resolves configuration, validates that configured environments still exist, and deduplicates results.                                                                                                                                                 |
+| `PackageService`         | Builds install and environment-creation commands. Determines which tool to use (mamba/conda → uv → pip) and resolves the target environment's Python path.                                                                                                                                                  |
+| `HealthService`          | Runs diagnostics: Python availability, tool availability (conda, mamba, uv), and optional package checks.                                                                                                                                                                                                   |
+| **Providers**            | Each provider implements the `EnvironmentProvider` interface to discover environments from a specific source. See Provider Pattern below.                                                                                                                                                                   |
+| **Utilities**            | `CondaResolver` finds conda/mamba executables; `UvResolver` finds `uv`; `PythonInfo` inspects a Python executable for version and installed packages; `AsarHelper` converts `app.asar` paths to `app.asar.unpacked` so external processes (e.g. Python scripts) can access files in packaged Electron apps. |
 
 ### Common (Protocol)
 
-| File | Role |
-|------|------|
+| File                    | Role                                                                                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `nuke-core-protocol.ts` | Defines the RPC interface (`NukeCoreBackendServiceInterface`), DTOs (`NukeEnvironment`, `PackageDependency`, `HealthResult`, etc.), and event types. This is the contract between frontend and backend. |
 
 ---
@@ -118,13 +118,13 @@ EnvironmentService
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **Live terminal execution** | `prepare*Command()` returns shell commands; the frontend runs them in `TerminalService`. Users see real-time output, errors are visible, and interactive prompts work. |
-| **Mamba preference** | `CondaResolver` prefers `mamba` over `conda` when available for faster dependency solving. Install commands use `--prefix <resolvedPath>` when possible, falling back to `-n <name>`. |
-| **UV integration** | `PackageService` uses `uv pip install` when `uv` is available, falling back to `pip`. This significantly speeds up package installation. |
-| **Workspace CWD** | All terminal commands use the workspace root (`WorkspaceService.roots[0]`) instead of `process.cwd()`, ensuring commands run in the correct project context. |
-| **Cross-platform paths** | Frontend code uses `OS.type()` from `@theia/core` instead of Node-only `process.platform`. Backend handles platform-specific path and shell logic. |
+| Decision                    | Rationale                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live terminal execution** | `prepare*Command()` returns shell commands; the frontend runs them in `TerminalService`. Users see real-time output, errors are visible, and interactive prompts work.                |
+| **Mamba preference**        | `CondaResolver` prefers `mamba` over `conda` when available for faster dependency solving. Install commands use `--prefix <resolvedPath>` when possible, falling back to `-n <name>`. |
+| **UV integration**          | `PackageService` uses `uv pip install` when `uv` is available, falling back to `pip`. This significantly speeds up package installation.                                              |
+| **Workspace CWD**           | All terminal commands use the workspace root (`WorkspaceService.roots[0]`) instead of `process.cwd()`, ensuring commands run in the correct project context.                          |
+| **Cross-platform paths**    | Frontend code uses `OS.type()` from `@theia/core` instead of Node-only `process.platform`. Backend handles platform-specific path and shell logic.                                    |
 
 ---
 

@@ -98,7 +98,7 @@ export class SysmonStatusContribution implements FrontendApplicationContribution
         const cpu = Math.round(metrics.cpu.usagePercent);
         const mem = Math.round(metrics.memory.usagePercent);
         const disk = Math.round(metrics.disk.usagePercent);
-        
+
         // Use Theia codicon icons (VS Code icon set)
         // Available icons: https://microsoft.github.io/vscode-codicons/dist/codicon.html
         this.statusBar.setElement('sysmon-main', {
@@ -113,11 +113,11 @@ export class SysmonStatusContribution implements FrontendApplicationContribution
     private buildTooltip(metrics: any): string {
         // Status bar tooltips don't support multiline well, use single line format
         let tooltip = `CPU: ${metrics.cpu.usagePercent.toFixed(1)}% | Memory: ${metrics.memory.usagePercent.toFixed(1)}% | Disk: ${metrics.disk.usagePercent.toFixed(1)}%`;
-        
+
         if (metrics.cpu.temperature) {
             tooltip += ` | Temp: ${metrics.cpu.temperature}°C`;
         }
-        
+
         return tooltip;
     }
 }

@@ -68,7 +68,6 @@ import { EnvironmentService, PackageService, HealthService } from './services';
 
 @injectable()
 export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterface {
-
     @inject(EnvironmentService)
     protected readonly environmentService: EnvironmentService;
 
@@ -149,9 +148,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
      * @throws Never throws; failures are reported via `success: false`
      * @see {@link EnvironmentService.detectPythonWithRequirements}
      */
-    async detectPythonWithRequirements(
-        options: PythonDetectionOptions
-    ): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
+    async detectPythonWithRequirements(options: PythonDetectionOptions): Promise<PythonDetectionResult & { missingPackages?: string[] }> {
         return this.environmentService.detectPythonWithRequirements(options);
     }
 
@@ -165,7 +162,7 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
      * @see {@link EnvironmentService.checkPackages}
      */
     async checkDependencies(packages: PackageDependency[], pythonPath?: string): Promise<DependencyCheckResult> {
-        const targetPython = pythonPath || await this.getPythonCommand() || 'python';
+        const targetPython = pythonPath || (await this.getPythonCommand()) || 'python';
         return this.environmentService.checkPackages(packages, targetPython);
     }
 

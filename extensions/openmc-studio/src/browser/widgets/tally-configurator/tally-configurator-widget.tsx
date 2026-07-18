@@ -90,7 +90,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.title.caption = TallyConfiguratorWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-graph-line';
-        
+
         this.toDispose.push(this.stateManager.onStateChange(() => this.update()));
         this.update();
     }
@@ -120,10 +120,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
      */
     protected render(): React.ReactNode {
         return (
-            <div className='tally-configurator tally-configurator-container'>
+            <div className="tally-configurator tally-configurator-container">
                 {this.renderHeader()}
                 {this.renderTabs()}
-                <div className='tally-configurator-content'>
+                <div className="tally-configurator-content">
                     {this.state.activeTab === 'tallies' ? this.renderTalliesTab() : this.renderMeshesTab()}
                 </div>
             </div>
@@ -139,30 +139,30 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
         const totalFilters = tallies.reduce((sum, tally) => sum + tally.filters.length, 0);
-        
+
         return (
-            <div className='tally-configurator-header'>
-                <div className='header-info'>
+            <div className="tally-configurator-header">
+                <div className="header-info">
                     <h2>
-                        <i className='codicon codicon-graph-line'></i>
+                        <i className="codicon codicon-graph-line"></i>
                         Tally & Mesh Configurator
                     </h2>
-                    <p className='header-description'>
+                    <p className="header-description">
                         Define simulation outputs (tallies) and spatial grids (meshes) for collecting radiation transport data
                     </p>
                 </div>
-                <div className='header-stats'>
-                    <div className='stat-item'>
-                        <span className='stat-value'>{tallies.length}</span>
-                        <span className='stat-label'>Tallies</span>
+                <div className="header-stats">
+                    <div className="stat-item">
+                        <span className="stat-value">{tallies.length}</span>
+                        <span className="stat-label">Tallies</span>
                     </div>
-                    <div className='stat-item'>
-                        <span className='stat-value'>{meshes.length}</span>
-                        <span className='stat-label'>Meshes</span>
+                    <div className="stat-item">
+                        <span className="stat-value">{meshes.length}</span>
+                        <span className="stat-label">Meshes</span>
                     </div>
-                    <div className='stat-item'>
-                        <span className='stat-value'>{totalFilters}</span>
-                        <span className='stat-label'>Filters</span>
+                    <div className="stat-item">
+                        <span className="stat-value">{totalFilters}</span>
+                        <span className="stat-label">Filters</span>
                     </div>
                 </div>
             </div>
@@ -178,10 +178,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
             { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
             { id: 'meshes', label: 'Meshes', icon: 'codicon-table' }
         ];
-        
+
         return (
-            <div className='tally-configurator-tabs'>
-                {tabs.map(tab => (
+            <div className="tally-configurator-tabs">
+                {tabs.map((tab) => (
                     <button
                         key={tab.id}
                         className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
@@ -203,22 +203,24 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
-        const selectedTally = tallies.find(t => t.id === this.state.selectedTallyId);
+        const selectedTally = tallies.find((t) => t.id === this.state.selectedTallyId);
 
         return (
-            <div className='tallies-tab-container'>
-                <div className='left-panel'>
-                    <TallyList 
+            <div className="tallies-tab-container">
+                <div className="left-panel">
+                    <TallyList
                         tallies={tallies}
                         selectedTallyId={this.state.selectedTallyId}
                         onSelectTally={(id) => this.setState({ selectedTallyId: id })}
                         onAddTally={() => this.addNewTally()}
                         onDeleteTally={(id) => this.stateManager.removeTally(id)}
                     />
-                    <div className='quick-add-panel'>
+                    <div className="quick-add-panel">
                         <h4>Templates</h4>
-                        <div className='template-buttons'>
-                            <button onClick={() => this.addTemplateTally('meshFlux')} disabled={meshes.length === 0}>Mesh Flux</button>
+                        <div className="template-buttons">
+                            <button onClick={() => this.addTemplateTally('meshFlux')} disabled={meshes.length === 0}>
+                                Mesh Flux
+                            </button>
                             <button onClick={() => this.addTemplateTally('cellFission')}>Cell Fission</button>
                             <button onClick={() => this.addTemplateTally('surfaceCurrent')}>Surface Current</button>
                             <button onClick={() => this.addTemplateTally('activation')}>Activation</button>
@@ -226,17 +228,15 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         </div>
                     </div>
                 </div>
-                <div className='tally-editor-panel'>
+                <div className="tally-editor-panel">
                     {selectedTally ? (
-                        <TallyEditor 
+                        <TallyEditor
                             tally={selectedTally}
                             meshes={meshes}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />
                     ) : (
-                        <div className='placeholder-message'>
-                            Select a tally to edit or add a new one.
-                        </div>
+                        <div className="placeholder-message">Select a tally to edit or add a new one.</div>
                     )}
                 </div>
             </div>
@@ -249,13 +249,13 @@ export class TallyConfiguratorWidget extends ReactWidget {
      */
     protected renderMeshesTab(): React.ReactNode {
         const meshes = this.stateManager.getState().meshes || [];
-        const selectedMesh = meshes.find(m => m.id === this.state.selectedMeshId);
+        const selectedMesh = meshes.find((m) => m.id === this.state.selectedMeshId);
         const dagmcInfo = this.stateManager.getState().settings.dagmcInfo;
 
         return (
-            <div className='meshes-tab-container'>
-                <div className='left-panel'>
-                    <MeshPanel 
+            <div className="meshes-tab-container">
+                <div className="left-panel">
+                    <MeshPanel
                         meshes={meshes}
                         selectedMeshId={this.state.selectedMeshId}
                         onSelectMesh={(id) => this.setState({ selectedMeshId: id })}
@@ -263,17 +263,15 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         onDeleteMesh={(id) => this.stateManager.removeMesh(id)}
                     />
                 </div>
-                <div className='mesh-editor-panel'>
+                <div className="mesh-editor-panel">
                     {selectedMesh ? (
-                        <MeshEditor 
+                        <MeshEditor
                             mesh={selectedMesh}
                             dagmcBoundingBox={dagmcInfo?.boundingBox}
                             onUpdate={(updates) => this.stateManager.updateMesh(selectedMesh.id, updates)}
                         />
                     ) : (
-                        <div className='placeholder-message'>
-                            Select a mesh to edit or add a new one.
-                        </div>
+                        <div className="placeholder-message">Select a mesh to edit or add a new one.</div>
                     )}
                 </div>
             </div>

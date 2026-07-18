@@ -76,7 +76,6 @@ export interface InstallResult {
 
 @injectable()
 export class OpenMCInstallerService {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
@@ -155,7 +154,7 @@ export class OpenMCInstallerService {
 
         const healthPackages = getOpenMCHealthPackages();
         const toCheck = packages
-            .map(name => healthPackages.find(p => p.name === name) || { name, required: true })
+            .map((name) => healthPackages.find((p) => p.name === name) || { name, required: true })
             .filter((p): p is NonNullable<typeof p> => !!p);
 
         try {
@@ -217,7 +216,7 @@ export class OpenMCInstallerService {
      * @returns An {@link InstallResult} describing the outcome.
      */
     async installOption(optionId: string): Promise<InstallResult> {
-        const option = this.installOptions.find(o => o.id === optionId);
+        const option = this.installOptions.find((o) => o.id === optionId);
         if (!option) {
             return {
                 success: false,
@@ -235,7 +234,7 @@ export class OpenMCInstallerService {
      * Triggers installation for the option selected by the user.
      */
     async showInstallDialog(): Promise<void> {
-        const items = this.installOptions.map(opt => ({
+        const items = this.installOptions.map((opt) => ({
             label: opt.label,
             description: opt.packages.join(', '),
             detail: opt.description,

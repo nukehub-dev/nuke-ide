@@ -63,64 +63,78 @@ interface FancyLoadingSpinnerProps {
  * Used for visualization loading states.
  */
 export const FancyLoadingSpinner = ({ message, subMessage, style }: FancyLoadingSpinnerProps): React.ReactElement => (
-    <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        animation: 'nuke-fadeIn 0.3s ease-out',
-        ...style
-    }}>
-        <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
+    <div
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            padding: '32px',
-            background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
-            borderRadius: '12px',
-            border: '1px solid var(--theia-panel-border)'
-        }}>
+            justifyContent: 'center',
+            height: '100%',
+            animation: 'nuke-fadeIn 0.3s ease-out',
+            ...style
+        }}
+    >
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                padding: '32px',
+                background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
+                borderRadius: '12px',
+                border: '1px solid var(--theia-panel-border)'
+            }}
+        >
             {/* Animated dual-ring spinner */}
-            <div style={{ 
-                width: '56px', 
-                height: '56px', 
-                position: 'relative',
-                marginBottom: '20px'
-            }}>
-                <div style={{
-                    position: 'absolute',
-                    inset: '0',
-                    borderRadius: '50%',
-                    border: '3px solid transparent',
-                    borderTopColor: 'var(--theia-focusBorder, #007fd4)',
-                    borderRightColor: 'var(--theia-focusBorder, #007fd4)',
-                    animation: 'nuke-spin 1s linear infinite'
-                }}></div>
-                <div style={{
-                    position: 'absolute',
-                    inset: '6px',
-                    borderRadius: '50%',
-                    border: '3px solid transparent',
-                    borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
-                    borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
-                    animation: 'nuke-spin 1.5s linear infinite reverse'
-                }}></div>
+            <div
+                style={{
+                    width: '56px',
+                    height: '56px',
+                    position: 'relative',
+                    marginBottom: '20px'
+                }}
+            >
+                <div
+                    style={{
+                        position: 'absolute',
+                        inset: '0',
+                        borderRadius: '50%',
+                        border: '3px solid transparent',
+                        borderTopColor: 'var(--theia-focusBorder, #007fd4)',
+                        borderRightColor: 'var(--theia-focusBorder, #007fd4)',
+                        animation: 'nuke-spin 1s linear infinite'
+                    }}
+                ></div>
+                <div
+                    style={{
+                        position: 'absolute',
+                        inset: '6px',
+                        borderRadius: '50%',
+                        border: '3px solid transparent',
+                        borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
+                        borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
+                        animation: 'nuke-spin 1.5s linear infinite reverse'
+                    }}
+                ></div>
             </div>
-            <div style={{ 
-                fontSize: '15px', 
-                fontWeight: 500,
-                color: 'var(--theia-foreground)',
-                marginBottom: '8px'
-            }}>
+            <div
+                style={{
+                    fontSize: '15px',
+                    fontWeight: 500,
+                    color: 'var(--theia-foreground)',
+                    marginBottom: '8px'
+                }}
+            >
                 {message}
             </div>
             {subMessage && (
-                <div style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-descriptionForeground)',
-                    animation: 'nuke-pulse 2s ease-in-out infinite'
-                }}>
+                <div
+                    style={{
+                        fontSize: '12px',
+                        color: 'var(--theia-descriptionForeground)',
+                        animation: 'nuke-pulse 2s ease-in-out infinite'
+                    }}
+                >
                     {subMessage}
                 </div>
             )}
@@ -138,26 +152,35 @@ interface SimpleLoadingSpinnerProps {
  * Used for tree widgets and sidebar loading states.
  */
 export const SimpleLoadingSpinner = ({ message }: SimpleLoadingSpinnerProps): React.ReactElement => (
-    <div style={{ 
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        textAlign: 'center',
-        padding: '40px 20px'
-    }}>
-        <i className={codicon('loading')} style={{ 
-            animation: 'nuke-spin 1s linear infinite',
-            fontSize: '48px',
-            marginBottom: '16px',
-            color: 'var(--theia-textLink-foreground)'
-        }}></i>
-        <div style={{ 
-            fontSize: '14px',
-            color: 'var(--theia-descriptionForeground)',
-            fontWeight: 500
-        }}>{message}</div>
+    <div
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            textAlign: 'center',
+            padding: '40px 20px'
+        }}
+    >
+        <i
+            className={codicon('loading')}
+            style={{
+                animation: 'nuke-spin 1s linear infinite',
+                fontSize: '48px',
+                marginBottom: '16px',
+                color: 'var(--theia-textLink-foreground)'
+            }}
+        ></i>
+        <div
+            style={{
+                fontSize: '14px',
+                color: 'var(--theia-descriptionForeground)',
+                fontWeight: 500
+            }}
+        >
+            {message}
+        </div>
     </div>
 );
 
@@ -174,37 +197,43 @@ interface ErrorDisplayProps {
  * Error display component with consistent styling.
  */
 export const ErrorDisplay = ({ message, onRetry, retryLabel = 'Retry' }: ErrorDisplayProps): React.ReactElement => (
-    <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        padding: '24px'
-    }}>
-        <div style={{ 
-            color: 'var(--theia-errorForeground)',
-            backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
-            border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
-            padding: '16px 20px',
-            borderRadius: '8px',
-            maxWidth: '480px',
-            textAlign: 'left'
-        }}>
-            <div style={{ 
-                fontWeight: 600, 
-                marginBottom: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-            }}>
+    <div
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            padding: '24px'
+        }}
+    >
+        <div
+            style={{
+                color: 'var(--theia-errorForeground)',
+                backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
+                border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                maxWidth: '480px',
+                textAlign: 'left'
+            }}
+        >
+            <div
+                style={{
+                    fontWeight: 600,
+                    marginBottom: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                }}
+            >
                 <i className={codicon('error')} style={{ fontSize: '16px' }} />
                 Error
             </div>
             <div style={{ fontSize: '13px', lineHeight: '1.5' }}>{message}</div>
         </div>
         {onRetry && (
-            <button 
+            <button
                 onClick={onRetry}
                 style={{
                     marginTop: '16px',
@@ -239,27 +268,36 @@ interface EmptyStateProps {
  * Empty state display component.
  */
 export const EmptyState = ({ icon, message, actionLabel, onAction }: EmptyStateProps): React.ReactElement => (
-    <div style={{ 
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        textAlign: 'center',
-        padding: '40px 20px'
-    }}>
-        <i className={codicon(icon)} style={{
-            fontSize: '48px',
-            marginBottom: '16px',
-            opacity: 0.5
-        }}></i>
-        <div style={{ 
-            fontSize: '14px',
-            color: 'var(--theia-descriptionForeground)',
-            marginBottom: actionLabel ? '16px' : '0'
-        }}>{message}</div>
+    <div
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            textAlign: 'center',
+            padding: '40px 20px'
+        }}
+    >
+        <i
+            className={codicon(icon)}
+            style={{
+                fontSize: '48px',
+                marginBottom: '16px',
+                opacity: 0.5
+            }}
+        ></i>
+        <div
+            style={{
+                fontSize: '14px',
+                color: 'var(--theia-descriptionForeground)',
+                marginBottom: actionLabel ? '16px' : '0'
+            }}
+        >
+            {message}
+        </div>
         {actionLabel && onAction && (
-            <button 
+            <button
                 onClick={onAction}
                 style={{
                     padding: '6px 14px',
@@ -274,7 +312,7 @@ export const EmptyState = ({ icon, message, actionLabel, onAction }: EmptyStateP
                     gap: '6px'
                 }}
             >
-                <i className='fa fa-folder'></i>
+                <i className="fa fa-folder"></i>
                 {actionLabel}
             </button>
         )}

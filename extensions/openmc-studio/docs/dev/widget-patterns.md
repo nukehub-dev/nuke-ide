@@ -28,14 +28,14 @@ Every widget extends `ReactWidget` and is bound in the frontend DI module as a `
 
 ### Core Widgets
 
-| Widget | File | Purpose |
-|--------|------|---------|
-| `SimulationDashboardWidget` | `widgets/simulation-dashboard/simulation-dashboard-widget.tsx` | Main dashboard: settings, materials, tallies, depletion, VR, simulation |
-| `CSGBuilderWidget` | `widgets/csg-builder/csg-builder-widget.tsx` | Constructive Solid Geometry editor |
-| `DAGMCEditorWidget` | `widgets/dagmc-editor/dagmc-editor-widget.tsx` | DAGMC geometry editor |
-| `TallyConfiguratorWidget` | `widgets/tally-configurator/tally-configurator-widget.tsx` | Tally and mesh configuration |
-| `OptimizationWidget` | `widgets/optimization/optimization-widget.tsx` | Parameter sweep studies |
-| `SimulationComparisonWidget` | `widgets/simulation-comparison/comparison-widget.tsx` | Statepoint comparison |
+| Widget                       | File                                                           | Purpose                                                                 |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `SimulationDashboardWidget`  | `widgets/simulation-dashboard/simulation-dashboard-widget.tsx` | Main dashboard: settings, materials, tallies, depletion, VR, simulation |
+| `CSGBuilderWidget`           | `widgets/csg-builder/csg-builder-widget.tsx`                   | Constructive Solid Geometry editor                                      |
+| `DAGMCEditorWidget`          | `widgets/dagmc-editor/dagmc-editor-widget.tsx`                 | DAGMC geometry editor                                                   |
+| `TallyConfiguratorWidget`    | `widgets/tally-configurator/tally-configurator-widget.tsx`     | Tally and mesh configuration                                            |
+| `OptimizationWidget`         | `widgets/optimization/optimization-widget.tsx`                 | Parameter sweep studies                                                 |
+| `SimulationComparisonWidget` | `widgets/simulation-comparison/comparison-widget.tsx`          | Statepoint comparison                                                   |
 
 ---
 
@@ -90,13 +90,13 @@ export class MyWidget extends ReactWidget {
 
 ## Widget Lifecycle
 
-| Event | Method | Typical Action |
-|-------|--------|--------------|
-| Created | `@postConstruct()` | Set id, title, icon, register listeners |
-| Shown | `onAfterShow()` | Start polling, request status bar visibility |
-| Hidden | `onBeforeHide()` | Stop polling, release visibility handle |
-| Activated | `onActivateRequest()` | Sync state with backend runner |
-| Disposed | `dispose()` | Stop intervals, clean up resources, call `super.dispose()` |
+| Event     | Method                | Typical Action                                             |
+| --------- | --------------------- | ---------------------------------------------------------- |
+| Created   | `@postConstruct()`    | Set id, title, icon, register listeners                    |
+| Shown     | `onAfterShow()`       | Start polling, request status bar visibility               |
+| Hidden    | `onBeforeHide()`      | Stop polling, release visibility handle                    |
+| Activated | `onActivateRequest()` | Sync state with backend runner                             |
+| Disposed  | `dispose()`           | Stop intervals, clean up resources, call `super.dispose()` |
 
 ### Example: Lifecycle Management
 
@@ -181,11 +181,11 @@ this.stateManager.updateSettings({ run: { mode: 'fixed source', particles: 10000
 
 **State manager events:**
 
-| Event | Fires When | Typical Listener |
-|-------|-----------|------------------|
-| `onStateChange` | Granular add/update/delete | `this.update()` to re-render |
-| `onStateReload` | Full state replaced (load/reset) | Reset local UI state |
-| `onDirtyChange` | Dirty flag toggles | Update title with `●` indicator |
+| Event           | Fires When                       | Typical Listener                |
+| --------------- | -------------------------------- | ------------------------------- |
+| `onStateChange` | Granular add/update/delete       | `this.update()` to re-render    |
+| `onStateReload` | Full state replaced (load/reset) | Reset local UI state            |
+| `onDirtyChange` | Dirty flag toggles               | Update title with `●` indicator |
 
 ---
 
@@ -198,13 +198,13 @@ Commands are grouped by domain into injectable command classes.
 ```typescript
 // src/browser/commands/my-commands.ts
 export namespace OpenMCMyCommands {
-    export const CATEGORY = 'OpenMC/MyFeature';
+  export const CATEGORY = 'OpenMC/MyFeature';
 
-    export const RUN_ANALYSIS: Command = {
-        id: 'openmc.runAnalysis',
-        category: CATEGORY,
-        label: 'Run Analysis'
-    };
+  export const RUN_ANALYSIS: Command = {
+    id: 'openmc.runAnalysis',
+    category: CATEGORY,
+    label: 'Run Analysis'
+  };
 }
 ```
 
@@ -213,25 +213,25 @@ export namespace OpenMCMyCommands {
 ```typescript
 @injectable()
 export class MyCommands {
-    @inject(WidgetManager)
-    protected readonly widgetManager: WidgetManager;
+  @inject(WidgetManager)
+  protected readonly widgetManager: WidgetManager;
 
-    @inject(ApplicationShell)
-    protected readonly shell: ApplicationShell;
+  @inject(ApplicationShell)
+  protected readonly shell: ApplicationShell;
 
-    @inject(OpenMCStudioBackendService)
-    protected readonly backend: OpenMCStudioBackendService;
+  @inject(OpenMCStudioBackendService)
+  protected readonly backend: OpenMCStudioBackendService;
 
-    registerCommands(registry: CommandRegistry): void {
-        registry.registerCommand(OpenMCMyCommands.RUN_ANALYSIS, {
-            execute: () => this.runAnalysis()
-        });
-    }
+  registerCommands(registry: CommandRegistry): void {
+    registry.registerCommand(OpenMCMyCommands.RUN_ANALYSIS, {
+      execute: () => this.runAnalysis()
+    });
+  }
 
-    private async runAnalysis(): Promise<void> {
-        const result = await this.backend.runAnalysis();
-        // ... handle result
-    }
+  private async runAnalysis(): Promise<void> {
+    const result = await this.backend.runAnalysis();
+    // ... handle result
+  }
 }
 ```
 
@@ -259,21 +259,21 @@ See [`openmc-command-contribution.ts`](../../src/browser/contributions/openmc-co
 ```typescript
 // src/browser/contributions/openmc-menu-contribution.ts
 export namespace OpenMCMenus {
-    export const OPENMC = [...NukeMenus.TOOLS, '1_openmc'];
-    export const OPENMC_MYFEATURE = [...OPENMC, '5_myfeature'];
+  export const OPENMC = [...NukeMenus.TOOLS, '1_openmc'];
+  export const OPENMC_MYFEATURE = [...OPENMC, '5_myfeature'];
 }
 
 @injectable()
 export class OpenMCMenuContribution implements MenuContribution {
-    registerMenus(menus: MenuModelRegistry): void {
-        menus.registerSubmenu(OpenMCMenus.OPENMC_MYFEATURE, 'My Feature');
+  registerMenus(menus: MenuModelRegistry): void {
+    menus.registerSubmenu(OpenMCMenus.OPENMC_MYFEATURE, 'My Feature');
 
-        menus.registerMenuAction(OpenMCMenus.OPENMC_MYFEATURE, {
-            commandId: OpenMCMyCommands.RUN_ANALYSIS.id,
-            label: 'Run Analysis',
-            order: 'a'
-        });
-    }
+    menus.registerMenuAction(OpenMCMenus.OPENMC_MYFEATURE, {
+      commandId: OpenMCMyCommands.RUN_ANALYSIS.id,
+      label: 'Run Analysis',
+      order: 'a'
+    });
+  }
 }
 ```
 
@@ -284,18 +284,18 @@ Toolbar items are scoped to a specific widget type via `isVisible`:
 ```typescript
 @injectable()
 export class OpenMCToolbarContribution implements TabBarToolbarContribution {
-    registerToolbarItems(registry: TabBarToolbarRegistry): void {
-        const isVisible = (widget?: any) => widget instanceof SimulationDashboardWidget;
+  registerToolbarItems(registry: TabBarToolbarRegistry): void {
+    const isVisible = (widget?: any) => widget instanceof SimulationDashboardWidget;
 
-        registry.registerItem({
-            id: OpenMCSimulationCommands.RUN_SIMULATION.id,
-            command: OpenMCSimulationCommands.RUN_SIMULATION.id,
-            tooltip: 'Run Simulation',
-            priority: 100,
-            onDidChange: this.onDidChange,
-            isVisible
-        });
-    }
+    registry.registerItem({
+      id: OpenMCSimulationCommands.RUN_SIMULATION.id,
+      command: OpenMCSimulationCommands.RUN_SIMULATION.id,
+      tooltip: 'Run Simulation',
+      priority: 100,
+      onDidChange: this.onDidChange,
+      isVisible
+    });
+  }
 }
 ```
 
@@ -372,35 +372,39 @@ The backend can push events to the frontend via the client interface:
 
 ```typescript
 // In frontend module: create proxy with client callbacks
-bind(OpenMCStudioBackendService).toDynamicValue(ctx => {
+bind(OpenMCStudioBackendService)
+  .toDynamicValue((ctx) => {
     const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
 
     const client: OpenMCStudioClient = {
-        log: (message: string) => {
-            window.dispatchEvent(new CustomEvent('openmc-output', {
-                detail: { type: 'stdout', data: message }
-            }));
-        },
-        onSimulationStatus: (event) => {
-            window.dispatchEvent(new CustomEvent('openmc-simulation-status', {
-                detail: event
-            }));
-        }
+      log: (message: string) => {
+        window.dispatchEvent(
+          new CustomEvent('openmc-output', {
+            detail: { type: 'stdout', data: message }
+          })
+        );
+      },
+      onSimulationStatus: (event) => {
+        window.dispatchEvent(
+          new CustomEvent('openmc-simulation-status', {
+            detail: event
+          })
+        );
+      }
     };
 
-    return connectionProvider.createProxy<OpenMCStudioBackendService>(
-        OPENMC_STUDIO_BACKEND_PATH, client
-    );
-}).inSingletonScope();
+    return connectionProvider.createProxy<OpenMCStudioBackendService>(OPENMC_STUDIO_BACKEND_PATH, client);
+  })
+  .inSingletonScope();
 ```
 
 Widgets listen for these window events:
 
 ```typescript
 window.addEventListener('openmc-simulation-status', ((evt: CustomEvent) => {
-    const event = evt.detail as SimulationStatusEvent;
-    this.isRunning = event.status === 'running';
-    this.update();
+  const event = evt.detail as SimulationStatusEvent;
+  this.isRunning = event.status === 'running';
+  this.update();
 }) as EventListener);
 ```
 
@@ -418,10 +422,14 @@ import './widgets/my-widget/my-widget.css';
 Use BEM-like naming scoped to the widget:
 
 ```css
-.my-widget { }
-.my-widget .widget-header { }
-.my-widget .form-row { }
-.my-widget .form-group { }
+.my-widget {
+}
+.my-widget .widget-header {
+}
+.my-widget .form-row {
+}
+.my-widget .form-group {
+}
 ```
 
 Reusable components from `nuke-essentials`:
@@ -434,11 +442,11 @@ import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/componen
 
 ## Widget Reference
 
-| Widget | Scope | State Pattern | Backend Calls |
-|--------|-------|--------------|---------------|
-| `SimulationDashboardWidget` | Singleton | Mixed: local UI + `OpenMCStateManager` | `validateState`, `generateXML`, `startSimulation` |
-| `CSGBuilderWidget` | Singleton | `OpenMCStateManager` (geometry) | `validateRegion`, `checkOverlaps` |
-| `DAGMCEditorWidget` | Singleton | Local + backend file ops | `dagmcLoad`, `dagmcAssignMaterial` |
-| `TallyConfiguratorWidget` | Singleton | `OpenMCStateManager` (tallies/meshes) | None (pure state edits) |
-| `OptimizationWidget` | Transient | Local sweep config + `OpenMCStateManager` | `startOptimization` |
-| `SimulationComparisonWidget` | Singleton | Local file selections | `readStatepoint`, `compareStatepoints` |
+| Widget                       | Scope     | State Pattern                             | Backend Calls                                     |
+| ---------------------------- | --------- | ----------------------------------------- | ------------------------------------------------- |
+| `SimulationDashboardWidget`  | Singleton | Mixed: local UI + `OpenMCStateManager`    | `validateState`, `generateXML`, `startSimulation` |
+| `CSGBuilderWidget`           | Singleton | `OpenMCStateManager` (geometry)           | `validateRegion`, `checkOverlaps`                 |
+| `DAGMCEditorWidget`          | Singleton | Local + backend file ops                  | `dagmcLoad`, `dagmcAssignMaterial`                |
+| `TallyConfiguratorWidget`    | Singleton | `OpenMCStateManager` (tallies/meshes)     | None (pure state edits)                           |
+| `OptimizationWidget`         | Transient | Local sweep config + `OpenMCStateManager` | `startOptimization`                               |
+| `SimulationComparisonWidget` | Singleton | Local file selections                     | `readStatepoint`, `compareStatepoints`            |

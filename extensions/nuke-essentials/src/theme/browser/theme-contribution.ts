@@ -42,16 +42,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
     protected readonly themeService: ThemeService;
 
     // Built-in theme IDs to hide
-    private readonly builtinThemeIds = [
-        'dark',
-        'light',
-        'dark-theia',
-        'light-theia',
-        'hc-theia',
-        'hc-theia-light',
-        'hc-black',
-        'hc-light'
-    ];
+    private readonly builtinThemeIds = ['dark', 'light', 'dark-theia', 'light-theia', 'hc-theia', 'hc-theia-light', 'hc-black', 'hc-light'];
 
     onStart(): void {
         this.registerThemes();
@@ -79,10 +70,8 @@ export class ThemeContribution implements FrontendApplicationContribution {
             </svg>
         `.trim();
 
-        const encoded = encodeURIComponent(svgString)
-            .replace(/'/g, '%27')
-            .replace(/"/g, '%22');
-        
+        const encoded = encodeURIComponent(svgString).replace(/'/g, '%27').replace(/"/g, '%22');
+
         const dataUrl = `data:image/svg+xml,${encoded}`;
 
         let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
@@ -92,7 +81,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
             link.type = 'image/svg+xml';
             document.head.appendChild(link);
         }
-        
+
         link.href = dataUrl;
     }
 
@@ -129,7 +118,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
         // Remove built-in themes from the internal themes object
         const themeServiceAny = this.themeService as any;
         if (themeServiceAny.themes) {
-            this.builtinThemeIds.forEach(id => {
+            this.builtinThemeIds.forEach((id) => {
                 if (themeServiceAny.themes[id]) {
                     delete themeServiceAny.themes[id];
                 }
@@ -202,7 +191,7 @@ export class ThemeContribution implements FrontendApplicationContribution {
         const savedTheme = this.getThemeFromLocalStorage();
         const currentTheme = this.themeService.getCurrentTheme();
 
-        const validThemeIds = THEME_CONFIGS.map(t => t.id);
+        const validThemeIds = THEME_CONFIGS.map((t) => t.id);
 
         if (savedTheme && validThemeIds.includes(savedTheme.id)) {
             // Restore saved Nuke theme
@@ -235,9 +224,8 @@ export class ThemeContribution implements FrontendApplicationContribution {
             const config = getThemeConfig(currentTheme.id);
             if (!config) return;
 
-            const otherThemeId = config.type === 'dark'
-                ? currentTheme.id.replace('dark', 'light')
-                : currentTheme.id.replace('light', 'dark');
+            const otherThemeId =
+                config.type === 'dark' ? currentTheme.id.replace('dark', 'light') : currentTheme.id.replace('light', 'dark');
             const otherConfig = getThemeConfig(otherThemeId);
 
             if (!otherConfig) {
@@ -248,24 +236,27 @@ export class ThemeContribution implements FrontendApplicationContribution {
             const colors = config.type === 'dark' ? config.colors : otherConfig.colors;
             const otherColors = config.type === 'dark' ? otherConfig.colors : config.colors;
 
-            localStorage.setItem('nuke-theme', JSON.stringify({
-                id: currentTheme.id,
-                label: currentTheme.label,
-                accentDark: colors.accent,
-                accentDarkLight: colors.accentLight,
-                accentDarkDark: colors.accentDark,
-                backgroundDark: colors.background,
-                backgroundDarkRgb: colors.backgroundRgb,
-                foregroundDark: colors.foreground,
-                foregroundInverseDark: colors.foregroundInverse,
-                accentLight: otherColors.accent,
-                accentLightLight: otherColors.accentLight,
-                accentLightDark: otherColors.accentDark,
-                backgroundLight: otherColors.background,
-                backgroundLightRgb: otherColors.backgroundRgb,
-                foregroundLight: otherColors.foreground,
-                foregroundInverseLight: otherColors.foregroundInverse
-            }));
+            localStorage.setItem(
+                'nuke-theme',
+                JSON.stringify({
+                    id: currentTheme.id,
+                    label: currentTheme.label,
+                    accentDark: colors.accent,
+                    accentDarkLight: colors.accentLight,
+                    accentDarkDark: colors.accentDark,
+                    backgroundDark: colors.background,
+                    backgroundDarkRgb: colors.backgroundRgb,
+                    foregroundDark: colors.foreground,
+                    foregroundInverseDark: colors.foregroundInverse,
+                    accentLight: otherColors.accent,
+                    accentLightLight: otherColors.accentLight,
+                    accentLightDark: otherColors.accentDark,
+                    backgroundLight: otherColors.background,
+                    backgroundLightRgb: otherColors.backgroundRgb,
+                    foregroundLight: otherColors.foreground,
+                    foregroundInverseLight: otherColors.foregroundInverse
+                })
+            );
         } catch (e) {
             console.error('[Theme] Save error:', e);
         }

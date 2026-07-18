@@ -103,7 +103,6 @@ export interface HealthCheckResult {
 
 @injectable()
 export class OpenMCHealthService {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
@@ -144,9 +143,7 @@ export class OpenMCHealthService {
         }
 
         // Can't proceed without a working Python environment
-        const pythonFailed = coreResult.checks.some(
-            c => c.name === 'Configured Python Environment' && !c.passed
-        );
+        const pythonFailed = coreResult.checks.some((c) => c.name === 'Configured Python Environment' && !c.passed);
         if (pythonFailed || !env) {
             return this.createResult(issues, checks, undefined);
         }
@@ -162,9 +159,7 @@ export class OpenMCHealthService {
         checks.push(...chain.checks);
 
         // Extract OpenMC version from core health check
-        const openmcCheck = coreResult.checks.find(
-            c => c.name === 'Package: openmc' && c.passed
-        );
+        const openmcCheck = coreResult.checks.find((c) => c.name === 'Package: openmc' && c.passed);
         let version: string | undefined;
         if (openmcCheck) {
             const match = openmcCheck.message.match(/openmc\s+([\d.]+)/i);
@@ -197,7 +192,7 @@ export class OpenMCHealthService {
         if (result.ready) {
             return `OpenMC ready (${result.environment?.name}${result.environment?.version ? ' ' + result.environment.version : ''})`;
         }
-        const errors = result.issues.filter(i => i.severity === 'error');
+        const errors = result.issues.filter((i) => i.severity === 'error');
         if (errors.length > 0) {
             return errors[0].message;
         }
@@ -319,9 +314,9 @@ export class OpenMCHealthService {
         checks: HealthCheckItem[],
         environment?: { name: string; version?: string; pythonCommand: string }
     ): HealthCheckResult {
-        const errors = issues.filter(i => i.severity === 'error').length;
-        const warnings = issues.filter(i => i.severity === 'warning').length;
-        const info = issues.filter(i => i.severity === 'info').length;
+        const errors = issues.filter((i) => i.severity === 'error').length;
+        const warnings = issues.filter((i) => i.severity === 'warning').length;
+        const info = issues.filter((i) => i.severity === 'info').length;
 
         // Ready if no errors and environment is available
         const ready = errors === 0 && !!environment;

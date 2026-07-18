@@ -46,10 +46,8 @@ import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
 import { NukeCoreService } from 'nuke-core/lib/common';
 
-
 @injectable()
 export class OpenMCStudioService implements FrontendApplicationContribution {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -76,7 +74,7 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
         console.log('[OpenMC Studio] Service initialized');
 
         // Listen for environment fallback events from nuke-core
-        this.nukeCoreService.onEnvironmentFallback(event => {
+        this.nukeCoreService.onEnvironmentFallback((event) => {
             console.log('[OpenMC Studio] Environment fallback detected:', event);
             this.messageService.warn(event.warning, { timeout: 10000 });
         });

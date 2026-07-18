@@ -95,21 +95,10 @@ export interface VisualizationState {
 }
 
 /** Surface representation types */
-export type RepresentationType =
-    | 'Surface'
-    | 'Surface with Edges'
-    | 'Wireframe'
-    | 'Points';
+export type RepresentationType = 'Surface' | 'Surface with Edges' | 'Wireframe' | 'Points';
 
 /** Camera preset views */
-export type CameraViewType =
-    | 'isometric'
-    | 'front'
-    | 'back'
-    | 'left'
-    | 'right'
-    | 'top'
-    | 'bottom';
+export type CameraViewType = 'isometric' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 /** Screenshot export options */
 export interface ScreenshotOptions {
@@ -349,7 +338,7 @@ export const COLOR_MAP_PRESETS = [
     'Twilight',
     'Haze',
     'Earth',
-    'Ocean',
+    'Ocean'
 ] as const;
 
 /** Default visualization state */
@@ -364,5 +353,5 @@ export const DEFAULT_VISUALIZATION_STATE: VisualizationState = {
     clipOrigin: [0, 0, 0],
     clipNormal: [1, 0, 0],
     clipInvert: false,
-    backgroundColor: [0.1, 0.1, 0.15],
+    backgroundColor: [0.1, 0.1, 0.15]
 };

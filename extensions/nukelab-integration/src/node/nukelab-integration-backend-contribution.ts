@@ -32,7 +32,7 @@ export class NukeLabIntegrationBackendContribution implements BackendApplication
                 serverName,
                 labUrl,
                 dashboardUrl,
-                publicUrl,
+                publicUrl
             } as NukeLabContext);
         });
     }

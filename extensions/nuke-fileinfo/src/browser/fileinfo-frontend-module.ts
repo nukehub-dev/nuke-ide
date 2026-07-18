@@ -37,21 +37,20 @@ import './file-properties-dialog.css';
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
-import {
-    FilePropertiesService,
-    FilePropertiesServicePath
-} from '../common/fileinfo-protocol';
+import { FilePropertiesService, FilePropertiesServicePath } from '../common/fileinfo-protocol';
 import { FilePropertiesFrontendService } from './fileinfo-frontend-service';
 import { FilePropertiesDialog } from './file-properties-dialog';
 import { FilePropertiesContribution } from './file-properties-contribution';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     bind(FilePropertiesDialog).toSelf().inSingletonScope();
 
-    bind(FilePropertiesFrontendService).toDynamicValue(ctx => {
-        const proxy = ctx.container.get(WebSocketConnectionProvider).createProxy<FilePropertiesService>(FilePropertiesServicePath);
-        return new FilePropertiesFrontendService(proxy);
-    }).inSingletonScope();
+    bind(FilePropertiesFrontendService)
+        .toDynamicValue((ctx) => {
+            const proxy = ctx.container.get(WebSocketConnectionProvider).createProxy<FilePropertiesService>(FilePropertiesServicePath);
+            return new FilePropertiesFrontendService(proxy);
+        })
+        .inSingletonScope();
 
     bind(FilePropertiesService).toService(FilePropertiesFrontendService);
 

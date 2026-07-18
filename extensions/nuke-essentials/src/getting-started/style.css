@@ -3,33 +3,65 @@
  * ============================================================================ */
 
 @keyframes gs-fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes gs-fadeInLeft {
-    from { opacity: 0; transform: translateX(-20px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 @keyframes gs-fadeInRight {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 @keyframes gs-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
 }
 
 @keyframes gs-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
 }
 
 @keyframes gs-shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
 }
 
 /* ============================================================================
@@ -38,9 +70,8 @@
 
 html,
 body {
-  font-family: var(--theia-ui-font-family);
+    font-family: var(--theia-ui-font-family);
 }
-
 
 .gs-body-container {
     width: 80%;
@@ -48,29 +79,29 @@ body {
 }
 
 .col {
-  flex: 1;
-  padding: 0 10px;
+    flex: 1;
+    padding: 0 10px;
 }
 
 .flex-grid {
-  display: flex;
+    display: flex;
 }
 
 .gs-action-container {
-  line-height: 20px;
+    line-height: 20px;
 }
 
 .gs-action-details {
-  padding-left: 5px;
-  color: var(--theia-descriptionForeground);
+    padding-left: 5px;
+    color: var(--theia-descriptionForeground);
 }
 
 .gs-container {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 100%;
-  animation: gs-fadeIn 0.4s ease-out;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    animation: gs-fadeIn 0.4s ease-out;
 }
 
 .gs-content-container {
@@ -124,7 +155,12 @@ body {
 }
 
 .gs-header-title {
-    background: linear-gradient(135deg, var(--theia-button-background) 0%, var(--theia-button-hoverBackground) 50%, var(--theia-button-background) 100%);
+    background: linear-gradient(
+        135deg,
+        var(--theia-button-background) 0%,
+        var(--theia-button-hoverBackground) 50%,
+        var(--theia-button-background) 100%
+    );
     background-size: 200% auto;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -148,7 +184,6 @@ body {
     stroke: var(--theia-foreground);
 }
 
-
 .gs-hr {
     border: none;
     height: 1px;
@@ -157,18 +192,28 @@ body {
 }
 
 .gs-no-recent {
-  color: var(--theia-descriptionForeground);
+    color: var(--theia-descriptionForeground);
 }
 
 .gs-section {
     margin-bottom: 24px;
 }
 
-.gs-section-1 { animation: gs-fadeInLeft 0.4s ease-out 0.1s backwards; }
-.gs-section-2 { animation: gs-fadeInLeft 0.4s ease-out 0.15s backwards; }
-.gs-section-3 { animation: gs-fadeInLeft 0.4s ease-out 0.2s backwards; }
-.gs-section-4 { animation: gs-fadeInLeft 0.4s ease-out 0.25s backwards; }
-.gs-section-5 { animation: gs-fadeInLeft 0.4s ease-out 0.3s backwards; }
+.gs-section-1 {
+    animation: gs-fadeInLeft 0.4s ease-out 0.1s backwards;
+}
+.gs-section-2 {
+    animation: gs-fadeInLeft 0.4s ease-out 0.15s backwards;
+}
+.gs-section-3 {
+    animation: gs-fadeInLeft 0.4s ease-out 0.2s backwards;
+}
+.gs-section-4 {
+    animation: gs-fadeInLeft 0.4s ease-out 0.25s backwards;
+}
+.gs-section-5 {
+    animation: gs-fadeInLeft 0.4s ease-out 0.3s backwards;
+}
 
 .gs-section-header {
     font-size: 13px;
@@ -266,7 +311,7 @@ body {
 }
 
 .gs-section-header i {
-  padding-right: 5px;
+    padding-right: 5px;
 }
 
 .gs-sub-header {
@@ -366,8 +411,8 @@ body {
     height: 20px;
     border-radius: 50%;
     background: var(--theia-button-foreground);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    transition: left 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .gs-toggle-thumb-off {
@@ -379,30 +424,29 @@ body {
 }
 
 .gs-float {
-  float: right;
-  width: 50%;
-  margin-top: 100px;
+    float: right;
+    width: 50%;
+    margin-top: 100px;
 }
 
 .gs-container.gs-aifeature-container {
-  border: 1px solid var(--theia-focusBorder);
-  padding: 15px;
+    border: 1px solid var(--theia-focusBorder);
+    padding: 15px;
 }
 
 .shadow-pulse {
-  animation: shadowPulse 2s infinite ease-in-out;
+    animation: shadowPulse 2s infinite ease-in-out;
 }
 
 @keyframes shadowPulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+    }
 
-  0%,
-  100% {
-    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-  }
-
-  50% {
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
-  }
+    50% {
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
+    }
 }
 
 .gs-quote {
@@ -510,8 +554,14 @@ body {
 }
 
 @keyframes nukeide-fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Logo styling */

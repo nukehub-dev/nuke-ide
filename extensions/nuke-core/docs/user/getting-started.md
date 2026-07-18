@@ -8,11 +8,11 @@ This guide walks you through first-time setup: configuring your Python environme
 
 Before you begin, you need a Python installation on your system.
 
-| Requirement | Required? | Notes |
-|-------------|-----------|-------|
-| Python 3.8+ | Yes | System Python, pyenv, or any managed installation |
+| Requirement    | Required?   | Notes                                                               |
+| -------------- | ----------- | ------------------------------------------------------------------- |
+| Python 3.8+    | Yes         | System Python, pyenv, or any managed installation                   |
 | Conda or Mamba | Recommended | For environment creation and conda-only packages (e.g., `paraview`) |
-| UV | Optional | Significantly faster pip installs if available |
+| UV             | Optional    | Significantly faster pip installs if available                      |
 
 > **Tip:** If you don't have Python installed yet, [Miniforge](https://github.com/conda-forge/miniforge) is the easiest way to get both Python and conda on Linux/macOS/Windows.
 
@@ -31,10 +31,10 @@ Before you begin, you need a Python installation on your system.
 
 Set at least one of the following:
 
-| Setting | What to enter | Example |
-|---------|---------------|---------|
-| `nuke.pythonPath` | Full path to a Python executable | `/home/user/.conda/envs/openmc/bin/python` |
-| `nuke.condaEnv` | Name of an existing conda environment | `openmc` |
+| Setting           | What to enter                         | Example                                    |
+| ----------------- | ------------------------------------- | ------------------------------------------ |
+| `nuke.pythonPath` | Full path to a Python executable      | `/home/user/.conda/envs/openmc/bin/python` |
+| `nuke.condaEnv`   | Name of an existing conda environment | `openmc`                                   |
 
 > **Tip:** You only need to set **one** of these. If both are set, `nuke.pythonPath` takes priority.
 
@@ -59,14 +59,15 @@ python3 -c "import sys; print(sys.executable)"
 
 Nuke Core shows the active Python environment in the bottom status bar.
 
-| Indicator | Meaning |
-|-----------|---------|
+| Indicator          | Meaning                                 |
+| ------------------ | --------------------------------------- |
 | 🐍 `conda: openmc` | Active conda environment named `openmc` |
-| 🐍 `venv: .venv` | Active virtual environment in workspace |
-| 🐍 `system: 3.11` | System Python (version 3.11) |
-| ⚠️ (no label) | Python not configured — click to set up |
+| 🐍 `venv: .venv`   | Active virtual environment in workspace |
+| 🐍 `system: 3.11`  | System Python (version 3.11)            |
+| ⚠️ (no label)      | Python not configured — click to set up |
 
 **Click the status bar item to:**
+
 - **Switch environment** — pick from grouped list (Conda, Venv, Other)
 - **Open actions menu** — Terminal, Install Packages, Copy Python Path
 
@@ -74,11 +75,11 @@ Nuke Core shows the active Python environment in the bottom status bar.
 
 Control when the status bar appears with `nuke.showStatusBar`:
 
-| Mode | Behavior | Best for |
-|------|----------|----------|
-| `auto` (default) | Shows only when environment is **not** configured; hides once set up | Using alongside MS Python extension |
-| `always` | Always visible | Prefer quick-click environment switching |
-| `never` | Hidden; use Command Palette only | Minimal UI preference |
+| Mode             | Behavior                                                             | Best for                                 |
+| ---------------- | -------------------------------------------------------------------- | ---------------------------------------- |
+| `auto` (default) | Shows only when environment is **not** configured; hides once set up | Using alongside MS Python extension      |
+| `always`         | Always visible                                                       | Prefer quick-click environment switching |
+| `never`          | Hidden; use Command Palette only                                     | Minimal UI preference                    |
 
 > **Tip:** Set to `"auto"` if you also use the Microsoft Python extension. This avoids duplicate status bar items.
 
@@ -95,6 +96,7 @@ Verify everything is working:
    - ✗ Red crosses = follow the suggested fixes
 
 **Default checks include:**
+
 - Configured Python environment availability
 - Conda / Mamba availability
 - UV availability
@@ -123,14 +125,14 @@ If you work with OpenMC, set the path to your cross-sections library:
 
 ## Quick Reference: Your First Workflow
 
-| Step | Action | Where |
-|------|--------|-------|
-| 1 | Install Python / conda | Your OS package manager or [miniforge](https://github.com/conda-forge/miniforge) |
-| 2 | Open Settings (`Ctrl+,`) | `File → Preferences → Settings` |
-| 3 | Set `nuke.pythonPath` or `nuke.condaEnv` | Search "Nuke Utils" |
-| 4 | Run health check | `Ctrl+Shift+P` → "Nuke: Run Health Check" |
-| 5 | Check status bar | Bottom of the window — should show your environment |
-| 6 | (Optional) Set cross-sections path | `nuke.openmcCrossSections` in Settings |
+| Step | Action                                   | Where                                                                            |
+| ---- | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| 1    | Install Python / conda                   | Your OS package manager or [miniforge](https://github.com/conda-forge/miniforge) |
+| 2    | Open Settings (`Ctrl+,`)                 | `File → Preferences → Settings`                                                  |
+| 3    | Set `nuke.pythonPath` or `nuke.condaEnv` | Search "Nuke Utils"                                                              |
+| 4    | Run health check                         | `Ctrl+Shift+P` → "Nuke: Run Health Check"                                        |
+| 5    | Check status bar                         | Bottom of the window — should show your environment                              |
+| 6    | (Optional) Set cross-sections path       | `nuke.openmcCrossSections` in Settings                                           |
 
 ---
 

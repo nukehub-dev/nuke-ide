@@ -25,14 +25,14 @@ The XS Plot panel opens, usually in the right sidebar.
 
 Check the reactions you want to plot:
 
-| MT | Reaction | Default? |
-|----|----------|----------|
-| 1 | Total (n,total) | ✓ |
-| 2 | Elastic (n,elastic) | |
-| 18 | Fission (n,fission) | ✓ |
-| 102 | Capture (n,gamma) | ✓ |
-| 103–107 | Charged particles (n,p), (n,d), etc. | |
-| 16, 17 | (n,2n), (n,3n) | |
+| MT      | Reaction                             | Default? |
+| ------- | ------------------------------------ | -------- |
+| 1       | Total (n,total)                      | ✓        |
+| 2       | Elastic (n,elastic)                  |          |
+| 18      | Fission (n,fission)                  | ✓        |
+| 102     | Capture (n,gamma)                    | ✓        |
+| 103–107 | Charged particles (n,p), (n,d), etc. |          |
+| 16, 17  | (n,2n), (n,3n)                       |          |
 
 ### 3. Set Temperature
 
@@ -117,13 +117,13 @@ Plot thermal scattering data for bound atoms:
 
 Quickly zoom to important energy ranges:
 
-| Region | Range | Use Case |
-|--------|-------|----------|
-| Full | 0.01 meV – 20 MeV | Complete picture |
-| Thermal | < 1 eV | Thermal reactor physics |
-| Resonance | 1 eV – 100 keV | Resonance absorption |
-| Epithermal | 1 meV – 100 keV | Intermediate range |
-| Fast | > 100 keV | Fast reactors, shielding |
+| Region     | Range             | Use Case                 |
+| ---------- | ----------------- | ------------------------ |
+| Full       | 0.01 meV – 20 MeV | Complete picture         |
+| Thermal    | < 1 eV            | Thermal reactor physics  |
+| Resonance  | 1 eV – 100 keV    | Resonance absorption     |
+| Epithermal | 1 meV – 100 keV   | Intermediate range       |
+| Fast       | > 100 keV         | Fast reactors, shielding |
 
 ---
 

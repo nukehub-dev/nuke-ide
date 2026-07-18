@@ -43,7 +43,6 @@
  * @see {@link CondaResolver} for conda/mamba discovery.
  */
 export class UvResolver {
-
     private cachedUvPath?: string;
 
     /**
@@ -67,18 +66,8 @@ export class UvResolver {
         const isWindows = process.platform === 'win32';
         const home = require('os').homedir();
         const candidates = isWindows
-            ? [
-                `${home}\\.cargo\\bin\\uv.exe`,
-                `${home}\\AppData\\Local\\Programs\\uv\\uv.exe`,
-                'C:\\Program Files\\uv\\uv.exe',
-            ]
-            : [
-                `${home}/.cargo/bin/uv`,
-                `${home}/.local/bin/uv`,
-                '/usr/local/bin/uv',
-                '/opt/homebrew/bin/uv',
-                '/usr/bin/uv',
-            ];
+            ? [`${home}\\.cargo\\bin\\uv.exe`, `${home}\\AppData\\Local\\Programs\\uv\\uv.exe`, 'C:\\Program Files\\uv\\uv.exe']
+            : [`${home}/.cargo/bin/uv`, `${home}/.local/bin/uv`, '/usr/local/bin/uv', '/opt/homebrew/bin/uv', '/usr/bin/uv'];
 
         for (const candidate of candidates) {
             if (await this.fileExists(candidate)) {

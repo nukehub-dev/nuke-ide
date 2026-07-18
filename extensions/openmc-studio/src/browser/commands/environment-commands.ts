@@ -27,9 +27,9 @@
 
 /**
  * Environment Commands
- * 
+ *
  * Commands for environment management, health checks, and package installation.
- * 
+ *
  * @module openmc-studio/browser/commands
  */
 
@@ -77,7 +77,6 @@ export namespace OpenMCEnvironmentCommands {
  */
 @injectable()
 export class EnvironmentCommands {
-
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
@@ -161,15 +160,11 @@ export class EnvironmentCommands {
             this.messageService.error('OpenMC not ready. See OpenMC Studio output for details.');
 
             // If OpenMC is missing, offer to install it via ensureOpenMC()
-            const hasEnvIssue = result.issues.some(i =>
-                i.category === 'environment' && i.autoFixable
-            );
+            const hasEnvIssue = result.issues.some((i) => i.category === 'environment' && i.autoFixable);
             if (hasEnvIssue) {
                 const ensureResult = await this.envService.ensureOpenMC();
                 if (ensureResult.success && ensureResult.installed) {
-                    this.messageService.info(
-                        `✓ OpenMC installed in ${ensureResult.environment?.name}. Run health check again to verify.`
-                    );
+                    this.messageService.info(`✓ OpenMC installed in ${ensureResult.environment?.name}. Run health check again to verify.`);
                 }
             }
         }
@@ -185,7 +180,7 @@ export class EnvironmentCommands {
             this.messageService.error('No Python environment available. Configure environment first.');
             return;
         }
-        
+
         const result = await this.installerService.installOption('openmc');
         if (!result.success) {
             this.messageService.error(`Installation failed: ${result.message}`);

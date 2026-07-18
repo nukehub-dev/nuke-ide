@@ -27,9 +27,9 @@
 
 /**
  * OpenMC Toolbar Contribution
- * 
+ *
  * Registers toolbar items for the simulation dashboard.
- * 
+ *
  * @module openmc-studio/browser/contributions
  */
 
@@ -51,7 +51,6 @@ import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simul
  */
 @injectable()
 export class OpenMCToolbarContribution implements TabBarToolbarContribution {
-    
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
@@ -66,7 +65,7 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
      */
     registerToolbarItems(registry: TabBarToolbarRegistry): void {
         const isVisible = (widget?: any) => widget instanceof SimulationDashboardWidget;
-        
+
         // Run simulation
         registry.registerItem({
             id: OpenMCSimulationCommands.RUN_SIMULATION.id,
@@ -76,7 +75,7 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
             onDidChange: this.onDidChange,
             isVisible
         });
-        
+
         // Stop simulation
         registry.registerItem({
             id: OpenMCSimulationCommands.STOP_SIMULATION.id,
@@ -86,7 +85,7 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
             onDidChange: this.onDidChange,
             isVisible
         });
-        
+
         // Validate model
         registry.registerItem({
             id: OpenMCSimulationCommands.VALIDATE_MODEL.id,
@@ -96,7 +95,7 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
             onDidChange: this.onDidChange,
             isVisible
         });
-        
+
         // Refresh toolbar periodically
         setInterval(() => this._onDidChange.fire(), 1000);
     }

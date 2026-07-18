@@ -18,68 +18,142 @@
 }
 
 @keyframes dashboard-fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes header-slide-down {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes content-fade-in {
-    from { opacity: 0; transform: translateY(15px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes section-slide-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes card-fade-in {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 @keyframes form-expand {
-    from { opacity: 0; transform: scaleY(0.95); transform-origin: top; }
-    to { opacity: 1; transform: scaleY(1); }
+    from {
+        opacity: 0;
+        transform: scaleY(0.95);
+        transform-origin: top;
+    }
+    to {
+        opacity: 1;
+        transform: scaleY(1);
+    }
 }
 
 @keyframes row-slide-in {
-    from { opacity: 0; transform: translateX(-10px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 @keyframes status-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(243, 117, 36, 0.2); }
-    50% { box-shadow: 0 0 0 10px rgba(243, 117, 36, 0); }
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(243, 117, 36, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(243, 117, 36, 0);
+    }
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes progress-shimmer {
-    0% { background-position: -200px 0; }
-    100% { background-position: 200px 0; }
+    0% {
+        background-position: -200px 0;
+    }
+    100% {
+        background-position: 200px 0;
+    }
 }
 
 @keyframes slide-down {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes issue-fade-in {
-    from { opacity: 0; transform: translateX(-5px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 @keyframes empty-fade-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 /* ============================================================================
@@ -279,7 +353,6 @@
     animation: content-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-
 .simulation-dashboard .settings-section {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
@@ -292,12 +365,20 @@
     animation-fill-mode: both;
 }
 
-.simulation-dashboard .settings-section:nth-child(1) { animation-delay: 0.05s; }
-.simulation-dashboard .settings-section:nth-child(2) { animation-delay: 0.1s; }
-.simulation-dashboard .settings-section:nth-child(3) { animation-delay: 0.15s; }
+.simulation-dashboard .settings-section:nth-child(1) {
+    animation-delay: 0.05s;
+}
+.simulation-dashboard .settings-section:nth-child(2) {
+    animation-delay: 0.1s;
+}
+.simulation-dashboard .settings-section:nth-child(3) {
+    animation-delay: 0.15s;
+}
 
 .simulation-dashboard .settings-section:hover {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .simulation-dashboard .settings-section h3 {
@@ -556,8 +637,6 @@
     white-space: nowrap;
 }
 
-
-
 /* Source bounds info display */
 .simulation-dashboard .source-bounds-info {
     background: var(--theia-inputValidation-infoBackground);
@@ -640,7 +719,7 @@
 }
 
 .simulation-dashboard .material-form-container,
-.simulation-dashboard  {
+.simulation-dashboard {
     width: 100%;
 }
 
@@ -664,7 +743,9 @@
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 16px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
     animation: form-expand 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -1212,7 +1293,9 @@
 
 .simulation-dashboard .simulation-actions button:not(:disabled):hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .simulation-dashboard .simulation-actions button:not(:disabled):active {
@@ -1423,7 +1506,7 @@
     background: var(--theia-button-background);
     color: var(--theia-button-foreground);
     border-color: var(--theia-button-border);
-    background-image: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
 }
 
 .simulation-dashboard .theia-button.primary:hover:not(:disabled) {
@@ -1487,24 +1570,24 @@
         gap: 12px;
         flex-wrap: wrap;
     }
-    
+
     .simulation-dashboard .form-row .form-group {
         min-width: 100%;
         max-width: 100%;
     }
-    
+
     .simulation-dashboard .info-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .simulation-dashboard .simulation-actions {
         flex-direction: column;
     }
-    
+
     .simulation-dashboard .project-actions {
         flex-wrap: wrap;
     }
-    
+
     .simulation-dashboard .nuclide-row {
         flex-wrap: wrap;
     }
@@ -2361,7 +2444,6 @@
     margin: 0;
 }
 
-
 /* ============================================================================
    Depletion Timeline Component Styles
    ============================================================================ */
@@ -2809,7 +2891,6 @@
     overflow: hidden;
 }
 
-
 /* ============================================================================
    Variance Reduction Tab
    ============================================================================ */
@@ -3199,11 +3280,11 @@
         flex-direction: column;
         text-align: center;
     }
-    
+
     .simulation-dashboard .mesh-info-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .simulation-dashboard .energy-groups {
         flex-direction: column;
     }
@@ -3243,15 +3324,15 @@
         flex-direction: column;
         text-align: center;
     }
-    
+
     .simulation-dashboard .mesh-info-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .simulation-dashboard .energy-groups {
         flex-direction: column;
     }
-    
+
     .simulation-dashboard .wwinp-actions {
         flex-direction: column;
     }

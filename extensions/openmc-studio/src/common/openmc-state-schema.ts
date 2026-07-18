@@ -27,11 +27,11 @@
 
 /**
  * OpenMC State Schema
- * 
+ *
  * This file defines the JSON schema for the complete OpenMC simulation state.
  * It serves as the central data model for the no-code simulation builder,
  * enabling bi-directional sync between the GUI and XML files.
- * 
+ *
  * @module openmc-studio/common
  */
 
@@ -68,31 +68,40 @@ export interface OpenMCProjectMetadata {
 /** Surface types supported by OpenMC CSG */
 export type OpenMCSurfaceType =
     | 'sphere'
-    | 'x-cylinder' | 'y-cylinder' | 'z-cylinder'
-    | 'x-plane' | 'y-plane' | 'z-plane' | 'plane'
-    | 'x-cone' | 'y-cone' | 'z-cone'
-    | 'x-torus' | 'y-torus' | 'z-torus'
+    | 'x-cylinder'
+    | 'y-cylinder'
+    | 'z-cylinder'
+    | 'x-plane'
+    | 'y-plane'
+    | 'z-plane'
+    | 'plane'
+    | 'x-cone'
+    | 'y-cone'
+    | 'z-cone'
+    | 'x-torus'
+    | 'y-torus'
+    | 'z-torus'
     | 'quadric'
     | 'cylinder';
 
 /** Surface coefficient definitions by type */
 export interface OpenMCSurfaceCoefficients {
-    'sphere': { x0: number; y0: number; z0: number; r: number };
+    sphere: { x0: number; y0: number; z0: number; r: number };
     'x-cylinder': { y0: number; z0: number; r: number };
     'y-cylinder': { x0: number; z0: number; r: number };
     'z-cylinder': { x0: number; y0: number; r: number };
     'x-plane': { x0: number };
     'y-plane': { y0: number };
     'z-plane': { z0: number };
-    'plane': { a: number; b: number; c: number; d: number };
+    plane: { a: number; b: number; c: number; d: number };
     'x-cone': { x0: number; y0: number; z0: number; r2: number };
     'y-cone': { x0: number; y0: number; z0: number; r2: number };
     'z-cone': { x0: number; y0: number; z0: number; r2: number };
     'x-torus': { x0: number; y0: number; z0: number; a: number; b: number; c: number };
     'y-torus': { x0: number; y0: number; z0: number; a: number; b: number; c: number };
     'z-torus': { x0: number; y0: number; z0: number; a: number; b: number; c: number };
-    'quadric': { a: number; b: number; c: number; d: number; e: number; f: number; g: number; h: number; j: number; k: number };
-    'cylinder': { x0: number; y0: number; z0: number; r: number; vx: number; vy: number; vz: number };
+    quadric: { a: number; b: number; c: number; d: number; e: number; f: number; g: number; h: number; j: number; k: number };
+    cylinder: { x0: number; y0: number; z0: number; r: number; vx: number; vy: number; vz: number };
 }
 
 /** Boundary condition types for surfaces */
@@ -410,11 +419,8 @@ export interface OpenMCCylinderSourceSpatial extends OpenMCSourceSpatialBase {
 }
 
 /** Source spatial definition (union of all types) */
-export type OpenMCSourceSpatial = 
-    | OpenMCPointSourceSpatial 
-    | OpenMCBoxSourceSpatial 
-    | OpenMCSphereSourceSpatial 
-    | OpenMCCylinderSourceSpatial;
+export type OpenMCSourceSpatial =
+    OpenMCPointSourceSpatial | OpenMCBoxSourceSpatial | OpenMCSphereSourceSpatial | OpenMCCylinderSourceSpatial;
 
 /** Source energy distribution types */
 export type OpenMCSourceEnergyType = 'discrete' | 'uniform' | 'maxwell' | 'watt' | 'muir' | 'tabular';
@@ -468,13 +474,8 @@ export interface OpenMCTabularEnergy extends OpenMCSourceEnergyBase {
 }
 
 /** Source energy distribution (union of all types) */
-export type OpenMCSourceEnergy = 
-    | OpenMCDiscreteEnergy 
-    | OpenMCUniformEnergy 
-    | OpenMCMaxwellEnergy 
-    | OpenMCWattEnergy 
-    | OpenMCMuirEnergy 
-    | OpenMCTabularEnergy;
+export type OpenMCSourceEnergy =
+    OpenMCDiscreteEnergy | OpenMCUniformEnergy | OpenMCMaxwellEnergy | OpenMCWattEnergy | OpenMCMuirEnergy | OpenMCTabularEnergy;
 
 /** Source angular distribution */
 export interface OpenMCSourceAngle {
@@ -997,7 +998,7 @@ export interface OpenMCOptimizationRun {
     endTime?: string;
     /** Paths to generated statepoint files */
     statepointFiles: string[];
-    /** 
+    /**
      * Output directory path (relative to project root for portability)
      * e.g., "optimization/run-1234567890"
      */
@@ -1122,13 +1123,7 @@ export interface OpenMCProjectFile {
  */
 
 /** Project template types */
-export type OpenMCProjectTemplateType = 
-    | 'pin-cell'
-    | 'fuel-assembly'
-    | 'full-core'
-    | 'shielding'
-    | 'criticallity-safety'
-    | 'blank';
+export type OpenMCProjectTemplateType = 'pin-cell' | 'fuel-assembly' | 'full-core' | 'shielding' | 'criticallity-safety' | 'blank';
 
 /** Project template */
 export interface OpenMCProjectTemplate {

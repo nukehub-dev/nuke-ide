@@ -86,11 +86,7 @@ export const NukeCoreConfigSchema: PreferenceSchema = {
         'nuke.showStatusBar': {
             type: 'string',
             enum: ['auto', 'always', 'never'],
-            enumDescriptions: [
-                'Only show status bar when Python is not configured',
-                'Always show status bar',
-                'Never show status bar'
-            ],
+            enumDescriptions: ['Only show status bar when Python is not configured', 'Always show status bar', 'Never show status bar'],
             default: 'auto',
             description: 'Control when to show the Python environment status bar item'
         },
@@ -153,7 +149,10 @@ export const NukeCorePreferenceContribution = Symbol('NukeCorePreferenceContribu
  * @returns A typed {@link PreferenceProxy} for {@link NukeCoreConfiguration}.
  * @see {@link NukeCorePreferences}
  */
-export function createNukeCorePreferences(preferences: PreferenceService, schema: PreferenceSchema = NukeCoreConfigSchema): NukeCorePreferences {
+export function createNukeCorePreferences(
+    preferences: PreferenceService,
+    schema: PreferenceSchema = NukeCoreConfigSchema
+): NukeCorePreferences {
     return createPreferenceProxy(preferences, schema);
 }
 
@@ -168,8 +167,10 @@ export function createNukeCorePreferences(preferences: PreferenceService, schema
 export function bindNukeCorePreferences(bind: interfaces.Bind): void {
     bind(NukeCorePreferenceContribution).toConstantValue({ schema: NukeCoreConfigSchema });
     bind(PreferenceContribution).toService(NukeCorePreferenceContribution);
-    bind(NukeCorePreferences).toDynamicValue(ctx => {
-        const preferences = ctx.container.get<PreferenceService>(PreferenceService);
-        return createNukeCorePreferences(preferences);
-    }).inSingletonScope();
+    bind(NukeCorePreferences)
+        .toDynamicValue((ctx) => {
+            const preferences = ctx.container.get<PreferenceService>(PreferenceService);
+            return createNukeCorePreferences(preferences);
+        })
+        .inSingletonScope();
 }

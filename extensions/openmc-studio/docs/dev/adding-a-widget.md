@@ -87,17 +87,17 @@ Create `src/browser/widgets/cross-section/cross-section.css`:
 
 ```css
 .cross-section-viewer {
-    padding: 16px;
+  padding: 16px;
 }
 
 .cross-section-viewer .viewer-header h3 {
-    margin: 0 0 16px 0;
+  margin: 0 0 16px 0;
 }
 
 .cross-section-viewer .viewer-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 ```
 
@@ -116,19 +116,21 @@ import './widgets/cross-section/cross-section.css';
 
 // Inside the ContainerModule callback:
 bind(CrossSectionViewerWidget).toSelf();
-bind(WidgetFactory).toDynamicValue(({ container }) => ({
+bind(WidgetFactory)
+  .toDynamicValue(({ container }) => ({
     id: CrossSectionViewerWidget.ID,
     createWidget: () => container.get(CrossSectionViewerWidget)
-})).inSingletonScope();
+  }))
+  .inSingletonScope();
 ```
 
 **Scope rules:**
 
-| Scope | Use When |
-|-------|----------|
-| `inSingletonScope()` | One instance shared across the app (dashboards, config panels) |
+| Scope                | Use When                                                         |
+| -------------------- | ---------------------------------------------------------------- |
+| `inSingletonScope()` | One instance shared across the app (dashboards, config panels)   |
 | `inTransientScope()` | New instance per request (optimization runs that need isolation) |
-| Default (no scope) | New instance per injection |
+| Default (no scope)   | New instance per injection                                       |
 
 ---
 
@@ -138,13 +140,13 @@ Create or extend a command module. Add to `src/browser/commands/view-commands.ts
 
 ```typescript
 export namespace OpenMCViewCommands {
-    // ... existing commands
+  // ... existing commands
 
-    export const OPEN_CROSS_SECTION_VIEWER: Command = {
-        id: 'openmc.openCrossSectionViewer',
-        category: CATEGORY,
-        label: 'Open Cross Section Viewer'
-    };
+  export const OPEN_CROSS_SECTION_VIEWER: Command = {
+    id: 'openmc.openCrossSectionViewer',
+    category: CATEGORY,
+    label: 'Open Cross Section Viewer'
+  };
 }
 ```
 
@@ -152,7 +154,7 @@ In `ViewCommands.registerCommands()`:
 
 ```typescript
 registry.registerCommand(OpenMCViewCommands.OPEN_CROSS_SECTION_VIEWER, {
-    execute: () => this.openWidget(CrossSectionViewerWidget.ID)
+  execute: () => this.openWidget(CrossSectionViewerWidget.ID)
 });
 ```
 
@@ -223,12 +225,12 @@ If the widget needs toolbar buttons when active:
 ```typescript
 // In a new or existing toolbar contribution
 registry.registerItem({
-    id: 'openmc.cross-section-refresh',
-    command: 'openmc.crossSection.refresh',
-    tooltip: 'Refresh Cross Section Data',
-    priority: 50,
-    onDidChange: this.onDidChange,
-    isVisible: (widget?: any) => widget instanceof CrossSectionViewerWidget
+  id: 'openmc.cross-section-refresh',
+  command: 'openmc.crossSection.refresh',
+  tooltip: 'Refresh Cross Section Data',
+  priority: 50,
+  onDidChange: this.onDidChange,
+  isVisible: (widget?: any) => widget instanceof CrossSectionViewerWidget
 });
 ```
 
@@ -243,15 +245,18 @@ If your widget needs backend functionality, extend the RPC protocol.
 ```typescript
 // src/common/openmc-studio-protocol.ts
 export interface OpenMCStudioBackendService {
-    // ... existing methods
+  // ... existing methods
 
-    /** Load cross section data for a nuclide */
-    loadCrossSection(nuclide: string, reaction: string): Promise<{
-        success: boolean;
-        energies?: number[];
-        values?: number[];
-        error?: string;
-    }>;
+  /** Load cross section data for a nuclide */
+  loadCrossSection(
+    nuclide: string,
+    reaction: string
+  ): Promise<{
+    success: boolean;
+    energies?: number[];
+    values?: number[];
+    error?: string;
+  }>;
 }
 ```
 
@@ -350,16 +355,16 @@ if __name__ == '__main__':
 
 After adding a widget, these files should be modified or created:
 
-| File | Action |
-|------|--------|
-| `src/browser/widgets/<name>/<name>-widget.tsx` | **Create** — widget class |
-| `src/browser/widgets/<name>/<name>.css` | **Create** — widget styles |
-| `src/browser/commands/view-commands.ts` | **Modify** — add command constant + handler |
-| `src/browser/contributions/openmc-menu-contribution.ts` | **Modify** — add menu action |
-| `src/browser/openmc-studio-frontend-module.ts` | **Modify** — bind widget factory, import CSS |
-| `src/common/openmc-studio-protocol.ts` | **Modify (if backend needed)** — add RPC method |
-| `src/node/openmc-studio-backend-service.ts` | **Modify (if backend needed)** — implement RPC method |
-| `python/<script>.py` | **Create (if backend needed)** — Python helper script |
+| File                                                    | Action                                                |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| `src/browser/widgets/<name>/<name>-widget.tsx`          | **Create** — widget class                             |
+| `src/browser/widgets/<name>/<name>.css`                 | **Create** — widget styles                            |
+| `src/browser/commands/view-commands.ts`                 | **Modify** — add command constant + handler           |
+| `src/browser/contributions/openmc-menu-contribution.ts` | **Modify** — add menu action                          |
+| `src/browser/openmc-studio-frontend-module.ts`          | **Modify** — bind widget factory, import CSS          |
+| `src/common/openmc-studio-protocol.ts`                  | **Modify (if backend needed)** — add RPC method       |
+| `src/node/openmc-studio-backend-service.ts`             | **Modify (if backend needed)** — implement RPC method |
+| `python/<script>.py`                                    | **Create (if backend needed)** — Python helper script |
 
 ---
 

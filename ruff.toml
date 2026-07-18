@@ -1,0 +1,22 @@
+# Ruff configuration for the Python backends under extensions/*/python and
+# their test suites under extensions/*/tests/python.
+target-version = "py313"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "W", "UP", "B", "C4"]
+# E501: line length is owned by the formatter.
+# B008: function calls in default arguments are used intentionally.
+# B904: raise-without-from is a deliberate style choice in this codebase.
+# E402: sys.path setup before imports is required in servers and test conftests.
+ignore = ["E501", "B008", "B904", "E402"]
+
+[lint.per-file-ignores]
+# Test fixtures trigger B017 (assertRaises(Exception)) deliberately.
+"**/tests/**" = ["B017"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

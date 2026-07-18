@@ -7,12 +7,15 @@ The DAGMC Editor is a visual tool for inspecting and editing faceted CAD geometr
 ## Opening the Editor
 
 ### Method 1: Click
+
 Click any `.h5m` file in the Explorer.
 
 ### Method 2: Command Palette
+
 `Ctrl+Shift+P` → **"OpenMC Studio: Open DAGMC Editor"**
 
 ### Method 3: Menu
+
 `Tools → OpenMC Studio → Geometry → DAGMC Editor`
 
 ---
@@ -23,10 +26,10 @@ Click any `.h5m` file in the Explorer.
 
 Displays all volumes in a scrollable grid. Each card shows:
 
-| Property | Description |
-|----------|-------------|
-| **Volume ID** | DAGMC volume identifier |
-| **Material** | Assigned material tag (or "UNASSIGNED") |
+| Property      | Description                                 |
+| ------------- | ------------------------------------------- |
+| **Volume ID** | DAGMC volume identifier                     |
+| **Material**  | Assigned material tag (or "UNASSIGNED")     |
 | **Triangles** | Faceted mesh triangle count for this volume |
 
 Click a card to open a **detail modal** with:
@@ -58,19 +61,19 @@ Materials are derived from the volume tags in the `.h5m` file. Assigning a mater
 
 DAGMC groups organize volumes and surfaces (e.g., `graveyard`, `reflective_boundary`).
 
-| Action | How To |
-|--------|--------|
-| **Create Group** | Click **"New Group"**, enter a name |
+| Action           | How To                                 |
+| ---------------- | -------------------------------------- |
+| **Create Group** | Click **"New Group"**, enter a name    |
 | **Delete Group** | Click the trash icon on the group card |
 
 Important groups:
 
-| Group Name | Purpose |
-|------------|---------|
-| `graveyard` | The bounding void region; particles leaving this volume are killed |
-| `reflective` | Surfaces with reflective boundary condition |
-| `vacuum` | Surfaces with vacuum boundary condition |
-| `periodic` | Surfaces with periodic boundary condition |
+| Group Name   | Purpose                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| `graveyard`  | The bounding void region; particles leaving this volume are killed |
+| `reflective` | Surfaces with reflective boundary condition                        |
+| `vacuum`     | Surfaces with vacuum boundary condition                            |
+| `periodic`   | Surfaces with periodic boundary condition                          |
 
 ---
 
@@ -100,12 +103,12 @@ Regenerate the DAGMC mesh from the original source CAD with a new tolerance.
 1. **Select source CAD** — Click **Browse** to pick the original STEP or IGES file. The editor will also **auto-detect** a CAD file in the same directory as the `.h5m`.
 2. **Choose tolerance** — Four presets are available:
 
-   | Preset | Tolerance | Best For |
-   |--------|-----------|----------|
-   | **Draft** | 1.0 cm | Fast preview, large assemblies |
-   | **Standard** | 0.5 cm | Balanced quality and speed |
-   | **Fine** | 0.1 cm | Production simulations |
-   | **Ultra** | 0.01 cm | High-fidelity verification |
+   | Preset       | Tolerance | Best For                       |
+   | ------------ | --------- | ------------------------------ |
+   | **Draft**    | 1.0 cm    | Fast preview, large assemblies |
+   | **Standard** | 0.5 cm    | Balanced quality and speed     |
+   | **Fine**     | 0.1 cm    | Production simulations         |
+   | **Ultra**    | 0.01 cm   | High-fidelity verification     |
 
    Use the slider for values between presets.
 

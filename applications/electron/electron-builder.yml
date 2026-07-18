@@ -33,27 +33,27 @@ files:
   - from: ../../docs
     to: docs
     filter:
-      - "**/*"
-      - "!.vitepress/**"
-      - "!public/**"
+      - '**/*'
+      - '!.vitepress/**'
+      - '!public/**'
   - from: ../../extensions
     to: extensions
     filter:
-      - "*/docs/**/*"
-      - "*/python/**/*"
-      - "*/resources/**/*"
-      - "!**/*.ts"
-      - "!**/src/**"
-      - "!**/lib/**"
-      - "!**/node_modules/**"
-      - "!**/.git/**"
+      - '*/docs/**/*'
+      - '*/python/**/*'
+      - '*/resources/**/*'
+      - '!**/*.ts'
+      - '!**/src/**'
+      - '!**/lib/**'
+      - '!**/node_modules/**'
+      - '!**/.git/**'
 
 # Place plugins and Python scripts outside the ASAR so external processes can access them
 extraResources:
   - from: ../../plugins
     to: app/plugins
     filter:
-      - "**/*"
+      - '**/*'
   - from: ../../extensions/nuke-visualizer/python
     to: python/nuke-visualizer
   - from: ../../extensions/openmc-studio/python
@@ -62,14 +62,14 @@ extraResources:
 # ASAR packaging (keep true, but unpack native modules)
 asar: true
 asarUnpack:
-  - "node_modules/node-pty/**/*"
-  - "node_modules/cpu-features/**/*"
-  - "node_modules/ssh2/**/*"
-  - "node_modules/@theia/*/prebuilds/**/*"
+  - 'node_modules/node-pty/**/*'
+  - 'node_modules/cpu-features/**/*'
+  - 'node_modules/ssh2/**/*'
+  - 'node_modules/@theia/*/prebuilds/**/*'
   # Extension python files must be unpacked so external Python processes can read them
-  - "node_modules/nuke-visualizer/python/**/*"
-  - "node_modules/openmc-studio/python/**/*"
-  - "extensions/*/python/**/*"
+  - 'node_modules/nuke-visualizer/python/**/*'
+  - 'node_modules/openmc-studio/python/**/*'
+  - 'extensions/*/python/**/*'
 
 # Linux targets
 linux:
@@ -122,4 +122,3 @@ nsis:
   createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: NukeIDE
-

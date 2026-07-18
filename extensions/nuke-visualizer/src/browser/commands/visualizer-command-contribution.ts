@@ -29,11 +29,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandRegistry, CommandContribution } from '@theia/core/lib/common';
 import { VisualizerViewContribution } from '../contributions/visualizer-view-contribution';
 import { VisualizerHealthService } from '../services/visualizer-health-service';
-import {
-    VisualizerHealthCheckCommand,
-    InstallBaseVisualizerCommand,
-    InstallOpenMCCommand
-} from './visualizer-commands';
+import { VisualizerHealthCheckCommand, InstallBaseVisualizerCommand, InstallOpenMCCommand } from './visualizer-commands';
 
 @injectable()
 export class VisualizerCommandContribution implements CommandContribution {
@@ -46,13 +42,13 @@ export class VisualizerCommandContribution implements CommandContribution {
     registerCommands(commands: CommandRegistry): void {
         this.healthService.registerBaseRequirements();
         commands.registerCommand(VisualizerHealthCheckCommand, {
-            execute: () => this.healthService.runHealthCheck(),
+            execute: () => this.healthService.runHealthCheck()
         });
         commands.registerCommand(InstallBaseVisualizerCommand, {
-            execute: () => this.healthService.installBaseVisualizerDeps(),
+            execute: () => this.healthService.installBaseVisualizerDeps()
         });
         commands.registerCommand(InstallOpenMCCommand, {
-            execute: () => this.healthService.installOpenMCDeps(),
+            execute: () => this.healthService.installOpenMCDeps()
         });
     }
 }

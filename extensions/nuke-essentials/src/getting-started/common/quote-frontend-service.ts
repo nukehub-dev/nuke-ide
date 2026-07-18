@@ -33,9 +33,7 @@ import { Quote, QuoteService, QuoteServicePath } from '../../common/quote-protoc
 export class QuoteFrontendService implements QuoteService {
     private readonly service: QuoteService;
 
-    constructor(
-        @inject(WebSocketConnectionProvider) connectionProvider: WebSocketConnectionProvider
-    ) {
+    constructor(@inject(WebSocketConnectionProvider) connectionProvider: WebSocketConnectionProvider) {
         this.service = connectionProvider.createProxy<QuoteService>(QuoteServicePath);
     }
 

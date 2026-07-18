@@ -52,7 +52,6 @@ export interface CondaInstallation {
  * directories to locate conda/mamba executables.
  */
 export class CondaResolver {
-
     private static readonly UNIX_PATHS = [
         '~/anaconda3',
         '~/miniconda3',
@@ -68,7 +67,7 @@ export class CondaResolver {
         '/usr/local/anaconda3',
         '/usr/local/miniconda3',
         '/usr/local/miniforge3',
-        '/usr/local/mambaforge',
+        '/usr/local/mambaforge'
     ];
 
     private static readonly WINDOWS_PATHS = [
@@ -87,7 +86,7 @@ export class CondaResolver {
         'C:\\ProgramData\\anaconda3',
         'C:\\ProgramData\\miniconda3',
         'C:\\ProgramData\\miniforge3',
-        'C:\\ProgramData\\mambaforge',
+        'C:\\ProgramData\\mambaforge'
     ];
 
     /**
@@ -97,7 +96,7 @@ export class CondaResolver {
      */
     async findCondaExe(): Promise<string | undefined> {
         // 1. Check CONDA_EXE environment variable
-        if (process.env.CONDA_EXE && await this.fileExists(process.env.CONDA_EXE)) {
+        if (process.env.CONDA_EXE && (await this.fileExists(process.env.CONDA_EXE))) {
             return process.env.CONDA_EXE;
         }
 
@@ -110,7 +109,7 @@ export class CondaResolver {
         // 3. Search common installation directories
         const installations = await this.findInstallations();
         for (const inst of installations) {
-            if (inst.condaExe && await this.fileExists(inst.condaExe)) {
+            if (inst.condaExe && (await this.fileExists(inst.condaExe))) {
                 return inst.condaExe;
             }
         }
@@ -125,7 +124,7 @@ export class CondaResolver {
      */
     async findMambaExe(): Promise<string | undefined> {
         // 1. Check MAMBA_EXE environment variable
-        if (process.env.MAMBA_EXE && await this.fileExists(process.env.MAMBA_EXE)) {
+        if (process.env.MAMBA_EXE && (await this.fileExists(process.env.MAMBA_EXE))) {
             return process.env.MAMBA_EXE;
         }
 
@@ -138,7 +137,7 @@ export class CondaResolver {
         // 3. Search common installation directories
         const installations = await this.findInstallations();
         for (const inst of installations) {
-            if (inst.mambaExe && await this.fileExists(inst.mambaExe)) {
+            if (inst.mambaExe && (await this.fileExists(inst.mambaExe))) {
                 return inst.mambaExe;
             }
         }
@@ -175,9 +174,7 @@ export class CondaResolver {
         const installations: CondaInstallation[] = [];
         const seen = new Set<string>();
 
-        const paths = process.platform === 'win32'
-            ? CondaResolver.WINDOWS_PATHS
-            : CondaResolver.UNIX_PATHS;
+        const paths = process.platform === 'win32' ? CondaResolver.WINDOWS_PATHS : CondaResolver.UNIX_PATHS;
 
         for (const rawPath of paths) {
             const expanded = this.expandPath(rawPath);

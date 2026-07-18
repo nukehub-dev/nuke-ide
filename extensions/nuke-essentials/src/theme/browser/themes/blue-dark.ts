@@ -30,10 +30,10 @@ export const blueDarkTheme = {
     name: 'Blue Dark',
     type: 'dark',
     colors: {
-        'focusBorder': '#4fc3f7',
-        'foreground': '#e0e0e0',
-        'descriptionForeground': '#9e9e9e',
-        'errorForeground': '#f48771',
+        focusBorder: '#4fc3f7',
+        foreground: '#e0e0e0',
+        descriptionForeground: '#9e9e9e',
+        errorForeground: '#f48771',
 
         'button.background': '#4fc3f7',
         'button.hoverBackground': '#81d4fa',
@@ -202,7 +202,7 @@ export const blueDarkTheme = {
         'keybindingLabel.background': '#3c3c3c',
         'keybindingLabel.foreground': '#cccccc',
         'keybindingLabel.border': '#3c3c3c',
-        'keybindingLabel.bottomBorder': '#3c3c3c',
+        'keybindingLabel.bottomBorder': '#3c3c3c'
     },
     tokenColors: [],
     semanticHighlighting: true

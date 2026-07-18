@@ -10,25 +10,25 @@ OpenMC Studio requires a working OpenMC installation with cross-section data and
 
 ### Required Software
 
-| Component | Required? | Notes |
-|-----------|-----------|-------|
-| OpenMC | Yes | Monte Carlo transport code; install via conda or build from source |
-| Python | Yes | 3.9 or newer |
-| Cross-section data | Yes | ENDF/B-VII.1, ENDF/B-VIII.0, or JEFF; set via `OPENMC_CROSS_SECTIONS` |
-| MPI (optional) | No | For parallel execution; `mpi4py` recommended |
+| Component          | Required? | Notes                                                                 |
+| ------------------ | --------- | --------------------------------------------------------------------- |
+| OpenMC             | Yes       | Monte Carlo transport code; install via conda or build from source    |
+| Python             | Yes       | 3.9 or newer                                                          |
+| Cross-section data | Yes       | ENDF/B-VII.1, ENDF/B-VIII.0, or JEFF; set via `OPENMC_CROSS_SECTIONS` |
+| MPI (optional)     | No        | For parallel execution; `mpi4py` recommended                          |
 
 ### Required Python Packages
 
-| Package | Required? | Notes |
-|---------|-----------|-------|
-| `openmc` | Yes | Core simulation toolkit |
-| `numpy` | Yes | Array processing |
-| `h5py` | Yes | HDF5 I/O for statepoints and depletion results |
-| `matplotlib` | Yes | Plotting and 2D slice previews |
-| `scipy` | No | Statistical tests in Simulation Comparison |
-| `pandas` | No | Optimization data export |
-| `trame` | No | For 3D visualization via nuke-visualizer |
-| `vtk` | No | For 3D mesh and geometry rendering |
+| Package      | Required? | Notes                                          |
+| ------------ | --------- | ---------------------------------------------- |
+| `openmc`     | Yes       | Core simulation toolkit                        |
+| `numpy`      | Yes       | Array processing                               |
+| `h5py`       | Yes       | HDF5 I/O for statepoints and depletion results |
+| `matplotlib` | Yes       | Plotting and 2D slice previews                 |
+| `scipy`      | No        | Statistical tests in Simulation Comparison     |
+| `pandas`     | No        | Optimization data export                       |
+| `trame`      | No        | For 3D visualization via nuke-visualizer       |
+| `vtk`        | No        | For 3D mesh and geometry rendering             |
 
 > **Tip:** The easiest way to get everything is via conda:  
 > `conda install -c conda-forge openmc numpy h5py matplotlib`
@@ -52,6 +52,7 @@ OpenMC Studio discovers Python through **Nuke Core** (the Python environment man
 3. Set your preferred Python interpreter or conda environment.
 
 The extension will automatically:
+
 - Detect if required packages are present
 - Prompt you to install missing packages when needed
 - Fall back to other environments if the primary one lacks packages
@@ -70,14 +71,14 @@ Before building any models, verify your environment:
 
 ### Health Check Items
 
-| Check | What It Verifies |
-|-------|-----------------|
-| Python executable | Selected interpreter responds |
-| `openmc` import | OpenMC Python package is importable |
-| OpenMC version | Compatible version (≥0.13 recommended) |
-| Cross sections | `OPENMC_CROSS_SECTIONS` is set and file exists |
-| HDF5 support | `h5py` is installed and functional |
-| MPI (optional) | `mpi4py` and `mpirun` are available |
+| Check             | What It Verifies                               |
+| ----------------- | ---------------------------------------------- |
+| Python executable | Selected interpreter responds                  |
+| `openmc` import   | OpenMC Python package is importable            |
+| OpenMC version    | Compatible version (≥0.13 recommended)         |
+| Cross sections    | `OPENMC_CROSS_SECTIONS` is set and file exists |
+| HDF5 support      | `h5py` is installed and functional             |
+| MPI (optional)    | `mpi4py` and `mpirun` are available            |
 
 ### Install Missing Packages from the Menu
 
@@ -98,13 +99,13 @@ OpenMC Studio stores simulation configurations in `.nuke-openmc` project files.
 2. Run **"OpenMC Studio: New Project"**.
 3. Choose a template:
 
-| Template | Description |
-|----------|-------------|
-| **Blank Project** | Empty model; build from scratch |
-| **Pincell** | Single fuel pin in coolant; good first tutorial |
-| **Bare Sphere** | Simple critical sphere of U-235 |
-| **PWR Assembly** | 17×17 fuel assembly with guide tubes |
-| **CANDU Bundle** | 37-element natural uranium bundle |
+| Template          | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| **Blank Project** | Empty model; build from scratch                 |
+| **Pincell**       | Single fuel pin in coolant; good first tutorial |
+| **Bare Sphere**   | Simple critical sphere of U-235                 |
+| **PWR Assembly**  | 17×17 fuel assembly with guide tubes            |
+| **CANDU Bundle**  | 37-element natural uranium bundle               |
 
 4. Select a folder to save the `.nuke-openmc` file.
 5. The **Simulation Dashboard** opens automatically.

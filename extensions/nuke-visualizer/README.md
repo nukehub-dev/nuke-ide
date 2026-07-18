@@ -8,10 +8,10 @@ Plugin-based visualization framework for NukeIDE.
 
 ## Plugins
 
-| Plugin | Domain | File Types | Python Packages |
-|--------|--------|------------|-----------------|
-| **Base Visualizer** | General 3D mesh/DAGMC | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj` | `trame`, `paraview` |
-| **OpenMC** | Monte Carlo analysis | `statepoint*.h5`, `geometry.xml`, `materials.xml`, etc. | `openmc`, `h5py`, `numpy` |
+| Plugin              | Domain                | File Types                                              | Python Packages           |
+| ------------------- | --------------------- | ------------------------------------------------------- | ------------------------- |
+| **Base Visualizer** | General 3D mesh/DAGMC | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                  | `trame`, `paraview`       |
+| **OpenMC**          | Monte Carlo analysis  | `statepoint*.h5`, `geometry.xml`, `materials.xml`, etc. | `openmc`, `h5py`, `numpy` |
 
 ## What the Framework Provides
 
@@ -28,18 +28,22 @@ Plugin-based visualization framework for NukeIDE.
 This extension has two documentation paths:
 
 ### 👤 User Documentation
+
 For end users who want to visualize nuclear data.
 
 → See [`docs/user/`](docs/user/) for guides on:
+
 - Getting started (prerequisites, health checks, first file)
 - Base Visualizer (3D mesh/DAGMC viewer controls)
 - OpenMC plugin (statepoints, tallies, cross-sections, depletion, geometry, materials)
 - Troubleshooting common issues
 
 ### 🛠️ Developer Documentation
+
 For developers who want to understand or extend the codebase.
 
 → See [`docs/dev/`](docs/dev/) for guides on:
+
 - Architecture (frontend/backend/Python layers)
 - Shared services (health checks, Python helper, Plotly, widgets)
 - RPC protocols and DI wiring
@@ -49,12 +53,12 @@ For developers who want to understand or extend the codebase.
 
 ## Quick Links
 
-| Resource | Path |
-|----------|------|
-| User docs landing page | [`docs/user/index.md`](docs/user/index.md) |
-| Developer docs landing page | [`docs/dev/index.md`](docs/dev/index.md) |
-| Plugin creation guide | [`docs/dev/adding-a-plugin.md`](docs/dev/adding-a-plugin.md) |
-| Troubleshooting | [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md) |
+| Resource                    | Path                                                           |
+| --------------------------- | -------------------------------------------------------------- |
+| User docs landing page      | [`docs/user/index.md`](docs/user/index.md)                     |
+| Developer docs landing page | [`docs/dev/index.md`](docs/dev/index.md)                       |
+| Plugin creation guide       | [`docs/dev/adding-a-plugin.md`](docs/dev/adding-a-plugin.md)   |
+| Troubleshooting             | [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md) |
 
 ## Dependencies
 

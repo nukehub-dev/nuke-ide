@@ -66,12 +66,12 @@ export const NuclideChart: React.FC = () => {
     const layout = {
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
-        xaxis: { 
+        xaxis: {
             title: 'Time Steps',
             gridcolor: 'var(--theia-panel-border)',
             zerolinecolor: 'var(--theia-panel-border)'
         },
-        yaxis: { 
+        yaxis: {
             title: 'Concentration (atom/b-cm)',
             gridcolor: 'var(--theia-panel-border)',
             zerolinecolor: 'var(--theia-panel-border)'
@@ -93,17 +93,13 @@ export const NuclideChart: React.FC = () => {
 
     const config = {
         responsive: true,
-        displayModeBar: false, // Disable modebar to prevent overflow
+        displayModeBar: false // Disable modebar to prevent overflow
     };
 
     return (
-        <div className='nuclide-chart-section'>
-            <div className='nuclide-chart-container'>
-                <PlotlyComponent 
-                    data={data as any} 
-                    layout={layout as any} 
-                    config={config as any}
-                />
+        <div className="nuclide-chart-section">
+            <div className="nuclide-chart-container">
+                <PlotlyComponent data={data as any} layout={layout as any} config={config as any} />
             </div>
         </div>
     );

@@ -64,60 +64,60 @@ import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
 import { NukeCoreStatusBarContribution, WorkspaceEnvContribution } from './contributions';
-import {
-    NukeHealthCommandContribution,
-    NukeEnvironmentCommandContribution,
-    NukePackageCommandContribution
-} from './commands';
+import { NukeHealthCommandContribution, NukeEnvironmentCommandContribution, NukePackageCommandContribution } from './commands';
 
-export default new ContainerModule((bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
-    console.log('[NukeCore] Initializing frontend module...');
+export default new ContainerModule(
+    (bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
+        console.log('[NukeCore] Initializing frontend module...');
 
-    // Menus
-    bind(NukeCoreMenuContribution).toSelf().inSingletonScope();
-    bind(MenuContribution).toService(NukeCoreMenuContribution);
+        // Menus
+        bind(NukeCoreMenuContribution).toSelf().inSingletonScope();
+        bind(MenuContribution).toService(NukeCoreMenuContribution);
 
-    // Commands
-    bind(NukeHealthCommandContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(NukeHealthCommandContribution);
-    bind(NukeEnvironmentCommandContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(NukeEnvironmentCommandContribution);
-    bind(NukePackageCommandContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(NukePackageCommandContribution);
+        // Commands
+        bind(NukeHealthCommandContribution).toSelf().inSingletonScope();
+        bind(CommandContribution).toService(NukeHealthCommandContribution);
+        bind(NukeEnvironmentCommandContribution).toSelf().inSingletonScope();
+        bind(CommandContribution).toService(NukeEnvironmentCommandContribution);
+        bind(NukePackageCommandContribution).toSelf().inSingletonScope();
+        bind(CommandContribution).toService(NukePackageCommandContribution);
 
-    // Status Bar
-    bind(NukeCoreStatusBarContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toService(NukeCoreStatusBarContribution);
+        // Status Bar
+        bind(NukeCoreStatusBarContribution).toSelf().inSingletonScope();
+        bind(FrontendApplicationContribution).toService(NukeCoreStatusBarContribution);
 
-    // Workspace env file auto-detection
-    bind(WorkspaceEnvContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toService(WorkspaceEnvContribution);
+        // Workspace env file auto-detection
+        bind(WorkspaceEnvContribution).toSelf().inSingletonScope();
+        bind(FrontendApplicationContribution).toService(WorkspaceEnvContribution);
 
-    // Override preference layout to add "Nuke Utils" category
-    bind(NukePreferenceLayoutProvider).toSelf().inSingletonScope();
-    rebind(PreferenceLayoutProvider).toService(NukePreferenceLayoutProvider);
+        // Override preference layout to add "Nuke Utils" category
+        bind(NukePreferenceLayoutProvider).toSelf().inSingletonScope();
+        rebind(PreferenceLayoutProvider).toService(NukePreferenceLayoutProvider);
 
-    // Preferences
-    bindNukeCorePreferences(bind);
+        // Preferences
+        bindNukeCorePreferences(bind);
 
-    // Backend service proxy
-    bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService).toDynamicValue(ctx => {
-        const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
-        return connectionProvider.createProxy<NukeCoreBackendServiceInterface>(NUKE_CORE_BACKEND_PATH);
-    }).inSingletonScope();
+        // Backend service proxy
+        bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService)
+            .toDynamicValue((ctx) => {
+                const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
+                return connectionProvider.createProxy<NukeCoreBackendServiceInterface>(NUKE_CORE_BACKEND_PATH);
+            })
+            .inSingletonScope();
 
-    // Frontend service
-    bind(NukeCoreService).toSelf().inSingletonScope();
+        // Frontend service
+        bind(NukeCoreService).toSelf().inSingletonScope();
 
-    // Environment actions helper (shared between status bar and commands)
-    bind(EnvironmentActionsHelper).toSelf().inSingletonScope();
+        // Environment actions helper (shared between status bar and commands)
+        bind(EnvironmentActionsHelper).toSelf().inSingletonScope();
 
-    // Status bar visibility service (for dependent extensions)
-    bind(NukeCoreVisibilityService).toSelf().inSingletonScope();
-    bind(NukeCoreStatusBarVisibility).toService(NukeCoreVisibilityService);
+        // Status bar visibility service (for dependent extensions)
+        bind(NukeCoreVisibilityService).toSelf().inSingletonScope();
+        bind(NukeCoreStatusBarVisibility).toService(NukeCoreVisibilityService);
 
-    console.log('[NukeCore] Frontend module initialized');
-});
+        console.log('[NukeCore] Frontend module initialized');
+    }
+);
 
 /** Re-export of the core frontend service for convenience. @see {@link ./services/nuke-core-service | NukeCoreService} */
 export { NukeCoreService } from './services';

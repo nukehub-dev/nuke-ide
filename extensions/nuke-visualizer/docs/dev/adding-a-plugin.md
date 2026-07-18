@@ -66,16 +66,16 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 
 ## What You Get for Free
 
-| Infrastructure | What It Does | Your Responsibility |
-|----------------|-------------|---------------------|
-| **Python detection** | Finds a Python with your required packages via `nuke-core` | Define `PackageDependency[]` |
-| **Health checks** | Verifies packages in the configured env, suggests install commands | Register requirements with `HealthCheckFramework` |
-| **Process spawning** | Finds free ports, starts your Python server, waits for readiness | Provide `@command` handlers under `python/plugins/<name>/` |
-| **Widget lifecycle** | Creates iframe widgets, handles open/close, theme propagation | Create widgets or reuse `VisualizerWidget` |
-| **File open handling** | Routes file types to your plugin via Theia `OpenHandler` | Implement `canHandle()` and `open()` |
-| **Menu/command registration** | Registers commands under `Tools → Visualizer` | Define command IDs and labels |
-| **Plotly integration** | Displays interactive 2D plots | Provide `PlotlyFigure` data |
-| **Output channel logging** | Streams Python stdout/stderr to IDE panels | Use `VisualizerClient.log/error/warn` |
+| Infrastructure                | What It Does                                                       | Your Responsibility                                        |
+| ----------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
+| **Python detection**          | Finds a Python with your required packages via `nuke-core`         | Define `PackageDependency[]`                               |
+| **Health checks**             | Verifies packages in the configured env, suggests install commands | Register requirements with `HealthCheckFramework`          |
+| **Process spawning**          | Finds free ports, starts your Python server, waits for readiness   | Provide `@command` handlers under `python/plugins/<name>/` |
+| **Widget lifecycle**          | Creates iframe widgets, handles open/close, theme propagation      | Create widgets or reuse `VisualizerWidget`                 |
+| **File open handling**        | Routes file types to your plugin via Theia `OpenHandler`           | Implement `canHandle()` and `open()`                       |
+| **Menu/command registration** | Registers commands under `Tools → Visualizer`                      | Define command IDs and labels                              |
+| **Plotly integration**        | Displays interactive 2D plots                                      | Provide `PlotlyFigure` data                                |
+| **Output channel logging**    | Streams Python stdout/stderr to IDE panels                         | Use `VisualizerClient.log/error/warn`                      |
 
 ---
 
@@ -92,21 +92,21 @@ export const MooseBackendService = Symbol('MooseBackendService');
 export const MOOSE_BACKEND_PATH = '/services/moose';
 
 export interface MooseBackendService {
-    startServer(inputFile: string): Promise<{ url: string; port: number }>;
-    stopServer(port: number): Promise<void>;
-    getMeshInfo(filePath: string): Promise<MooseMeshInfo>;
-    // Add your domain-specific methods...
+  startServer(inputFile: string): Promise<{ url: string; port: number }>;
+  stopServer(port: number): Promise<void>;
+  getMeshInfo(filePath: string): Promise<MooseMeshInfo>;
+  // Add your domain-specific methods...
 }
 
 export interface MooseMeshInfo {
-    numElements: number;
-    numNodes: number;
-    variables: string[];
+  numElements: number;
+  numNodes: number;
+  variables: string[];
 }
 
 export const MOOSE_REQUIREMENTS = [
-    { name: 'moose', required: true },
-    { name: 'vtk', required: true }
+  { name: 'moose', required: true },
+  { name: 'vtk', required: true }
 ];
 ```
 
@@ -184,61 +184,54 @@ import { PythonCommandHelper } from '../../services/python-command-helper';
 
 @injectable()
 export class MooseBackendServiceImpl implements MooseBackendService {
-    @inject(PythonCommandHelper)
-    protected readonly pythonHelper: PythonCommandHelper;
+  @inject(PythonCommandHelper)
+  protected readonly pythonHelper: PythonCommandHelper;
 
-    protected client?: VisualizerClient;
+  protected client?: VisualizerClient;
 
-    setClient(client: VisualizerClient): void {
-        this.client = client;
+  setClient(client: VisualizerClient): void {
+    this.client = client;
+  }
+
+  async startServer(inputFile: string): Promise<{ url: string; port: number }> {
+    // 1. Detect Python with moose + vtk
+    const pythonResult = await this.pythonHelper.detectPython(
+      MOOSE_REQUIREMENTS,
+      ['moose', 'dev'] // preferred env names
+    );
+
+    // 2. Find a free port
+    const port = await this.findFreePort();
+
+    // 3. Spawn your server via the unified entry point
+    const serverScript = this.pythonHelper.findScript('server.py');
+    const { spawn } = await import('child_process');
+    const proc = spawn(pythonResult.command, [serverScript, 'moose.serve', '--port', String(port), '--file', inputFile]);
+
+    // 4. Wait for ready
+    await this.waitForServer(port);
+
+    return { url: `http://localhost:${port}`, port };
+  }
+
+  async getMeshInfo(filePath: string): Promise<MooseMeshInfo> {
+    const serverScript = this.pythonHelper.findScript('server.py');
+    const execResult = await this.pythonHelper.executeScript(serverScript, ['moose.info', '--file', filePath], {
+      requirements: MOOSE_REQUIREMENTS
+    });
+    if (execResult.status !== 0) {
+      throw new Error(execResult.stderr || `moose.info failed`);
     }
-
-    async startServer(inputFile: string): Promise<{ url: string; port: number }> {
-        // 1. Detect Python with moose + vtk
-        const pythonResult = await this.pythonHelper.detectPython(
-            MOOSE_REQUIREMENTS,
-            ['moose', 'dev']  // preferred env names
-        );
-
-        // 2. Find a free port
-        const port = await this.findFreePort();
-
-        // 3. Spawn your server via the unified entry point
-        const serverScript = this.pythonHelper.findScript('server.py');
-        const { spawn } = await import('child_process');
-        const proc = spawn(pythonResult.command, [
-            serverScript,
-            'moose.serve',
-            '--port', String(port),
-            '--file', inputFile
-        ]);
-
-        // 4. Wait for ready
-        await this.waitForServer(port);
-
-        return { url: `http://localhost:${port}`, port };
+    // Extract JSON from mixed stdout (logs + JSON)
+    const lines = execResult.stdout.split('\n');
+    const jsonLine = lines.find((l) => l.trimStart().startsWith('{'));
+    if (!jsonLine) {
+      throw new Error(`No JSON in output: ${execResult.stdout.substring(0, 200)}`);
     }
+    return JSON.parse(jsonLine) as MooseMeshInfo;
+  }
 
-    async getMeshInfo(filePath: string): Promise<MooseMeshInfo> {
-        const serverScript = this.pythonHelper.findScript('server.py');
-        const execResult = await this.pythonHelper.executeScript(
-            serverScript,
-            ['moose.info', '--file', filePath],
-            { requirements: MOOSE_REQUIREMENTS }
-        );
-        if (execResult.status !== 0) {
-            throw new Error(execResult.stderr || `moose.info failed`);
-        }
-        // Extract JSON from mixed stdout (logs + JSON)
-        const lines = execResult.stdout.split('\n');
-        const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
-        if (!jsonLine) {
-            throw new Error(`No JSON in output: ${execResult.stdout.substring(0, 200)}`);
-        }
-        return JSON.parse(jsonLine) as MooseMeshInfo;
-    }
-
-    // ... helpers: findFreePort, waitForServer, stopServer
+  // ... helpers: findFreePort, waitForServer, stopServer
 }
 ```
 
@@ -255,35 +248,35 @@ import { MOOSE_REQUIREMENTS } from '../../../common/moose-protocol';
 
 @injectable()
 export class MooseService {
-    @inject(MooseBackendService)
-    protected readonly backend: MooseBackendService;
+  @inject(MooseBackendService)
+  protected readonly backend: MooseBackendService;
 
-    @inject(NukeCoreService)
-    protected readonly nukeCore: NukeCoreService;
+  @inject(NukeCoreService)
+  protected readonly nukeCore: NukeCoreService;
 
-    @inject(HealthCheckFramework)
-    protected readonly healthFramework: HealthCheckFramework;
+  @inject(HealthCheckFramework)
+  protected readonly healthFramework: HealthCheckFramework;
 
-    @postConstruct()
-    protected init(): void {
-        // Register health requirements
-        this.healthFramework.registerHealthRequirements({
-            id: 'moose',
-            name: 'MOOSE',
-            packages: MOOSE_REQUIREMENTS
-        });
+  @postConstruct()
+  protected init(): void {
+    // Register health requirements
+    this.healthFramework.registerHealthRequirements({
+      id: 'moose',
+      name: 'MOOSE',
+      packages: MOOSE_REQUIREMENTS
+    });
 
-        // Listen for environment changes
-        this.nukeCore.onEnvironmentChanged(() => {
-            // Clear any cached data
-        });
-    }
+    // Listen for environment changes
+    this.nukeCore.onEnvironmentChanged(() => {
+      // Clear any cached data
+    });
+  }
 
-    async openInputFile(filePath: string): Promise<void> {
-        // Start server, create widget, etc.
-        const server = await this.backend.startServer(filePath);
-        // ... create widget with iframe pointing to server.url
-    }
+  async openInputFile(filePath: string): Promise<void> {
+    // Start server, create widget, etc.
+    const server = await this.backend.startServer(filePath);
+    // ... create widget with iframe pointing to server.url
+  }
 }
 ```
 
@@ -299,20 +292,20 @@ import { MooseService } from './moose-service';
 
 @injectable()
 export class MooseContribution implements OpenHandler, FrontendApplicationContribution {
-    readonly id = 'moose-handler';
-    readonly label = 'MOOSE Input File';
+  readonly id = 'moose-handler';
+  readonly label = 'MOOSE Input File';
 
-    @inject(MooseService)
-    protected readonly mooseService: MooseService;
+  @inject(MooseService)
+  protected readonly mooseService: MooseService;
 
-    canHandle(uri: URI): number {
-        return uri.path.ext === '.i' ? 500 : 0;
-    }
+  canHandle(uri: URI): number {
+    return uri.path.ext === '.i' ? 500 : 0;
+  }
 
-    async open(uri: URI): Promise<object | undefined> {
-        await this.mooseService.openInputFile(uri.path.toString());
-        return undefined;
-    }
+  async open(uri: URI): Promise<object | undefined> {
+    await this.mooseService.openInputFile(uri.path.toString());
+    return undefined;
+  }
 }
 ```
 
@@ -322,10 +315,10 @@ Create `src/browser/plugins/moose/commands.ts`:
 
 ```typescript
 export namespace MooseCommands {
-    export const OPEN_INPUT = {
-        id: 'moose.openInput',
-        label: 'MOOSE: Open Input File'
-    };
+  export const OPEN_INPUT = {
+    id: 'moose.openInput',
+    label: 'MOOSE: Open Input File'
+  };
 }
 ```
 
@@ -344,10 +337,12 @@ bind(OpenHandler).to(MooseContribution);
 bind(FrontendApplicationContribution).to(MooseContribution);
 
 // Bind RPC proxy
-bind(MooseBackendService).toDynamicValue(ctx => {
+bind(MooseBackendService)
+  .toDynamicValue((ctx) => {
     const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
     return connectionProvider.createProxy<MooseBackendService>(MOOSE_BACKEND_PATH);
-}).inSingletonScope();
+  })
+  .inSingletonScope();
 ```
 
 **Backend** (`src/node/visualizer-backend-module.ts`):
@@ -359,13 +354,16 @@ import { MooseBackendService, MOOSE_BACKEND_PATH } from '../common/moose-protoco
 // Add inside the ContainerModule callback:
 bind(MooseBackendServiceImpl).toSelf().inSingletonScope();
 bind(MooseBackendService).toService(MooseBackendServiceImpl);
-bind(ConnectionHandler).toDynamicValue(ctx =>
-    new RpcConnectionHandler<VisualizerClient>(MOOSE_BACKEND_PATH, client => {
+bind(ConnectionHandler)
+  .toDynamicValue(
+    (ctx) =>
+      new RpcConnectionHandler<VisualizerClient>(MOOSE_BACKEND_PATH, (client) => {
         const server = ctx.container.get<MooseBackendServiceImpl>(MooseBackendServiceImpl);
         server.setClient(client);
         return server;
-    })
-).inSingletonScope();
+      })
+  )
+  .inSingletonScope();
 ```
 
 ### Step 8: Add Menu Items
@@ -386,6 +384,7 @@ registerMenus(menus: MenuModelRegistry): void {
 ### Done!
 
 Your plugin now:
+
 - Opens `.i` files via double-click
 - Shows up in `Tools → Visualizer → MOOSE`
 - Appears in health checks
@@ -401,12 +400,12 @@ Any plugin can register package requirements:
 
 ```typescript
 this.healthFramework.registerHealthRequirements({
-    id: 'your-plugin-id',
-    name: 'Your Plugin Name',
-    packages: [
-        { name: 'your-package', required: true },
-        { name: 'optional-pkg', required: false, condaOnly: true }
-    ]
+  id: 'your-plugin-id',
+  name: 'Your Plugin Name',
+  packages: [
+    { name: 'your-package', required: true },
+    { name: 'optional-pkg', required: false, condaOnly: true }
+  ]
 });
 ```
 
@@ -428,10 +427,7 @@ canHandle(uri: URI): number {
 Best for Python servers that render their own UI (Trame, Dash, etc.).
 
 ```typescript
-const widget = await this.widgetManager.getOrCreateWidget(
-    VisualizerWidget.ID,
-    { uri: filePath, id: 'your-prefix-' + filePath }
-);
+const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });
 // Set the server URL after the server starts
 widget.setServerUrl(serverUrl);
 ```
@@ -444,15 +440,17 @@ Best for IDE-integrated UIs (trees, tables, Plotly charts).
 // Define your widget
 @injectable()
 export class YourWidget extends ReactWidget {
-    static readonly ID = 'your-widget';
-    // ... render() implementation
+  static readonly ID = 'your-widget';
+  // ... render() implementation
 }
 
 // Register factory
-bind(WidgetFactory).toDynamicValue(ctx => ({
+bind(WidgetFactory)
+  .toDynamicValue((ctx) => ({
     id: YourWidget.ID,
     createWidget: () => ctx.container.get(YourWidget)
-})).inSingletonScope();
+  }))
+  .inSingletonScope();
 ```
 
 ### 4. Command and Menu Registration
@@ -478,21 +476,15 @@ Use `PythonCommandHelper` for all Python calls. **All commands go through `serve
 const serverScript = this.pythonHelper.findScript('server.py');
 
 // Simple data query — JSON output
-const execResult = await helper.executeScript(
-    serverScript,
-    ['moose.info', '--file', filePath],
-    { requirements: MOOSE_REQUIREMENTS }
-);
+const execResult = await helper.executeScript(serverScript, ['moose.info', '--file', filePath], { requirements: MOOSE_REQUIREMENTS });
 // Extract JSON line from mixed stdout (library logs may precede it)
 const lines = execResult.stdout.split('\n');
-const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
+const jsonLine = lines.find((l) => l.trimStart().startsWith('{'));
 const result = JSON.parse(jsonLine);
 
 // Custom server spawning
 const python = await helper.detectPython(YOUR_REQUIREMENTS);
-const proc = spawn(python.command, [
-    serverScript, 'moose.serve', '--port', String(port), '--file', inputFile
-]);
+const proc = spawn(python.command, [serverScript, 'moose.serve', '--port', String(port), '--file', inputFile]);
 ```
 
 ---
@@ -531,6 +523,7 @@ showPlot(figure: PlotlyFigure, title: string): Promise<Widget>
 ### `VisualizerWidget`
 
 Properties:
+
 - `id` — Widget ID (must be unique per instance)
 - `setUri(uri, volumeId?)` — Set the file to visualize
 - `setServerUrl(url)` — Point iframe to running server
@@ -539,6 +532,7 @@ Properties:
 ### `NukeCoreService`
 
 Events:
+
 - `onEnvironmentChanged` — Fires when user switches Python env
 - `onEnvironmentFallback` — Fires when fallback env is used
 

@@ -35,12 +35,7 @@ interface TooltipProps {
     delay?: number;
 }
 
-export const Tooltip: React.FC<TooltipProps> = ({
-    content,
-    children,
-    position = 'top',
-    delay = 300
-}) => {
+export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 'top', delay = 300 }) => {
     const [visible, setVisible] = React.useState(false);
     const [coords, setCoords] = React.useState<{ x: number; y: number } | null>(null);
     const timerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -53,7 +48,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
                 const rect = childRef.current.getBoundingClientRect();
                 let x = rect.left + rect.width / 2;
                 let y = rect.top;
-                
+
                 switch (position) {
                     case 'top':
                         y = rect.top - 8;
@@ -70,7 +65,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
                         y = rect.top + rect.height / 2;
                         break;
                 }
-                
+
                 setCoords({ x, y });
                 setVisible(true);
             }
@@ -88,27 +83,24 @@ export const Tooltip: React.FC<TooltipProps> = ({
         };
     }, []);
 
-    const tooltipElement = visible && coords ? (
-        <div
-            className={`nuke-tooltip nuke-tooltip-${position}`}
-            style={{
-                position: 'fixed',
-                left: coords.x,
-                top: coords.y,
-                zIndex: 99999,
-            }}
-        >
-            {content}
-        </div>
-    ) : null;
+    const tooltipElement =
+        visible && coords ? (
+            <div
+                className={`nuke-tooltip nuke-tooltip-${position}`}
+                style={{
+                    position: 'fixed',
+                    left: coords.x,
+                    top: coords.y,
+                    zIndex: 99999
+                }}
+            >
+                {content}
+            </div>
+        ) : null;
 
     return (
         <>
-            <span
-                ref={childRef}
-                onMouseEnter={showTooltip}
-                onMouseLeave={hideTooltip}
-            >
+            <span ref={childRef} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
                 {children}
             </span>
             {tooltipElement && ReactDOM.createPortal(tooltipElement, document.body)}
@@ -130,7 +122,7 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
             const rect = currentTarget.getBoundingClientRect();
             let x = rect.left + rect.width / 2;
             let y = rect.top;
-            
+
             switch (position) {
                 case 'top':
                     y = rect.top - 8;
@@ -147,7 +139,7 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
                     y = rect.top + rect.height / 2;
                     break;
             }
-            
+
             setCoords({ x, y });
             setVisible(true);
         }, 300);
@@ -164,22 +156,22 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
         };
     }, []);
 
-    const tooltipElement = visible ? (
-        ReactDOM.createPortal(
-            <div
-                className={`nuke-tooltip nuke-tooltip-${position}`}
-                style={{
-                    position: 'fixed',
-                    left: coords.x,
-                    top: coords.y,
-                    zIndex: 99999,
-                }}
-            >
-                {content}
-            </div>,
-            document.body
-        )
-    ) : null;
+    const tooltipElement = visible
+        ? ReactDOM.createPortal(
+              <div
+                  className={`nuke-tooltip nuke-tooltip-${position}`}
+                  style={{
+                      position: 'fixed',
+                      left: coords.x,
+                      top: coords.y,
+                      zIndex: 99999
+                  }}
+              >
+                  {content}
+              </div>,
+              document.body
+          )
+        : null;
 
     return { onMouseEnter, onMouseLeave, tooltipElement };
 };

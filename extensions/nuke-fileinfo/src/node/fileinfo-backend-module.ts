@@ -35,19 +35,14 @@
  */
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging';
-import {
-    FilePropertiesService,
-    FilePropertiesServicePath
-} from '../common/fileinfo-protocol';
+import { FilePropertiesService, FilePropertiesServicePath } from '../common/fileinfo-protocol';
 import { FilePropertiesBackendService } from './file-properties-backend-service';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind) => {
     bind(FilePropertiesBackendService).toSelf().inSingletonScope();
     bind(FilePropertiesService).toService(FilePropertiesBackendService);
 
-    bind(ConnectionHandler).toDynamicValue(ctx =>
-        new RpcConnectionHandler(FilePropertiesServicePath, () =>
-            ctx.container.get(FilePropertiesService)
-        )
-    ).inSingletonScope();
+    bind(ConnectionHandler)
+        .toDynamicValue((ctx) => new RpcConnectionHandler(FilePropertiesServicePath, () => ctx.container.get(FilePropertiesService)))
+        .inSingletonScope();
 });

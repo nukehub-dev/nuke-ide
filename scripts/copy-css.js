@@ -13,16 +13,16 @@ const path = require('path');
  * @returns {string[]}
  */
 function findCssFiles(dir, files = []) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      findCssFiles(fullPath, files);
-    } else if (entry.name.endsWith('.css')) {
-      files.push(fullPath);
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            findCssFiles(fullPath, files);
+        } else if (entry.name.endsWith('.css')) {
+            files.push(fullPath);
+        }
     }
-  }
-  return files;
+    return files;
 }
 
 /**
@@ -30,29 +30,29 @@ function findCssFiles(dir, files = []) {
  * @param {string} dest
  */
 function copyFile(src, dest) {
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(src, dest);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
 }
 
 const srcDir = path.resolve('src');
 const libDir = path.resolve('lib');
 
 if (!fs.existsSync(srcDir)) {
-  console.log('No src directory, skipping CSS copy.');
-  process.exit(0);
+    console.log('No src directory, skipping CSS copy.');
+    process.exit(0);
 }
 
 const cssFiles = findCssFiles(srcDir);
 if (cssFiles.length === 0) {
-  console.log('No CSS files found, nothing to copy.');
-  process.exit(0);
+    console.log('No CSS files found, nothing to copy.');
+    process.exit(0);
 }
 
 for (const file of cssFiles) {
-  const relative = path.relative(srcDir, file);
-  const dest = path.join(libDir, relative);
-  copyFile(file, dest);
-  console.log(`Copied ${relative}`);
+    const relative = path.relative(srcDir, file);
+    const dest = path.join(libDir, relative);
+    copyFile(file, dest);
+    console.log(`Copied ${relative}`);
 }
 
 console.log(`Done. Copied ${cssFiles.length} CSS file(s).`);

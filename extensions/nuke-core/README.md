@@ -18,6 +18,7 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 ## Features
 
 ### 🐍 Multi-Environment Support
+
 - **Conda / Mamba** environments (Anaconda, Miniconda, Miniforge, Mambaforge)
 - **Virtualenv** and **venv**
 - **System Python**
@@ -27,6 +28,7 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Cross-platform path support (Linux, macOS, Windows)
 
 ### 🏗️ Environment Creation
+
 - Create **conda** environments with custom Python versions
 - Create **venv** environments in the workspace
 - Live terminal output during creation
@@ -34,12 +36,14 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - User-created environments stored in `~/.nuke-ide/envs/`
 
 ### 🗑️ Environment Deletion
+
 - Delete **user-created** conda environments (in `~/.nuke-ide/envs/`) and **all venvs**
 - Protected: system, pyenv, poetry, and base conda environments cannot be deleted
 - **Type-to-confirm** safety: must type the environment name to confirm
 - Status bar refreshes automatically after deletion
 
 ### 📦 Package Management
+
 - Install packages via **pip**, **uv** (fast), or **conda/mamba**
 - Live terminal output during installation — no silent failures
 - **Unified `installPackages()` API** for extensions: one call handles CWD, terminal, and execution
@@ -49,6 +53,7 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Per-install overrides: `channels`, `extraIndexUrl`, `extraArgs`
 
 ### 🔔 Workspace Auto-Detect
+
 - Scans workspace for `environment.yml`, `environment.yaml`, `requirements.txt`
 - Suggests **Create** when unconfigured; suggests **Update/Recreate** when already configured
 - Auto-creates conda environments from `environment.yml` into `~/.nuke-ide/envs/`
@@ -56,11 +61,13 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - Dismissed prompts are persisted across reloads in `localStorage`
 
 ### ✅ Configuration Validation
+
 - Validates Python executable paths
 - Checks environment availability
 - Warns about missing environment variables
 
 ### 🔧 Health Checks & Diagnostics
+
 - Run health checks from command palette
 - Check for specific packages (generic - works with any tool)
 - View detailed diagnostics for troubleshooting
@@ -68,6 +75,7 @@ Core infrastructure for NukeIDE - provides robust Python environment management,
 - **UV** and **Mamba** availability checks
 
 ### 📊 Status Bar
+
 - Shows current environment with type icon
 - Quick environment switcher (grouped by type)
 - Configuration issue indicators
@@ -81,19 +89,20 @@ Already included in the NukeIDE extensions. No additional setup required.
 
 Settings are available in **Settings → Nuke Utils**:
 
-| Preference | Description |
-|------------|-------------|
-| `nuke.pythonPath` | Path to Python executable |
-| `nuke.condaEnv` | Conda environment name |
-| `nuke.openmcCrossSections` | Path to cross_sections.xml |
-| `nuke.openmcChainFile` | Path to depletion chain XML |
-| `nuke.showStatusBar` | Control status bar visibility (`auto`, `always`, `never`) |
-| `nuke.pipExtraIndexUrl` | Extra pip index URL for private packages (e.g., Azure Artifacts) |
-| `nuke.condaChannels` | Comma-separated conda channels (default: `conda-forge`) |
+| Preference                 | Description                                                      |
+| -------------------------- | ---------------------------------------------------------------- |
+| `nuke.pythonPath`          | Path to Python executable                                        |
+| `nuke.condaEnv`            | Conda environment name                                           |
+| `nuke.openmcCrossSections` | Path to cross_sections.xml                                       |
+| `nuke.openmcChainFile`     | Path to depletion chain XML                                      |
+| `nuke.showStatusBar`       | Control status bar visibility (`auto`, `always`, `never`)        |
+| `nuke.pipExtraIndexUrl`    | Extra pip index URL for private packages (e.g., Azure Artifacts) |
+| `nuke.condaChannels`       | Comma-separated conda channels (default: `conda-forge`)          |
 
 ### Using with MS Python Extension
 
 If you're using the Microsoft Python extension, set `nuke.showStatusBar` to:
+
 - **`auto`** (recommended): Only shows when environment is not configured. Hides once configured to avoid duplication.
 - **`never`**: Use Commands (Tools menu) for environment management instead.
 
@@ -101,16 +110,16 @@ If you're using the Microsoft Python extension, set `nuke.showStatusBar` to:
 
 Access via **Tools** menu or Command Palette:
 
-| Command | Description |
-|---------|-------------|
-| **Switch Environment** | Quick switch between detected environments (grouped picker) |
-| **Environment Actions** | Pick an environment, then choose: Switch / Open Terminal / Install / Update / Copy / Delete |
-| **Create Environment** | Create a new conda or venv environment |
-| **Delete Environment** | Delete a user-created environment (type-to-confirm) |
-| **Install Package** | Install packages using pip, uv, or conda — with live terminal output |
-| **Run Health Check** | Validate your setup |
-| **Validate Configuration** | Check settings for errors |
-| **Show Diagnostics** | View detailed system info |
+| Command                    | Description                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| **Switch Environment**     | Quick switch between detected environments (grouped picker)                                 |
+| **Environment Actions**    | Pick an environment, then choose: Switch / Open Terminal / Install / Update / Copy / Delete |
+| **Create Environment**     | Create a new conda or venv environment                                                      |
+| **Delete Environment**     | Delete a user-created environment (type-to-confirm)                                         |
+| **Install Package**        | Install packages using pip, uv, or conda — with live terminal output                        |
+| **Run Health Check**       | Validate your setup                                                                         |
+| **Validate Configuration** | Check settings for errors                                                                   |
+| **Show Diagnostics**       | View detailed system info                                                                   |
 
 ## Quick Start
 
@@ -121,34 +130,34 @@ import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 
 @injectable()
 export class MyExtension {
-    @inject(NukeCoreService)
-    private readonly nukeCore: NukeCoreService;
+  @inject(NukeCoreService)
+  private readonly nukeCore: NukeCoreService;
 
-    @inject(EnvironmentActionsHelper)
-    private readonly envActions: EnvironmentActionsHelper;
+  @inject(EnvironmentActionsHelper)
+  private readonly envActions: EnvironmentActionsHelper;
 
-    async doSomething() {
-        // Detect Python with required packages
-        const result = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
-            searchWorkspaceVenvs: true
-        });
+  async doSomething() {
+    // Detect Python with required packages
+    const result = await this.nukeCore.detectPythonWithRequirements({
+      requiredPackages: [{ name: 'openmc' }],
+      searchWorkspaceVenvs: true
+    });
 
-        if (result.success) {
-            console.log('Using:', result.environment?.name);
-        }
+    if (result.success) {
+      console.log('Using:', result.environment?.name);
     }
+  }
 
-    async ensureDependencies() {
-        // Check configured env + prompt + install in one call
-        const result = await this.envActions.ensurePackages({
-            requiredPackages: [
-                { name: 'openmc', required: true },
-                { name: 'numpy', required: true }
-            ]
-        });
-        console.log(result.success ? 'Ready!' : 'Missing:', result.missingPackages);
-    }
+  async ensureDependencies() {
+    // Check configured env + prompt + install in one call
+    const result = await this.envActions.ensurePackages({
+      requiredPackages: [
+        { name: 'openmc', required: true },
+        { name: 'numpy', required: true }
+      ]
+    });
+    console.log(result.success ? 'Ready!' : 'Missing:', result.missingPackages);
+  }
 }
 ```
 
@@ -157,7 +166,6 @@ export class MyExtension {
 - [Documentation Overview](docs/README.md) — Landing page with user and developer paths
 - [User Guides](docs/user/) — End-user documentation for environment management, package installation, and configuration
 - [Developer Guides](docs/dev/) — API documentation, architecture, and integration guides for extension authors
-
 
 ## License
 

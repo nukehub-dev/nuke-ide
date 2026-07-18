@@ -27,12 +27,12 @@
 
 /**
  * CAD Import Service for OpenMC
- * 
+ *
  * Backend service for importing CAD files (STEP/IGES) and converting them
  * to OpenMC-compatible CSG geometry.
- * 
+ *
  * Uses nuke-core's detectPythonWithRequirements for robust Python/CAD detection.
- * 
+ *
  * @module openmc-studio/node
  */
 
@@ -56,14 +56,14 @@ export interface CADImportRequest {
     format?: CADFileFormat;
     /** Import options */
     options?: {
-        /** 
+        /**
          * Tolerance for surface approximation in cm (default: 0.001).
          * Surfaces with deviation less than this will be converted to exact primitives.
          */
         tolerance?: number;
         /** Whether to merge coplanar surfaces */
         mergeSurfaces?: boolean;
-        /** 
+        /**
          * Scale factor for the geometry (default: 1.0).
          * Applied after unit conversion.
          */
@@ -166,7 +166,6 @@ export interface CADImportResult {
  */
 @injectable()
 export class OpenMCCADImportService {
-
     @inject(NukeCoreBackendService)
     protected readonly coreService!: NukeCoreBackendServiceInterface;
 
@@ -219,15 +218,18 @@ export class OpenMCCADImportService {
             const scale = request.options?.scale ?? 1.0;
             const materialId = request.options?.materialId;
             const universeId = request.options?.universeId ?? 0;
-            
+
             const unitFactor = this.getUnitFactor(units) * scale;
 
             const args = [
                 scriptPath,
                 request.filePath,
-                '--unit-factor', unitFactor.toString(),
-                '--tolerance', tolerance.toString(),
-                '--universe-id', universeId.toString(),
+                '--unit-factor',
+                unitFactor.toString(),
+                '--tolerance',
+                tolerance.toString(),
+                '--universe-id',
+                universeId.toString(),
                 '--output-json'
             ];
 
@@ -265,7 +267,7 @@ export class OpenMCCADImportService {
             const output = result.stdout.toString().trim();
             const lines = output.split('\n');
             const jsonLine = lines.find((l: string) => l.startsWith('{') && l.includes('"success"'));
-            
+
             if (jsonLine) {
                 try {
                     const parsed = JSON.parse(jsonLine);
@@ -280,7 +282,7 @@ export class OpenMCCADImportService {
                         summary: parsed.summary,
                         dagmc: parsed.dagmc ?? false,
                         dagmcFile: parsed.dagmcFile,
-                        nurbsDetected: parsed.nurbsDetected ?? false,
+                        nurbsDetected: parsed.nurbsDetected ?? false
                     };
 
                     // If DAGMC fallback was used, populate dagmcInfo from the generated file
@@ -314,7 +316,6 @@ export class OpenMCCADImportService {
                 error: `Failed to parse CAD import result. Output: ${output.substring(0, 200)}...`,
                 warnings
             };
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             return {
@@ -342,7 +343,7 @@ export class OpenMCCADImportService {
         // This is more robust than manual checking as it tries multiple environments
         const result = await this.coreService.detectPythonWithRequirements({
             requiredPackages: [
-                { name: 'gmsh', required: false },  // Optional but preferred
+                { name: 'gmsh', required: false }, // Optional but preferred
                 // OpenCASCADE via the OCC module, provided by the pythonocc-core package
                 { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
                 { name: 'cadquery', required: false }
@@ -358,12 +359,15 @@ export class OpenMCCADImportService {
         }
 
         // Now check which specific libraries are available in the detected Python
-        const dependencyResult = await this.coreService.checkDependencies([
-            { name: 'gmsh', required: false },
-            // OpenCASCADE via the OCC module, provided by the pythonocc-core package
-            { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
-            { name: 'cadquery', required: false }
-        ], result.command);
+        const dependencyResult = await this.coreService.checkDependencies(
+            [
+                { name: 'gmsh', required: false },
+                // OpenCASCADE via the OCC module, provided by the pythonocc-core package
+                { name: 'OCC', required: false, installCommand: 'conda install -c conda-forge pythonocc-core' },
+                { name: 'cadquery', required: false }
+            ],
+            result.command
+        );
 
         const libraries = {
             openCascade: !!dependencyResult.versions['OCC'],
@@ -389,14 +393,14 @@ export class OpenMCCADImportService {
      */
     private async importDAGMC(filePath: string): Promise<CADImportResult> {
         const warnings: string[] = [];
-        
+
         try {
             // Find Python with pydagmc/pymoab
             const result = await this.coreService.detectPythonWithRequirements({
                 requiredPackages: [
                     { name: 'pymoab', required: false },
                     { name: 'pydagmc', required: false }
-                ],
+                ]
             });
 
             if (!result.success || !result.command) {
@@ -407,7 +411,7 @@ export class OpenMCCADImportService {
             }
 
             const pythonPath = result.command;
-            
+
             // Find the DAGMC info script
             const scriptPath = this.findDAGMCInfoScript();
             if (!fs.existsSync(scriptPath)) {
@@ -419,7 +423,7 @@ export class OpenMCCADImportService {
 
             // Execute DAGMC info script
             const args = [scriptPath, filePath, '--output-json'];
-            
+
             const execResult = cp.spawnSync(pythonPath, args, {
                 encoding: 'utf-8',
                 stdio: ['pipe', 'pipe', 'pipe'],
@@ -437,10 +441,10 @@ export class OpenMCCADImportService {
             const output = execResult.stdout.toString().trim();
             const lines = output.split('\n');
             const jsonLine = lines.find((l: string) => l.startsWith('{') && l.includes('"success"'));
-            
+
             if (jsonLine) {
                 const parsed = JSON.parse(jsonLine);
-                
+
                 if (!parsed.success) {
                     return {
                         success: false,
@@ -507,7 +511,6 @@ export class OpenMCCADImportService {
                 error: 'Failed to parse DAGMC info result',
                 warnings
             };
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             return {
@@ -542,7 +545,7 @@ export class OpenMCCADImportService {
 
         // Check CAD support (uses nuke-core's detectPythonWithRequirements)
         const support = await this.checkCADSupport();
-        
+
         if (!support.available || !support.pythonPath) {
             return {
                 format,
@@ -566,16 +569,16 @@ print(f"SOLIDS:{len(solids)}")
 print(f"FACES:{len(faces)}")
 gmsh.finalize()
 `;
-                const result = cp.spawnSync(support.pythonPath, ['-c', script], { 
+                const result = cp.spawnSync(support.pythonPath, ['-c', script], {
                     encoding: 'utf-8',
                     stdio: ['pipe', 'pipe', 'ignore']
                 });
-                
+
                 const output = result.stdout.toString().trim();
                 const lines = output.split('\n');
                 const solidMatch = lines.find((l: string) => l.startsWith('SOLIDS:'));
                 const faceMatch = lines.find((l: string) => l.startsWith('FACES:'));
-                
+
                 return {
                     format,
                     solidCount: solidMatch ? parseInt(solidMatch.split(':')[1]) : 0,
@@ -588,7 +591,6 @@ gmsh.finalize()
                 solidCount: 0,
                 faceCount: 0
             };
-
         } catch {
             return {
                 format,
@@ -605,24 +607,24 @@ gmsh.finalize()
     private detectFormatFromPath(filePath: string): CADFileFormat | undefined {
         const ext = filePath.toLowerCase().split('.').pop();
         const formatMap: Record<string, CADFileFormat> = {
-            'step': 'step',
-            'stp': 'stp',
-            'iges': 'iges',
-            'igs': 'igs',
-            'brep': 'brep',
-            'stl': 'stl',
-            'h5m': 'h5m'
+            step: 'step',
+            stp: 'stp',
+            iges: 'iges',
+            igs: 'igs',
+            brep: 'brep',
+            stl: 'stl',
+            h5m: 'h5m'
         };
         return formatMap[ext || ''];
     }
 
     private getUnitFactor(units: string): number {
         const factors: Record<string, number> = {
-            'mm': 0.1,
-            'cm': 1.0,
-            'm': 100.0,
-            'in': 2.54,
-            'ft': 30.48
+            mm: 0.1,
+            cm: 1.0,
+            m: 100.0,
+            in: 2.54,
+            ft: 30.48
         };
         return factors[units] ?? 1.0;
     }
@@ -637,6 +639,4 @@ gmsh.finalize()
         }
         return resolved;
     }
-
-
 }

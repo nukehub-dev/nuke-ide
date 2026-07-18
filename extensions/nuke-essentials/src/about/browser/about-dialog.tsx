@@ -63,17 +63,17 @@ export class NukeAboutDialog extends AboutDialog {
     protected openUrl = (url: string) => this.windowService.openNewWindow(url, { external: true });
 
     protected render(): React.ReactNode {
-        return <div className={ABOUT_CONTENT_CLASS}>
-            {this.renderContent()}
-        </div>;
+        return <div className={ABOUT_CONTENT_CLASS}>{this.renderContent()}</div>;
     }
 
     protected renderContent(): React.ReactNode {
-        return <div className={`${ABOUT_CONTENT_CLASS} about-content`}>
-            {this.renderHeader()}
-            {this.renderInfoCards()}
-            {this.renderVersions()}
-        </div>;
+        return (
+            <div className={`${ABOUT_CONTENT_CLASS} about-content`}>
+                {this.renderHeader()}
+                {this.renderInfoCards()}
+                {this.renderVersions()}
+            </div>
+        );
     }
 
     protected renderHeader(): React.ReactNode {
@@ -98,7 +98,7 @@ export class NukeAboutDialog extends AboutDialog {
         const links = [
             { icon: 'globe', label: 'Website', url: 'https://nukehub.org' },
             { icon: 'github', label: 'GitHub', url: 'https://github.com/nukehub-dev' },
-            { icon: 'comment-discussion', label: 'Community', url: 'https://talk.nukehub.org' },
+            { icon: 'comment-discussion', label: 'Community', url: 'https://talk.nukehub.org' }
         ];
 
         return (
@@ -106,11 +106,7 @@ export class NukeAboutDialog extends AboutDialog {
                 <div className="about-section-label">Links</div>
                 <div className="about-links-container">
                     {links.map((link, index) => (
-                        <button
-                            key={index}
-                            onClick={() => this.openUrl(link.url)}
-                            className="about-link-button"
-                        >
+                        <button key={index} onClick={() => this.openUrl(link.url)} className="about-link-button">
                             <span className={codicon(link.icon)} />
                             {link.label}
                         </button>

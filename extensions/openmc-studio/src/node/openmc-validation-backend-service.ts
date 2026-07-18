@@ -27,10 +27,10 @@
 
 /**
  * OpenMC Validation Backend Service
- * 
+ *
  * Backend service for OpenMC-specific validation.
  * Uses nuke-core for environment detection.
- * 
+ *
  * @module openmc-studio/node
  */
 
@@ -59,7 +59,6 @@ export interface OpenMCValidationResult {
  */
 @injectable()
 export class OpenMCValidationBackendService {
-
     @inject(NukeCoreBackendService)
     protected readonly nukeCore: NukeCoreBackendServiceInterface;
 
@@ -71,19 +70,19 @@ export class OpenMCValidationBackendService {
     async validateOpenMCSetup(): Promise<OpenMCValidationResult> {
         const errors: string[] = [];
         const warnings: string[] = [];
-        
+
         // Get current config
         const config = await this.nukeCore.getConfig();
         const environmentConfigured = !!(config.pythonPath || config.condaEnv);
-        
+
         // Check environment with OpenMC requirement
         const detection = await this.nukeCore.detectPythonWithRequirements({
             requiredPackages: [{ name: 'openmc' }],
             searchWorkspaceVenvs: true
         });
-        
+
         const openmcAvailable = detection.success;
-        
+
         if (!detection.success) {
             if (environmentConfigured) {
                 errors.push(`Configured environment does not have OpenMC. ${detection.error || 'Install OpenMC or switch environment.'}`);
@@ -91,27 +90,29 @@ export class OpenMCValidationBackendService {
                 errors.push(`No environment with OpenMC found. ${detection.error || 'Configure environment in Settings → Nuke Utils.'}`);
             }
         }
-        
+
         // Add fallback warning if present
         if (detection.warning) {
             warnings.push(detection.warning);
         }
-        
+
         // Check cross-sections path (environment variable on backend)
         const crossSections = process.env.OPENMC_CROSS_SECTIONS;
         const crossSectionsSet = !!crossSections;
         if (!crossSectionsSet) {
-            warnings.push('Cross-sections path not set. Set OPENMC_CROSS_SECTIONS environment variable or configure in Settings → Nuke Utils.');
+            warnings.push(
+                'Cross-sections path not set. Set OPENMC_CROSS_SECTIONS environment variable or configure in Settings → Nuke Utils.'
+            );
         }
-        
+
         // Check chain file (not required for all simulations)
         const chainFile = process.env.OPENMC_CHAIN_FILE;
         const chainFileSet = !!chainFile;
         // Note: Chain file is optional - only needed for depletion
-        
+
         // Ready if OpenMC is available (cross-sections can be set at runtime)
         const ready = openmcAvailable;
-        
+
         return {
             ready,
             environmentConfigured,
@@ -135,11 +136,11 @@ export class OpenMCValidationBackendService {
         envName?: string;
     }> {
         const validation = await this.validateOpenMCSetup();
-        
+
         if (!validation.ready || !validation.pythonCommand) {
             throw new Error(validation.errors.join('\n') || 'OpenMC not available');
         }
-        
+
         return {
             command: validation.pythonCommand,
             warning: validation.warnings.join('\n') || undefined
@@ -190,10 +191,7 @@ export class OpenMCValidationBackendService {
             }
 
             // Get versions
-            const depCheck = await this.nukeCore.checkDependencies(
-                [{ name: 'pydagmc' }, { name: 'pymoab' }],
-                result.command
-            );
+            const depCheck = await this.nukeCore.checkDependencies([{ name: 'pydagmc' }, { name: 'pymoab' }], result.command);
 
             return {
                 available: true,

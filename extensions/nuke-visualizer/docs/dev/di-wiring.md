@@ -27,21 +27,27 @@ bindVisualizerPreferences(bind);
 #### 2. Backend RPC Proxy
 
 ```typescript
-bind(VisualizerBackendService).toDynamicValue(ctx => {
+bind(VisualizerBackendService)
+  .toDynamicValue((ctx) => {
     const connectionProvider = ctx.container.get(WebSocketConnectionProvider);
     const outputChannelManager = ctx.container.get(OutputChannelManager);
-    
+
     const client: VisualizerClient = {
-        log: (msg) => { /* ... */ },
-        error: (msg) => { /* ... */ },
-        warn: (msg) => { /* ... */ },
-        onServerStop: (port) => VisualizerWidget.onServerStop(port)
+      log: (msg) => {
+        /* ... */
+      },
+      error: (msg) => {
+        /* ... */
+      },
+      warn: (msg) => {
+        /* ... */
+      },
+      onServerStop: (port) => VisualizerWidget.onServerStop(port)
     };
-    
-    return connectionProvider.createProxy<VisualizerBackendService>(
-        VISUALIZER_BACKEND_PATH, client
-    );
-}).inSingletonScope();
+
+    return connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, client);
+  })
+  .inSingletonScope();
 ```
 
 The proxy is a **dynamic value** because it needs to capture the `client` object at creation time. The `client` handles log streaming from the backend.
@@ -50,15 +56,17 @@ The proxy is a **dynamic value** because it needs to capture the `client` object
 
 ```typescript
 bind(VisualizerWidget).toSelf().inTransientScope();
-bind(WidgetFactory).toDynamicValue(context => ({
+bind(WidgetFactory)
+  .toDynamicValue((context) => ({
     id: VisualizerWidget.ID,
     createWidget: (options?) => {
-        const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
-        if (options?.uri) widget.setUri(new URI(options.uri), options.volumeId);
-        if (options?.id) widget.id = options.id;
-        return widget;
-    },
-})).inSingletonScope();
+      const widget = context.container.get<VisualizerWidget>(VisualizerWidget);
+      if (options?.uri) widget.setUri(new URI(options.uri), options.volumeId);
+      if (options?.id) widget.id = options.id;
+      return widget;
+    }
+  }))
+  .inSingletonScope();
 ```
 
 - Widget class: `inTransientScope()` — fresh instance per tab.
@@ -73,6 +81,7 @@ bind(OpenHandler).toService(VisualizerContribution);
 ```
 
 `bindViewContribution` is a Theia helper that binds a class as:
+
 - `FrontendApplicationContribution`
 - `CommandContribution`
 - `MenuContribution`
@@ -86,7 +95,11 @@ The OpenMC plugin adds many bindings:
 
 ```typescript
 // Backend proxy (same pattern as base)
-bind(OpenMCBackendService).toDynamicValue(ctx => { /* ... */ }).inSingletonScope();
+bind(OpenMCBackendService)
+  .toDynamicValue((ctx) => {
+    /* ... */
+  })
+  .inSingletonScope();
 
 // Frontend services
 bind(OpenMCService).toSelf().inSingletonScope();
@@ -107,10 +120,14 @@ bind(CommandContribution).toService(OpenMCStatepointCommands);
 
 // Widget factories (one per widget type)
 bind(OpenMCPlotWidget).toSelf().inTransientScope();
-bind(WidgetFactory).toDynamicValue(ctx => ({
+bind(WidgetFactory)
+  .toDynamicValue((ctx) => ({
     id: OpenMCPlotWidget.ID,
-    createWidget: (options?) => { /* ... */ }
-})).inSingletonScope();
+    createWidget: (options?) => {
+      /* ... */
+    }
+  }))
+  .inSingletonScope();
 
 // Sidebar view contributions
 bindViewContribution(bind, XSPlotViewContribution);
@@ -130,13 +147,16 @@ The backend module binds RPC handlers and backend services.
 ```typescript
 bind(VisualizerBackendServiceImpl).toSelf().inSingletonScope();
 bind(VisualizerBackendService).toService(VisualizerBackendServiceImpl);
-bind(ConnectionHandler).toDynamicValue(ctx =>
-    new RpcConnectionHandler<VisualizerClient>(VISUALIZER_BACKEND_PATH, client => {
+bind(ConnectionHandler)
+  .toDynamicValue(
+    (ctx) =>
+      new RpcConnectionHandler<VisualizerClient>(VISUALIZER_BACKEND_PATH, (client) => {
         const server = ctx.container.get<VisualizerBackendServiceImpl>(VisualizerBackendServiceImpl);
         server.setClient(client);
         return server;
-    })
-).inSingletonScope();
+      })
+  )
+  .inSingletonScope();
 ```
 
 - `VisualizerBackendServiceImpl` is the actual implementation.
@@ -148,25 +168,28 @@ bind(ConnectionHandler).toDynamicValue(ctx =>
 ```typescript
 bind(OpenMCBackendServiceImpl).toSelf().inSingletonScope();
 bind(OpenMCBackendService).toService(OpenMCBackendServiceImpl);
-bind(ConnectionHandler).toDynamicValue(ctx =>
-    new RpcConnectionHandler<VisualizerClient>(OPENMC_BACKEND_PATH, client => {
+bind(ConnectionHandler)
+  .toDynamicValue(
+    (ctx) =>
+      new RpcConnectionHandler<VisualizerClient>(OPENMC_BACKEND_PATH, (client) => {
         const server = ctx.container.get<OpenMCBackendServiceImpl>(OpenMCBackendServiceImpl);
         server.setClient(client);
         return server;
-    })
-).inSingletonScope();
+      })
+  )
+  .inSingletonScope();
 ```
 
 ---
 
 ## Scope Reference
 
-| Scope | Meaning | When to Use |
-|-------|---------|-------------|
-| `inSingletonScope()` | One instance per container | Services, frameworks, factories |
-| `inTransientScope()` | New instance every time | Widgets (so each tab is independent) |
-| `toDynamicValue()` | Factory function | RPC proxies that need client setup |
-| `toConstantValue()` | Static value | No-op contributions, config objects |
+| Scope                | Meaning                    | When to Use                          |
+| -------------------- | -------------------------- | ------------------------------------ |
+| `inSingletonScope()` | One instance per container | Services, frameworks, factories      |
+| `inTransientScope()` | New instance every time    | Widgets (so each tab is independent) |
+| `toDynamicValue()`   | Factory function           | RPC proxies that need client setup   |
+| `toConstantValue()`  | Static value               | No-op contributions, config objects  |
 
 ---
 
@@ -178,16 +201,18 @@ bind(ConnectionHandler).toDynamicValue(ctx =>
 // 1. Define the widget class
 @injectable()
 export class MyWidget extends ReactWidget {
-    static readonly ID = 'my-widget';
-    // ...
+  static readonly ID = 'my-widget';
+  // ...
 }
 
 // 2. Bind in frontend module
 bind(MyWidget).toSelf().inTransientScope();
-bind(WidgetFactory).toDynamicValue(ctx => ({
+bind(WidgetFactory)
+  .toDynamicValue((ctx) => ({
     id: MyWidget.ID,
     createWidget: () => ctx.container.get(MyWidget)
-})).inSingletonScope();
+  }))
+  .inSingletonScope();
 
 // 3. Open it
 const widget = await widgetManager.getOrCreateWidget(MyWidget.ID);
@@ -199,17 +224,19 @@ await shell.addWidget(widget, { area: 'main' });
 ```typescript
 // 1. Define command
 export namespace MyCommands {
-    export const DO_STUFF = { id: 'my.doStuff', label: 'Do Stuff' };
+  export const DO_STUFF = { id: 'my.doStuff', label: 'Do Stuff' };
 }
 
 // 2. Implement CommandContribution
 @injectable()
 export class MyCommandContribution implements CommandContribution {
-    registerCommands(commands: CommandRegistry): void {
-        commands.registerCommand(MyCommands.DO_STUFF, {
-            execute: () => { /* ... */ }
-        });
-    }
+  registerCommands(commands: CommandRegistry): void {
+    commands.registerCommand(MyCommands.DO_STUFF, {
+      execute: () => {
+        /* ... */
+      }
+    });
+  }
 }
 
 // 3. Bind
@@ -234,10 +261,10 @@ registerMenus(menus: MenuModelRegistry): void {
 
 ## Troubleshooting DI Issues
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| "No matching bindings found" | Symbol not bound in module | Add `bind(MyService).toSelf()` |
-| Widget not created | WidgetFactory missing or wrong ID | Check `id` matches `WidgetFactory` |
-| Command not in palette | `CommandContribution` not bound | `bind(CommandContribution).toService(...)` |
-| RPC call fails | Path mismatch or handler not bound | Verify `MY_BACKEND_PATH` matches both sides |
-| Singleton state leaks | Widget in singleton scope | Use `inTransientScope()` for widgets |
+| Symptom                      | Cause                              | Fix                                         |
+| ---------------------------- | ---------------------------------- | ------------------------------------------- |
+| "No matching bindings found" | Symbol not bound in module         | Add `bind(MyService).toSelf()`              |
+| Widget not created           | WidgetFactory missing or wrong ID  | Check `id` matches `WidgetFactory`          |
+| Command not in palette       | `CommandContribution` not bound    | `bind(CommandContribution).toService(...)`  |
+| RPC call fails               | Path mismatch or handler not bound | Verify `MY_BACKEND_PATH` matches both sides |
+| Singleton state leaks        | Widget in singleton scope          | Use `inTransientScope()` for widgets        |

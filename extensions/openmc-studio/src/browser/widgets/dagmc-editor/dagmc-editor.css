@@ -15,18 +15,36 @@
 }
 
 @keyframes dagmc-fade-in {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes dagmc-card-pop {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 @keyframes dagmc-slide-up {
-    from { opacity: 0; transform: translateY(15px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* ============================================================================
@@ -554,7 +572,9 @@
 .dagmc-editor .volume-card.selected {
     border-color: var(--theia-focusBorder);
     background: var(--theia-list-activeSelectionBackground);
-    box-shadow: 0 0 0 2px var(--theia-focusBorder), 0 8px 24px rgba(0, 0, 0, 0.2);
+    box-shadow:
+        0 0 0 2px var(--theia-focusBorder),
+        0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
 /* Card Decorative Background */
@@ -1401,19 +1421,19 @@
     .dagmc-editor .properties-layout {
         grid-template-columns: 1fr;
     }
-    
+
     .dagmc-editor .volumes-grid,
     .dagmc-editor .materials-grid,
     .dagmc-editor .groups-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .dagmc-editor .dagmc-editor-header {
         flex-direction: column;
         gap: 16px;
         align-items: flex-start;
     }
-    
+
     .dagmc-editor .dagmc-editor-header .header-stats {
         width: 100%;
         justify-content: space-around;
@@ -1719,7 +1739,7 @@
     .dagmc-editor .properties-tab .properties-stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .dagmc-editor .properties-tab .properties-layout-two-col {
         grid-template-columns: 1fr;
     }

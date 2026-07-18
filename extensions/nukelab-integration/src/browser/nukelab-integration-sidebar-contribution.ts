@@ -9,7 +9,6 @@ import { NukeLabAppStatusService } from './nukelab-integration-app-status-servic
 
 @injectable()
 export class NukeLabSidebarContribution implements FrontendApplicationContribution {
-
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
 
@@ -35,7 +34,7 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
         try {
             const response = await fetch('/api/nukelab/context');
             if (response.ok) {
-                this.context = await response.json() as NukeLabContext;
+                this.context = (await response.json()) as NukeLabContext;
                 this.commandContribution.setContext(this.context);
             }
         } catch (error) {
@@ -49,7 +48,7 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
             iconClass: codicon('account'),
             title: 'NukeLab',
             menuPath: ACCOUNTS_MENU,
-            order: 2,
+            order: 2
         });
     }
 }

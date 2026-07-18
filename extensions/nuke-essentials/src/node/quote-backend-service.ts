@@ -66,7 +66,7 @@ export class QuoteBackendService implements QuoteService {
                 path.join(process.cwd(), 'resources', 'quotes.yml'),
                 path.join(__dirname, '..', '..', '..', '..', 'resources', 'quotes.yml'),
                 path.join(__dirname, '..', '..', '..', '..', '..', 'resources', 'quotes.yml'),
-                path.join(__dirname, '..', '..', '..', '..', '..', '..', 'resources', 'quotes.yml'),
+                path.join(__dirname, '..', '..', '..', '..', '..', '..', 'resources', 'quotes.yml')
             ];
 
             for (const quotesPath of possiblePaths) {

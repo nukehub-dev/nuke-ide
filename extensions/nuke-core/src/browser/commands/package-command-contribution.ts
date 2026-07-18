@@ -53,7 +53,6 @@ import { NukeMenus } from '../nuke-core-menus';
 
 @injectable()
 export class NukePackageCommandContribution implements CommandContribution, MenuContribution {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 

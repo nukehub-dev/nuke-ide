@@ -23,6 +23,7 @@ The foundational extension for Python environment management and shared infrastr
 Advanced 3D and 2D visualization for nuclear engineering data.
 
 **Plugins:**
+
 - **Base Visualizer** — VTK, DAGMC (.h5m), STL, PLY, OBJ meshes
 - **OpenMC Plugin** — Statepoints, tallies, cross-sections, depletion results, geometry, materials
 
@@ -45,11 +46,13 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 ## Utility Extensions
 
-| Extension | Purpose |
-|-----------|---------|
-| **nuke-essentials** | Common UI components, commands, and utilities shared across NukeIDE extensions |
-| **nuke-sysmon** | System resource monitoring inside the IDE |
-| **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, and app install |
+| Extension               | Purpose                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| **nuke-essentials**     | Common UI components, commands, and utilities shared across NukeIDE extensions     |
+| **nuke-sysmon**         | System resource monitoring inside the IDE                                          |
+| **nuke-fileinfo**       | File properties and metadata viewer (MIME types, permissions, checksums, Git info) |
+| **nuke-docs**           | Native in-IDE documentation widget (Help → NukeIDE Documentation)                  |
+| **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, and app install  |
 
 ## Adding a New Extension
 

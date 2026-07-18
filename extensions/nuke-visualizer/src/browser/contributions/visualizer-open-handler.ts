@@ -64,10 +64,10 @@ export class VisualizerOpenHandler implements OpenHandler {
 
     async open(uri: URI): Promise<VisualizerWidget> {
         const filePath = uri.path.toString();
-        
+
         const widgets = this.app.shell.getWidgets('main');
-        const existing = widgets.find(w => w instanceof VisualizerWidget && w.id.endsWith(filePath)) as VisualizerWidget;
-        
+        const existing = widgets.find((w) => w instanceof VisualizerWidget && w.id.endsWith(filePath)) as VisualizerWidget;
+
         if (existing) {
             console.log(`[Visualizer] Found existing widget for ${filePath}, activating: ${existing.id}`);
             this.app.shell.activateWidget(existing.id);
@@ -76,23 +76,23 @@ export class VisualizerOpenHandler implements OpenHandler {
         }
 
         console.log(`[Visualizer] Creating new widget for ${filePath}`);
-        
-        const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { 
-            uri: uri.toString() 
-        }) as VisualizerWidget;
-        
+
+        const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, {
+            uri: uri.toString()
+        })) as VisualizerWidget;
+
         widget.setUri(uri);
 
         if (!widget.isAttached) {
             this.app.shell.addWidget(widget, { area: 'main' });
         }
-        
+
         this.app.shell.activateWidget(widget.id);
         await widget.loadFile(uri);
 
         const handle = this.visibilityService.requestVisibility('nuke-visualizer');
         widget.disposed.connect(() => handle.dispose());
-        
+
         return widget;
     }
 }

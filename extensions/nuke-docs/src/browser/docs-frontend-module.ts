@@ -6,11 +6,13 @@ import { DocsContribution } from './docs-contribution';
 import './style.css';
 
 export default new ContainerModule((bind) => {
-  bindViewContribution(bind, DocsContribution);
+    bindViewContribution(bind, DocsContribution);
 
-  bind(DocsWidget).toSelf();
-  bind(WidgetFactory).toDynamicValue(({ container }) => ({
-    id: DocsWidget.ID,
-    createWidget: () => container.get(DocsWidget)
-  })).inSingletonScope();
+    bind(DocsWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: DocsWidget.ID,
+            createWidget: () => container.get(DocsWidget)
+        }))
+        .inSingletonScope();
 });

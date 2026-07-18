@@ -82,7 +82,6 @@ export interface UnifiedHealthReport {
 
 @injectable()
 export class HealthCheckFramework {
-
     @inject(NukeCoreService)
     protected readonly nukeCore: NukeCoreService;
 
@@ -126,13 +125,9 @@ export class HealthCheckFramework {
         const result = await this.nukeCore.healthCheck(req.packages);
 
         // Check if all required packages passed
-        const requiredPackageNames = req.packages
-            .filter(p => p.required !== false)
-            .map(p => p.name);
-        const packageChecks = result.checks.filter(c =>
-            requiredPackageNames.some(pkg => c.name === `Package: ${pkg}`)
-        );
-        const allPackagesPassed = packageChecks.every(c => c.passed);
+        const requiredPackageNames = req.packages.filter((p) => p.required !== false).map((p) => p.name);
+        const packageChecks = result.checks.filter((c) => requiredPackageNames.some((pkg) => c.name === `Package: ${pkg}`));
+        const allPackagesPassed = packageChecks.every((c) => c.passed);
 
         return {
             pluginId: req.id,
@@ -156,7 +151,7 @@ export class HealthCheckFramework {
         }
 
         return {
-            healthy: reports.every(r => r.healthy),
+            healthy: reports.every((r) => r.healthy),
             plugins: reports
         };
     }

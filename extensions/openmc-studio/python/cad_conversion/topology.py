@@ -1,13 +1,14 @@
 """Topological analysis and post-processing for CAD assemblies."""
 
 import math
-from typing import List, Dict, Tuple, Any, Optional, Set
+from typing import Any
 
-from .core import SurfaceFitResult, TopologyInfo
 from . import gmsh_utils
+from .core import TopologyInfo
 
 try:
     import numpy as np
+
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -45,10 +46,10 @@ def analyze_assembly(file_path: str) -> TopologyInfo:
         info.vertex_count = len(vertices)
 
         # Build solid -> face mapping
-        solid_faces: Dict[int, Set[int]] = {}
+        solid_faces: dict[int, set[int]] = {}
         for dim, tag in solids:
             boundary = gmsh_utils.get_boundary((dim, tag), oriented=False, recursive=False)
-            solid_faces[tag] = set(abs(t) for d, t in boundary if d == 2)
+            solid_faces[tag] = {abs(t) for d, t in boundary if d == 2}
 
         # Detect shared faces -> adjacency
         solid_tags = list(solid_faces.keys())
@@ -73,8 +74,9 @@ def analyze_assembly(file_path: str) -> TopologyInfo:
     return info
 
 
-def merge_coplanar_surfaces(surfaces: List[Dict[str, Any]],
-                            tolerance: float = 0.001) -> List[Dict[str, Any]]:
+def merge_coplanar_surfaces(
+    surfaces: list[dict[str, Any]], tolerance: float = 0.001
+) -> list[dict[str, Any]]:
     """Post-process a list of OpenMC surfaces to deduplicate coincident planes.
 
     For now this only merges exact duplicate planes.  Future enhancement:
@@ -90,32 +92,32 @@ def merge_coplanar_surfaces(surfaces: List[Dict[str, Any]],
     if not surfaces:
         return []
 
-    merged: List[Dict[str, Any]] = []
-    skip_indices: Set[int] = set()
+    merged: list[dict[str, Any]] = []
+    skip_indices: set[int] = set()
 
     for i, s1 in enumerate(surfaces):
         if i in skip_indices:
             continue
-        if s1.get('type') != 'plane':
+        if s1.get("type") != "plane":
             merged.append(s1)
             continue
 
-        coeffs1 = s1.get('coefficients', [])
+        coeffs1 = s1.get("coefficients", [])
         if len(coeffs1) < 4:
             merged.append(s1)
             continue
 
         # Normalize plane coefficients for comparison
         n1 = normalize_plane(coeffs1)
-        merged_ids = [s1['id']]
+        merged_ids = [s1["id"]]
 
         for j in range(i + 1, len(surfaces)):
             if j in skip_indices:
                 continue
             s2 = surfaces[j]
-            if s2.get('type') != 'plane':
+            if s2.get("type") != "plane":
                 continue
-            coeffs2 = s2.get('coefficients', [])
+            coeffs2 = s2.get("coefficients", [])
             if len(coeffs2) < 4:
                 continue
 
@@ -124,12 +126,12 @@ def merge_coplanar_surfaces(surfaces: List[Dict[str, Any]],
             dot = sum(n1[k] * n2[k] for k in range(3))
             if abs(abs(dot) - 1.0) < 0.01 and abs(n1[3] - n2[3]) < tolerance:
                 # Same plane (possibly opposite orientation)
-                merged_ids.append(s2['id'])
+                merged_ids.append(s2["id"])
                 skip_indices.add(j)
 
         if len(merged_ids) > 1:
             s1_copy = dict(s1)
-            s1_copy['_merged_ids'] = merged_ids
+            s1_copy["_merged_ids"] = merged_ids
             merged.append(s1_copy)
         else:
             merged.append(s1)
@@ -137,7 +139,7 @@ def merge_coplanar_surfaces(surfaces: List[Dict[str, Any]],
     return merged
 
 
-def normalize_plane(coeffs: List[float]) -> List[float]:
+def normalize_plane(coeffs: list[float]) -> list[float]:
     """Normalize plane coefficients [a, b, c, d] so that sqrt(a^2+b^2+c^2)=1 and a>=0.
 
     Returns [a, b, c, d].
@@ -145,18 +147,21 @@ def normalize_plane(coeffs: List[float]) -> List[float]:
     if len(coeffs) < 4:
         return coeffs
     a, b, c, d = coeffs[0], coeffs[1], coeffs[2], coeffs[3]
-    norm = math.sqrt(a*a + b*b + c*c)
+    norm = math.sqrt(a * a + b * b + c * c)
     if norm < 1e-10:
         return [0.0, 0.0, 1.0, d]
-    a, b, c, d = a/norm, b/norm, c/norm, d/norm
+    a, b, c, d = a / norm, b / norm, c / norm, d / norm
     # Ensure consistent orientation: make largest positive component positive
-    if a < -1e-6 or (abs(a) < 1e-6 and b < -1e-6) or (abs(a) < 1e-6 and abs(b) < 1e-6 and c < -1e-6):
+    if (
+        a < -1e-6
+        or (abs(a) < 1e-6 and b < -1e-6)
+        or (abs(a) < 1e-6 and abs(b) < 1e-6 and c < -1e-6)
+    ):
         a, b, c, d = -a, -b, -c, -d
     return [a, b, c, d]
 
 
-def detect_boolean_ops(solid1_bounds: Dict[str, Any],
-                       solid2_bounds: Dict[str, Any]) -> Optional[str]:
+def detect_boolean_ops(solid1_bounds: dict[str, Any], solid2_bounds: dict[str, Any]) -> str | None:
     """Heuristic detection of boolean operation between two solids.
 
     Compares bounding boxes to guess union / intersection / difference.
@@ -175,24 +180,24 @@ def detect_boolean_ops(solid1_bounds: Dict[str, Any],
     # Check for overlap
     overlap = True
     for i in range(3):
-        if b1['max'][i] < b2['min'][i] or b2['max'][i] < b1['min'][i]:
+        if b1["max"][i] < b2["min"][i] or b2["max"][i] < b1["min"][i]:
             overlap = False
             break
 
     if not overlap:
-        return 'union'  # Disjoint solids likely form a union
+        return "union"  # Disjoint solids likely form a union
 
     # If one is almost completely inside the other, likely difference
     def inside(inner, outer):
         for i in range(3):
-            if inner['min'][i] < outer['min'][i] - 1e-3 or inner['max'][i] > outer['max'][i] + 1e-3:
+            if inner["min"][i] < outer["min"][i] - 1e-3 or inner["max"][i] > outer["max"][i] + 1e-3:
                 return False
         return True
 
     if inside(b1, b2):
-        return 'difference'
+        return "difference"
     if inside(b2, b1):
-        return 'difference'
+        return "difference"
 
     # Partial overlap
-    return 'intersection'
+    return "intersection"

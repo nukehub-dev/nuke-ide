@@ -33,10 +33,10 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { 
-    VisualizerBackendService, 
-    PythonConfig, 
-    EnvironmentInfo, 
+import {
+    VisualizerBackendService,
+    PythonConfig,
+    EnvironmentInfo,
     VisualizerClient,
     VisualizationState,
     CameraViewType,
@@ -185,11 +185,10 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 if (filePath && fs.existsSync(filePath)) {
                     const stats = fs.statSync(filePath);
                     const fileSizeMB = stats.size / (1024 * 1024);
-                    timeoutMs = Math.max(
-                        baseTimeoutSec * 1000,
-                        Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+                    timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+                    this.log(
+                        `[Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
                     );
-                    this.log(`[Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
                 }
                 const actualPort = await this.waitForServer(port, proc, timeoutMs);
                 if (actualPort !== port) {
@@ -280,7 +279,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         // Library code may print log lines before the JSON output.
         // Find the first line that starts with '{' and parse it as JSON.
         const lines = stdout.split('\n');
-        const jsonLine = lines.find(l => l.trimStart().startsWith('{'));
+        const jsonLine = lines.find((l) => l.trimStart().startsWith('{'));
         if (!jsonLine) {
             throw new Error(`No JSON found in output: ${stdout.substring(0, 200)}`);
         }
@@ -311,11 +310,10 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
         const stats = fs.statSync(filePath);
         const fileSizeMB = stats.size / (1024 * 1024);
-        const timeoutMs = Math.max(
-            baseTimeoutSec * 1000,
-            Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+        const timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+        this.log(
+            `[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
         );
-        this.log(`[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
 
         const execResult = await this.pythonHelper.executeScript(serverScript, args, { timeout: timeoutMs });
         if (execResult.status !== 0) {
@@ -352,19 +350,14 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const serverScript = this.pythonHelper.findScript('server.py');
 
         // STEP conversion requires gmsh — detect Python with gmsh available
-        const pythonInfo = await this.pythonHelper.detectPython([
-            { name: 'gmsh', required: true }
-        ]);
+        const pythonInfo = await this.pythonHelper.detectPython([{ name: 'gmsh', required: true }]);
         this.log(`[STEP Converter] Using Python: ${pythonInfo.command}`);
 
         const args = ['base.convert-step', '--file', filePath];
 
         this.log(`[STEP Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
 
-        const execResult = await this.pythonHelper.executeScript(
-            serverScript, args,
-            { requirements: [{ name: 'gmsh', required: true }] }
-        );
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: [{ name: 'gmsh', required: true }] });
         if (execResult.status !== 0) {
             const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
             this.errorLog(`[STEP Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
@@ -483,11 +476,10 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.2);
                 const stats = fs.statSync(filePath);
                 const fileSizeMB = stats.size / (1024 * 1024);
-                const timeoutMs = Math.max(
-                    baseTimeoutSec * 1000,
-                    Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000)
+                const timeoutMs = Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000));
+                this.log(
+                    `[DAGMC Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
                 );
-                this.log(`[DAGMC Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`);
                 const actualPort = await this.waitForServer(port, proc, timeoutMs);
                 if (actualPort !== port) {
                     this.log(`DAGMC server fell back from requested port ${port} to actual port ${actualPort}`);
@@ -512,7 +504,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
         this.log('Checking environment...');
-        
+
         // Set config in nuke-core if provided
         if (config?.pythonPath || config?.condaEnv) {
             await this.nukeCoreService.setConfig({
@@ -520,18 +512,18 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
                 condaEnv: config.condaEnv
             });
         }
-        
+
         const pythonCommand = await this.nukeCoreService.getPythonCommand();
         if (!pythonCommand) {
             throw new Error('No Python environment configured. Please set Python path in preferences.');
         }
-        
+
         const info: EnvironmentInfo = {
             pythonPath: pythonCommand,
             pythonVersion: 'unknown',
             paraviewInstalled: false,
             trameInstalled: false,
-            moabInstalled: false,
+            moabInstalled: false
         };
 
         try {
@@ -541,17 +533,16 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         // Use nuke-core to check dependencies
-        const depCheck = await this.nukeCoreService.checkDependencies([
-            { name: 'trame', submodule: 'app' },
-            { name: 'paraview' },
-            { name: 'pymoab', required: false }
-        ], pythonCommand);
+        const depCheck = await this.nukeCoreService.checkDependencies(
+            [{ name: 'trame', submodule: 'app' }, { name: 'paraview' }, { name: 'pymoab', required: false }],
+            pythonCommand
+        );
 
         info.trameInstalled = depCheck.versions['trame'] !== undefined;
         info.trameVersion = depCheck.versions['trame'];
         info.paraviewInstalled = depCheck.versions['paraview'] !== undefined;
         info.paraviewVersion = depCheck.versions['paraview'];
-        
+
         // Check moab separately (optional, with fallback to mbconvert CLI)
         if (depCheck.versions['pymoab']) {
             info.moabInstalled = true;
@@ -569,7 +560,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
         return info;
     }
-
 
     // === Visualization Controls ===
     // Note: Interactive controls are handled directly in the trame UI.

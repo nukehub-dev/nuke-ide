@@ -27,9 +27,9 @@
 
 /**
  * OpenMC Menu Contribution
- * 
+ *
  * Registers all menus and menu actions.
- * 
+ *
  * @module openmc-studio/browser/contributions
  */
 
@@ -70,7 +70,6 @@ export namespace OpenMCMenus {
  */
 @injectable()
 export class OpenMCMenuContribution implements MenuContribution {
-
     /**
      * Register the full OpenMC Studio menu structure and populate each submenu with actions.
      * @param menus - The Theia menu model registry
@@ -84,7 +83,7 @@ export class OpenMCMenuContribution implements MenuContribution {
     registerMenus(menus: MenuModelRegistry): void {
         // Main OpenMC menu
         menus.registerSubmenu(OpenMCMenus.OPENMC, 'OpenMC Studio');
-        
+
         // Submenus
         menus.registerSubmenu(OpenMCMenus.OPENMC_PROJECT, 'Project');
         menus.registerSubmenu(OpenMCMenus.OPENMC_SIMULATION, 'Simulation');
@@ -95,19 +94,19 @@ export class OpenMCMenuContribution implements MenuContribution {
 
         // Project menu items
         this.registerProjectMenus(menus);
-        
+
         // Simulation menu items
         this.registerSimulationMenus(menus);
-        
+
         // Geometry menu items
         this.registerGeometryMenus(menus);
-        
+
         // XML menu items
         this.registerXMLMenus(menus);
-        
+
         // Environment menu items
         this.registerEnvironmentMenus(menus);
-        
+
         // Advanced menu items
         this.registerAdvancedMenus(menus);
     }

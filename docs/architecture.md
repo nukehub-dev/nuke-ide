@@ -17,9 +17,11 @@ nuke-ide/
 │   ├── openmc-studio/     # No-code OpenMC simulation workspace
 │   ├── nuke-essentials/   # Common UI components and commands
 │   ├── nuke-sysmon/       # System monitoring
+│   ├── nuke-fileinfo/     # File properties/metadata viewer
+│   ├── nuke-docs/         # In-IDE documentation widget
 │   └── nukelab-integration/ # NukeLab gateway integration
 │
-├── docs/                  # VitePress documentation site (this site)
+├── docs/                  # Product documentation (read in-IDE by nuke-docs)
 ├── resources/             # Static assets (logos, preload templates)
 ├── scripts/               # Build and utility scripts
 └── configs/               # Shared TypeScript and build configs
@@ -56,11 +58,10 @@ Many extensions rely on Python backends:
 
 ## Documentation Architecture
 
-This documentation site follows a **unified docs** pattern:
+NukeIDE's documentation is read **inside the IDE** by the native docs widget (`extensions/nuke-docs`, opened via Help → NukeIDE Documentation):
 
 - **Product docs** live in `docs/` (installation, architecture, getting started).
-- **Extension docs** live inside each extension's `docs/` folder.
-- `scripts/build-docs.js` copies extension docs into `docs/` before VitePress builds.
-- VitePress renders everything as a single site with cross-linked navigation.
+- **Extension docs** live inside each extension's `docs/` folder (`README.md` landing page, `user/`, `dev/`).
+- The widget reads both locations directly — no build step and no external site.
 
 This keeps documentation close to the code that owns it while presenting a seamless experience to readers.

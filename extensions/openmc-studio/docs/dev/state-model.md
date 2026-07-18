@@ -29,12 +29,12 @@ Project bookkeeping and schema versioning. The `version` field enables future mi
 
 ```typescript
 interface OpenMCProjectMetadata {
-    version: string;      // OPENMC_STATE_SCHEMA_VERSION, e.g. "1.0.0"
-    name: string;
-    description?: string;
-    author?: string;
-    created: string;      // ISO 8601
-    modified: string;     // ISO 8601
+  version: string; // OPENMC_STATE_SCHEMA_VERSION, e.g. "1.0.0"
+  name: string;
+  description?: string;
+  author?: string;
+  created: string; // ISO 8601
+  modified: string; // ISO 8601
 }
 ```
 
@@ -67,18 +67,18 @@ Cells define material-filled regions using boolean combinations of surfaces.
 
 ```typescript
 interface OpenMCCell {
-    id: number;
-    name?: string;
-    region?: OpenMCRegionNode;       // Boolean expression tree
-    regionString?: string;            // Alternative text representation (e.g., "-1 2 -3")
-    fillType: 'material' | 'universe' | 'lattice' | 'void';
-    fillId?: number;
-    temperature?: number;             // K
-    density?: number;                 // g/cm³, overrides material density
+  id: number;
+  name?: string;
+  region?: OpenMCRegionNode; // Boolean expression tree
+  regionString?: string; // Alternative text representation (e.g., "-1 2 -3")
+  fillType: 'material' | 'universe' | 'lattice' | 'void';
+  fillId?: number;
+  temperature?: number; // K
+  density?: number; // g/cm³, overrides material density
 }
 ```
 
-**Concept:** The schema supports *both* a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`.
+**Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`.
 
 ### Universes
 
@@ -86,14 +86,14 @@ Universes group cells hierarchically. Universe `0` is the root.
 
 ```typescript
 interface OpenMCUniverse {
-    id: number;
-    name?: string;
-    cellIds: number[];
-    isRoot?: boolean;
+  id: number;
+  name?: string;
+  cellIds: number[];
+  isRoot?: boolean;
 }
 ```
 
-**Concept:** Cells are *not* embedded directly in universes; they reference via `cellIds`. This avoids data duplication and makes cell re-assignment between universes a cheap array operation in `OpenMCStateManager`.
+**Concept:** Cells are _not_ embedded directly in universes; they reference via `cellIds`. This avoids data duplication and makes cell re-assignment between universes a cheap array operation in `OpenMCStateManager`.
 
 ### Lattices
 
@@ -101,9 +101,9 @@ Repeated geometry structures. Supported types: rectangular (`rect`) and hexagona
 
 ```typescript
 type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
-    id: number;
-    name?: string;
-    outer?: number;   // Universe ID for positions outside the lattice
+  id: number;
+  name?: string;
+  outer?: number; // Universe ID for positions outside the lattice
 };
 ```
 
@@ -117,16 +117,16 @@ Materials are composed of nuclides with atomic or weight fractions, plus optiona
 
 ```typescript
 interface OpenMCMaterial {
-    id: number;
-    name: string;
-    density: number;
-    densityUnit: 'g/cm3' | 'kg/m3' | 'atom/b-cm' | 'sum';
-    nuclides: OpenMCNuclide[];
-    thermalScattering: OpenMCThermalScattering[];
-    isDepletable?: boolean;
-    volume?: number;       // cm³, required for depletion
-    temperature?: number;  // K
-    color?: string;        // hex code for visualization
+  id: number;
+  name: string;
+  density: number;
+  densityUnit: 'g/cm3' | 'kg/m3' | 'atom/b-cm' | 'sum';
+  nuclides: OpenMCNuclide[];
+  thermalScattering: OpenMCThermalScattering[];
+  isDepletable?: boolean;
+  volume?: number; // cm³, required for depletion
+  temperature?: number; // K
+  color?: string; // hex code for visualization
 }
 ```
 
@@ -136,8 +136,8 @@ interface OpenMCMaterial {
 
 ```typescript
 interface OpenMCThermalScattering {
-    name: string;      // e.g., 'c_Graphite', 'h_H2O'
-    fraction: number;  // usually 1.0
+  name: string; // e.g., 'c_Graphite', 'h_H2O'
+  fraction: number; // usually 1.0
 }
 ```
 
@@ -153,9 +153,9 @@ The run configuration is a discriminated union keyed by `mode`:
 
 ```typescript
 type OpenMCRunSettings =
-    | OpenMCEigenvalueSettings   // { mode: 'eigenvalue', particles, inactive, batches }
-    | OpenMCFixedSourceSettings  // { mode: 'fixed source', particles, batches }
-    | OpenMCVolumeSettings;      // { mode: 'volume', samples?, bounds? }
+  | OpenMCEigenvalueSettings // { mode: 'eigenvalue', particles, inactive, batches }
+  | OpenMCFixedSourceSettings // { mode: 'fixed source', particles, batches }
+  | OpenMCVolumeSettings; // { mode: 'volume', samples?, bounds? }
 ```
 
 **Concept:** Using a discriminated union lets TypeScript narrow the type inside widgets. The eigenvalue dashboard only renders inactive-batch inputs when `mode === 'eigenvalue'`.
@@ -183,9 +183,9 @@ A regular Cartesian mesh for Shannon entropy convergence monitoring:
 
 ```typescript
 interface OpenMCEntropyMesh {
-    lowerLeft: [number, number, number];
-    upperRight: [number, number, number];
-    shape: [number, number, number];
+  lowerLeft: [number, number, number];
+  upperRight: [number, number, number];
+  shape: [number, number, number];
 }
 ```
 
@@ -197,13 +197,13 @@ Tallies define what physical quantities to score, on which filters, and with whi
 
 ```typescript
 interface OpenMCTally {
-    id: number;
-    name?: string;
-    scores: OpenMCTallyScore[];      // 'flux', 'fission', 'heating', ...
-    nuclides: string[];              // 'total' or specific nuclide names
-    filters: OpenMCTallyFilter[];    // cell, energy, mesh, ...
-    estimator?: 'analog' | 'tracklength' | 'collision';
-    multiplyDensity?: boolean;
+  id: number;
+  name?: string;
+  scores: OpenMCTallyScore[]; // 'flux', 'fission', 'heating', ...
+  nuclides: string[]; // 'total' or specific nuclide names
+  filters: OpenMCTallyFilter[]; // cell, energy, mesh, ...
+  estimator?: 'analog' | 'tracklength' | 'collision';
+  multiplyDensity?: boolean;
 }
 ```
 
@@ -215,11 +215,11 @@ interface OpenMCTally {
 
 Meshes are used by tally filters and variance reduction. Three coordinate systems are supported:
 
-| Type | Interface | Key Properties |
-|------|-----------|----------------|
-| **Regular** | `OpenMCRegularMesh` | `lowerLeft`, `upperRight`, `dimension: [nx, ny, nz]` |
-| **Cylindrical** | `OpenMCCylindricalMesh` | `origin`, `axis`, `rGrid`, `phiGrid`, `zGrid` |
-| **Spherical** | `OpenMCSphericalMesh` | `origin`, `rGrid`, `thetaGrid`, `phiGrid` |
+| Type            | Interface               | Key Properties                                       |
+| --------------- | ----------------------- | ---------------------------------------------------- |
+| **Regular**     | `OpenMCRegularMesh`     | `lowerLeft`, `upperRight`, `dimension: [nx, ny, nz]` |
+| **Cylindrical** | `OpenMCCylindricalMesh` | `origin`, `axis`, `rGrid`, `phiGrid`, `zGrid`        |
+| **Spherical**   | `OpenMCSphericalMesh`   | `origin`, `rGrid`, `thetaGrid`, `phiGrid`            |
 
 **Concept:** All mesh types share `id` and `name` but have coordinate-system-specific grid definitions. The tally configurator renders a mesh preview using the bounding box for regular meshes and the grid arrays for curvilinear meshes.
 
@@ -229,12 +229,12 @@ Meshes are used by tally filters and variance reduction. Three coordinate system
 
 ```typescript
 interface OpenMCVarianceReduction {
-    weightWindows?: OpenMCWeightWindows;
-    weightWindowGenerator?: { iterations?: number; particleType?: 'neutron' | 'photon' };
-    sourceBiasing?: OpenMCSourceBiasing;
-    survivalBiasing?: boolean;
-    cutoff?: { weight?: number; weightAvg?: number };
-    ufs?: OpenMCUFS;   // Uniform Fission Site
+  weightWindows?: OpenMCWeightWindows;
+  weightWindowGenerator?: { iterations?: number; particleType?: 'neutron' | 'photon' };
+  sourceBiasing?: OpenMCSourceBiasing;
+  survivalBiasing?: boolean;
+  cutoff?: { weight?: number; weightAvg?: number };
+  ufs?: OpenMCUFS; // Uniform Fission Site
 }
 ```
 
@@ -272,17 +272,17 @@ Parameter sweeps for sensitivity studies and design optimization:
 
 ```typescript
 interface OpenMCParameterSweep {
-    id: number;
-    name: string;
-    enabled: boolean;
-    variable: string;               // Human-readable name
-    parameterType: 'material' | 'geometry' | 'settings';
-    parameterPath: string;          // JSON path, e.g. 'materials.0.density'
-    rangeType: 'linear' | 'logarithmic';
-    startValue: number;
-    endValue: number;
-    numPoints: number;
-    values?: number[];              // Computed by StateManager
+  id: number;
+  name: string;
+  enabled: boolean;
+  variable: string; // Human-readable name
+  parameterType: 'material' | 'geometry' | 'settings';
+  parameterPath: string; // JSON path, e.g. 'materials.0.density'
+  rangeType: 'linear' | 'logarithmic';
+  startValue: number;
+  endValue: number;
+  numPoints: number;
+  values?: number[]; // Computed by StateManager
 }
 ```
 
@@ -325,6 +325,7 @@ The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.0.0'`) is embedded in 
 ## Default State
 
 `createDefaultState()` (in `openmc-state-manager.ts`) produces a minimal valid state:
+
 - Root universe `0` with no cells
 - Eigenvalue run settings (`1000` particles, `10` inactive, `100` batches)
 - A single box source centered at the origin with `1 MeV` discrete energy

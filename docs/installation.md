@@ -4,20 +4,20 @@ This page covers how to install NukeIDE from source.
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Node.js | >= 22 | Theia frontend and build tooling |
-| Yarn | >= 1.7.0 < 2 | Package manager (monorepo hoisting) |
-| Python | >= 3.12 | Backend services for extensions |
-| Git | any | Cloning the repository |
+| Tool    | Version      | Purpose                             |
+| ------- | ------------ | ----------------------------------- |
+| Node.js | >= 22        | Theia frontend and build tooling    |
+| Yarn    | >= 1.7.0 < 2 | Package manager (monorepo hoisting) |
+| Python  | >= 3.12      | Backend services for extensions     |
+| Git     | any          | Cloning the repository              |
 
 Optional but recommended:
 
-| Tool | Purpose |
-|------|---------|
-| OpenMC | Monte Carlo simulations (required for OpenMC Studio) |
-| DAGMC | Faceted geometry workflows |
-| Conda / Mamba | Python environment management |
+| Tool          | Purpose                                              |
+| ------------- | ---------------------------------------------------- |
+| OpenMC        | Monte Carlo simulations (required for OpenMC Studio) |
+| DAGMC         | Faceted geometry workflows                           |
+| Conda / Mamba | Python environment management                        |
 
 ## Clone and Install
 
@@ -34,6 +34,7 @@ yarn download:plugins
 ```
 
 The `yarn` command will:
+
 1. Install root dependencies
 2. Hoist shared packages
 3. Run `lerna run prepare` to compile all extensions and applications
@@ -94,13 +95,17 @@ lerna run build
 ## Troubleshooting
 
 **`yarn` fails with engine errors**
+
 > Make sure you're using Yarn classic (`1.x`) and Node.js >= 22.
 
 **Plugins fail to download**
+
 > Run `yarn download:plugins` again with a stable internet connection. Some Open VSX requests may time out.
 
 **Python backends not found**
+
 > Use the command `Nuke: Switch Environment` to select the correct Python interpreter. If OpenMC is missing, install it via `conda install -c conda-forge openmc`.
 
 **Build errors in extensions**
+
 > Run `lerna run build` from the root. If a single extension fails, navigate to it and run `yarn build` or `tsc` directly to see the error.

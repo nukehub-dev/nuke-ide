@@ -27,18 +27,15 @@
 
 /**
  * XML Generation Service
- * 
+ *
  * Backend service for generating OpenMC XML files from the simulation state.
- * 
+ *
  * @module openmc-studio/node
  */
 
 import { injectable } from '@theia/core/shared/inversify';
 
-import {
-    XMLGenerationRequest,
-    XMLGenerationResult
-} from '../common/openmc-studio-protocol';
+import { XMLGenerationRequest, XMLGenerationResult } from '../common/openmc-studio-protocol';
 
 import {
     OpenMCState,
@@ -68,7 +65,6 @@ import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
  */
 @injectable()
 export class XMLGenerationService {
-
     /**
      * Set the client for log messages.
      * Note: Currently unused - client notifications disabled to prevent disconnect errors.
@@ -97,16 +93,16 @@ export class XMLGenerationService {
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         const generatedFiles: string[] = [];
         const warnings: string[] = [];
-        
+
         try {
             const fs = await import('fs');
             const path = await import('path');
-            
+
             // Create output directory if it doesn't exist
             if (!fs.existsSync(request.outputDirectory)) {
                 fs.mkdirSync(request.outputDirectory, { recursive: true });
             }
-            
+
             // Generate materials.xml
             if (request.files.materials) {
                 const materialsPath = path.join(request.outputDirectory, 'materials.xml');
@@ -115,7 +111,7 @@ export class XMLGenerationService {
                 generatedFiles.push(materialsPath);
                 this.log(`Generated materials.xml`);
             }
-            
+
             // Generate geometry.xml (empty for DAGMC - geometry is in the .h5m file)
             if (request.files.geometry) {
                 const geometryPath = path.join(request.outputDirectory, 'geometry.xml');
@@ -133,7 +129,7 @@ export class XMLGenerationService {
                     this.log(`Generated geometry.xml`);
                 }
             }
-            
+
             // Generate settings.xml
             if (request.files.settings) {
                 const settingsPath = path.join(request.outputDirectory, 'settings.xml');
@@ -142,7 +138,7 @@ export class XMLGenerationService {
                 generatedFiles.push(settingsPath);
                 this.log(`Generated settings.xml`);
             }
-            
+
             // Copy DAGMC file to output directory as geometry.h5m (required by OpenMC)
             if (request.state.settings.dagmcFile) {
                 const dagmcSource = request.state.settings.dagmcFile;
@@ -156,7 +152,7 @@ export class XMLGenerationService {
                     this.log(`Warning: Failed to copy DAGMC file: ${msg}`);
                 }
             }
-            
+
             // Generate tallies.xml
             if (request.files.tallies && request.state.tallies.length > 0) {
                 const talliesPath = path.join(request.outputDirectory, 'tallies.xml');
@@ -165,7 +161,7 @@ export class XMLGenerationService {
                 generatedFiles.push(talliesPath);
                 this.log(`Generated tallies.xml`);
             }
-            
+
             // Generate plots.xml
             if (request.files.plots && request.state.plots && request.state.plots.length > 0) {
                 const plotsPath = path.join(request.outputDirectory, 'plots.xml');
@@ -174,17 +170,16 @@ export class XMLGenerationService {
                 generatedFiles.push(plotsPath);
                 this.log(`Generated plots.xml`);
             }
-            
+
             return {
                 success: true,
                 generatedFiles,
                 warnings: warnings.length > 0 ? warnings : undefined
             };
-            
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.log(`Error generating XML: ${msg}`);
-            
+
             return {
                 success: false,
                 generatedFiles,
@@ -205,12 +200,8 @@ export class XMLGenerationService {
      */
 
     private generateMaterialsXML(state: OpenMCState): string {
-        const lines: string[] = [
-            '<?xml version="1.0"?>',
-            '<materials>',
-            ''
-        ];
-        
+        const lines: string[] = ['<?xml version="1.0"?>', '<materials>', ''];
+
         // Debug logging for DAGMC
         if (state.settings.dagmcFile) {
             this.log(`DAGMC mode detected. dagmcFile: ${state.settings.dagmcFile}`);
@@ -222,59 +213,61 @@ export class XMLGenerationService {
                 this.log('No DAGMC materials found in dagmcInfo');
             }
         }
-        
+
         // Add user-defined materials
         for (const material of state.materials) {
             lines.push(this.generateMaterialElement(material));
         }
-        
+
         // For DAGMC mode: check for missing materials (user must create them)
         if (state.settings.dagmcInfo?.materials) {
             const dagmcMaterials = state.settings.dagmcInfo.materials;
-            const existingMaterialNames = new Set(state.materials.map(m => m.name.toLowerCase()));
-            
+            const existingMaterialNames = new Set(state.materials.map((m) => m.name.toLowerCase()));
+
             const missingMaterials: string[] = [];
-            
+
             for (const dagmcMaterialName of Object.keys(dagmcMaterials)) {
                 if (!existingMaterialNames.has(dagmcMaterialName.toLowerCase())) {
                     missingMaterials.push(dagmcMaterialName);
                 }
             }
-            
+
             if (missingMaterials.length > 0) {
-                this.log(`WARNING: DAGMC materials not defined: ${missingMaterials.join(', ')}. ` +
-                    `Create these materials in the Materials tab with appropriate nuclides.`);
+                this.log(
+                    `WARNING: DAGMC materials not defined: ${missingMaterials.join(', ')}. ` +
+                        `Create these materials in the Materials tab with appropriate nuclides.`
+                );
             }
         }
-        
+
         lines.push('</materials>');
-        
+
         return lines.join('\n');
     }
 
     private generateMaterialElement(material: OpenMCMaterial): string {
         const lines: string[] = [];
-        
+
         const depletableAttr = material.isDepletable ? ' depletable="true"' : '';
         const volumeAttr = material.volume ? ` volume="${material.volume}"` : '';
         const tempAttr = material.temperature ? ` temperature="${material.temperature}"` : '';
-        
+
         lines.push(`  <material id="${material.id}" name="${this.escapeXml(material.name)}"${depletableAttr}${volumeAttr}${tempAttr}>`);
         lines.push(`    <density units="${material.densityUnit}" value="${material.density}"/>`);
-        
+
         // Add nuclides
         for (const nuclide of material.nuclides) {
             lines.push(`    <nuclide ao="${nuclide.fraction}" name="${nuclide.name}"/>`);
         }
-        
+
         // Add S(alpha,beta) if present
         for (const sab of material.thermalScattering) {
             lines.push(`    <sab name="${sab.name}"/>`);
         }
-        
+
         lines.push('  </material>');
         lines.push('');
-        
+
         return lines.join('\n');
     }
 
@@ -289,31 +282,27 @@ export class XMLGenerationService {
      */
 
     private generateGeometryXML(state: OpenMCState): string {
-        const lines: string[] = [
-            '<?xml version="1.0"?>',
-            '<geometry>',
-            ''
-        ];
-        
+        const lines: string[] = ['<?xml version="1.0"?>', '<geometry>', ''];
+
         // Add surfaces
         for (const surface of state.geometry.surfaces) {
             lines.push(this.generateSurfaceElement(surface));
         }
-        
+
         // Add cells with their universe assignments
         for (const cell of state.geometry.cells) {
             // Find which universe this cell belongs to
-            const universe = state.geometry.universes.find(u => u.cellIds.includes(cell.id));
+            const universe = state.geometry.universes.find((u) => u.cellIds.includes(cell.id));
             lines.push(this.generateCellElement(cell, universe?.id ?? 0));
         }
-        
+
         // Add lattices
         for (const lattice of state.geometry.lattices) {
             lines.push(this.generateLatticeElement(lattice));
         }
-        
+
         lines.push('</geometry>');
-        
+
         return lines.join('\n');
     }
 
@@ -335,10 +324,10 @@ export class XMLGenerationService {
         const boundary = surface.boundary === 'reflective' ? 'reflective' : 'vacuum';
         const boundaryAttr = ` boundary="${boundary}"`;
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
-        
+
         // Map internal surface type to OpenMC-compatible type
         const openmcType = this.mapSurfaceTypeToOpenMC(surface);
-        
+
         return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${nameAttr}/>`;
     }
 
@@ -349,19 +338,19 @@ export class XMLGenerationService {
     private mapSurfaceTypeToOpenMC(surface: OpenMCSurface): string {
         const type = surface.type;
         const coeffs = surface.coefficients as any;
-        
+
         // Handle generic cylinder type - determine axis from direction vector
         if (type === 'cylinder') {
             // Generic cylinder has: x0, y0, z0, r, vx, vy, vz (center and direction vector)
             const vx = coeffs.vx ?? 0;
             const vy = coeffs.vy ?? 0;
             const vz = coeffs.vz ?? 1; // default to z-axis
-            
+
             // Determine principal axis from direction vector
             const absVx = Math.abs(vx);
             const absVy = Math.abs(vy);
             const absVz = Math.abs(vz);
-            
+
             if (absVx >= absVy && absVx >= absVz) {
                 return 'x-cylinder';
             } else if (absVy >= absVx && absVy >= absVz) {
@@ -370,7 +359,7 @@ export class XMLGenerationService {
                 return 'z-cylinder';
             }
         }
-        
+
         // All other types map directly
         return type;
     }
@@ -378,7 +367,7 @@ export class XMLGenerationService {
     private coeffsToString(surface: OpenMCSurface): string {
         const type = surface.type;
         const coeffs = surface.coefficients as any;
-        
+
         // Handle generic cylinder - need to output only relevant coefficients for axis-aligned
         if (type === 'cylinder') {
             const x0 = coeffs.x0 ?? 0;
@@ -388,12 +377,12 @@ export class XMLGenerationService {
             const vx = coeffs.vx ?? 0;
             const vy = coeffs.vy ?? 0;
             const vz = coeffs.vz ?? 1;
-            
+
             // Determine which axis the cylinder is aligned with
             const absVx = Math.abs(vx);
             const absVy = Math.abs(vy);
             const absVz = Math.abs(vz);
-            
+
             if (absVx >= absVy && absVx >= absVz) {
                 // x-cylinder: y0, z0, r
                 return `${y0} ${z0} ${r}`;
@@ -405,7 +394,7 @@ export class XMLGenerationService {
                 return `${x0} ${y0} ${r}`;
             }
         }
-        
+
         // All other types - format coefficients directly
         const values = Object.values(coeffs);
         return values.join(' ');
@@ -415,7 +404,7 @@ export class XMLGenerationService {
         const nameAttr = cell.name ? ` name="${this.escapeXml(cell.name)}"` : '';
         const tempAttr = cell.temperature ? ` temperature="${cell.temperature}"` : '';
         const universeAttr = universeId !== 0 ? ` universe="${universeId}"` : '';
-        
+
         // Build attributes for self-closing tag (compatible with OpenMC geometry viewer)
         let fillAttr = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
@@ -426,7 +415,7 @@ export class XMLGenerationService {
             fillAttr = ` fill="${cell.fillId}"`;
         }
         // Note: void cells don't need a material attribute (empty cell)
-        
+
         // Build region attribute
         let regionAttr = '';
         let regionValue = '';
@@ -438,21 +427,21 @@ export class XMLGenerationService {
         if (regionValue) {
             regionAttr = ` region="${this.escapeXml(regionValue)}"`;
         }
-        
+
         // Use self-closing tag format for cleaner XML
         return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}/>\n`;
     }
 
     private regionNodeToString(node: any): string {
         if (!node) return '';
-        
+
         if (node.type === 'surface') {
             return node.surfaceId > 0 ? `+${node.surfaceId}` : `${node.surfaceId}`;
         }
-        
+
         if (node.type === 'operator') {
             const children = node.children?.map((c: any) => this.regionNodeToString(c)).filter(Boolean) || [];
-            
+
             if (node.operator === 'intersection') {
                 return children.join(' ');
             } else if (node.operator === 'union') {
@@ -461,17 +450,17 @@ export class XMLGenerationService {
                 return `~${children[0] || ''}`;
             }
         }
-        
+
         return '';
     }
 
     private generateLatticeElement(lattice: OpenMCLattice): string {
         const lines: string[] = [];
-        
+
         // This is a simplified implementation
         // Full implementation would handle different lattice types
         lines.push(`  <!-- Lattice ${lattice.id} generation not yet fully implemented -->`);
-        
+
         return lines.join('\n');
     }
 
@@ -486,18 +475,14 @@ export class XMLGenerationService {
      */
 
     private generateSettingsXML(state: OpenMCState): string {
-        const lines: string[] = [
-            '<?xml version="1.0"?>',
-            '<settings>',
-            ''
-        ];
-        
+        const lines: string[] = ['<?xml version="1.0"?>', '<settings>', ''];
+
         const settings = state.settings;
         const run = settings.run;
-        
+
         // Run mode
         lines.push(`  <run_mode>${run.mode}</run_mode>`);
-        
+
         // Handle different run modes
         if (run.mode === 'eigenvalue') {
             const eigenRun = run as OpenMCEigenvalueSettings;
@@ -509,7 +494,7 @@ export class XMLGenerationService {
             lines.push(`  <particles>${fixedRun.particles}</particles>`);
             lines.push(`  <batches>${fixedRun.batches}</batches>`);
         }
-        
+
         // Sources
         if (settings.sources && settings.sources.length > 0) {
             let validSources = 0;
@@ -538,17 +523,17 @@ export class XMLGenerationService {
             lines.push('    </space>');
             lines.push('  </source>');
         }
-        
+
         // Seed
         if (settings.seed) {
             lines.push(`  <seed>${settings.seed}</seed>`);
         }
-        
+
         // Source rejection fraction (must be > 0)
         if (settings.sourceRejectionFraction !== undefined && settings.sourceRejectionFraction > 0) {
             lines.push(`  <source_rejection_fraction>${settings.sourceRejectionFraction}</source_rejection_fraction>`);
         }
-        
+
         // Temperature settings
         if (settings.temperature) {
             lines.push('  <temperature_default>');
@@ -560,7 +545,7 @@ export class XMLGenerationService {
             }
             lines.push('  </temperature_default>');
         }
-        
+
         // Cutoff
         if (settings.cutoff) {
             lines.push('  <cutoff>');
@@ -572,12 +557,12 @@ export class XMLGenerationService {
             }
             lines.push('  </cutoff>');
         }
-        
+
         // Photon transport
         if (settings.photonTransport) {
             lines.push(`  <photon_transport>true</photon_transport>`);
         }
-        
+
         // DAGMC geometry file
         if (settings.dagmcFile) {
             lines.push('');
@@ -594,7 +579,7 @@ export class XMLGenerationService {
                 lines.push(`    <chain_file>${state.depletion.chainFile}</chain_file>`);
             }
             if (state.depletion.timeSteps && state.depletion.timeSteps.length > 0) {
-                const timeSteps = state.depletion.timeSteps.map(ts => {
+                const timeSteps = state.depletion.timeSteps.map((ts) => {
                     // If it's a string like "1 d", convert to seconds
                     if (typeof ts === 'string') {
                         const match = ts.match(/^([\d.]+)\s*([smhdwy])$/i);
@@ -602,12 +587,12 @@ export class XMLGenerationService {
                             const value = parseFloat(match[1]);
                             const unit = match[2].toLowerCase();
                             const multipliers: { [key: string]: number } = {
-                                's': 1,
-                                'm': 60,
-                                'h': 3600,
-                                'd': 86400,
-                                'w': 604800,
-                                'y': 31536000
+                                s: 1,
+                                m: 60,
+                                h: 3600,
+                                d: 86400,
+                                w: 604800,
+                                y: 31536000
                             };
                             return Math.round(value * (multipliers[unit] || 1));
                         }
@@ -618,7 +603,7 @@ export class XMLGenerationService {
             }
             // Calculate and write power
             let totalPower = state.depletion.power;
-            
+
             // If powerDensity is specified, calculate total power from depletable materials
             if (totalPower === undefined && state.depletion.powerDensity !== undefined && state.materials) {
                 let totalMassG = 0;
@@ -632,30 +617,30 @@ export class XMLGenerationService {
                     totalPower = state.depletion.powerDensity * totalMassG;
                 }
             }
-            
+
             if (totalPower !== undefined && totalPower > 0) {
                 lines.push(`    <power>${totalPower.toFixed(6)}</power>`);
             }
-            
+
             // Also store power density if specified (for reference)
             if (state.depletion.powerDensity !== undefined) {
                 lines.push(`    <power_density>${state.depletion.powerDensity}</power_density>`);
             }
-            
+
             lines.push('  </depletion>');
         }
 
         // Variance Reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
-            
+
             // Survival biasing
             if (vr.survivalBiasing) {
                 lines.push('');
                 lines.push('  <!-- Variance Reduction -->');
                 lines.push('  <survival_biasing>true</survival_biasing>');
             }
-            
+
             // Cutoff settings
             if (vr.cutoff && (vr.cutoff.weight !== undefined || vr.cutoff.weightAvg !== undefined)) {
                 lines.push('  <cutoff>');
@@ -667,7 +652,7 @@ export class XMLGenerationService {
                 }
                 lines.push('  </cutoff>');
             }
-            
+
             // Weight window generator
             if (vr.weightWindowGenerator) {
                 lines.push('  <weight_window_generator>');
@@ -679,19 +664,19 @@ export class XMLGenerationService {
                 }
                 lines.push('  </weight_window_generator>');
             }
-            
+
             // Weight windows
             if (vr.weightWindows) {
                 const ww = vr.weightWindows;
                 lines.push('  <weight_windows id="1">');
-                
+
                 if (ww.meshId !== undefined) {
                     lines.push(`    <mesh>${ww.meshId}</mesh>`);
                 }
-                
+
                 // Particle type (required, default neutron)
                 lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
-                
+
                 // Calculate number of mesh cells for bounds array
                 let numCells = 1;
                 const mesh = state.meshes.find((m: OpenMCMesh) => m.id === ww.meshId);
@@ -707,28 +692,28 @@ export class XMLGenerationService {
                         numCells = (sphMesh.rGrid.length - 1) * (sphMesh.thetaGrid.length - 1) * (sphMesh.phiGrid.length - 1);
                     }
                 }
-                
+
                 // Number of energy groups (N bounds = N-1 groups)
                 const numEnergyGroups = ww.energyBounds && ww.energyBounds.length > 1 ? ww.energyBounds.length - 1 : 1;
                 const totalBounds = numCells * numEnergyGroups;
-                
+
                 // Lower ww bounds - must have one value per mesh cell per energy group
                 const lowerBoundValue = typeof ww.lowerBound === 'number' ? ww.lowerBound : 0.5;
                 const lowerBounds = Array(totalBounds).fill(lowerBoundValue);
                 lines.push(`    <lower_ww_bounds>${lowerBounds.join(' ')}</lower_ww_bounds>`);
-                
+
                 // Upper ww bounds - must have one value per mesh cell per energy group
                 const upperBoundValue = typeof ww.upperBound === 'number' ? ww.upperBound : lowerBoundValue * 2;
                 const upperBounds = Array(totalBounds).fill(upperBoundValue);
                 lines.push(`    <upper_ww_bounds>${upperBounds.join(' ')}</upper_ww_bounds>`);
-                
+
                 // Survival ratio (default 3.0)
                 lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
-                
+
                 // Required parameters
                 lines.push(`    <max_split>10</max_split>`);
                 lines.push(`    <weight_cutoff>1e-38</weight_cutoff>`);
-                
+
                 // Energy bounds - REQUIRED by OpenMC
                 // Must have at least 2 bounds to define 1 energy group
                 if (ww.energyBounds && ww.energyBounds.length >= 2) {
@@ -736,10 +721,10 @@ export class XMLGenerationService {
                 } else {
                     this.log('Warning: Weight windows require energy_bounds (minimum 2 values)');
                 }
-                
+
                 lines.push('  </weight_windows>');
             }
-            
+
             // Uniform Fission Site (UFS)
             if (vr.ufs?.enabled) {
                 lines.push('');
@@ -753,24 +738,24 @@ export class XMLGenerationService {
         }
 
         lines.push('</settings>');
-        
+
         return lines.join('\n');
     }
 
     private generateSourceElement(source: any): string {
         const lines: string[] = [];
-        
+
         // Skip sources without proper spatial definition
         if (!source.spatial || !source.spatial.type) {
             this.log(`Warning: Skipping source with no spatial definition`);
             return '';
         }
-        
+
         // Source with required attributes (type, strength, particle)
         const strength = source.strength !== undefined ? source.strength : 1.0;
         const particle = source.particle || 'neutron';
         lines.push(`  <source type="independent" strength="${strength}" particle="${particle}">`);
-        
+
         // Generate spatial distribution with parameters
         const spatialLines = this.generateSpatialElement(source.spatial);
         if (spatialLines) {
@@ -780,61 +765,61 @@ export class XMLGenerationService {
             this.log(`Warning: Skipping source with unsupported spatial type: ${source.spatial.type}`);
             return '';
         }
-        
+
         if (source.energy) {
             const energyLines = this.generateEnergyElement(source.energy);
             if (energyLines) {
                 lines.push(energyLines);
             }
         }
-        
+
         if (source.angle) {
             const angleLines = this.generateAngleElement(source.angle);
             if (angleLines) {
                 lines.push(angleLines);
             }
         }
-        
+
         lines.push('  </source>');
-        
+
         return lines.join('\n');
     }
-    
+
     private generateSpatialElement(spatial: any): string {
         const type = spatial.type;
-        
+
         switch (type) {
             case 'box':
                 const lowerLeft = spatial.lowerLeft || [-10, -10, -10];
                 const upperRight = spatial.upperRight || [10, 10, 10];
                 return `    <space type="box">\n      <parameters>${lowerLeft.join(' ')} ${upperRight.join(' ')}</parameters>\n    </space>`;
-                
+
             case 'point':
                 const origin = spatial.origin || [0, 0, 0];
                 return `    <space type="point">\n      <parameters>${origin.join(' ')}</parameters>\n    </space>`;
-                
+
             case 'sphere':
                 // OpenMC XML uses 'spherical' with independent distributions for r, theta, phi
                 const center = spatial.center || [0, 0, 0];
                 const radius = spatial.radius !== undefined ? spatial.radius : 1;
                 return `    <space type="spherical" origin="${center.join(' ')}">\n      <r type="uniform" parameters="0 ${radius}"/>\n      <cos_theta type="uniform" parameters="-1 1"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n    </space>`;
-                
+
             case 'cylinder':
                 // OpenMC XML uses 'cylindrical' with independent distributions for r, phi, z
                 const cylCenter = spatial.center || [0, 0, 0];
                 const cylRadius = spatial.radius !== undefined ? spatial.radius : 1;
                 const height = spatial.height !== undefined ? spatial.height : 1;
-                return `    <space type="cylindrical" origin="${cylCenter.join(' ')}">\n      <r type="uniform" parameters="0 ${cylRadius}"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n      <z type="uniform" parameters="-${height/2} ${height/2}"/>\n    </space>`;
-                
+                return `    <space type="cylindrical" origin="${cylCenter.join(' ')}">\n      <r type="uniform" parameters="0 ${cylRadius}"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n      <z type="uniform" parameters="-${height / 2} ${height / 2}"/>\n    </space>`;
+
             default:
                 this.log(`Warning: Unknown spatial type '${type}', using default box`);
                 return '    <space type="box">\n      <parameters>-10 -10 -10 10 10 10</parameters>\n    </space>';
         }
     }
-    
+
     private generateEnergyElement(energy: any): string {
         const type = energy.type;
-        
+
         switch (type) {
             case 'discrete':
                 const energies = energy.energies || [1e6];
@@ -847,41 +832,41 @@ export class XMLGenerationService {
                     params.push(String(prob));
                 }
                 return `    <energy type="discrete">\n      <parameters>${params.join(' ')}</parameters>\n    </energy>`;
-                
+
             case 'uniform':
                 const min = energy.min !== undefined ? energy.min : 1e-5;
                 const max = energy.max !== undefined ? energy.max : 2e7;
                 return `    <energy type="uniform">\n      <parameters>${min} ${max}</parameters>\n    </energy>`;
-                
+
             case 'maxwell':
                 const temp = energy.temperature || 0.025;
                 return `    <energy type="maxwell">\n      <parameters>${temp}</parameters>\n    </energy>`;
-                
+
             case 'watt':
                 const a = energy.a || 0.988;
                 const b = energy.b || 2.249;
                 return `    <energy type="watt">\n      <parameters>${a} ${b}</parameters>\n    </energy>`;
-                
+
             case 'muir':
             case 'tabular':
                 this.log(`Warning: Energy type '${type}' not fully implemented`);
                 return '';
-                
+
             default:
                 return '';
         }
     }
-    
+
     private generateAngleElement(angle: any): string {
         const type = angle.type;
-        
+
         switch (type) {
             case 'isotropic':
                 return '    <angle type="isotropic"/>';
-                
+
             case 'monodirectional':
                 return '    <angle type="monodirectional"/>';
-                
+
             default:
                 this.log(`Warning: Angle type '${type}' not fully implemented`);
                 return '';
@@ -899,21 +884,17 @@ export class XMLGenerationService {
      */
 
     private generateTalliesXML(state: OpenMCState): string {
-        const lines: string[] = [
-            '<?xml version="1.0"?>',
-            '<tallies>',
-            ''
-        ];
-        
+        const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
+
         // Add meshes first
         for (const mesh of state.meshes) {
             lines.push(this.generateMeshElement(mesh));
         }
-        
+
         // Collect all unique filters and assign them IDs
         const filterMap = new Map<string, { id: number; type: string; bins: number[]; meshId?: number }>();
         let nextFilterId = 1;
-        
+
         for (const tally of state.tallies) {
             for (const filter of tally.filters) {
                 // Create a unique key for this filter
@@ -928,22 +909,22 @@ export class XMLGenerationService {
                 }
             }
         }
-        
+
         // Generate filter elements at the top level
         for (const filter of filterMap.values()) {
             lines.push(this.generateFilterElement(filter));
         }
-        
+
         // Add tallies with filter references
         for (const tally of state.tallies) {
             lines.push(this.generateTallyElement(tally, filterMap));
         }
-        
+
         lines.push('</tallies>');
-        
+
         return lines.join('\n');
     }
-    
+
     private getFilterKey(filter: any): string {
         // Create a unique key based on filter type, bins, and meshId
         const baseKey = `${filter.type}:${filter.bins.join(',')}`;
@@ -993,10 +974,10 @@ export class XMLGenerationService {
     }
     private generateTallyElement(tally: OpenMCTally, filterMap: Map<string, any>): string {
         const lines: string[] = [];
-        
+
         const nameAttr = tally.name ? ` name="${this.escapeXml(tally.name)}"` : '';
         lines.push(`  <tally id="${tally.id}"${nameAttr}>`);
-        
+
         // Collect filter IDs for this tally
         const filterIds: number[] = [];
         for (const filter of tally.filters) {
@@ -1006,36 +987,36 @@ export class XMLGenerationService {
                 filterIds.push(filterDef.id);
             }
         }
-        
+
         // Add filters reference if there are any filters
         if (filterIds.length > 0) {
             lines.push(`    <filters>${filterIds.join(' ')}</filters>`);
         }
-        
+
         // Add nuclides
         for (const nuclide of tally.nuclides) {
             lines.push(`    <nuclide>${nuclide}</nuclide>`);
         }
-        
+
         // Add scores - space-separated in a single element
         if (tally.scores.length > 0) {
             lines.push(`    <scores>${tally.scores.join(' ')}</scores>`);
         }
-        
+
         // Estimator
         if (tally.estimator) {
             lines.push(`    <estimator>${tally.estimator}</estimator>`);
         }
-        
+
         lines.push('  </tally>');
         lines.push('');
-        
+
         return lines.join('\n');
     }
 
     private generateFilterElement(filter: any): string {
         const lines: string[] = [];
-        
+
         // Mesh filter needs a mesh attribute
         if (filter.meshId !== undefined) {
             lines.push(`  <filter id="${filter.id}" type="mesh">`);
@@ -1046,7 +1027,7 @@ export class XMLGenerationService {
         }
         lines.push('  </filter>');
         lines.push('');
-        
+
         return lines.join('\n');
     }
 
@@ -1061,40 +1042,36 @@ export class XMLGenerationService {
      */
 
     private generatePlotsXML(state: OpenMCState): string {
-        const lines: string[] = [
-            '<?xml version="1.0"?>',
-            '<plots>',
-            ''
-        ];
-        
+        const lines: string[] = ['<?xml version="1.0"?>', '<plots>', ''];
+
         for (const plot of state.plots || []) {
             lines.push(this.generatePlotElement(plot));
         }
-        
+
         lines.push('</plots>');
-        
+
         return lines.join('\n');
     }
 
     private generatePlotElement(plot: any): string {
         const lines: string[] = [];
-        
+
         lines.push(`  <plot basis="${plot.basis}" color_by="${plot.colorBy}" id="${plot.id}" type="${plot.type}">`);
         lines.push(`    <origin>${plot.origin.join(' ')}</origin>`);
-        
+
         if (plot.type === 'slice') {
             lines.push(`    <width>${plot.width}</width>`);
             lines.push(`    <height>${plot.height}</height>`);
             lines.push(`    <pixels>${plot.pixels.join(' ')}</pixels>`);
         }
-        
+
         if (plot.meshlines) {
             lines.push('    <meshlines>1</meshlines>');
         }
-        
+
         lines.push('  </plot>');
         lines.push('');
-        
+
         return lines.join('\n');
     }
 
@@ -1109,11 +1086,6 @@ export class XMLGenerationService {
      */
 
     private escapeXml(text: string): string {
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+        return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
     }
 }

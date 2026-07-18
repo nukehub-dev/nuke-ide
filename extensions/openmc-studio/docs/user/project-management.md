@@ -27,22 +27,22 @@ If you already have `geometry.xml`, `materials.xml`, and `settings.xml` open:
 
 A `.nuke-openmc` file is a compressed archive containing:
 
-| Entry | Description |
-|-------|-------------|
-| `manifest.json` | Project metadata and file index |
-| `geometry.xml` | CSG geometry definition |
-| `materials.xml` | Material compositions |
-| `settings.xml` | Simulation settings |
-| `tallies.xml` *(optional)* | Tally definitions |
-| `plots.xml` *(optional)* | Plot specifications |
-| `statepoints/` *(optional)* | Result `.h5` files included in the project |
-| `cad/` *(optional)* | Imported CAD source files |
+| Entry                       | Description                                |
+| --------------------------- | ------------------------------------------ |
+| `manifest.json`             | Project metadata and file index            |
+| `geometry.xml`              | CSG geometry definition                    |
+| `materials.xml`             | Material compositions                      |
+| `settings.xml`              | Simulation settings                        |
+| `tallies.xml` _(optional)_  | Tally definitions                          |
+| `plots.xml` _(optional)_    | Plot specifications                        |
+| `statepoints/` _(optional)_ | Result `.h5` files included in the project |
+| `cad/` _(optional)_         | Imported CAD source files                  |
 
 ### Save vs. Save As
 
-| Action | Behavior |
-|--------|----------|
-| **Save Project** | Overwrites the existing `.nuke-openmc` file with current state |
+| Action              | Behavior                                                         |
+| ------------------- | ---------------------------------------------------------------- |
+| **Save Project**    | Overwrites the existing `.nuke-openmc` file with current state   |
 | **Save Project As** | Creates a new `.nuke-openmc` file; leaves the original untouched |
 
 > **Tip:** Enable `Auto-save on simulation complete` in project settings to automatically capture statepoints after each run.
@@ -52,12 +52,15 @@ A `.nuke-openmc` file is a compressed archive containing:
 ## Opening an Existing Project
 
 ### Method 1: File Dialog
+
 `File → Open Project` → select any `.nuke-openmc` file.
 
 ### Method 2: Explorer
+
 Click a `.nuke-openmc` file in the Explorer sidebar.
 
 ### Method 3: Recent Projects
+
 `File → Open Recent → OpenMC Projects`
 
 ### What Happens on Open
@@ -75,14 +78,14 @@ Click a `.nuke-openmc` file in the Explorer sidebar.
 
 Templates give you a verified starting point instead of a blank slate.
 
-| Template | Description | Included Files |
-|----------|-------------|----------------|
-| **Blank** | Empty project with default placeholders | `geometry.xml`, `materials.xml`, `settings.xml` |
-| **PWR Pin Cell** | Infinite fuel pin with water coolant | Pin-cell geometry, UO2 + Zircaloy + H2O materials |
-| **BWR Assembly** | 8×8 fuel assembly with cruciform control blade | Assembly lattice, gadolinia pins, void slots |
-| **CANDU Bundle** | 37-element natural uranium bundle | Bundle geometry, D2O coolant, pressure tube |
-| **Sphere of Plutonium** | Bare critical sphere (Godiva-like) | Simple sphere, Pu-239 metal |
-| **Depletion Problem** | 2D pin cell with chain file ready | Geometry, materials, depletion settings, sample chain XML |
+| Template                | Description                                    | Included Files                                            |
+| ----------------------- | ---------------------------------------------- | --------------------------------------------------------- |
+| **Blank**               | Empty project with default placeholders        | `geometry.xml`, `materials.xml`, `settings.xml`           |
+| **PWR Pin Cell**        | Infinite fuel pin with water coolant           | Pin-cell geometry, UO2 + Zircaloy + H2O materials         |
+| **BWR Assembly**        | 8×8 fuel assembly with cruciform control blade | Assembly lattice, gadolinia pins, void slots              |
+| **CANDU Bundle**        | 37-element natural uranium bundle              | Bundle geometry, D2O coolant, pressure tube               |
+| **Sphere of Plutonium** | Bare critical sphere (Godiva-like)             | Simple sphere, Pu-239 metal                               |
+| **Depletion Problem**   | 2D pin cell with chain file ready              | Geometry, materials, depletion settings, sample chain XML |
 
 ### Creating a Custom Template
 
@@ -97,15 +100,15 @@ Templates give you a verified starting point instead of a blank slate.
 
 View and edit metadata in the **Project Info** panel (`Project → Project Info`).
 
-| Field | Editable? | Description |
-|-------|-----------|-------------|
-| **Name** | Yes | Display name of the project |
-| **Description** | Yes | Free-text notes about the model |
-| **Author** | Yes | User or team name |
-| **Created** | No | Timestamp of first save |
-| **Modified** | No | Timestamp of last save |
-| **OpenMC Version** | No | Version used to generate the XML files |
-| **UUID** | No | Unique project identifier |
+| Field              | Editable? | Description                            |
+| ------------------ | --------- | -------------------------------------- |
+| **Name**           | Yes       | Display name of the project            |
+| **Description**    | Yes       | Free-text notes about the model        |
+| **Author**         | Yes       | User or team name                      |
+| **Created**        | No        | Timestamp of first save                |
+| **Modified**       | No        | Timestamp of last save                 |
+| **OpenMC Version** | No        | Version used to generate the XML files |
+| **UUID**           | No        | Unique project identifier              |
 
 > **Tip:** Use the Description field to record modeling assumptions, reference data sources, or validation benchmarks the project targets.
 
@@ -180,12 +183,11 @@ You can exchange models with standard OpenMC command-line workflows using XML im
 
 ### Round-Trip Safety
 
-| Feature | Preserved? | Notes |
-|---------|------------|-------|
-| CSG geometry | Yes | All surfaces, cells, lattices |
-| Materials & nuclides | Yes | Densities, enrichment, S(a,b) tables |
-| Settings | Yes | Batches, particles, temperature methods |
-| Tallies | Yes | Filters, scores, nuclides |
-| DAGMC geometry | Partial | DAGMC file path is preserved; the `.h5m` itself is not embedded |
-| Results / statepoints | No | XML workflow does not include `.h5` results |
-
+| Feature               | Preserved? | Notes                                                           |
+| --------------------- | ---------- | --------------------------------------------------------------- |
+| CSG geometry          | Yes        | All surfaces, cells, lattices                                   |
+| Materials & nuclides  | Yes        | Densities, enrichment, S(a,b) tables                            |
+| Settings              | Yes        | Batches, particles, temperature methods                         |
+| Tallies               | Yes        | Filters, scores, nuclides                                       |
+| DAGMC geometry        | Partial    | DAGMC file path is preserved; the `.h5m` itself is not embedded |
+| Results / statepoints | No         | XML workflow does not include `.h5` results                     |

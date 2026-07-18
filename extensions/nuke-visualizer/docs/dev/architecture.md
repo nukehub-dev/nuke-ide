@@ -54,6 +54,7 @@
 The frontend runs in the browser/Electron renderer. It is built on **Theia** and uses **InversifyJS** for dependency injection.
 
 **Responsibilities:**
+
 - Render widgets (React-based or iframe-based)
 - Register commands, menus, and keyboard shortcuts
 - Handle file open events via `OpenHandler`
@@ -61,6 +62,7 @@ The frontend runs in the browser/Electron renderer. It is built on **Theia** and
 - Call backend services over RPC
 
 **Key concepts:**
+
 - **Contribution pattern:** Classes implement `CommandContribution`, `MenuContribution`, `OpenHandler`, etc., and are bound in the DI module.
 - **Widget factories:** Each widget type is registered with a `WidgetFactory` so Theia's `WidgetManager` can create instances.
 - **RPC proxies:** Backend services are accessed via `WebSocketConnectionProvider.createProxy<T>(PATH)`.
@@ -70,11 +72,13 @@ The frontend runs in the browser/Electron renderer. It is built on **Theia** and
 TypeScript interfaces shared by both frontend and backend. These define the RPC contract.
 
 **Responsibilities:**
+
 - Define service interfaces (methods + paths)
 - Define data types (tallies, geometry, cross-sections, etc.)
 - Declare package requirements
 
 **Key files:**
+
 - `base-visualizer-protocol.ts` — Base visualizer RPC + shared types
 - `openmc-protocol.ts` — OpenMC RPC + ~1400 lines of domain types
 
@@ -83,6 +87,7 @@ TypeScript interfaces shared by both frontend and backend. These define the RPC 
 The backend runs in Node.js. It spawns Python processes and manages their lifecycle.
 
 **Responsibilities:**
+
 - Accept RPC calls from the frontend
 - Detect Python environments with required packages
 - Spawn Python visualization servers on free ports
@@ -90,6 +95,7 @@ The backend runs in Node.js. It spawns Python processes and manages their lifecy
 - Convert file formats (e.g., DAGMC .h5m → VTK)
 
 **Key concepts:**
+
 - **RPC handlers:** `RpcConnectionHandler` maps a WebSocket path to a service implementation.
 - **Process management:** Each visualization server gets its own `RawProcess`. Processes are tracked in a `Map<port, process>` and killed on shutdown.
 - **Port allocation:** `findFreePort(startPort)` scans for an available TCP port.
@@ -99,12 +105,14 @@ The backend runs in Node.js. It spawns Python processes and manages their lifecy
 Python scripts that do the actual scientific visualization.
 
 **Responsibilities:**
+
 - Read domain-specific files (HDF5, XML, VTK)
 - Render 3D scenes (Trame + ParaView)
 - Compute derived data (spectra, spatial plots, cross-sections)
 - Serve HTTP on a localhost port
 
 **Key scripts:**
+
 - `server.py` — Unified entry point with auto-discovery and plugin routing
 - `nuke_viz/` — Shared framework (`@command` decorator, registry, server)
 - `plugins/openmc/` — OpenMC plugin (commands + lib modules)
@@ -148,6 +156,7 @@ Plugin = {
 ```
 
 Plugins reuse shared infrastructure:
+
 - `HealthCheckFramework` — register package requirements once
 - `PythonCommandHelper` — detect Python, execute scripts
 - `VisualizerWidget` — iframe container for Python servers
@@ -216,10 +225,10 @@ extensions/nuke-visualizer/
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **iframe widgets for 3D** | Trame/Dash render their own HTML/Canvas. An iframe isolates them from Theia's CSS and gives full control. |
-| **React widgets for 2D plots** | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly. |
-| **One Python process per visualization** | Simplifies lifecycle. Killing a tab kills its server. No shared state corruption. |
-| **RPC over WebSocket** | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`. |
-| **Health checks in frontend** | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection. |
+| Decision                                 | Rationale                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **iframe widgets for 3D**                | Trame/Dash render their own HTML/Canvas. An iframe isolates them from Theia's CSS and gives full control.                |
+| **React widgets for 2D plots**           | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                    |
+| **One Python process per visualization** | Simplifies lifecycle. Killing a tab kills its server. No shared state corruption.                                        |
+| **RPC over WebSocket**                   | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.            |
+| **Health checks in frontend**            | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection. |

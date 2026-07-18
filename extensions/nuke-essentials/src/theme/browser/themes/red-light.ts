@@ -31,11 +31,11 @@ export const redLightTheme = {
     type: 'light',
     colors: {
         // Brand Colors - Red accent
-        'focusBorder': '#d32f2f',
-        'foreground': '#2c3e50',
-        'descriptionForeground': '#5a6c7d',
-        'errorForeground': '#d13b3b',
-        
+        focusBorder: '#d32f2f',
+        foreground: '#2c3e50',
+        descriptionForeground: '#5a6c7d',
+        errorForeground: '#d13b3b',
+
         // Button
         'button.background': '#e53935',
         'button.hoverBackground': '#d32f2f',
@@ -43,11 +43,11 @@ export const redLightTheme = {
         'button.secondaryBackground': '#f2e2e2',
         'button.secondaryHoverBackground': '#e8d5d5',
         'button.secondaryForeground': '#2c3e50',
-        
+
         // Links
         'textLink.foreground': '#d32f2f',
         'textLink.activeForeground': '#e53935',
-        
+
         // Activity Bar
         'activityBar.background': '#fdf5f5',
         'activityBar.foreground': '#424242',
@@ -55,7 +55,7 @@ export const redLightTheme = {
         'activityBar.border': '#eecaca',
         'activityBarBadge.background': '#d32f2f',
         'activityBarBadge.foreground': '#ffffff',
-        
+
         // Side Bar
         'sideBar.background': '#fdf5f5',
         'sideBar.foreground': '#424242',
@@ -64,7 +64,7 @@ export const redLightTheme = {
         'sideBarSectionHeader.background': '#f7eeee',
         'sideBarSectionHeader.foreground': '#24292f',
         'sideBarSectionHeader.border': '#eecaca',
-        
+
         // Status Bar
         'statusBar.background': '#f7eeee',
         'statusBar.foreground': '#424242',
@@ -74,14 +74,14 @@ export const redLightTheme = {
         'statusBarItem.remoteForeground': '#ffffff',
         'statusBarItem.hoverBackground': '#eecaca',
         'statusBarItem.activeBackground': '#dfc9c9',
-        
+
         // Title Bar
         'titleBar.activeBackground': '#f7eeee',
         'titleBar.activeForeground': '#2c3e50',
         'titleBar.border': '#eecaca',
         'titleBar.inactiveBackground': '#f7eeee',
         'titleBar.inactiveForeground': '#6c757d',
-        
+
         // Menubar
         'menubar.selectionBackground': '#eecaca',
         'menubar.selectionForeground': '#2c3e50',
@@ -92,7 +92,7 @@ export const redLightTheme = {
         'menu.selectionForeground': '#2c3e50',
         'menu.selectionBorder': '#eecaca',
         'menu.separatorBackground': '#eecaca',
-        
+
         // Lists
         'list.activeSelectionBackground': '#f7eeee',
         'list.activeSelectionForeground': '#2c3e50',
@@ -104,7 +104,7 @@ export const redLightTheme = {
         'list.focusBackground': '#f7eeee',
         'list.focusForeground': '#2c3e50',
         'list.focusOutline': '#d32f2f',
-        
+
         // Input
         'input.background': '#ffffff',
         'input.foreground': '#2c3e50',
@@ -118,32 +118,32 @@ export const redLightTheme = {
         'inputValidation.warningBorder': '#ffa000',
         'inputValidation.errorBackground': '#ffebee',
         'inputValidation.errorBorder': '#d32f2f',
-        
+
         // Dropdown
         'dropdown.background': '#ffffff',
         'dropdown.foreground': '#2c3e50',
         'dropdown.border': '#eecaca',
-        
+
         // Badge
         'badge.background': '#d32f2f',
         'badge.foreground': '#ffffff',
-        
+
         // Progress Bar
         'progressBar.background': '#d32f2f',
-        
+
         // Panel
         'panel.background': '#fdf5f5',
         'panel.border': '#eecaca',
         'panelTitle.activeForeground': '#2c3e50',
         'panelTitle.activeBorder': '#d32f2f',
         'panelTitle.inactiveForeground': '#6c757d',
-        
+
         // Terminal
         'terminal.background': '#ffffff',
         'terminal.foreground': '#2c3e50',
         'terminal.border': '#eecaca',
         'terminal.selectionBackground': '#d32f2f30',
-        
+
         // Tabs
         'tab.activeBackground': '#ffffff',
         'tab.activeForeground': '#2c3e50',
@@ -156,7 +156,7 @@ export const redLightTheme = {
         'tab.border': '#eecaca',
         'tab.unfocusedActiveBorder': '#eecaca',
         'tab.unfocusedActiveBorderTop': '#eecaca',
-        
+
         // Editor
         'editor.background': '#ffffff',
         'editor.foreground': '#2c3e50',
@@ -174,14 +174,14 @@ export const redLightTheme = {
         'editorWidget.foreground': '#2c3e50',
         'editorWidget.border': '#eecaca',
         'editorWidget.resizeBorder': '#d32f2f',
-        
+
         // Breadcrumb
         'breadcrumb.background': '#ffffff',
         'breadcrumb.foreground': '#6c757d',
         'breadcrumb.focusForeground': '#2c3e50',
         'breadcrumb.activeSelectionForeground': '#2c3e50',
         'breadcrumbPicker.background': '#fdf5f5',
-        
+
         // Picker
         'pickerGroup.foreground': '#d32f2f',
         'pickerGroup.border': '#eecaca',
@@ -189,7 +189,7 @@ export const redLightTheme = {
         'quickInput.foreground': '#2c3e50',
         'quickInputList.focusBackground': '#eecaca',
         'quickInputList.focusForeground': '#2c3e50',
-        
+
         // Notifications
         'notificationCenter.border': '#eecaca',
         'notificationCenterHeader.foreground': '#2c3e50',
@@ -199,7 +199,7 @@ export const redLightTheme = {
         'notifications.background': '#fdf5f5',
         'notifications.border': '#eecaca',
         'notificationLink.foreground': '#d32f2f',
-        
+
         // Settings
         'settings.headerForeground': '#2c3e50',
         'settings.modifiedItemIndicator': '#d32f2f',
@@ -215,18 +215,18 @@ export const redLightTheme = {
         'settings.numberInputBackground': '#ffffff',
         'settings.numberInputForeground': '#2c3e50',
         'settings.numberInputBorder': '#eecaca',
-        
+
         // Scrollbar
         'scrollbar.shadow': '#eecaca',
         'scrollbarSlider.background': '#d32f2f20',
         'scrollbarSlider.hoverBackground': '#d32f2f30',
         'scrollbarSlider.activeBackground': '#d32f2f40',
-        
+
         // Keybinding
         'keybindingLabel.background': '#f7eeee',
         'keybindingLabel.foreground': '#2c3e50',
         'keybindingLabel.border': '#eecaca',
-        'keybindingLabel.bottomBorder': '#eecaca',
+        'keybindingLabel.bottomBorder': '#eecaca'
     },
     tokenColors: [],
     semanticHighlighting: true

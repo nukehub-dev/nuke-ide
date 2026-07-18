@@ -6,8 +6,8 @@ Whether you're running OpenMC Monte Carlo simulations, visualizing DAGMC geometr
 
 ## Quick Links
 
-| Extension | Description | Docs |
-|-----------|-------------|------|
-| **Nuke Core** | Python environment & package management | [User Guide](/nuke-core/user/getting-started) · [Dev Guide](/nuke-core/dev/index) |
-| **Nuke Visualizer** | 3D/2D nuclear data visualization | [User Guide](/nuke-visualizer/user/getting-started) · [Dev Guide](/nuke-visualizer/dev/index) |
-| **OpenMC Studio** | No-code OpenMC simulation workspace | [User Guide](/openmc-studio/user/getting-started) · [Dev Guide](/openmc-studio/dev/index) |
+| Extension           | Description                             | Docs                                                                                          |
+| ------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Nuke Core**       | Python environment & package management | [User Guide](/nuke-core/user/getting-started) · [Dev Guide](/nuke-core/dev/index)             |
+| **Nuke Visualizer** | 3D/2D nuclear data visualization        | [User Guide](/nuke-visualizer/user/getting-started) · [Dev Guide](/nuke-visualizer/dev/index) |
+| **OpenMC Studio**   | No-code OpenMC simulation workspace     | [User Guide](/openmc-studio/user/getting-started) · [Dev Guide](/openmc-studio/dev/index)     |
