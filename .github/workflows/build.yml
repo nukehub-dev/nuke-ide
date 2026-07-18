@@ -32,7 +32,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -44,7 +44,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/electron
@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
@@ -103,7 +103,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $env:GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -115,7 +115,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~\AppData\Local\electron\Cache
@@ -125,7 +125,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
@@ -172,7 +172,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -184,7 +184,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/Library/Caches/electron
@@ -194,7 +194,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
