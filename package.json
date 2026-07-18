@@ -22,6 +22,8 @@
     "build:electron": "yarn generate:preload && yarn --cwd applications/electron bundle",
     "bump-version": "node scripts/bump-version.js",
     "test:python": "python -m pytest",
+    "test:python:cov": "python -m pytest --cov --cov-report=term-missing --cov-report=xml",
+    "test:ts": "vitest run",
     "docker:build": "docker compose -f applications/docker/compose.yml build",
     "docker:up": "docker compose -f applications/docker/compose.yml up",
     "build:electron:prod": "yarn generate:preload && yarn download:plugins && yarn --cwd applications/electron bundle:prod",
@@ -38,7 +40,8 @@
   },
   "devDependencies": {
     "lerna": "2.4.0",
-    "prettier": "^3.9.5"
+    "prettier": "^3.9.5",
+    "vitest": "^4.1.10"
   },
   "theiaPluginsDir": "plugins",
   "theiaPlugins": {
