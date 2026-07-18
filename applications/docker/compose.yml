@@ -16,7 +16,17 @@ services:
       # Headless rendering for the Trame/ParaView Python backends
       QT_QPA_PLATFORM: offscreen
       VTK_USE_OFFSCREEN: '1'
+      # Real OpenMC runs need nuclear data. Mount your library (see below) and
+      # point OPENMC_CROSS_SECTIONS at its cross_sections.xml, e.g.:
+      # OPENMC_CROSS_SECTIONS: /data/nndc_hdf5/cross_sections.xml
     volumes:
       # Persistent user workspace (projects created in the IDE land here)
       - ./workspace:/root/workspace
+      # IDE settings/preferences survive container recreation
+      - nuke-ide-config:/root/.nuke-ide
+      # Optional: mount a nuclear data library for real OpenMC runs, e.g.:
+      # - /path/to/nndc_hdf5:/data/nndc_hdf5:ro
     restart: unless-stopped
+
+volumes:
+  nuke-ide-config:

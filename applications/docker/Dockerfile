@@ -22,7 +22,18 @@ COPY . .
 
 RUN yarn install --frozen-lockfile \
     && yarn build:browser \
-    && yarn download:plugins
+    && yarn download:plugins \
+    # Slim the runtime payload: download caches and dev-only dependencies the
+    # browser backend never loads. Must happen in this stage so the files never
+    # reach the final image layers.
+    && rm -rf /root/.cache \
+    node_modules/electron \
+    node_modules/electron-builder \
+    node_modules/app-builder-lib \
+    node_modules/@electron \
+    node_modules/lerna \
+    node_modules/prettier \
+    node_modules/typescript
 
 ###############################################################################
 # Stage 2 — runtime: miniforge + 'trame' conda env + built app
@@ -52,7 +63,9 @@ RUN conda config --set remote_max_retries 10 \
     && conda install -n ide -y --force-reinstall -c conda-forge \
        paraview=6.0.1 vtk=9.5.2 vtk-base=9.5.2 vtk-io-ffmpeg=9.5.2 \
     && conda clean -afy \
-    && rm /tmp/environment.yml
+    && rm /tmp/environment.yml \
+    # Keep pip's download cache out of the image layers
+    && rm -rf /root/.cache
 
 # Built application (browser bundle, extensions, plugins, node_modules)
 WORKDIR /opt/nuke-ide

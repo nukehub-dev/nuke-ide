@@ -34,11 +34,27 @@ satisfies all package requirements — no in-container configuration needed.
 ## Workspace
 
 `compose.yml` mounts `./workspace` (next to the compose file) to
-`/root/workspace` in the container so your projects persist across rebuilds.
+`/root/workspace` in the container so your projects persist across rebuilds,
+and a named volume (`nuke-ide-config`) to `/root/.nuke-ide` so IDE settings
+survive container recreation.
+
+## Nuclear data (real OpenMC runs)
+
+The bundled pytest suite and most IDE features work without nuclear data, but
+running an actual OpenMC simulation needs a cross-section library. Mount it
+and set `OPENMC_CROSS_SECTIONS` — both lines are present, commented, in
+`compose.yml`:
+
+```yaml
+- /path/to/nndc_hdf5:/data/nndc_hdf5:ro
+# environment:
+#   OPENMC_CROSS_SECTIONS: /data/nndc_hdf5/cross_sections.xml
+```
 
 ## Notes
 
 - The first build is slow (conda downloads ParaView/VTK/OpenCASCADE; Theia
   bundles the browser app). Subsequent builds reuse cached layers.
 - The Electron desktop app is not part of this image — Docker support targets
-  the browser application only.
+  the browser application only. Dev-only npm packages (electron, lerna,
+  typescript, …) are pruned from the image to keep it lean.
