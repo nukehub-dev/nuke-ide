@@ -1,0 +1,24 @@
+{
+  "base": [
+    { "name": "trame", "submodule": "app", "required": true },
+    { "name": "paraview", "submodule": "simple", "required": true, "condaOnly": true },
+    {
+      "name": "pydagmc",
+      "required": false,
+      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+    },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
+    { "name": "gmsh", "required": false }
+  ],
+  "dagmcServer": [
+    { "name": "trame", "submodule": "app" },
+    { "name": "paraview" },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" }
+  ],
+  "step": [{ "name": "gmsh", "required": true }],
+  "openmc": [
+    { "name": "h5py", "required": true },
+    { "name": "openmc", "required": true, "extraIndexUrl": "https://shimwell.github.io/wheels" },
+    { "name": "numpy", "required": true }
+  ]
+}

@@ -1520,36 +1520,65 @@ def create_main_content(vuetify, pv_widgets, view, toggle_controls_callback):
 # =============================================================================
 
 
+def _load_package_requirements() -> dict:
+    """Load the shared package requirements from src/common/packages.json."""
+    import json
+    from pathlib import Path
+
+    packages_path = Path(__file__).resolve().parents[4] / "src" / "common" / "packages.json"
+    return json.loads(packages_path.read_text(encoding="utf-8"))
+
+
+def _install_hint(entry: dict) -> str:
+    """Build the install hint for a package requirement entry."""
+    if entry.get("installCommand"):
+        return entry["installCommand"]
+    if entry.get("condaOnly"):
+        return f"conda install -c conda-forge {entry['name']}"
+    if entry.get("extraIndexUrl"):
+        return f"pip install --extra-index-url {entry['extraIndexUrl']} {entry['name']}"
+    return f"pip install {entry['name']}"
+
+
+def _check_required_packages(group: str) -> list[str]:
+    """Import-check the required entries of a packages.json group, returning error messages."""
+    import importlib
+
+    errors = []
+    for entry in _load_package_requirements().get(group, []):
+        if not entry.get("required", True):
+            continue
+        module = (
+            f"{entry['name']}.{entry['submodule']}" if entry.get("submodule") else entry["name"]
+        )
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            errors.append(f"{entry['name']} not installed. Run: {_install_hint(entry)}")
+    return errors
+
+
 def check_trame_dependencies() -> tuple[bool, list[str]]:
     """Check if required trame dependencies are installed.
+
+    Driven by the required entries of the "base" group in src/common/packages.json.
 
     Returns:
         Tuple of (success, list of error messages)
     """
-    errors = []
-
-    try:
-        import trame  # noqa: F401  # availability probe: import only to detect missing dependency
-    except ImportError:
-        errors.append("trame not installed. Run: pip install trame trame-vuetify")
-
-    try:
-        from paraview import simple  # noqa: F401  # availability probe
-    except ImportError:
-        errors.append("ParaView Python API not available.")
-
+    errors = _check_required_packages("base")
     return len(errors) == 0, errors
 
 
 def check_openmc_dependencies() -> tuple[bool, str]:
     """Check if OpenMC dependencies are available.
 
+    Driven by the required entries of the "openmc" group in src/common/packages.json.
+
     Returns:
         Tuple of (success, message)
     """
-    try:
-        import h5py  # noqa: F401  # availability probe: import only to detect missing dependency
-
-        return True, "OpenMC integration available"
-    except ImportError:
-        return False, "h5py not installed. Run: pip install h5py"
+    errors = _check_required_packages("openmc")
+    if errors:
+        return False, "; ".join(errors)
+    return True, "OpenMC integration available"

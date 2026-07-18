@@ -12,7 +12,7 @@ applications/electron/dist
 **/tsconfig.tsbuildinfo
 
 # Downloaded Theia plugins (.vsix)
-plugins/
+/plugins/
 
 # Generated files
 resources/preload.html

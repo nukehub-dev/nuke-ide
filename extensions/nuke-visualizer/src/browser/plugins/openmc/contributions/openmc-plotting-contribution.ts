@@ -74,23 +74,23 @@ export class OpenMCPlottingContribution {
 
     async plotXSCommand(): Promise<void> {
         const widget = await this.widgetFactory.getXSPlotWidget();
-        
+
         if (!widget.isAttached) {
             await this.shell.addWidget(widget, { area: 'main' });
         }
-        
+
         await this.shell.activateWidget(widget.id);
     }
 
     async visualizeSourceCommand(): Promise<void> {
         // Get source files from workspace
         const files = await this.fileDiscovery.getSourceFiles();
-        
+
         // Add "Browse..." option
         const options: QuickPickValue<string>[] = [
             { value: '__browse__', label: '$(folder-opened) Browse for file...', description: 'Select source.h5 file from any location' }
         ];
-        
+
         if (files.length > 0) {
             options.push({ type: 'separator', label: 'Workspace Files' } as any, ...files);
         }
@@ -112,7 +112,7 @@ export class OpenMCPlottingContribution {
                 canSelectMany: false,
                 filters: HDF5_FILE_FILTER
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                 await this.openmcService.visualizeSource(uri);

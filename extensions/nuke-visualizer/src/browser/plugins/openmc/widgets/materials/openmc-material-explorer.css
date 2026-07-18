@@ -170,9 +170,16 @@
     color: var(--theia-text-link-foreground);
 }
 
-.material-explorer-container .material-list-header > div:nth-child(1) { width: 45px; }
-.material-explorer-container .material-list-header > div:nth-child(2) { flex: 1; }
-.material-explorer-container .material-list-header > div:nth-child(3) { width: 90px; text-align: right; }
+.material-explorer-container .material-list-header > div:nth-child(1) {
+    width: 45px;
+}
+.material-explorer-container .material-list-header > div:nth-child(2) {
+    flex: 1;
+}
+.material-explorer-container .material-list-header > div:nth-child(3) {
+    width: 90px;
+    text-align: right;
+}
 
 /* List Body */
 .material-explorer-container .material-list-body {
@@ -202,8 +209,8 @@
     border-color: var(--theia-focus-border);
 }
 
-.material-explorer-container .material-item > div:nth-child(1) { 
-    width: 45px; 
+.material-explorer-container .material-item > div:nth-child(1) {
+    width: 45px;
     font-family: var(--theia-code-font-family);
     font-size: 11px;
     font-weight: 600;
@@ -214,15 +221,15 @@
     color: var(--theia-list-active-selection-foreground);
 }
 
-.material-explorer-container .material-item .material-info { 
-    flex: 1; 
+.material-explorer-container .material-item .material-info {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 3px;
 }
 
-.material-explorer-container .material-item > div:nth-child(3) { 
-    width: 90px; 
+.material-explorer-container .material-item > div:nth-child(3) {
+    width: 90px;
     font-size: 11px;
     text-align: right;
     color: var(--theia-description-foreground);
@@ -370,7 +377,9 @@
     background: var(--theia-panel-background);
     border-radius: 8px;
     border: 1px solid var(--theia-panel-border);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
 .material-explorer-container .property:hover {
@@ -603,7 +612,7 @@
         width: 280px;
         min-width: 240px;
     }
-    
+
     .material-explorer-container .properties-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -611,8 +620,14 @@
 
 /* Animation for loading states */
 @keyframes material-explorer-fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .material-explorer-container .material-details > * {

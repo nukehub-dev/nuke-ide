@@ -71,10 +71,9 @@ export class OpenMCDepletionContribution {
 
     async openDepletionFile(filePath: string, fileName: string): Promise<void> {
         try {
-            const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionWidget>(
-                OpenMCDepletionWidget.ID,
-                { id: `${OpenMCDepletionWidget.ID}:${filePath}` } as any
-            );
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionWidget>(OpenMCDepletionWidget.ID, {
+                id: `${OpenMCDepletionWidget.ID}:${filePath}`
+            } as any);
 
             widget.setDepletionFile(new URI(filePath), fileName);
 
@@ -90,14 +89,14 @@ export class OpenMCDepletionContribution {
     async openDepletionViewerCommand(): Promise<void> {
         // Find depletion results files in workspace
         const files = await this.fileDiscovery.getDepletionFiles();
-        
+
         // Add "Browse..." option to select file from anywhere
         const options: QuickPickValue<string>[] = [
             { value: '__browse__', label: '$(folder-opened) Browse for file...', description: 'Select depletion file from any location' },
             { type: 'separator', label: 'Workspace Files' } as any,
             ...files
         ];
-        
+
         if (files.length === 0) {
             // Remove separator if no files
             options.splice(1, 1);
@@ -119,7 +118,7 @@ export class OpenMCDepletionContribution {
                 canSelectFolders: false,
                 canSelectMany: false
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                 const fileName = uri.path.base;
@@ -133,12 +132,12 @@ export class OpenMCDepletionContribution {
     async compareDepletionCommand(): Promise<void> {
         // Get depletion files from workspace
         const workspaceFiles = await this.fileDiscovery.getDepletionFiles();
-        
+
         // Build options with browse
         const options: QuickPickValue<string>[] = [
             { value: '__browse_a__', label: '$(folder-opened) Browse for Case A...', description: 'Select file from any location' }
         ];
-        
+
         if (workspaceFiles.length > 0) {
             options.push({ type: 'separator', label: 'Workspace Files' } as any, ...workspaceFiles);
         }
@@ -153,7 +152,7 @@ export class OpenMCDepletionContribution {
 
         let uriA: URI;
         let labelA: string;
-        
+
         if (selectionA.value === '__browse_a__') {
             const fileUri = await this.fileDialogService.showOpenDialog({
                 title: 'Select Case A (Reference)',
@@ -174,8 +173,8 @@ export class OpenMCDepletionContribution {
         const optionsB: QuickPickValue<string>[] = [
             { value: '__browse_b__', label: '$(folder-opened) Browse for Case B...', description: 'Select file from any location' }
         ];
-        
-        const remainingFiles = workspaceFiles.filter(f => f.value !== uriA.toString());
+
+        const remainingFiles = workspaceFiles.filter((f) => f.value !== uriA.toString());
         if (remainingFiles.length > 0) {
             optionsB.push({ type: 'separator', label: 'Workspace Files' } as any, ...remainingFiles);
         }
@@ -190,7 +189,7 @@ export class OpenMCDepletionContribution {
 
         let uriB: URI;
         let labelB: string;
-        
+
         if (selectionB.value === '__browse_b__') {
             const fileUri = await this.fileDialogService.showOpenDialog({
                 title: 'Select Case B (Comparison)',
@@ -214,10 +213,9 @@ export class OpenMCDepletionContribution {
                 options: { cancelable: false }
             });
             try {
-                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
-                    OpenMCDepletionCompareWidget.ID,
-                    { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
-                );
+                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(OpenMCDepletionCompareWidget.ID, {
+                    id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}`
+                } as any);
 
                 await widget.setComparisonFiles(uriA, labelA, uriB, labelB);
 
@@ -236,17 +234,17 @@ export class OpenMCDepletionContribution {
     async compareDepletionWithCommand(uriA: URI): Promise<void> {
         // Use the provided file as Case A
         const labelA = uriA.path.base;
-        
+
         // Get files for Case B selection
         const workspaceFiles = await this.fileDiscovery.getDepletionFiles();
-        
+
         // Build options for Case B
         const options: QuickPickValue<string>[] = [
             { value: '__browse_b__', label: '$(folder-opened) Browse for Case B...', description: 'Select file from any location' }
         ];
-        
+
         // Filter out Case A from workspace files
-        const remainingFiles = workspaceFiles.filter(f => f.value !== uriA.toString());
+        const remainingFiles = workspaceFiles.filter((f) => f.value !== uriA.toString());
         if (remainingFiles.length > 0) {
             options.push({ type: 'separator', label: 'Workspace Files' } as any, ...remainingFiles);
         }
@@ -261,7 +259,7 @@ export class OpenMCDepletionContribution {
 
         let uriB: URI;
         let labelB: string;
-        
+
         if (selectionB.value === '__browse_b__') {
             const fileUri = await this.fileDialogService.showOpenDialog({
                 title: 'Select Case B (Comparison)',
@@ -285,10 +283,9 @@ export class OpenMCDepletionContribution {
                 options: { cancelable: false }
             });
             try {
-                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(
-                    OpenMCDepletionCompareWidget.ID,
-                    { id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}` } as any
-                );
+                const widget = await this.widgetManager.getOrCreateWidget<OpenMCDepletionCompareWidget>(OpenMCDepletionCompareWidget.ID, {
+                    id: `${OpenMCDepletionCompareWidget.ID}:${uriA.toString()}:${uriB.toString()}`
+                } as any);
 
                 await widget.setComparisonFiles(uriA, labelA, uriB, labelB);
 

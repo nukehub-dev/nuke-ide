@@ -39,7 +39,8 @@ import {
     OpenMCVisualizationResult,
     XSGroupStructuresResponse,
     PythonConfig,
-    VisualizerClient
+    VisualizerClient,
+    OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -127,13 +128,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const scriptPath = this.pythonHelper.findScript('server.py');
 
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-mesh',
-                statepointPath,
-                tallyId.toString(),
-                '--port', port.toString()
-            ];
+            const args: string[] = [scriptPath, 'openmc.visualize-mesh', statepointPath, tallyId.toString(), '--port', port.toString()];
 
             if (score) {
                 args.push('--score', score);
@@ -157,7 +152,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 url: `http://127.0.0.1:${port}`,
                 tallyInfo
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -176,12 +170,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const scriptPath = this.pythonHelper.findScript('server.py');
 
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-source',
-                sourcePath,
-                '--port', port.toString()
-            ];
+            const args: string[] = [scriptPath, 'openmc.visualize-source', sourcePath, '--port', port.toString()];
 
             const process = this.startPythonProcess(pythonCommand, args, port);
 
@@ -192,7 +181,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 port,
                 url: `http://127.0.0.1:${port}`
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -223,8 +211,10 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 'openmc.visualize-overlay',
                 statepointPath,
                 tallyId.toString(),
-                '--mode', 'full',
-                '--port', port.toString()
+                '--mode',
+                'full',
+                '--port',
+                port.toString()
             ];
 
             if (geometryPath) {
@@ -246,15 +236,15 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             // Create a custom process to capture stdout for warnings
             const processOptions: RawProcessOptions = {
                 command: pythonCommand,
-                args,
+                args
             };
             const process = this.rawProcessFactory(processOptions);
-            
+
             // Capture stdout to look for structured warnings and send immediately via RPC
             process.outputStream.on('data', (data: Buffer) => {
                 const msg = data.toString();
                 console.log(`[OpenMC ${port}] ${msg.trim()}`);
-                
+
                 // Check for warning in real-time and send to client immediately
                 const lines = msg.split('\n');
                 for (const line of lines) {
@@ -272,17 +262,17 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                     }
                 }
             });
-            
+
             process.errorStream.on('data', (data: Buffer) => {
                 console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
             });
-            
+
             process.onExit((event: { code?: number; signal?: string }) => {
                 console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
                 this.processes.delete(port);
                 this.reservedPorts.delete(port);
             });
-            
+
             this.processes.set(port, { process, port, filePath: geometryPath });
 
             // Use longer timeout for large DAGMC files (120 seconds)
@@ -296,7 +286,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 url: `http://127.0.0.1:${port}`,
                 tallyInfo
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -327,9 +316,12 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 'openmc.visualize-overlay',
                 statepointPath,
                 tallyId.toString(),
-                '--mode', 'slice',
-                '--plane', options.plane || 'z',
-                '--port', port.toString()
+                '--mode',
+                'slice',
+                '--plane',
+                options.plane || 'z',
+                '--port',
+                port.toString()
             ];
 
             if (geometryPath) {
@@ -366,7 +358,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             const processOptions: RawProcessOptions = {
                 command: pythonCommand,
-                args,
+                args
             };
             const process = this.rawProcessFactory(processOptions);
 
@@ -397,7 +389,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 url: `http://127.0.0.1:${port}`,
                 tallyInfo
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -427,10 +418,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 'openmc.visualize-overlay',
                 statepointPath,
                 tallyId.toString(),
-                '--geometry', geometryPath,
-                '--mode', 'full',
+                '--geometry',
+                geometryPath,
+                '--mode',
+                'full',
                 '--with-source',
-                '--port', port.toString()
+                '--port',
+                port.toString()
             ];
 
             if (score) {
@@ -443,7 +437,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
             const processOptions: RawProcessOptions = {
                 command: pythonCommand,
-                args,
+                args
             };
             const process = this.rawProcessFactory(processOptions);
 
@@ -489,7 +483,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 url: `http://127.0.0.1:${port}`,
                 tallyInfo
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -499,12 +492,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
     }
 
-    async getEnergySpectrum(
-        statepointPath: string,
-        tallyId: number,
-        scoreIndex: number = 0,
-        nuclideIndex: number = 0
-    ): Promise<any> {
+    async getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex: number = 0, nuclideIndex: number = 0): Promise<any> {
         return this.statepointService.getEnergySpectrum(statepointPath, tallyId, scoreIndex, nuclideIndex);
     }
 
@@ -553,7 +541,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         try {
             const python = await this.pythonHelper.detectPython();
             const check = await this.pythonHelper.checkPackages(python.command);
-            
+
             if (!check.available) {
                 return {
                     available: false,
@@ -593,8 +581,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     async checkOpenMCPythonAvailable(): Promise<{ available: boolean; message: string; warning?: string }> {
         try {
             const python = await this.pythonHelper.detectPython();
-            const check = await this.pythonHelper.checkPackages(python.command, [{ name: 'openmc', required: true }]);
-            
+            const check = await this.pythonHelper.checkPackages(python.command, OPENMC_REQUIREMENTS);
+
             if (!check.available) {
                 return {
                     available: false,
@@ -638,12 +626,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.depletionService.getDepletionMaterials(filePath);
     }
 
-    async getDepletionData(
-        filePath: string,
-        materialIndex: number,
-        nuclides?: string[],
-        includeActivity?: boolean
-    ): Promise<any> {
+    async getDepletionData(filePath: string, materialIndex: number, nuclides?: string[], includeActivity?: boolean): Promise<any> {
         return this.depletionService.getDepletionData(filePath, materialIndex, nuclides, includeActivity);
     }
 
@@ -667,12 +650,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const scriptPath = this.pythonHelper.findScript('server.py');
 
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-geometry',
-                filePath,
-                '--port', port.toString()
-            ];
+            const args: string[] = [scriptPath, 'openmc.visualize-geometry', filePath, '--port', port.toString()];
 
             if (highlightCellIds && highlightCellIds.length > 0) {
                 args.push('--highlight', highlightCellIds.join(','));
@@ -681,18 +659,16 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (overlaps && overlaps.length > 0) {
                 // Limit overlaps for performance
                 const MAX_OVERLAPS = 1000;
-                const limitedOverlaps = overlaps.length > MAX_OVERLAPS 
-                    ? overlaps.slice(0, MAX_OVERLAPS) 
-                    : overlaps;
+                const limitedOverlaps = overlaps.length > MAX_OVERLAPS ? overlaps.slice(0, MAX_OVERLAPS) : overlaps;
                 if (overlaps.length > MAX_OVERLAPS) {
                     console.log(`[OpenMC] Limiting overlaps from ${overlaps.length} to ${MAX_OVERLAPS} for performance`);
                 }
-                
+
                 const tempDir = os.tmpdir();
                 overlapsPath = path.join(tempDir, `overlaps_${Date.now()}.json`);
                 const overlapData = {
                     geometryPath: filePath,
-                    overlaps: limitedOverlaps.map(o => ({
+                    overlaps: limitedOverlaps.map((o) => ({
                         coordinates: o.coordinates,
                         cellIds: o.cellIds
                     }))
@@ -704,7 +680,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const process = this.startPythonProcess(pythonCommand, args, port);
 
             // Wait for server to be ready (longer timeout when overlaps present)
-            const serverTimeout = (overlaps && overlaps.length > 0) ? 60000 : 30000;
+            const serverTimeout = overlaps && overlaps.length > 0 ? 60000 : 30000;
             await this.waitForServer(port, process, serverTimeout);
 
             return {
@@ -712,7 +688,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 port,
                 url: `http://127.0.0.1:${port}`
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -776,12 +751,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             const pythonCommand = pythonInfo.command;
             const scriptPath = this.pythonHelper.findScript('server.py');
 
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-statepoint-source',
-                statepointPath,
-                '--port', port.toString()
-            ];
+            const args: string[] = [scriptPath, 'openmc.visualize-statepoint-source', statepointPath, '--port', port.toString()];
 
             const process = this.startPythonProcess(pythonCommand, args, port);
 
@@ -792,7 +762,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 port,
                 url: `http://127.0.0.1:${port}`
             };
-
         } catch (error) {
             this.reservedPorts.delete(port);
             return {
@@ -805,9 +774,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     async getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null> {
         try {
             const scriptPath = this.pythonHelper.findScript('server.py');
-            const result = await this.pythonHelper.executeScriptJson<{ x: [number, number]; y: [number, number]; z: [number, number] } | { error: string }>(
-                scriptPath, ['openmc.geometry-bounds', geometryPath]
-            );
+            const result = await this.pythonHelper.executeScriptJson<
+                { x: [number, number]; y: [number, number]; z: [number, number] } | { error: string }
+            >(scriptPath, ['openmc.geometry-bounds', geometryPath]);
             if (result && 'error' in result) {
                 console.error('[OpenMC Backend] Geometry bounds error:', result.error);
                 return null;
@@ -831,7 +800,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
         const tallies = await this.listTallies(statepointPath);
-        const tally = tallies.find(t => t.id === tallyId);
+        const tally = tallies.find((t) => t.id === tallyId);
         if (!tally) {
             throw new Error(`Tally ${tallyId} not found`);
         }
@@ -841,7 +810,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private startPythonProcess(command: string, args: string[], port: number): RawProcess {
         const processOptions: RawProcessOptions = {
             command,
-            args,
+            args
         };
 
         const process = this.rawProcessFactory(processOptions);
@@ -866,7 +835,12 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return process;
     }
 
-    private async waitForServer(port: number, process: RawProcess, timeoutMs: number = 30000, stderrOutput?: { data: string }): Promise<void> {
+    private async waitForServer(
+        port: number,
+        process: RawProcess,
+        timeoutMs: number = 30000,
+        stderrOutput?: { data: string }
+    ): Promise<void> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 cleanup();
@@ -890,8 +864,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 // Include stderr output if available
                 if (stderrOutput?.data) {
                     // Extract the last error line from stderr
-                    const lines = stderrOutput.data.split('\n').filter(l => l.trim());
-                    const errorLine = lines.find(l => l.includes('Error:') || l.includes('Traceback'));
+                    const lines = stderrOutput.data.split('\n').filter((l) => l.trim());
+                    const errorLine = lines.find((l) => l.includes('Error:') || l.includes('Traceback'));
                     if (errorLine) {
                         errorMsg += `: ${errorLine}`;
                     }
@@ -935,6 +909,4 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         }
         throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
     }
-
-
 }

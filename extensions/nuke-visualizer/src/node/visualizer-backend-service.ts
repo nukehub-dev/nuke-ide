@@ -43,7 +43,9 @@ import {
     ScreenshotOptions,
     ScreenshotResult,
     DEFAULT_VISUALIZATION_STATE,
-    DagmcModelInfo
+    DagmcModelInfo,
+    DAGMC_SERVER_REQUIREMENTS,
+    STEP_REQUIREMENTS
 } from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from './services/python-command-helper';
@@ -354,14 +356,14 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const serverScript = this.pythonHelper.findScript('server.py');
 
         // STEP conversion requires gmsh — detect Python with gmsh available
-        const pythonInfo = await this.pythonHelper.detectPython([{ name: 'gmsh', required: true }]);
+        const pythonInfo = await this.pythonHelper.detectPython(STEP_REQUIREMENTS);
         this.log(`[STEP Converter] Using Python: ${pythonInfo.command}`);
 
         const args = ['base.convert-step', '--file', filePath];
 
         this.log(`[STEP Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
 
-        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: [{ name: 'gmsh', required: true }] });
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: STEP_REQUIREMENTS });
         if (execResult.status !== 0) {
             const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
             this.errorLog(`[STEP Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
@@ -539,10 +541,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         // Use nuke-core to check dependencies
-        const depCheck = await this.nukeCoreService.checkDependencies(
-            [{ name: 'trame', submodule: 'app' }, { name: 'paraview' }, { name: 'pymoab', required: false }],
-            pythonCommand
-        );
+        const depCheck = await this.nukeCoreService.checkDependencies(DAGMC_SERVER_REQUIREMENTS, pythonCommand);
 
         info.trameInstalled = depCheck.versions['trame'] !== undefined;
         info.trameVersion = depCheck.versions['trame'];
@@ -550,9 +549,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         info.paraviewVersion = depCheck.versions['paraview'];
 
         // Check moab separately (optional, with fallback to mbconvert CLI)
-        if (depCheck.versions['pymoab']) {
+        if (depCheck.versions['moab']) {
             info.moabInstalled = true;
-            info.moabVersion = depCheck.versions['pymoab'];
+            info.moabVersion = depCheck.versions['moab'];
         } else {
             // Check mbconvert as fallback
             try {

@@ -26,17 +26,18 @@
 // *****************************************************************************
 
 import { PackageDependency } from 'nuke-core/lib/common';
+import * as packages from './packages.json';
 
 export const VisualizerBackendService = Symbol('VisualizerBackendService');
 
 /** Default package requirements for base visualizer (VTK/Paraview) operations */
-export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = [
-    { name: 'trame', submodule: 'app', required: true },
-    { name: 'paraview', submodule: 'simple', required: true, condaOnly: true },
-    { name: 'pydagmc', required: false, installCommand: 'pip install git+https://github.com/svalinn/pydagmc' },
-    { name: 'moab', required: false, extraIndexUrl: 'https://shimwell.github.io/wheels' },
-    { name: 'gmsh', required: false }
-];
+export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = packages.base;
+
+/** Package requirements for the DAGMC visualization server */
+export const DAGMC_SERVER_REQUIREMENTS: PackageDependency[] = packages.dagmcServer;
+
+/** Package requirements for STEP/STP/BREP conversion */
+export const STEP_REQUIREMENTS: PackageDependency[] = packages.step;
 
 export interface PythonConfig {
     pythonPath?: string;

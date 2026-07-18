@@ -104,7 +104,7 @@ export class OpenMCStatepointService {
             }>
         >(this.getScriptPath(), ['openmc.list', statepointPath], { timeout: 30000 });
 
-        return raw.map(t => ({
+        return raw.map((t) => ({
             id: t.id,
             name: t.name,
             scores: t.scores,
@@ -113,10 +113,12 @@ export class OpenMCStatepointService {
                 type: f.type,
                 bins: f.bins,
                 meshDimensions: f.mesh_dimensions,
-                meshBounds: f.mesh_info ? {
-                    lowerLeft: f.mesh_info.lower_left,
-                    upperRight: f.mesh_info.upper_right
-                } : undefined,
+                meshBounds: f.mesh_info
+                    ? {
+                          lowerLeft: f.mesh_info.lower_left,
+                          upperRight: f.mesh_info.upper_right
+                      }
+                    : undefined,
                 meshType: f.mesh_type,
                 meshWidth: f.width
             })),
@@ -148,11 +150,7 @@ export class OpenMCStatepointService {
         if (maxParticles !== undefined) {
             args.push('--max-particles', maxParticles.toString());
         }
-        return await this.pythonHelper.executeScriptJson<OpenMCSourceData>(
-            this.getScriptPath(),
-            args,
-            { timeout: 30000 }
-        );
+        return await this.pythonHelper.executeScriptJson<OpenMCSourceData>(this.getScriptPath(), args, { timeout: 30000 });
     }
 
     async getEnergyDistribution(statepointPath: string, nBins?: number): Promise<OpenMCEnergyDistribution> {
@@ -161,11 +159,7 @@ export class OpenMCStatepointService {
         if (nBins !== undefined) {
             args.push('--bins', nBins.toString());
         }
-        return await this.pythonHelper.executeScriptJson<OpenMCEnergyDistribution>(
-            this.getScriptPath(),
-            args,
-            { timeout: 30000 }
-        );
+        return await this.pythonHelper.executeScriptJson<OpenMCEnergyDistribution>(this.getScriptPath(), args, { timeout: 30000 });
     }
 
     async getEnergySpectrum(
@@ -204,11 +198,13 @@ export class OpenMCStatepointService {
         if (nuclideIndex !== undefined) {
             args.push('--nuclide-index', nuclideIndex.toString());
         }
-        return await this.pythonHelper.executeScriptJson<{ positions: number[]; values: number[]; std_dev?: number[]; axis: string; error?: string }>(
-            this.getScriptPath(),
-            args,
-            { timeout: 30000 }
-        );
+        return await this.pythonHelper.executeScriptJson<{
+            positions: number[];
+            values: number[];
+            std_dev?: number[];
+            axis: string;
+            error?: string;
+        }>(this.getScriptPath(), args, { timeout: 30000 });
     }
 
     async getHeatmapSlice(
@@ -255,11 +251,7 @@ export class OpenMCStatepointService {
             slice_label: string;
             mesh_dimensions: number[];
             error?: string;
-        }>(
-            this.getScriptPath(),
-            args,
-            { timeout: 30000 }
-        );
+        }>(this.getScriptPath(), args, { timeout: 30000 });
     }
 
     async getAllHeatmapSlices(
@@ -271,15 +263,19 @@ export class OpenMCStatepointService {
     ): Promise<any[]> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         const args = [
-            'openmc.heatmap-all', statepointPath, tallyId.toString(),
+            'openmc.heatmap-all',
+            statepointPath,
+            tallyId.toString(),
             plane,
-            '--score-index', scoreIndex.toString(),
-            '--nuclide-index', nuclideIndex.toString()
+            '--score-index',
+            scoreIndex.toString(),
+            '--nuclide-index',
+            nuclideIndex.toString()
         ];
 
         const result = await this.pythonHelper.executeScript(this.getScriptPath(), args, {
             timeout: 60000,
-            maxBuffer: 100 * 1024 * 1024  // 100MB for all slices
+            maxBuffer: 100 * 1024 * 1024 // 100MB for all slices
         });
 
         if (result.status !== 0) {

@@ -35,17 +35,16 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
-import { 
-    OpenMCGeometryHierarchy, 
-    OpenMCUniverse, 
-    OpenMCCell, 
-    OpenMCSurface,
-    OpenMCLattice
-} from '../../../../../common/openmc-protocol';
+import { OpenMCGeometryHierarchy, OpenMCUniverse, OpenMCCell, OpenMCSurface, OpenMCLattice } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import { SimpleLoadingSpinner, EmptyState, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import {
+    SimpleLoadingSpinner,
+    EmptyState,
+    ErrorDisplay,
+    LoadingAnimations
+} from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
 export interface GeometryView3DRequest {
     fileUri: URI;
@@ -84,7 +83,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private hierarchy: OpenMCGeometryHierarchy | null = null;
     private selectedItem: GeometryTreeSelection | null = null;
     private expandedUniverses: Set<number> = new Set();
-    private expandedCells: Set<string> = new Set();  // Format: "universeId:cellId"
+    private expandedCells: Set<string> = new Set(); // Format: "universeId:cellId"
     private showSurfaces: boolean = true;
     private filterText: string = '';
     private isLoading: boolean = false;
@@ -106,7 +105,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.title.caption = OpenMCGeometryTreeWidget.LABEL;
         this.title.iconClass = codicon('repo');
         this.title.closable = false;
-        
+
         this.node.tabIndex = 0;
         this.update();
     }
@@ -166,7 +165,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     'All Files': ['*']
                 }
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                 await this.loadGeometry(uri);
@@ -216,11 +215,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         if (this.errorMessage) {
             return (
                 <div className="openmc-geometry-tree empty">
-                    <ErrorDisplay 
-                        message={this.errorMessage}
-                        onRetry={() => this.handleBrowse()}
-                        retryLabel="Browse Geometry File"
-                    />
+                    <ErrorDisplay message={this.errorMessage} onRetry={() => this.handleBrowse()} retryLabel="Browse Geometry File" />
                 </div>
             );
         }
@@ -228,7 +223,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         if (!this.hierarchy) {
             return (
                 <div className="openmc-geometry-tree empty">
-                    <EmptyState 
+                    <EmptyState
                         icon="repo"
                         message="No geometry file loaded"
                         actionLabel="Browse Geometry File"
@@ -252,10 +247,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                             </span>
                         </Tooltip>
                         <Tooltip content="Close Geometry" position="left">
-                            <button 
-                                className="close-btn" 
-                                onClick={() => this.handleClose()}
-                            >
+                            <button className="close-btn" onClick={() => this.handleClose()}>
                                 <i className={codicon('close')}></i>
                             </button>
                         </Tooltip>
@@ -265,25 +257,19 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     </div>
                     <div className="geometry-actions">
                         <Tooltip content="View Geometry in 3D" position="bottom">
-                            <button 
-                                className="view-3d-btn"
-                                onClick={() => this.viewIn3D()}
-                            >
+                            <button className="view-3d-btn" onClick={() => this.viewIn3D()}>
                                 <i className={codicon('globe')}></i>
                                 View 3D
                             </button>
                         </Tooltip>
                         <Tooltip content="Check for Geometry Overlaps" position="bottom">
-                            <button 
-                                className="overlap-btn"
-                                onClick={() => this.checkOverlaps()}
-                            >
+                            <button className="overlap-btn" onClick={() => this.checkOverlaps()}>
                                 <i className={codicon('search')}></i>
                                 Check Overlaps
                             </button>
                         </Tooltip>
                     </div>
-                    
+
                     {/* Search and filter */}
                     <div className="tree-toolbar">
                         <div className="search-box">
@@ -296,34 +282,28 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                             />
                             {this.filterText && (
                                 <Tooltip content="Clear filter" position="bottom">
-                                    <button 
-                                        className="clear-search"
-                                        onClick={() => this.setFilterText('')}
-                                    >
+                                    <button className="clear-search" onClick={() => this.setFilterText('')}>
                                         <i className={codicon('close')}></i>
                                     </button>
                                 </Tooltip>
                             )}
                         </div>
                         <Tooltip content="Toggle surfaces visibility" position="bottom">
-                            <button
-                                className={`toolbar-btn ${this.showSurfaces ? 'active' : ''}`}
-                                onClick={() => this.toggleSurfaces()}
-                            >
+                            <button className={`toolbar-btn ${this.showSurfaces ? 'active' : ''}`} onClick={() => this.toggleSurfaces()}>
                                 <i className={codicon('symbol-misc')}></i>
                             </button>
                         </Tooltip>
                     </div>
                 </div>
-                
+
                 <div className="tree-content">
                     {/* Root Universe Section */}
                     <div className="section-header">
                         <i className={codicon('globe')}></i>
                         <span>Universes</span>
                     </div>
-                    {filteredUniverses.map(universe => this.renderUniverse(universe))}
-                    
+                    {filteredUniverses.map((universe) => this.renderUniverse(universe))}
+
                     {/* Surfaces Section */}
                     {this.showSurfaces && this.hierarchy.surfaces.length > 0 && (
                         <>
@@ -331,12 +311,10 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                                 <i className={codicon('symbol-misc')}></i>
                                 <span>Surfaces ({this.hierarchy.surfaces.length})</span>
                             </div>
-                            <div className="surfaces-list">
-                                {this.getFilteredSurfaces().map(surface => this.renderSurface(surface))}
-                            </div>
+                            <div className="surfaces-list">{this.getFilteredSurfaces().map((surface) => this.renderSurface(surface))}</div>
                         </>
                     )}
-                    
+
                     {/* Lattices Section */}
                     {this.hierarchy.lattices.length > 0 && (
                         <>
@@ -344,7 +322,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                                 <i className={codicon('grid')}></i>
                                 <span>Lattices ({this.hierarchy.lattices.length})</span>
                             </div>
-                            {this.hierarchy.lattices.map(lattice => this.renderLattice(lattice))}
+                            {this.hierarchy.lattices.map((lattice) => this.renderLattice(lattice))}
                         </>
                     )}
                 </div>
@@ -356,21 +334,21 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         const isExpanded = this.expandedUniverses.has(universe.id);
         const isRoot = universe.isRoot || universe.id === this.hierarchy?.rootUniverseId;
         const isSelected = this.selectedItem?.type === 'universe' && this.selectedItem.id === universe.id;
-        
+
         const filteredCells = this.getFilteredCells(universe.cells);
-        
+
         return (
-            <div 
-                key={`universe-${universe.id}`} 
+            <div
+                key={`universe-${universe.id}`}
                 className={`universe-item ${isRoot ? 'root-universe' : ''} ${isSelected ? 'selected' : ''}`}
             >
-                <div 
-                    className="universe-header"
-                    onClick={() => this.selectUniverse(universe.id)}
-                >
-                    <button 
+                <div className="universe-header" onClick={() => this.selectUniverse(universe.id)}>
+                    <button
                         className="expand-btn"
-                        onClick={(e) => { e.stopPropagation(); this.toggleUniverse(universe.id); }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            this.toggleUniverse(universe.id);
+                        }}
                     >
                         <i className={codicon(isExpanded ? 'chevron-down' : 'chevron-right')}></i>
                     </button>
@@ -380,12 +358,8 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     </span>
                     <span className="item-count">({universe.nCells} cells)</span>
                 </div>
-                
-                {isExpanded && (
-                    <div className="universe-cells">
-                        {filteredCells.map(cell => this.renderCell(cell, universe.id))}
-                    </div>
-                )}
+
+                {isExpanded && <div className="universe-cells">{filteredCells.map((cell) => this.renderCell(cell, universe.id))}</div>}
             </div>
         );
     }
@@ -394,26 +368,23 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         const cellKey = `${universeId}:${cell.id}`;
         const isExpanded = this.expandedCells.has(cellKey);
         const isSelected = this.selectedItem?.type === 'cell' && this.selectedItem.id === cell.id;
-        
+
         // Get icon based on fill type
-        let icon = 'file';  // default
+        let icon = 'file'; // default
         if (cell.fillType === 'material') icon = 'symbol-color';
         else if (cell.fillType === 'universe') icon = 'globe';
         else if (cell.fillType === 'lattice') icon = 'grid';
         else if (cell.fillType === 'void') icon = 'empty-window';
-        
+
         return (
-            <div 
-                key={cellKey}
-                className={`geometry-cell-item ${isSelected ? 'selected' : ''}`}
-            >
-                <div 
-                    className="geometry-cell-header"
-                    onClick={() => this.selectCell(cell.id, universeId)}
-                >
-                    <button 
+            <div key={cellKey} className={`geometry-cell-item ${isSelected ? 'selected' : ''}`}>
+                <div className="geometry-cell-header" onClick={() => this.selectCell(cell.id, universeId)}>
+                    <button
                         className="expand-btn"
-                        onClick={(e) => { e.stopPropagation(); this.toggleCell(universeId, cell.id); }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            this.toggleCell(universeId, cell.id);
+                        }}
                     >
                         <i className={codicon(isExpanded ? 'chevron-down' : 'chevron-right')}></i>
                     </button>
@@ -421,14 +392,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     <span className="geometry-cell-id">Cell {cell.id}</span>
                     {cell.name && <span className="geometry-cell-name">{cell.name}</span>}
                 </div>
-                
+
                 {isExpanded && (
                     <div className="cell-details">
                         <div className="cell-actions">
                             <Tooltip content={`Highlight Cell ${cell.id} in 3D View`} position="top">
-                                <button 
+                                <button
                                     className="highlight-btn"
-                                    onClick={(e) => { e.stopPropagation(); this.highlightCellIn3D(cell.id); }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        this.highlightCellIn3D(cell.id);
+                                    }}
                                 >
                                     <i className={codicon('eye')}></i>
                                     Highlight in 3D
@@ -444,14 +418,13 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                         <div className="detail-row">
                             <span className="detail-label">Fill:</span>
                             <span className="detail-value">
-                                {cell.fillType === 'material' && cell.materialName 
+                                {cell.fillType === 'material' && cell.materialName
                                     ? `${cell.materialName} (mat ${cell.fillId})`
-                                    : cell.fillType === 'universe' 
-                                        ? `Universe ${cell.fillId}`
-                                        : cell.fillType === 'lattice'
-                                            ? `Lattice ${cell.fillId}`
-                                            : 'Void'
-                                }
+                                    : cell.fillType === 'universe'
+                                      ? `Universe ${cell.fillId}`
+                                      : cell.fillType === 'lattice'
+                                        ? `Lattice ${cell.fillId}`
+                                        : 'Void'}
                             </span>
                         </div>
                         {cell.temperature && (
@@ -470,8 +443,10 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                             <div className="detail-row surfaces-row">
                                 <span className="detail-label">Surfaces:</span>
                                 <div className="surface-badges">
-                                    {cell.surfaces.map(sid => (
-                                        <span key={sid} className="surface-badge">{sid}</span>
+                                    {cell.surfaces.map((sid) => (
+                                        <span key={sid} className="surface-badge">
+                                            {sid}
+                                        </span>
                                     ))}
                                 </div>
                             </div>
@@ -484,17 +459,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
 
     private renderSurface(surface: OpenMCSurface): React.ReactNode {
         const isSelected = this.selectedItem?.type === 'surface' && this.selectedItem.id === surface.id;
-        
+
         // Get icon based on surface type
         let icon = 'circle-outline';
         if (surface.type.includes('cylinder')) icon = 'chrome-maximize';
         else if (surface.type.includes('plane')) icon = 'debug-breakline';
         else if (surface.type.includes('cone')) icon = 'triangle-up';
         else if (surface.type.includes('torus')) icon = 'refresh';
-        
+
         return (
             <Tooltip content={surface.description || `${surface.type} surface`} position="top">
-                <div 
+                <div
                     key={`surface-${surface.id}`}
                     className={`surface-item ${isSelected ? 'selected' : ''}`}
                     onClick={() => this.selectSurface(surface.id)}
@@ -512,9 +487,9 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
 
     private renderLattice(lattice: OpenMCLattice): React.ReactNode {
         const isSelected = this.selectedItem?.type === 'lattice' && this.selectedItem.id === lattice.id;
-        
+
         return (
-            <div 
+            <div
                 key={`lattice-${lattice.id}`}
                 className={`lattice-item ${isSelected ? 'selected' : ''}`}
                 onClick={() => this.selectLattice(lattice.id)}
@@ -532,28 +507,25 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private getFilteredUniverses(): OpenMCUniverse[] {
         if (!this.hierarchy) return [];
         if (!this.filterText) return this.hierarchy.universes;
-        
+
         const filter = this.filterText.toLowerCase();
-        return this.hierarchy.universes.filter(u => {
+        return this.hierarchy.universes.filter((u) => {
             // Keep universe if any of its cells match
-            return u.cells.some(c => this.cellMatchesFilter(c, filter));
+            return u.cells.some((c) => this.cellMatchesFilter(c, filter));
         });
     }
 
     private getFilteredCells(cells: OpenMCCell[]): OpenMCCell[] {
         if (!this.filterText) return cells;
-        return cells.filter(c => this.cellMatchesFilter(c, this.filterText.toLowerCase()));
+        return cells.filter((c) => this.cellMatchesFilter(c, this.filterText.toLowerCase()));
     }
 
     private getFilteredSurfaces(): OpenMCSurface[] {
         if (!this.hierarchy) return [];
         if (!this.filterText) return this.hierarchy.surfaces;
-        
+
         const filter = this.filterText.toLowerCase();
-        return this.hierarchy.surfaces.filter(s => 
-            s.id.toString().includes(filter) ||
-            s.type.toLowerCase().includes(filter)
-        );
+        return this.hierarchy.surfaces.filter((s) => s.id.toString().includes(filter) || s.type.toLowerCase().includes(filter));
     }
 
     private cellMatchesFilter(cell: OpenMCCell, filter: string): boolean {

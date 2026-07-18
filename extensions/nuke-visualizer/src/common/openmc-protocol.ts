@@ -28,13 +28,10 @@
 import { PythonConfig, VisualizerClient } from './base-visualizer-protocol';
 export { PythonConfig, VisualizerClient } from './base-visualizer-protocol';
 import { PackageDependency } from 'nuke-core/lib/common';
+import * as packages from './packages.json';
 
 /** Default package requirements for OpenMC operations */
-export const OPENMC_REQUIREMENTS: PackageDependency[] = [
-    { name: 'h5py', required: true },
-    { name: 'openmc', required: true, extraIndexUrl: 'https://shimwell.github.io/wheels' },
-    { name: 'numpy', required: true }
-];
+export const OPENMC_REQUIREMENTS: PackageDependency[] = packages.openmc;
 
 /** Common file filter constants for OpenMC file dialogs */
 export const HDF5_FILE_FILTER = { 'HDF5 Files': ['h5'], 'All Files': ['*'] };

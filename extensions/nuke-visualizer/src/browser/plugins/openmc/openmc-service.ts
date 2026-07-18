@@ -135,7 +135,7 @@ export class OpenMCService {
         });
 
         // Listen for environment changes from nuke-core
-        this.nukeCoreService.onEnvironmentChanged(event => {
+        this.nukeCoreService.onEnvironmentChanged((event) => {
             const envName = event.currentEnv?.name || 'unknown';
             console.log(`[OpenMC] Environment changed to ${envName}, clearing cached state`);
 
@@ -150,10 +150,10 @@ export class OpenMCService {
             }
         });
 
-        this.nukeCoreService.onEnvironmentFallback(event => {
+        this.nukeCoreService.onEnvironmentFallback((event) => {
             this.messageService.warn(
                 `Using fallback environment ${event.fallbackEnv.name} for OpenMC operations. ` +
-                `Configured environment lacks required packages: ${event.requiredPackages.join(', ')}.`
+                    `Configured environment lacks required packages: ${event.requiredPackages.join(', ')}.`
             );
         });
     }
@@ -215,18 +215,18 @@ export class OpenMCService {
         try {
             const statepointPath = statepointUri.path.toString();
             const info = await this.openmcBackend.loadStatepoint(statepointPath);
-            
+
             this.currentStatepoint = info;
             this._onStatepointLoaded.fire(info);
-            
+
             this.messageService.info(
                 `Loaded OpenMC statepoint: ${info.batches} batches, ${info.nTallies} tallies` +
-                (info.kEff ? `, keff=${info.kEff.toFixed(5)}` : '')
+                    (info.kEff ? `, keff=${info.kEff.toFixed(5)}` : '')
             );
-            
+
             // Load tally list
             await this.loadTallyList(statepointUri);
-            
+
             return info;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -242,13 +242,13 @@ export class OpenMCService {
         try {
             const statepointPath = statepointUri.path.toString();
             console.log(`[OpenMC Service] Loading tallies from: ${statepointPath}`);
-            
+
             // Clear old state first to prevent stale data
             this.currentTallies = [];
-            
+
             const tallies = await this.openmcBackend.listTallies(statepointPath);
             this.currentTallies = tallies;
-            
+
             // Also update currentStatepoint to reflect the new file
             // Create a minimal statepoint info if we don't have one
             if (!this.currentStatepoint || this.currentStatepoint.file !== statepointPath) {
@@ -264,13 +264,13 @@ export class OpenMCService {
                         batches: 0,
                         generationsPerBatch: 0,
                         nTallies: tallies.length,
-                        tallyIds: tallies.map(t => t.id)
+                        tallyIds: tallies.map((t) => t.id)
                     };
                     console.log(`[OpenMC Service] Created minimal statepoint info with ${tallies.length} tallies`);
                 }
             }
-            
-            console.log(`[OpenMC Service] Loaded ${tallies.length} tallies: ${tallies.map(t => t.id).join(', ')}`);
+
+            console.log(`[OpenMC Service] Loaded ${tallies.length} tallies: ${tallies.map((t) => t.id).join(', ')}`);
             return tallies;
         } catch (error) {
             console.error('[OpenMC] Error loading tally list:', error);
@@ -319,10 +319,7 @@ export class OpenMCService {
     /**
      * Visualize a mesh tally from a statepoint file.
      */
-    async visualizeMeshTally(
-        statepointUri: URI,
-        options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | null> {
+    async visualizeMeshTally(statepointUri: URI, options: TallyVisualizationOptions): Promise<VisualizerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -344,7 +341,7 @@ export class OpenMCService {
             if (options.score) {
                 label += ` (${options.score})`;
             }
-            
+
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
@@ -354,17 +351,12 @@ export class OpenMCService {
             );
 
             const statepointPath = statepointUri.path.toString();
-            const result = await this.openmcBackend.visualizeMeshTally(
-                statepointPath,
-                options.tallyId,
-                options.score,
-                options.nuclide
-            );
+            const result = await this.openmcBackend.visualizeMeshTally(statepointPath, options.tallyId, options.score, options.nuclide);
 
             if (!result.success || !result.port || !result.url) {
                 throw new Error(result.error || 'Unknown error loading visualization');
             }
-            
+
             // Update label with tally name if available
             const tallyName = result.tallyInfo?.name;
             const defaultName = `Tally ${options.tallyId}`;
@@ -384,7 +376,6 @@ export class OpenMCService {
 
             this.messageService.info(`Loaded mesh tally visualization on port ${result.port}`);
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize mesh tally: ${msg}`);
@@ -425,7 +416,7 @@ export class OpenMCService {
         try {
             // Create unique suffix for source visualization
             const uniqueSuffix = `source:${Date.now()}`;
-            
+
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 sourceUri,
@@ -446,7 +437,6 @@ export class OpenMCService {
 
             this.messageService.info('Loaded source distribution');
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize source: ${msg}`);
@@ -470,16 +460,16 @@ export class OpenMCService {
         try {
             // Create unique suffix for overlay visualization
             const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-            
+
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ' on Geometry';
-            
+
             // Create widget immediately with loading state - use geometry as the main file
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                geometryUri,  // Use geometry as main file for the widget
+                geometryUri, // Use geometry as main file for the widget
                 label,
                 uniqueSuffix,
                 `Loading tally ${options.tallyId} on geometry...`
@@ -493,8 +483,8 @@ export class OpenMCService {
                 statepointPath,
                 options.tallyId,
                 options.score,
-                options.filterGraveyard !== false,  // default to true
-                options.pixelated !== false  // default to true
+                options.filterGraveyard !== false, // default to true
+                options.pixelated !== false // default to true
             );
 
             if (!result.success || !result.port || !result.url) {
@@ -523,7 +513,6 @@ export class OpenMCService {
             // The warning appears as soon as Python outputs it, not at the end
             this.messageService.info('Loaded tally overlay on geometry');
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally: ${msg}`);
@@ -595,7 +584,6 @@ export class OpenMCService {
 
             this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane`);
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally slice: ${msg}`);
@@ -624,31 +612,44 @@ export class OpenMCService {
     async promptOverlayOptions(
         geometryUri: URI,
         allowSlice: boolean = true
-    ): Promise<{ mode: 'slice' | 'full'; options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>; sliceOptions?: OpenMCSliceOptions } | undefined> {
+    ): Promise<
+        | {
+              mode: 'slice' | 'full';
+              options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>;
+              sliceOptions?: OpenMCSliceOptions;
+          }
+        | undefined
+    > {
         // 1. Mode selection
         let mode: 'slice' | 'full' = 'full';
         if (allowSlice) {
-            const modeChoice = await this.quickInput.showQuickPick([
-                { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
-                { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
-            ], {
-                title: 'Visualization Mode',
-                placeholder: 'Choose visualization mode'
-            });
+            const modeChoice = await this.quickInput.showQuickPick(
+                [
+                    { value: 'slice', label: '$(layers) Slice View', description: '2D slice with interpolated tally values' },
+                    { value: 'full', label: '$(globe) Full 3D Overlay', description: 'Map tally values onto 3D geometry cells' }
+                ],
+                {
+                    title: 'Visualization Mode',
+                    placeholder: 'Choose visualization mode'
+                }
+            );
             if (!modeChoice) return undefined;
             mode = modeChoice.value as 'slice' | 'full';
         }
 
         // 2. Slice mode
         if (mode === 'slice') {
-            const planeChoice = await this.quickInput.showQuickPick([
-                { value: 'x', label: 'X Plane', description: 'YZ cross-section' },
-                { value: 'y', label: 'Y Plane', description: 'XZ cross-section' },
-                { value: 'z', label: 'Z Plane', description: 'XY cross-section' }
-            ], {
-                title: 'Slice Plane',
-                placeholder: 'Select slice plane orientation'
-            });
+            const planeChoice = await this.quickInput.showQuickPick(
+                [
+                    { value: 'x', label: 'X Plane', description: 'YZ cross-section' },
+                    { value: 'y', label: 'Y Plane', description: 'XZ cross-section' },
+                    { value: 'z', label: 'Z Plane', description: 'XY cross-section' }
+                ],
+                {
+                    title: 'Slice Plane',
+                    placeholder: 'Select slice plane orientation'
+                }
+            );
             if (!planeChoice) return undefined;
             const plane = planeChoice.value as 'x' | 'y' | 'z';
 
@@ -658,9 +659,7 @@ export class OpenMCService {
             const boundsText = axisBounds
                 ? `Geometry range: ${axisBounds[0].toFixed(2)} to ${axisBounds[1].toFixed(2)} cm`
                 : 'Enter position in cm (leave empty for center)';
-            const defaultPos = axisBounds
-                ? ((axisBounds[0] + axisBounds[1]) / 2).toFixed(2)
-                : '0';
+            const defaultPos = axisBounds ? ((axisBounds[0] + axisBounds[1]) / 2).toFixed(2) : '0';
 
             // Ask for slice position
             const positionInput = await this.quickInput.input({
@@ -677,24 +676,30 @@ export class OpenMCService {
                 }
             }
 
-            const resChoice = await this.quickInput.showQuickPick([
-                { value: '100', label: 'Low (100x100)', description: 'Fast, lower quality' },
-                { value: '200', label: 'Medium (200x200)', description: 'Balanced' },
-                { value: '400', label: 'High (400x400)', description: 'Good quality' },
-                { value: '800', label: 'Ultra (800x800)', description: 'Best quality, slower' }
-            ], {
-                title: 'Slice Resolution',
-                placeholder: 'Select plane resolution'
-            });
+            const resChoice = await this.quickInput.showQuickPick(
+                [
+                    { value: '100', label: 'Low (100x100)', description: 'Fast, lower quality' },
+                    { value: '200', label: 'Medium (200x200)', description: 'Balanced' },
+                    { value: '400', label: 'High (400x400)', description: 'Good quality' },
+                    { value: '800', label: 'Ultra (800x800)', description: 'Best quality, slower' }
+                ],
+                {
+                    title: 'Slice Resolution',
+                    placeholder: 'Select plane resolution'
+                }
+            );
             if (!resChoice) return undefined;
 
-            const pixelChoice = await this.quickInput.showQuickPick([
-                { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-                { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
-            ], {
-                title: 'Rendering Style',
-                placeholder: 'Select rendering style'
-            });
+            const pixelChoice = await this.quickInput.showQuickPick(
+                [
+                    { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
+                    { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+                ],
+                {
+                    title: 'Rendering Style',
+                    placeholder: 'Select rendering style'
+                }
+            );
             if (!pixelChoice) return undefined;
 
             return {
@@ -714,24 +719,30 @@ export class OpenMCService {
         const isH5m = geometryUri.path.toString().endsWith('.h5m');
         let filterGraveyard = false;
         if (isH5m) {
-            const filterChoice = await this.quickInput.showQuickPick([
-                { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
-            ], {
-                title: 'Graveyard Surface Filtering',
-                placeholder: 'Select visualization mode'
-            });
+            const filterChoice = await this.quickInput.showQuickPick(
+                [
+                    { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
+                    { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
+                ],
+                {
+                    title: 'Graveyard Surface Filtering',
+                    placeholder: 'Select visualization mode'
+                }
+            );
             if (!filterChoice) return undefined;
             filterGraveyard = filterChoice.value === 'filter';
         }
 
-        const pixelChoice = await this.quickInput.showQuickPick([
-            { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-            { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
-        ], {
-            title: 'Rendering Style',
-            placeholder: 'Select rendering style'
-        });
+        const pixelChoice = await this.quickInput.showQuickPick(
+            [
+                { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
+                { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+            ],
+            {
+                title: 'Rendering Style',
+                placeholder: 'Select rendering style'
+            }
+        );
         if (!pixelChoice) return undefined;
 
         return {
@@ -805,7 +816,6 @@ export class OpenMCService {
 
             this.messageService.info('Loaded tally overlay with source particles');
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally with source: ${msg}`);
@@ -823,12 +833,17 @@ export class OpenMCService {
     /**
      * Get spectrum for multiple scores/nuclides.
      */
-    async getMultiScoreSpectrum(statepointUri: URI, tallyId: number, scores: string[], nuclide: string = 'total'): Promise<OpenMCMultiScoreData> {
-        const tally = this.currentTallies.find(t => t.id === tallyId);
+    async getMultiScoreSpectrum(
+        statepointUri: URI,
+        tallyId: number,
+        scores: string[],
+        nuclide: string = 'total'
+    ): Promise<OpenMCMultiScoreData> {
+        const tally = this.currentTallies.find((t) => t.id === tallyId);
         if (!tally) throw new Error(`Tally ${tallyId} not found`);
 
         const multiData: OpenMCMultiScoreData = { scores: [] };
-        
+
         for (const scoreName of scores) {
             const sIdx = tally.scores.indexOf(scoreName);
             const nIdx = tally.nuclides.indexOf(nuclide);
@@ -858,12 +873,18 @@ export class OpenMCService {
     /**
      * Get spatial plot for multiple scores.
      */
-    async getMultiScoreSpatialPlot(statepointUri: URI, tallyId: number, axis: 'x' | 'y' | 'z', scores: string[], nuclide: string = 'total'): Promise<OpenMCMultiScoreData> {
-        const tally = this.currentTallies.find(t => t.id === tallyId);
+    async getMultiScoreSpatialPlot(
+        statepointUri: URI,
+        tallyId: number,
+        axis: 'x' | 'y' | 'z',
+        scores: string[],
+        nuclide: string = 'total'
+    ): Promise<OpenMCMultiScoreData> {
+        const tally = this.currentTallies.find((t) => t.id === tallyId);
         if (!tally) throw new Error(`Tally ${tallyId} not found`);
 
         const multiData: OpenMCMultiScoreData = { scores: [] };
-        
+
         for (const scoreName of scores) {
             const sIdx = tally.scores.indexOf(scoreName);
             const nIdx = tally.nuclides.indexOf(nuclide);
@@ -894,14 +915,7 @@ export class OpenMCService {
         scoreIndex?: number,
         nuclideIndex?: number
     ): Promise<OpenMCHeatmapData> {
-        return this.openmcBackend.getHeatmapSlice(
-            statepointUri.path.toString(),
-            tallyId,
-            plane,
-            sliceIndex,
-            scoreIndex,
-            nuclideIndex
-        );
+        return this.openmcBackend.getHeatmapSlice(statepointUri.path.toString(), tallyId, plane, sliceIndex, scoreIndex, nuclideIndex);
     }
 
     /**
@@ -914,13 +928,7 @@ export class OpenMCService {
         scoreIndex?: number,
         nuclideIndex?: number
     ): Promise<OpenMCHeatmapData[]> {
-        return this.openmcBackend.getAllHeatmapSlices(
-            statepointUri.path.toString(),
-            tallyId,
-            plane,
-            scoreIndex,
-            nuclideIndex
-        );
+        return this.openmcBackend.getAllHeatmapSlices(statepointUri.path.toString(), tallyId, plane, scoreIndex, nuclideIndex);
     }
 
     /**
@@ -1101,7 +1109,7 @@ export class OpenMCService {
             nuclides: [],
             reactions,
             temperature,
-            materials: materials.map(m => ({
+            materials: materials.map((m) => ({
                 name: m.name,
                 components: m.components,
                 density: m.density
@@ -1142,17 +1150,13 @@ export class OpenMCService {
     /**
      * Get depletion data for a specific material.
      */
-    async getDepletionData(
-        fileUri: URI,
-        materialIndex: number,
-        nuclides?: string[]
-    ): Promise<any> {
+    async getDepletionData(fileUri: URI, materialIndex: number, nuclides?: string[]): Promise<any> {
         try {
             return await this.openmcBackend.getDepletionData(
                 fileUri.path.toString(),
                 materialIndex,
                 nuclides,
-                false  // includeActivity - can be added later
+                false // includeActivity - can be added later
             );
         } catch (error) {
             this.messageService.error(`Failed to load depletion data: ${error}`);
@@ -1185,7 +1189,11 @@ export class OpenMCService {
     /**
      * Visualize geometry in 3D.
      */
-    async visualizeGeometry(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
+    async visualizeGeometry(
+        fileUri: URI,
+        highlightCellIds?: number[],
+        overlaps?: any[]
+    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
         try {
             return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
         } catch (error) {
@@ -1206,7 +1214,7 @@ export class OpenMCService {
         try {
             const hasOverlaps = overlaps && overlaps.length > 0;
             const hasHighlights = highlightCellIds && highlightCellIds.length > 0;
-            
+
             // Overlaps are limited to 1000 for performance on backend
             const MAX_OVERLAPS = 1000;
             const overlapDisplayCount = hasOverlaps ? Math.min(overlaps.length, MAX_OVERLAPS) : 0;
@@ -1218,22 +1226,25 @@ export class OpenMCService {
             } else if (hasHighlights) {
                 uniqueSuffix = `geometry:highlight:${highlightCellIds.join('_')}:${Date.now()}`;
             }
-            
+
             let label = 'OpenMC Geometry';
             if (hasOverlaps) {
                 label = 'OpenMC Geometry Overlaps';
             } else if (hasHighlights) {
-                label = highlightCellIds.length === 1 
-                    ? `OpenMC Geometry (Cell ${highlightCellIds[0]})`
-                    : `OpenMC Geometry (${highlightCellIds.length} cells)`;
+                label =
+                    highlightCellIds.length === 1
+                        ? `OpenMC Geometry (Cell ${highlightCellIds[0]})`
+                        : `OpenMC Geometry (${highlightCellIds.length} cells)`;
             }
-            
+
             const loadingMessage = hasOverlaps
-                ? (overlaps.length > MAX_OVERLAPS 
+                ? overlaps.length > MAX_OVERLAPS
                     ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
-                    : `Loading geometry with ${overlaps.length} overlap markers...`)
-                : (hasHighlights ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...` : 'Loading geometry...');
-            
+                    : `Loading geometry with ${overlaps.length} overlap markers...`
+                : hasHighlights
+                  ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...`
+                  : 'Loading geometry...';
+
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 fileUri,
@@ -1251,12 +1262,10 @@ export class OpenMCService {
             // Complete loading by setting server URL
             completeLoading(result.port, result.url);
 
-            this.messageService.info(hasHighlights 
-                ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted`
-                : 'Loaded geometry visualization'
+            this.messageService.info(
+                hasHighlights ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted` : 'Loaded geometry visualization'
             );
             return widget;
-
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize geometry: ${msg}`);
@@ -1280,7 +1289,7 @@ export class OpenMCService {
         try {
             const statepointPath = statepointUri.path.toString();
             const info = await this.openmcBackend.getStatepointFullInfo(statepointPath);
-            
+
             this.currentStatepointFull = info;
             this.currentStatepoint = {
                 file: statepointPath,
@@ -1292,9 +1301,9 @@ export class OpenMCService {
                 tallyIds: info.tallies.map((t: any) => t.id)
             };
             this.currentTallies = info.tallies;
-            
+
             this._onStatepointLoaded.fire(this.currentStatepoint);
-            
+
             return info;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -1327,10 +1336,7 @@ export class OpenMCService {
      */
     async getSourceData(statepointUri: URI, maxParticles?: number): Promise<any> {
         try {
-            return await this.openmcBackend.getSourceData(
-                statepointUri.path.toString(),
-                maxParticles
-            );
+            return await this.openmcBackend.getSourceData(statepointUri.path.toString(), maxParticles);
         } catch (error) {
             console.error('[OpenMC] Error getting source data:', error);
             return null;
@@ -1342,10 +1348,7 @@ export class OpenMCService {
      */
     async getEnergyDistribution(statepointUri: URI, nBins?: number): Promise<any> {
         try {
-            return await this.openmcBackend.getEnergyDistribution(
-                statepointUri.path.toString(),
-                nBins
-            );
+            return await this.openmcBackend.getEnergyDistribution(statepointUri.path.toString(), nBins);
         } catch (error) {
             console.error('[OpenMC] Error getting energy distribution:', error);
             return null;
@@ -1364,7 +1367,7 @@ export class OpenMCService {
         try {
             // Create unique suffix for source visualization
             const uniqueSuffix = `statepoint-source:${Date.now()}`;
-            
+
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
@@ -1373,9 +1376,7 @@ export class OpenMCService {
                 'Loading source distribution from statepoint...'
             );
 
-            const result = await this.openmcBackend.visualizeStatepointSource(
-                statepointUri.path.toString()
-            );
+            const result = await this.openmcBackend.visualizeStatepointSource(statepointUri.path.toString());
 
             if (!result.success || !result.port || !result.url) {
                 throw new Error(result.error || 'Unknown error loading source');
@@ -1407,16 +1408,13 @@ export class OpenMCService {
             throw error;
         }
     }
-    
+
     /**
      * Get mapping of materials to cells that use them.
      */
     async getMaterialCellLinkage(materialsUri: URI, geometryUri: URI): Promise<any> {
         try {
-            const result = await this.openmcBackend.getMaterialCellLinkage(
-                materialsUri.path.toString(),
-                geometryUri.path.toString()
-            );
+            const result = await this.openmcBackend.getMaterialCellLinkage(materialsUri.path.toString(), geometryUri.path.toString());
             return result;
         } catch (error) {
             this.messageService.error(`Failed to load material-cell linkage: ${error}`);
@@ -1456,7 +1454,7 @@ export class OpenMCService {
             throw error;
         }
     }
-    
+
     // === Geometry Overlap Checker ===
 
     /**
@@ -1521,16 +1519,13 @@ export class OpenMCService {
      */
     async getOverlapVisualization(geometryUri: URI, overlaps: any[]): Promise<any> {
         try {
-            return await this.openmcBackend.getOverlapVisualization(
-                geometryUri.path.toString(),
-                overlaps
-            );
+            return await this.openmcBackend.getOverlapVisualization(geometryUri.path.toString(), overlaps);
         } catch (error) {
             this.messageService.error(`Failed to get overlap visualization: ${error}`);
             throw error;
         }
     }
-    
+
     /**
      * Stop a running visualization server.
      */

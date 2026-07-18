@@ -55,6 +55,7 @@ import {
     OpenMCSourceEnergy
 } from '../../../common/openmc-state-schema';
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../../common/openmc-studio-protocol';
+import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 import { TallyConfiguratorWidget } from '../tally-configurator/tally-configurator-widget';
 import { OptimizationWidget } from '../optimization/optimization-widget';
@@ -3353,7 +3354,7 @@ export class SimulationDashboardWidget extends ReactWidget {
 
         // Check OpenMC availability (with fallback discovery across all envs)
         const openmcCheck = await this.nukeCoreService.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: STUDIO_CORE_PACKAGES,
             searchWorkspaceVenvs: true
         });
         if (!openmcCheck.success || !openmcCheck.command) {

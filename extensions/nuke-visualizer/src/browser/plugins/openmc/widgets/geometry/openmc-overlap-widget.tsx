@@ -82,7 +82,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
         this.title.caption = OpenMCOverlapWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'fa fa-search';
-        
+
         this.update();
     }
 
@@ -100,7 +100,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                     'All Files': ['*']
                 }
             });
-            
+
             if (fileUri) {
                 const uri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
                 this.geometryUri = uri;
@@ -119,28 +119,31 @@ export class OpenMCOverlapWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         return (
-            <div className="openmc-overlap-widget" style={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                background: 'var(--theia-editor-background)',
-                color: 'var(--theia-foreground)',
-                fontSize: '12px'
-            }}>
-                {/* Fixed Header - no scroll */}
-                <div style={{ padding: '12px 12px 0 12px', flexShrink: 0 }}>
-                    {this.renderHeader()}
-                </div>
-                
-                {/* Scrollable Content Area */}
-                <div style={{ 
-                    flex: 1, 
-                    overflow: 'auto', 
-                    padding: '0 12px 12px 12px',
+            <div
+                className="openmc-overlap-widget"
+                style={{
+                    height: '100%',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '10px'
-                }}>
+                    background: 'var(--theia-editor-background)',
+                    color: 'var(--theia-foreground)',
+                    fontSize: '12px'
+                }}
+            >
+                {/* Fixed Header - no scroll */}
+                <div style={{ padding: '12px 12px 0 12px', flexShrink: 0 }}>{this.renderHeader()}</div>
+
+                {/* Scrollable Content Area */}
+                <div
+                    style={{
+                        flex: 1,
+                        overflow: 'auto',
+                        padding: '0 12px 12px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px'
+                    }}
+                >
                     {this.renderSettings()}
                     {this.isRunning && this.renderProgress()}
                     {this.overlaps.length > 0 && this.renderResults()}
@@ -165,15 +168,25 @@ export class OpenMCOverlapWidget extends ReactWidget {
 
     protected renderSettings(): React.ReactNode {
         return (
-            <div style={{ 
-                background: 'var(--theia-editorWidget-background)',
-                borderRadius: '4px',
-                padding: '10px',
-                border: '1px solid var(--theia-panel-border)',
-                flexShrink: 0
-            }}>
+            <div
+                style={{
+                    background: 'var(--theia-editorWidget-background)',
+                    borderRadius: '4px',
+                    padding: '10px',
+                    border: '1px solid var(--theia-panel-border)',
+                    flexShrink: 0
+                }}
+            >
                 <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '3px', fontWeight: 500, color: 'var(--theia-foreground)' }}>
+                    <label
+                        style={{
+                            display: 'block',
+                            fontSize: '11px',
+                            marginBottom: '3px',
+                            fontWeight: 500,
+                            color: 'var(--theia-foreground)'
+                        }}
+                    >
                         Geometry File
                     </label>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -211,13 +224,15 @@ export class OpenMCOverlapWidget extends ReactWidget {
                         </button>
                     </div>
                     {this.geometryUri && (
-                        <div style={{ 
-                            marginTop: '3px', 
-                            fontSize: '10px', 
-                            color: 'var(--theia-descriptionForeground)',
-                            wordBreak: 'break-all',
-                            lineHeight: '1.3'
-                        }}>
+                        <div
+                            style={{
+                                marginTop: '3px',
+                                fontSize: '10px',
+                                color: 'var(--theia-descriptionForeground)',
+                                wordBreak: 'break-all',
+                                lineHeight: '1.3'
+                            }}
+                        >
                             {this.geometryUri.path.toString()}
                         </div>
                     )}
@@ -239,7 +254,14 @@ export class OpenMCOverlapWidget extends ReactWidget {
                         }}
                         style={{ width: '100%', height: '4px', margin: '4px 0' }}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '10px',
+                            color: 'var(--theia-descriptionForeground)'
+                        }}
+                    >
                         <span>10K</span>
                         <span>100K</span>
                         <span>1M</span>
@@ -264,7 +286,9 @@ export class OpenMCOverlapWidget extends ReactWidget {
                     />
                 </div>
 
-                <div style={{ marginBottom: '10px', padding: '6px 8px', background: 'var(--theia-editor-background)', borderRadius: '3px' }}>
+                <div
+                    style={{ marginBottom: '10px', padding: '6px 8px', background: 'var(--theia-editor-background)', borderRadius: '3px' }}
+                >
                     <label style={{ display: 'flex', alignItems: 'center', fontSize: '11px', cursor: 'pointer' }}>
                         <input
                             type="checkbox"
@@ -285,12 +309,14 @@ export class OpenMCOverlapWidget extends ReactWidget {
                     style={{
                         width: '100%',
                         padding: '7px 12px',
-                        background: this.geometryUri && !this.isRunning 
-                            ? 'var(--theia-button-background)' 
-                            : 'var(--theia-button-disabledBackground)',
-                        color: this.geometryUri && !this.isRunning 
-                            ? 'var(--theia-button-foreground)' 
-                            : 'var(--theia-button-disabledForeground)',
+                        background:
+                            this.geometryUri && !this.isRunning
+                                ? 'var(--theia-button-background)'
+                                : 'var(--theia-button-disabledBackground)',
+                        color:
+                            this.geometryUri && !this.isRunning
+                                ? 'var(--theia-button-foreground)'
+                                : 'var(--theia-button-disabledForeground)',
                         border: 'none',
                         borderRadius: '3px',
                         fontSize: '12px',
@@ -303,9 +329,13 @@ export class OpenMCOverlapWidget extends ReactWidget {
                     }}
                 >
                     {this.isRunning ? (
-                        <><span className="codicon codicon-sync" style={{ animation: 'spin 1s linear infinite' }}></span> Running...</>
+                        <>
+                            <span className="codicon codicon-sync" style={{ animation: 'spin 1s linear infinite' }}></span> Running...
+                        </>
                     ) : (
-                        <><span>▶</span> Run Overlap Check</>
+                        <>
+                            <span>▶</span> Run Overlap Check
+                        </>
                     )}
                 </button>
             </div>
@@ -314,32 +344,38 @@ export class OpenMCOverlapWidget extends ReactWidget {
 
     protected renderProgress(): React.ReactNode {
         return (
-            <div style={{ 
-                background: 'var(--theia-editorWidget-background)',
-                borderRadius: '4px',
-                padding: '10px',
-                border: '1px solid var(--theia-panel-border)',
-                flexShrink: 0
-            }}>
+            <div
+                style={{
+                    background: 'var(--theia-editorWidget-background)',
+                    borderRadius: '4px',
+                    padding: '10px',
+                    border: '1px solid var(--theia-panel-border)',
+                    flexShrink: 0
+                }}
+            >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                     <span style={{ fontSize: '11px', fontWeight: 500 }}>Progress: {this.progress.percentage.toFixed(1)}%</span>
                     <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
                         {this.progress.checked.toLocaleString()} / {this.progress.total.toLocaleString()}
                     </span>
                 </div>
-                <div style={{ 
-                    width: '100%', 
-                    height: '5px', 
-                    background: 'var(--theia-progressBar-background)',
-                    borderRadius: '3px',
-                    overflow: 'hidden'
-                }}>
-                    <div style={{
-                        width: `${this.progress.percentage}%`,
-                        height: '100%',
-                        background: 'var(--theia-progressBar-foreground)',
-                        transition: 'width 0.3s ease'
-                    }} />
+                <div
+                    style={{
+                        width: '100%',
+                        height: '5px',
+                        background: 'var(--theia-progressBar-background)',
+                        borderRadius: '3px',
+                        overflow: 'hidden'
+                    }}
+                >
+                    <div
+                        style={{
+                            width: `${this.progress.percentage}%`,
+                            height: '100%',
+                            background: 'var(--theia-progressBar-foreground)',
+                            transition: 'width 0.3s ease'
+                        }}
+                    />
                 </div>
             </div>
         );
@@ -352,33 +388,41 @@ export class OpenMCOverlapWidget extends ReactWidget {
         const visibleOverlaps = this.overlaps.slice(startIndex, endIndex);
 
         return (
-            <div style={{ 
-                background: 'var(--theia-editorWidget-background)',
-                borderRadius: '4px',
-                padding: '10px',
-                border: '1px solid var(--theia-panel-border)',
-                flexShrink: 0
-            }}>
-                <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    marginBottom: '8px',
-                    paddingBottom: '8px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}>
+            <div
+                style={{
+                    background: 'var(--theia-editorWidget-background)',
+                    borderRadius: '4px',
+                    padding: '10px',
+                    border: '1px solid var(--theia-panel-border)',
+                    flexShrink: 0
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '8px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid var(--theia-panel-border)'
+                    }}
+                >
                     <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span style={{ 
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'var(--theia-charts-red)',
-                            color: 'white',
-                            borderRadius: '10px',
-                            padding: '1px 6px',
-                            fontSize: '10px',
-                            fontWeight: 700
-                        }}>{this.overlaps.length}</span>
+                        <span
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'var(--theia-charts-red)',
+                                color: 'white',
+                                borderRadius: '10px',
+                                padding: '1px 6px',
+                                fontSize: '10px',
+                                fontWeight: 700
+                            }}
+                        >
+                            {this.overlaps.length}
+                        </span>
                         Overlap{this.overlaps.length !== 1 ? 's' : ''} Found
                     </h3>
                     <div style={{ display: 'flex', gap: '5px' }}>
@@ -434,18 +478,23 @@ export class OpenMCOverlapWidget extends ReactWidget {
                 </div>
 
                 {totalPages > 1 && (
-                    <div style={{ 
-                        marginTop: '10px', 
-                        paddingTop: '8px', 
-                        borderTop: '1px solid var(--theia-panel-border)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontSize: '11px'
-                    }}>
+                    <div
+                        style={{
+                            marginTop: '10px',
+                            paddingTop: '8px',
+                            borderTop: '1px solid var(--theia-panel-border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            fontSize: '11px'
+                        }}
+                    >
                         <button
                             disabled={this.currentPage === 1}
-                            onClick={() => { this.currentPage--; this.update(); }}
+                            onClick={() => {
+                                this.currentPage--;
+                                this.update();
+                            }}
                             style={{
                                 background: 'var(--theia-button-secondaryBackground)',
                                 color: 'var(--theia-button-secondaryForeground)',
@@ -463,7 +512,10 @@ export class OpenMCOverlapWidget extends ReactWidget {
                         </span>
                         <button
                             disabled={this.currentPage === totalPages}
-                            onClick={() => { this.currentPage++; this.update(); }}
+                            onClick={() => {
+                                this.currentPage++;
+                                this.update();
+                            }}
                             style={{
                                 background: 'var(--theia-button-secondaryBackground)',
                                 color: 'var(--theia-button-secondaryForeground)',
@@ -492,9 +544,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                 onClick={() => this.selectOverlap(overlap)}
                 style={{
                     padding: '8px',
-                    background: isSelected 
-                        ? 'var(--theia-list-activeSelectionBackground)' 
-                        : 'var(--theia-list-hoverBackground)',
+                    background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'var(--theia-list-hoverBackground)',
                     border: `1px solid ${isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent'}`,
                     borderRadius: '3px',
                     cursor: 'pointer'
@@ -502,20 +552,22 @@ export class OpenMCOverlapWidget extends ReactWidget {
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ 
-                            width: '8px', 
-                            height: '8px', 
-                            borderRadius: '50%', 
-                            background: 'var(--theia-charts-red)',
-                            display: 'inline-block'
-                        }}></span>
+                        <span
+                            style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: 'var(--theia-charts-red)',
+                                display: 'inline-block'
+                            }}
+                        ></span>
                         <span style={{ fontWeight: 500, fontSize: '11px' }}>
-                            {overlap.cellIds.length > 2 
-                                ? `Multi-cell (${overlap.cellIds.length})` 
+                            {overlap.cellIds.length > 2
+                                ? `Multi-cell (${overlap.cellIds.length})`
                                 : `Cells ${overlap.cellIds[0]} & ${overlap.cellIds[1]}`}
                         </span>
                     </div>
-                    <Tooltip content={this.geometryUri ? "View in 3D" : "Load geometry.xml first"} position="top">
+                    <Tooltip content={this.geometryUri ? 'View in 3D' : 'Load geometry.xml first'} position="top">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -525,8 +577,12 @@ export class OpenMCOverlapWidget extends ReactWidget {
                             style={{
                                 padding: '2px 6px',
                                 fontSize: '10px',
-                                background: this.geometryUri ? 'var(--theia-button-secondaryBackground)' : 'var(--theia-button-disabledBackground)',
-                                color: this.geometryUri ? 'var(--theia-button-secondaryForeground)' : 'var(--theia-button-disabledForeground)',
+                                background: this.geometryUri
+                                    ? 'var(--theia-button-secondaryBackground)'
+                                    : 'var(--theia-button-disabledBackground)',
+                                color: this.geometryUri
+                                    ? 'var(--theia-button-secondaryForeground)'
+                                    : 'var(--theia-button-disabledForeground)',
                                 border: 'none',
                                 borderRadius: '2px',
                                 cursor: this.geometryUri ? 'pointer' : 'not-allowed'
@@ -536,29 +592,41 @@ export class OpenMCOverlapWidget extends ReactWidget {
                         </button>
                     </Tooltip>
                 </div>
-                
-                <div style={{
-                    padding: '5px 8px',
-                    background: 'var(--theia-inputValidation-errorBackground)',
-                    borderRadius: '3px',
-                    borderLeft: '2px solid var(--theia-charts-red)',
-                    marginBottom: '6px'
-                }}>
-                    <div style={{ fontSize: '9px', color: 'var(--theia-charts-red)', marginBottom: '1px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+
+                <div
+                    style={{
+                        padding: '5px 8px',
+                        background: 'var(--theia-inputValidation-errorBackground)',
+                        borderRadius: '3px',
+                        borderLeft: '2px solid var(--theia-charts-red)',
+                        marginBottom: '6px'
+                    }}
+                >
+                    <div
+                        style={{
+                            fontSize: '9px',
+                            color: 'var(--theia-charts-red)',
+                            marginBottom: '1px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                        }}
+                    >
                         Location
                     </div>
-                    <div style={{ 
-                        fontSize: '12px', 
-                        color: 'var(--theia-foreground)',
-                        fontFamily: 'var(--theia-code-font-family)',
-                        fontWeight: 500
-                    }}>
+                    <div
+                        style={{
+                            fontSize: '12px',
+                            color: 'var(--theia-foreground)',
+                            fontFamily: 'var(--theia-code-font-family)',
+                            fontWeight: 500
+                        }}
+                    >
                         ({x.toFixed(4)}, {y.toFixed(4)}, {z.toFixed(4)}) cm
                     </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                    {overlap.cellIds.map(cellId => (
+                    {overlap.cellIds.map((cellId) => (
                         <span
                             key={cellId}
                             style={{
@@ -596,7 +664,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                 }
                 const increment = Math.random() * 5;
                 this.progress.percentage = Math.min(99, this.progress.percentage + increment);
-                this.progress.checked = Math.floor(this.progress.percentage / 100 * this.samplePoints);
+                this.progress.checked = Math.floor((this.progress.percentage / 100) * this.samplePoints);
                 this.update();
             }, 200);
 
@@ -640,9 +708,11 @@ export class OpenMCOverlapWidget extends ReactWidget {
             const MAX_DISPLAY = 1000;
             const displayCount = Math.min(this.overlaps.length, MAX_DISPLAY);
             await this.openmcService.openGeometryViewer(this.geometryUri, undefined, this.overlaps);
-            
+
             if (this.overlaps.length > MAX_DISPLAY) {
-                this.messageService.info(`Loaded 3D view with ${displayCount} of ${this.overlaps.length} overlap markers (limited for performance)`);
+                this.messageService.info(
+                    `Loaded 3D view with ${displayCount} of ${this.overlaps.length} overlap markers (limited for performance)`
+                );
             } else {
                 this.messageService.info(`Loaded 3D view with ${displayCount} overlap markers`);
             }
@@ -658,7 +728,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
         }
 
         try {
-            // Pass all involved cell IDs for red highlighting, 
+            // Pass all involved cell IDs for red highlighting,
             // and the specific overlap marker so the yellow sphere appears.
             await this.openmcService.openGeometryViewer(this.geometryUri, overlap.cellIds, [overlap]);
         } catch (error) {
@@ -676,11 +746,15 @@ export class OpenMCOverlapWidget extends ReactWidget {
         let mimeType: string;
 
         if (format === 'json') {
-            content = JSON.stringify({
-                geometryPath: this.geometryUri?.path.toString(),
-                totalOverlaps: this.overlaps.length,
-                overlaps: this.overlaps
-            }, null, 2);
+            content = JSON.stringify(
+                {
+                    geometryPath: this.geometryUri?.path.toString(),
+                    totalOverlaps: this.overlaps.length,
+                    overlaps: this.overlaps
+                },
+                null,
+                2
+            );
             filename = 'overlaps.json';
             mimeType = 'application/json';
         } else {

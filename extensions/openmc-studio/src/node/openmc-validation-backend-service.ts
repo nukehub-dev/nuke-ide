@@ -37,6 +37,8 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 
+import { STUDIO_CORE_PACKAGES, DAGMC_PACKAGES } from '../common/packages';
+
 export interface OpenMCValidationResult {
     ready: boolean;
     environmentConfigured: boolean;
@@ -77,7 +79,7 @@ export class OpenMCValidationBackendService {
 
         // Check environment with OpenMC requirement
         const detection = await this.nukeCore.detectPythonWithRequirements({
-            requiredPackages: [{ name: 'openmc' }],
+            requiredPackages: STUDIO_CORE_PACKAGES,
             searchWorkspaceVenvs: true
         });
 
@@ -154,7 +156,7 @@ export class OpenMCValidationBackendService {
     async isOpenMCAvailable(): Promise<boolean> {
         try {
             const result = await this.nukeCore.detectPythonWithRequirements({
-                requiredPackages: [{ name: 'openmc' }]
+                requiredPackages: STUDIO_CORE_PACKAGES
             });
             return result.success;
         } catch {
@@ -163,7 +165,7 @@ export class OpenMCValidationBackendService {
     }
 
     /**
-     * Validate DAGMC setup (pydagmc + pymoab).
+     * Validate DAGMC setup (pydagmc + moab).
      * @returns DAGMC availability with version information
      */
     async validateDAGMC(): Promise<{
@@ -176,10 +178,7 @@ export class OpenMCValidationBackendService {
     }> {
         try {
             const result = await this.nukeCore.detectPythonWithRequirements({
-                requiredPackages: [
-                    { name: 'pydagmc', required: true },
-                    { name: 'pymoab', required: false }
-                ],
+                requiredPackages: DAGMC_PACKAGES,
                 searchWorkspaceVenvs: true
             });
 
@@ -191,13 +190,13 @@ export class OpenMCValidationBackendService {
             }
 
             // Get versions
-            const depCheck = await this.nukeCore.checkDependencies([{ name: 'pydagmc' }, { name: 'pymoab' }], result.command);
+            const depCheck = await this.nukeCore.checkDependencies(DAGMC_PACKAGES, result.command);
 
             return {
                 available: true,
                 pythonCommand: result.command,
                 pydagmcVersion: depCheck.versions['pydagmc'],
-                pymoabVersion: depCheck.versions['pymoab'],
+                pymoabVersion: depCheck.versions['moab'],
                 warning: result.warning
             };
         } catch (error) {

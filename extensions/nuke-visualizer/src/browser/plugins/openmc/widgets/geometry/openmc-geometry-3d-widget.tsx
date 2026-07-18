@@ -35,7 +35,12 @@ import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
 import { OpenMCService } from '../../openmc-service';
-import { LoadingAnimations, FancyLoadingSpinner, ErrorDisplay, EmptyState } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import {
+    LoadingAnimations,
+    FancyLoadingSpinner,
+    ErrorDisplay,
+    EmptyState
+} from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
 @injectable()
@@ -68,9 +73,9 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
 
     setGeometry(uri: URI): void {
         this.geometryUri = uri;
-        this.error = null;  // Clear any previous error
-        this.isLoading = false;  // Reset loading state
-        this.serverUrl = null;  // Reset server URL
+        this.error = null; // Clear any previous error
+        this.isLoading = false; // Reset loading state
+        this.serverUrl = null; // Reset server URL
         this.update();
     }
 
@@ -115,10 +120,7 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
             return (
                 <div className="geometry-3d-container loading">
                     <LoadingAnimations />
-                    <FancyLoadingSpinner 
-                        message="Loading 3D Geometry..." 
-                        subMessage="Please wait" 
-                    />
+                    <FancyLoadingSpinner message="Loading 3D Geometry..." subMessage="Please wait" />
                 </div>
             );
         }
@@ -126,10 +128,7 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
         if (!this.serverUrl) {
             return (
                 <div className="geometry-3d-container empty">
-                    <EmptyState 
-                        icon="globe" 
-                        message="No geometry loaded" 
-                    />
+                    <EmptyState icon="globe" message="No geometry loaded" />
                 </div>
             );
         }
@@ -145,11 +144,7 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
                             {fileName}
                         </span>
                     </Tooltip>
-                    {this.highlightedCell !== null && (
-                        <span className="highlight-badge">
-                            Cell {this.highlightedCell} highlighted
-                        </span>
-                    )}
+                    {this.highlightedCell !== null && <span className="highlight-badge">Cell {this.highlightedCell} highlighted</span>}
                 </div>
                 <div className="geometry-3d-viewer">
                     <iframe
