@@ -1,0 +1,39 @@
+# Coverage configuration for the extension Python backends.
+#
+# Tiered coverage policy (see root AGENTS.md):
+#   - Logic layer (parsers, converters, services, command handlers) is measured
+#     and ratcheted — the threshold in `yarn test:python:cov` may only go UP.
+#   - Rendering layer (trame/ParaView/VTK server modules) is excluded here:
+#     it is exercised by the error-path contract tests and the docker smoke
+#     test, not by unit tests (unit-testing it means mocking trame/VTK into
+#     meaninglessness).
+
+[run]
+source =
+    extensions/nuke-visualizer/python
+    extensions/openmc-studio/python
+
+omit =
+    # trame/ParaView rendering servers and plugin registration glue
+    extensions/nuke-visualizer/python/plugins/base/commands/serve.py
+    extensions/nuke-visualizer/python/plugins/base/lib/dagmc_viz.py
+    extensions/nuke-visualizer/python/plugins/base/plugin.py
+    extensions/nuke-visualizer/python/plugins/openmc/plugin.py
+    extensions/nuke-visualizer/python/plugins/openmc/commands/tally_viz.py
+    extensions/nuke-visualizer/python/plugins/openmc/commands/xs_plot.py
+    extensions/nuke-visualizer/python/plugins/openmc/lib/geometry_viz.py
+    extensions/nuke-visualizer/python/plugins/openmc/lib/reader.py
+    extensions/nuke-visualizer/python/plugins/openmc/lib/slice_viz.py
+
+[report]
+show_missing = true
+skip_covered = true
+exclude_also =
+    # Don't complain about defensive re-runs
+    if __name__ == .__main__.:
+    # Don't complain about abstract methods
+    @(abc\.)?abstractmethod
+
+# Ratchet: the logic-layer threshold may only go UP. Bump it whenever the
+# measured baseline improves; never lower it.
+fail_under = 94

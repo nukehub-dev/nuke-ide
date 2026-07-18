@@ -112,9 +112,18 @@ Notes:
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), and the pytest suites. This must stay green.
+- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage, and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
 - `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch.
+
+## Coverage
+
+Tiered policy; the project does not chase one uniform percentage.
+
+- **Logic layer** (Python parsers/converters/services/command handlers, TS pure helpers): measured and ratcheted. `.coveragerc` holds `fail_under` — it may only go UP; bump it whenever the baseline improves.
+- **Rendering layer** (trame/ParaView/VTK server modules, plugin glue): excluded in `.coveragerc`; covered by error-path contract tests and the docker smoke test instead.
+- Run `yarn test:python:cov` for the Python report (writes `coverage.xml`) and `yarn test:ts` for vitest.
+- New Python tests must pass with only `pytest` + `numpy` installed (use `pytest.importorskip`/guarded imports for heavy deps); the full-dependency profile is exercised by the docker image test step.
 
 ## Architecture pointer
 
