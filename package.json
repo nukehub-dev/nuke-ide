@@ -8,7 +8,8 @@
     "node-abi": "4.28.0",
     "@electron/rebuild": "4.0.3",
     "nan": "2.26.2",
-    "@theia/monaco-editor-core": "1.108.201"
+    "@theia/monaco-editor-core": "1.108.201",
+    "**/ssh2": "1.17.0"
   },
   "scripts": {
     "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false --ignore-errors",

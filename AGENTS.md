@@ -144,6 +144,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - **Extension Python code is not pip-installed**; tests put `extensions/<name>/python/` on `sys.path` via `tests/python/conftest.py`. Keep imports package-relative to that layout (`nuke_viz.*`, `plugins.*`, top-level service modules).
 - **Do not remove "unused" Python imports blindly**: some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `dagmc_viz.py`). These carry `# noqa: F401` comments.
 - **`yarn install` runs `lerna run prepare`** (full extension rebuild) via the root `prepare` script; use `yarn install --ignore-scripts` when only the lockfile/node_modules must change.
+- **Keep `**/ssh2` pinned in root `resolutions`**: multiple ssh2 copies (hoisted + nested under `@theia/remote`) each build `sshcrypto.node`, and webpack fails with `Conflict: Multiple assets emit different content to the same filename native/sshcrypto.node`.
 
 ## Child NAD Index
 
