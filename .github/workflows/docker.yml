@@ -1,0 +1,87 @@
+name: Docker
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'applications/docker/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'applications/docker/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/docker.yml'
+  schedule:
+    # Weekly smoke build (Sundays 06:00 UTC) to catch base-image / open-vsx bitrot.
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    name: Build image & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        # The all-in-one image (Theia bundle + conda ParaView/VTK/OCCT) is large.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
+          df -h /
+
+      - name: Build image
+        run: docker build -f applications/docker/Dockerfile -t nuke-ide:latest .
+
+      - name: Verify Python backend environment
+        run: |
+          docker run --rm --entrypoint python nuke-ide:latest -c "
+          import numpy, scipy, h5py, matplotlib, pandas, yaml
+          import openmc, trame
+          import vtk
+          from paraview import simple
+          import OCP, cadquery, OCC, gmsh
+          from pymoab import core
+          import pydagmc
+          print('python env OK')
+          "
+
+      - name: Run extension test suite in image
+        # pytest is not part of the image; install it transiently. The suite
+        # covers extensions/*/tests/python via the repo-root pytest.ini.
+        run: |
+          docker run --rm -w /opt/nuke-ide --entrypoint /bin/bash nuke-ide:latest -c "
+            pip install -q pytest && python -m pytest -q
+          "
+
+      - name: Smoke test the IDE server
+        run: |
+          set -e
+          docker run -d --name nuke-ide-test -p 3000:3000 nuke-ide:latest
+          trap 'docker rm -f nuke-ide-test || true' EXIT
+          up=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/ || true)
+            if [ "$code" = "200" ]; then
+              echo "IDE responded with HTTP 200 after ~$((i * 5))s"
+              up=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$up" != "1" ]; then
+            echo "IDE did not come up within 300s; container logs:"
+            docker logs nuke-ide-test 2>&1 | tail -50
+            exit 1
+          fi

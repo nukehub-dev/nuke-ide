@@ -108,6 +108,14 @@ Notes:
 - Formatter configs: `.prettierrc.json` (Theia style: 4-space, single quotes, no trailing commas, width 140), `ruff.toml` (py313, width 100), `.editorconfig` mirrors both.
 - Full application bundles are heavy: `yarn build:browser` / `yarn build:electron` run webpack. Prefer `npx lerna run build` for a fast compile check.
 
+## CI/CD
+
+GitHub Actions workflows under `.github/workflows/`:
+
+- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), and the pytest suites. This must stay green.
+- `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
+- `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch.
+
 ## Architecture pointer
 
 High-level layout; see the Child NAD Index below for domain-specific details.

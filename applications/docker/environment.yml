@@ -4,6 +4,10 @@
 #
 # Used by applications/docker/Dockerfile; can also be created locally:
 #   conda env create -f applications/docker/environment.yml
+# Afterwards, run the same repair step the Dockerfile runs (pip's cadquery_vtk
+# clobbers conda's vtkmodules files during creation):
+#   conda install -n ide -y --force-reinstall -c conda-forge \
+#       paraview=6.0.1 vtk=9.5.2 vtk-base=9.5.2 vtk-io-ffmpeg=9.5.2
 name: ide
 channels:
   - conda-forge
@@ -18,26 +22,36 @@ dependencies:
   - matplotlib
   - pandas
   - pyyaml
-  # Visualization (served by the nuke-visualizer extension)
-  - paraview
-  - vtk
+  # Visualization (served by the nuke-visualizer extension).
+  # Pinned: pip's cadquery_vtk shares the vtkmodules namespace with conda's
+  # vtk; this exact combo is verified to coexist (mirrors the dev env).
+  - paraview=6.0.1
+  - vtk=9.5.2
   # OpenCASCADE bindings: pythonocc-core provides the OCC module
   - pythonocc-core
+  # OpenMC Monte Carlo code (openmc-studio) — conda-forge only, NOT on PyPI
+  - openmc
   - pip:
-      # OpenMC Monte Carlo code (openmc-studio)
-      - openmc
       # Trame web UI framework for the visualizer backends
       - trame
       - trame-vtk
       - trame-vuetify
       - trame-components
       - python-multipart
-      # CAD import/conversion (openmc-studio cad_conversion)
+      # CAD import/conversion (openmc-studio cad_conversion).
+      # Pinned: cadquery-ocp needs the pip-style VTK libs shipped by
+      # cadquery_vtk; this exact combo is verified against conda vtk 9.5.2.
       - gmsh
-      - cadquery
-      - cadquery-ocp # provides the OCP module used by cad_conversion
-      # DAGMC workflows
-      - pydagmc @ git+https://github.com/svalinn/pydagmc
+      - cadquery==2.7.0
+      - cadquery-ocp==7.8.1.1.post1
+      - cadquery_vtk==9.3.1
+      # DAGMC workflows (pinned commit for reproducible builds)
+      - pydagmc @ git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8
+      # MOAB/pymoab wheels — not on PyPI or conda-forge; same extra index the
+      # nuke-core health checks use (see nuke-core docs/dev/service-api.md).
+      # Unpinned: the index carries a single current release (weekly CI smoke
+      # builds catch a bad new drop).
+      - --extra-index-url https://shimwell.github.io/wheels
       - moab
       # Convenience for interactive sessions
       - ipython

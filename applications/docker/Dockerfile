@@ -10,7 +10,12 @@
 ###############################################################################
 # Stage 1 — build the Theia browser bundle
 ###############################################################################
-FROM node:22-bookworm AS build
+FROM docker.io/library/node:22-bookworm AS build
+
+# Native node modules (e.g. native-keymap) need X11/xkbfile headers to compile.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libx11-dev libxkbfile-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/nuke-ide
 COPY . .
@@ -22,12 +27,30 @@ RUN yarn install --frozen-lockfile \
 ###############################################################################
 # Stage 2 — runtime: miniforge + 'trame' conda env + built app
 ###############################################################################
-FROM condaforge/miniforge3:latest AS runtime
+FROM docker.io/condaforge/miniforge3:latest AS runtime
+
+# System libraries needed by gmsh (libXft/libGL family) and the OCP/cadquery
+# VTK bindings — even though rendering is headless, these wheels link X/GL.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglu1-mesa libxft2 libxext6 libxrender1 \
+    libxinerama1 libxcursor1 libxfixes3 libxi6 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Python backend environment (OpenMC, Trame/ParaView, CAD toolchain, Node 22).
 # Node comes from conda so no separate Node installation is needed.
 COPY applications/docker/environment.yml /tmp/environment.yml
-RUN conda env create -f /tmp/environment.yml \
+# Large wheels (ParaView/VTK, OCP, MOAB) can hit flaky connections; be generous
+# with retries for both conda package fetches and the pip subprocess.
+ENV PIP_RETRIES=10 \
+    PIP_TIMEOUT=120
+RUN conda config --set remote_max_retries 10 \
+    && conda env create -f /tmp/environment.yml \
+    # pip's cadquery_vtk shares the vtkmodules namespace with conda's vtk and
+    # clobbers some conda files during env creation. Re-write the conda VTK
+    # family LAST so paraview keeps working; the pip-only libs that OCP needs
+    # are not conda-owned and survive this reinstall.
+    && conda install -n ide -y --force-reinstall -c conda-forge \
+       paraview=6.0.1 vtk=9.5.2 vtk-base=9.5.2 vtk-io-ffmpeg=9.5.2 \
     && conda clean -afy \
     && rm /tmp/environment.yml
 
