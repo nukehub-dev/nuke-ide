@@ -106,11 +106,12 @@
     "nukelab-integration": "0.1.2"
   },
   "devDependencies": {
-    "@theia/cli": "1.73.1"
+    "@theia/cli": "1.73.1",
+    "terser-webpack-plugin": "^5.3.11"
   },
   "peerDependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "markdown-it": "^8.4.1"
   },
   "scripts": {
