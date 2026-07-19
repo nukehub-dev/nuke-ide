@@ -29,10 +29,10 @@
     "css"
   ],
   "dependencies": {
-    "@theia/core": "1.72.3",
-    "@theia/filesystem": "1.72.3",
-    "@theia/process": "1.72.3",
-    "@theia/workspace": "1.72.3",
+    "@theia/core": "1.73.1",
+    "@theia/filesystem": "1.73.1",
+    "@theia/process": "1.73.1",
+    "@theia/workspace": "1.73.1",
     "nuke-essentials": "0.1.2",
     "plotly.js-dist-min": "^3.7.0"
   },

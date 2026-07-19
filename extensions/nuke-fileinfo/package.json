@@ -15,10 +15,10 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.72.3",
-    "@theia/filesystem": "1.72.3",
-    "@theia/navigator": "1.72.3",
-    "@theia/workspace": "1.72.3",
+    "@theia/core": "1.73.1",
+    "@theia/filesystem": "1.73.1",
+    "@theia/navigator": "1.73.1",
+    "@theia/workspace": "1.73.1",
     "image-size": "^2.0.2",
     "mime-types": "^3.0.2",
     "nuke-essentials": "0.1.2",

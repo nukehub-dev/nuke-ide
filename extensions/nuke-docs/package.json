@@ -13,7 +13,7 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.72.3",
+    "@theia/core": "1.73.1",
     "nuke-essentials": "0.1.2",
     "markdown-it": "^14.3.0"
   },
