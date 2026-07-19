@@ -34,7 +34,7 @@
     "@theia/process": "1.72.3",
     "@theia/workspace": "1.72.3",
     "nuke-essentials": "0.1.2",
-    "plotly.js-dist-min": "^3.4.0"
+    "plotly.js-dist-min": "^3.7.0"
   },
   "devDependencies": {
     "@types/plotly.js": "^3.0.10",
