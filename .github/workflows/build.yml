@@ -66,6 +66,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
+
       - name: Build Electron app
         run: yarn build:electron:prod
 
@@ -137,6 +140,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
+
       - name: Build Electron app
         run: yarn build:electron:prod
 
@@ -205,6 +211,9 @@ jobs:
         run: yarn install --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Build Electron app
         run: yarn build:electron:prod
