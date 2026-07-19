@@ -9,8 +9,6 @@ from nuke_viz.registry import (
     discover_plugins_from_entry_points,
 )
 
-import plugins as plugins_pkg
-
 
 def _make_plugin(plugins_dir, name, plugin_py):
     """Create a fake ``plugins.<name>.plugin`` package under plugins_dir."""
@@ -44,6 +42,8 @@ def test_discover_plugins_imports_and_registers(tmp_path, monkeypatch):
             return 0
     """,
     )
+
+    import plugins as plugins_pkg
 
     monkeypatch.setattr(plugins_pkg, "__path__", [str(plugins_dir)])
     _drop_modules(monkeypatch, "plugins.discplug", "plugins.discplug.plugin")
@@ -94,6 +94,8 @@ def test_discover_plugins_broken_plugin_continues(tmp_path, monkeypatch, capsys)
             return 0
     """,
     )
+
+    import plugins as plugins_pkg
 
     monkeypatch.setattr(plugins_pkg, "__path__", [str(plugins_dir)])
     _drop_modules(
