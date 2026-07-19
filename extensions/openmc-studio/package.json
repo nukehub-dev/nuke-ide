@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@types/xml2js": "^0.4.14",
-    "rimraf": "^5.0.0",
+    "rimraf": "^6.1.3",
     "typescript": "~5.4.5"
   },
   "peerDependencies": {
