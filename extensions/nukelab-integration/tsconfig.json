@@ -3,9 +3,8 @@
   "compilerOptions": {
     "composite": true,
     "outDir": "lib",
-    "rootDir": "src",
-    "strictPropertyInitialization": false
+    "rootDir": "src"
   },
-  "include": ["src"],
+  "include": ["src", "../../configs/global.d.ts"],
   "exclude": ["lib", "node_modules"]
 }

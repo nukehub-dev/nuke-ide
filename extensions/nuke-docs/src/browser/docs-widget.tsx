@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, codicon } from '@theia/core/lib/browser';
 import { Endpoint } from '@theia/core/lib/browser/endpoint';
-import * as MarkdownIt from 'markdown-it';
+import MarkdownIt from 'markdown-it';
 import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { DocsSidebar } from './docs-sidebar';
 import { DocsToc, TocItem } from './docs-toc';

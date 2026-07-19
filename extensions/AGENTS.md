@@ -11,6 +11,7 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 ## Local Contracts
 
 - Every extension is a self-contained Theia package: `package.json` (keyword `theia-extension`), `tsconfig.json` extending `../../configs/base.tsconfig.json` (`composite`, `outDir: lib`, `rootDir: src`), and sources under `src/`.
+- Extension `tsconfig.json` `include` arrays must list `../../configs/global.d.ts` so TypeScript resolves CSS/SCSS/Less side-effect imports under Node16 module resolution.
 - Standard source layout: `src/browser/` (frontend contributions), `src/node/` (backend services), `src/common/` (shared protocols/interfaces). `nuke-essentials` instead groups by feature (`src/<feature>/browser|node`).
 - DI wiring uses inversify `ContainerModule`s named `<name>-frontend-module.ts` / `<name>-backend-module.ts`. Frontend↔backend communication is JSON-RPC over WebSocket via `WebSocketConnectionProvider`.
 - Standard npm scripts: `build` (`tsc`, plus `copy-css` when the extension ships CSS), `watch`, `clean`, `prepare` (`clean && build`, run by lerna on install).

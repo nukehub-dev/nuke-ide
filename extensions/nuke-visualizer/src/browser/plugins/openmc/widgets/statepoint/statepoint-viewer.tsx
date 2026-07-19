@@ -135,7 +135,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (existingWidget) {
             return existingWidget;
         }
-        const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
+        const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget.js');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCPlotWidget.ID, { id: widgetId } as any);
     }
 
@@ -144,7 +144,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (existingWidget) {
             return existingWidget;
         }
-        const { OpenMCHeatmapWidget } = await import('../plotting/openmc-heatmap-widget');
+        const { OpenMCHeatmapWidget } = await import('../plotting/openmc-heatmap-widget.js');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCHeatmapWidget.ID, { id: widgetId } as any);
     }
 
@@ -153,7 +153,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (existingWidget) {
             return existingWidget;
         }
-        const { OpenMCTallyTreeWidget } = await import('./openmc-tally-tree');
+        const { OpenMCTallyTreeWidget } = await import('./openmc-tally-tree.js');
         return this.widgetManager.getOrCreateWidget<any>(OpenMCTallyTreeWidget.ID);
     }
 
@@ -316,7 +316,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 // Open widget immediately, then fetch data
-                                const heatmapWidgetId = `${(await import('../plotting/openmc-heatmap-widget')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
+                                const heatmapWidgetId = `${(await import('../plotting/openmc-heatmap-widget.js')).OpenMCHeatmapWidget.ID}:${selection.tallyId}:${selection.score || 'default'}`;
                                 const heatmapWidget = await this.getOrCreateHeatmapWidget(heatmapWidgetId);
                                 await this.openWidgetInMainArea(heatmapWidget, heatmapWidgetId);
                                 const data = await this.openmcService.getHeatmapSlice(
@@ -350,7 +350,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 // Open widget immediately, then fetch data
-                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
+                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget.js');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spectrum`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
@@ -374,7 +374,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                                     nuclideIdx = tallyInfo.nuclides.indexOf(selection.nuclide);
                                 }
                                 // Open widget immediately, then fetch data
-                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget');
+                                const { OpenMCPlotWidget } = await import('../plotting/openmc-plot-widget.js');
                                 const widgetId = `${OpenMCPlotWidget.ID}:${selection.tallyId}:spatial`;
                                 const plotWidget = await this.getOrCreatePlotWidget(widgetId);
                                 await this.openWidgetInMainArea(plotWidget, widgetId);
