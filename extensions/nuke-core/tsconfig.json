@@ -5,6 +5,6 @@
     "outDir": "lib",
     "rootDir": "src"
   },
-  "include": ["src"],
+  "include": ["src", "../../configs/global.d.ts"],
   "exclude": ["lib", "node_modules"]
 }

@@ -5,5 +5,5 @@
     "rootDir": "src",
     "outDir": "lib"
   },
-  "include": ["src", "src/**/*.json"]
+  "include": ["src", "src/**/*.json", "../../configs/global.d.ts"]
 }
