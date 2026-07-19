@@ -3,13 +3,13 @@
 import sys
 import textwrap
 
+import plugins as plugins_pkg
+
 from nuke_viz import plugin as plugin_mod
 from nuke_viz.registry import (
     discover_plugins,
     discover_plugins_from_entry_points,
 )
-
-import plugins as plugins_pkg
 
 
 def _make_plugin(plugins_dir, name, plugin_py):
