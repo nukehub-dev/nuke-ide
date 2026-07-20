@@ -180,6 +180,8 @@ class TestRunDepletionSuccess:
             FakeMaterial("water", depletable=False, density=1.0, volume=50.0),
         ]
         _install_fake_openmc(monkeypatch, materials=materials)
+        # Force h5py absence so the burnup-append step only warns in any environment.
+        monkeypatch.setitem(sys.modules, "h5py", None)
         workdir = _workdir(
             tmp_path,
             tallies_xml=(
@@ -211,7 +213,7 @@ class TestRunDepletionSuccess:
         assert "Loading OpenMC model" in err
         assert "Material fuel: 1000.00 g" in err
         assert "Final burnup: 2.00 MWd/kg" in err
-        # h5py is not installed -> the burnup-append step only warns.
+        # h5py is forced absent above -> the burnup-append step only warns.
         assert "Could not add burnup to HDF5" in err
 
     def test_meshes_from_tallies_are_passed_to_settings(self, monkeypatch, tmp_path, chain_file):

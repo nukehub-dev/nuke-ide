@@ -131,12 +131,11 @@ def _make_exporter(fake_openmc, tallies, path="/run/statepoint.100.h5"):
 # ---------------------------------------------------------------------------
 
 
-def test_exporter_requires_openmc():
-    """In this environment HAS_OPENMC is False, so construction fails."""
-    assert openmc_vtk.HAS_OPENMC is False or "openmc" not in sys.modules
-    if not openmc_vtk.HAS_OPENMC:
-        with pytest.raises(RuntimeError, match="OpenMC Python module is required"):
-            OpenMCVTKExporter("/no/such/statepoint.h5")
+def test_exporter_requires_openmc(monkeypatch):
+    """With openmc unavailable (HAS_OPENMC forced off), construction fails."""
+    monkeypatch.setattr(openmc_vtk, "HAS_OPENMC", False)
+    with pytest.raises(RuntimeError, match="OpenMC Python module is required"):
+        OpenMCVTKExporter("/no/such/statepoint.h5")
 
 
 def test_list_tallies_extracts_info(fake_openmc):

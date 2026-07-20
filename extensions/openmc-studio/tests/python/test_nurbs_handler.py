@@ -163,7 +163,10 @@ class TestGetNurbsSummary:
 class TestConvertToDagmc:
     def test_missing_ocp_dependency(self, monkeypatch):
         """Without OCP/pymoab, the dependency error is reported."""
-        monkeypatch.setitem(sys.modules, "OCP", None)
+        # None in sys.modules halts the exact probe imports regardless of
+        # whether OCP/pymoab are installed or already imported elsewhere.
+        for name in ("OCP", "OCP.BRepMesh", "OCP.STEPControl", "pymoab", "pymoab.core"):
+            monkeypatch.setitem(sys.modules, name, None)
         result = nurbs_handler.convert_to_dagmc("model.step")
         assert result["success"] is False
         assert result["error"].startswith("Required dependency missing:")
@@ -629,7 +632,9 @@ class TestNativeDagmcConversion:
 
     def test_import_failure_returns_false(self, monkeypatch):
         """Without OCP the conversion fails with a dependency warning."""
-        monkeypatch.setitem(sys.modules, "OCP", None)
+        # None halts even the dotted probe imports when OCP is installed.
+        for name in ("OCP", "OCP.BRep", "OCP.BRepMesh", "pymoab", "pymoab.core"):
+            monkeypatch.setitem(sys.modules, name, None)
         warnings = []
 
         ok = nurbs_handler._native_dagmc_conversion(

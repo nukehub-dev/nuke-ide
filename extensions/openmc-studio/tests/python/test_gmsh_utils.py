@@ -1,7 +1,8 @@
 """Tests for cad_conversion.gmsh_utils.
 
-gmsh is not installed, so the HAS_GMSH=False guards are exercised directly,
-and a fake gmsh namespace is injected for the sampling/classification logic.
+The HAS_GMSH=False guards are exercised by forcing gmsh absence via
+monkeypatch (so they run identically with or without gmsh installed), and a
+fake gmsh namespace is injected for the sampling/classification logic.
 No real CAD geometry or gmsh session is used.
 """
 
@@ -81,6 +82,12 @@ def fake_gmsh(monkeypatch):
 
 
 class TestNoGmshGuards:
+    @pytest.fixture(autouse=True)
+    def no_gmsh(self, monkeypatch):
+        """Force gmsh absence so the HAS_GMSH=False guards run in any environment."""
+        monkeypatch.setattr(gmsh_utils, "HAS_GMSH", False)
+        monkeypatch.setattr(gmsh_utils, "gmsh", None)
+
     def test_gmsh_session_raises(self):
         """The session context manager refuses to start without gmsh."""
         with pytest.raises(RuntimeError, match="gmsh is not installed"):

@@ -17,11 +17,17 @@ _TIMEOUT = 30
 
 
 def _run_server(*argv):
-    """Run server.py in a subprocess and return the CompletedProcess."""
+    """Run server.py in a subprocess and return the CompletedProcess.
+
+    An explicit UTF-8 encoding is used because the help text contains
+    non-ASCII characters and the ambient locale may be ASCII-only.
+    """
     return subprocess.run(
         [sys.executable, _SERVER_PY, *argv],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=_TIMEOUT,
     )
 

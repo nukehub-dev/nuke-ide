@@ -66,6 +66,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Rebuild native modules
+        # A restored node_modules cache may predate a dependency bump or come
+        # from a scriptless install; make sure the .node binaries exist.
+        run: |
+          for mod in cpu-features keytar; do
+            if [ -d "node_modules/$mod" ]; then
+              (cd "node_modules/$mod" && npm run install --silent)
+            fi
+          done
+
       - name: Download Electron binary
         run: node node_modules/electron/install.js
 
