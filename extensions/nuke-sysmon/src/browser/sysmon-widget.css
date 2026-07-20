@@ -20,9 +20,9 @@
     --sysmon-accent-disk: #8b5cf6;
     --sysmon-accent-network: #f59e0b;
 
-    --sysmon-warning: var(--theia-inputValidation-warningBorder);
-    --sysmon-danger: var(--theia-inputValidation-errorBorder);
-    --sysmon-success: var(--theia-inputValidation-successBorder);
+    --sysmon-warning: var(--theia-inputValidation-warningBorder, #f59e0b);
+    --sysmon-danger: var(--theia-inputValidation-errorBorder, #ef4444);
+    --sysmon-success: var(--theia-inputValidation-successBorder, #10b981);
 
     --sysmon-shadow-sm: 0 1px 2px var(--theia-scrollbar-shadow);
     --sysmon-shadow-md: 0 4px 12px var(--theia-scrollbar-shadow);
@@ -131,13 +131,6 @@
     color: var(--sysmon-text-secondary);
 }
 
-.sysmon-status-icon {
-    width: 14px;
-    height: 14px;
-    color: var(--sysmon-success);
-    flex-shrink: 0;
-}
-
 .sysmon-status-dot {
     width: 8px;
     height: 8px;
@@ -161,6 +154,11 @@
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 20px;
     margin-bottom: 24px;
+    /* Keep the metric row (and its open disk dropdown) above the charts row:
+       the hover transform on cards creates a stacking context that would
+       otherwise let later siblings paint over the dropdown. */
+    position: relative;
+    z-index: 2;
 }
 
 .sysmon-metric-card {
@@ -172,18 +170,6 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
-}
-
-.sysmon-metric-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, var(--card-accent) 0%, transparent 100%);
-    opacity: 0.8;
-    border-radius: var(--sysmon-radius-lg) var(--sysmon-radius-lg) 0 0;
 }
 
 .sysmon-metric-card:hover {
@@ -728,6 +714,8 @@
     gap: 20px;
     margin-bottom: 24px;
     min-height: 280px;
+    position: relative;
+    z-index: 1;
 }
 
 .sysmon-graph-card {

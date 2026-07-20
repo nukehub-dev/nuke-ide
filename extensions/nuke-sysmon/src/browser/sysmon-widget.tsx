@@ -191,9 +191,6 @@ export class SysmonWidget extends ReactWidget {
                 </div>
                 <div className="sysmon-header-right">
                     <div className="sysmon-status-badge">
-                        <svg className="sysmon-status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                        </svg>
                         <span className="sysmon-status-dot" />
                         <span>Live Monitoring</span>
                     </div>

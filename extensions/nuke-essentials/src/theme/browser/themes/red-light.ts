@@ -118,6 +118,8 @@ export const redLightTheme = {
         'inputValidation.warningBorder': '#ffa000',
         'inputValidation.errorBackground': '#ffebee',
         'inputValidation.errorBorder': '#d32f2f',
+        'inputValidation.successBackground': '#e8f7ee',
+        'inputValidation.successBorder': '#16a34a',
 
         // Dropdown
         'dropdown.background': '#ffffff',
