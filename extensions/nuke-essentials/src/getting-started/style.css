@@ -187,7 +187,7 @@ body {
 .gs-hr {
     border: none;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--theia-panel-border), transparent);
+    background: linear-gradient(90deg, var(--theia-panel-border), transparent);
     margin: 20px 0;
 }
 
