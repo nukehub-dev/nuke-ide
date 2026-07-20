@@ -96,6 +96,7 @@ export const lightTheme = {
         'menu.selectionForeground': '#3f3a34',
         'menu.selectionBorder': '#f7ead9',
         'menu.separatorBackground': '#ece7dd',
+        'menu.border': '#ddd6ca',
 
         // Lists
         'list.activeSelectionBackground': '#f3e7d8',

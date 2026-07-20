@@ -49,7 +49,7 @@ export const redLightTheme = {
         'textLink.activeForeground': '#e53935',
 
         // Activity Bar
-        'activityBar.background': '#fdf5f5',
+        'activityBar.background': '#faeaea',
         'activityBar.foreground': '#424242',
         'activityBar.activeBorder': '#d32f2f',
         'activityBar.border': '#eecaca',
@@ -57,29 +57,29 @@ export const redLightTheme = {
         'activityBarBadge.foreground': '#ffffff',
 
         // Side Bar
-        'sideBar.background': '#fdf5f5',
+        'sideBar.background': '#faeaea',
         'sideBar.foreground': '#424242',
         'sideBarTitle.foreground': '#24292f',
         'sideBar.border': '#eecaca',
-        'sideBarSectionHeader.background': '#f7eeee',
+        'sideBarSectionHeader.background': '#f5e3e3',
         'sideBarSectionHeader.foreground': '#24292f',
         'sideBarSectionHeader.border': '#eecaca',
 
         // Status Bar
-        'statusBar.background': '#f7eeee',
+        'statusBar.background': '#f5e3e3',
         'statusBar.foreground': '#424242',
         'statusBar.border': '#eecaca',
-        'statusBar.noFolderBackground': '#f7eeee',
+        'statusBar.noFolderBackground': '#f5e3e3',
         'statusBarItem.remoteBackground': '#d32f2f',
         'statusBarItem.remoteForeground': '#ffffff',
         'statusBarItem.hoverBackground': '#eecaca',
         'statusBarItem.activeBackground': '#dfc9c9',
 
         // Title Bar
-        'titleBar.activeBackground': '#f7eeee',
+        'titleBar.activeBackground': '#f5e3e3',
         'titleBar.activeForeground': '#2c3e50',
         'titleBar.border': '#eecaca',
-        'titleBar.inactiveBackground': '#f7eeee',
+        'titleBar.inactiveBackground': '#f5e3e3',
         'titleBar.inactiveForeground': '#6c757d',
 
         // Menubar
@@ -87,6 +87,7 @@ export const redLightTheme = {
         'menubar.selectionForeground': '#2c3e50',
         'menubar.selectionBorder': '#eecaca',
         'menu.background': '#ffffff',
+        'menu.border': '#eecaca',
         'menu.foreground': '#2c3e50',
         'menu.selectionBackground': '#eecaca',
         'menu.selectionForeground': '#2c3e50',
@@ -94,14 +95,14 @@ export const redLightTheme = {
         'menu.separatorBackground': '#eecaca',
 
         // Lists
-        'list.activeSelectionBackground': '#f7eeee',
+        'list.activeSelectionBackground': '#f5e3e3',
         'list.activeSelectionForeground': '#2c3e50',
-        'list.inactiveSelectionBackground': '#fdf5f5',
+        'list.inactiveSelectionBackground': '#faeaea',
         'list.inactiveSelectionForeground': '#2c3e50',
-        'list.hoverBackground': '#f7eeee',
+        'list.hoverBackground': '#f5e3e3',
         'list.hoverForeground': '#2c3e50',
         'list.highlightForeground': '#d32f2f',
-        'list.focusBackground': '#f7eeee',
+        'list.focusBackground': '#f5e3e3',
         'list.focusForeground': '#2c3e50',
         'list.focusOutline': '#d32f2f',
 
@@ -134,33 +135,33 @@ export const redLightTheme = {
         'progressBar.background': '#d32f2f',
 
         // Panel
-        'panel.background': '#fdf5f5',
+        'panel.background': '#faeaea',
         'panel.border': '#eecaca',
         'panelTitle.activeForeground': '#2c3e50',
         'panelTitle.activeBorder': '#d32f2f',
         'panelTitle.inactiveForeground': '#6c757d',
 
         // Terminal
-        'terminal.background': '#ffffff',
+        'terminal.background': '#fdf6f6',
         'terminal.foreground': '#2c3e50',
         'terminal.border': '#eecaca',
         'terminal.selectionBackground': '#d32f2f30',
 
         // Tabs
-        'tab.activeBackground': '#ffffff',
+        'tab.activeBackground': '#fdf6f6',
         'tab.activeForeground': '#2c3e50',
         'tab.activeBorder': '#d32f2f',
         'tab.activeBorderTop': '#d32f2f',
-        'tab.inactiveBackground': '#f7eeee',
+        'tab.inactiveBackground': '#f5e3e3',
         'tab.inactiveForeground': '#6c757d',
-        'tab.hoverBackground': '#fdf5f5',
+        'tab.hoverBackground': '#faeaea',
         'tab.hoverForeground': '#2c3e50',
         'tab.border': '#eecaca',
         'tab.unfocusedActiveBorder': '#eecaca',
         'tab.unfocusedActiveBorderTop': '#eecaca',
 
         // Editor
-        'editor.background': '#ffffff',
+        'editor.background': '#fdf6f6',
         'editor.foreground': '#2c3e50',
         'editorLineNumber.foreground': '#a59595',
         'editorLineNumber.activeForeground': '#24292f',
@@ -172,22 +173,22 @@ export const redLightTheme = {
         'editor.findMatchHighlightBackground': '#d32f2f20',
         'editor.findRangeHighlightBackground': '#fcf0f0',
         'editor.hoverHighlightBackground': '#d32f2f15',
-        'editorWidget.background': '#fdf5f5',
+        'editorWidget.background': '#faeaea',
         'editorWidget.foreground': '#2c3e50',
         'editorWidget.border': '#eecaca',
         'editorWidget.resizeBorder': '#d32f2f',
 
         // Breadcrumb
-        'breadcrumb.background': '#ffffff',
+        'breadcrumb.background': '#fdf6f6',
         'breadcrumb.foreground': '#6c757d',
         'breadcrumb.focusForeground': '#2c3e50',
         'breadcrumb.activeSelectionForeground': '#2c3e50',
-        'breadcrumbPicker.background': '#fdf5f5',
+        'breadcrumbPicker.background': '#faeaea',
 
         // Picker
         'pickerGroup.foreground': '#d32f2f',
         'pickerGroup.border': '#eecaca',
-        'quickInput.background': '#fdf5f5',
+        'quickInput.background': '#faeaea',
         'quickInput.foreground': '#2c3e50',
         'quickInputList.focusBackground': '#eecaca',
         'quickInputList.focusForeground': '#2c3e50',
@@ -195,10 +196,10 @@ export const redLightTheme = {
         // Notifications
         'notificationCenter.border': '#eecaca',
         'notificationCenterHeader.foreground': '#2c3e50',
-        'notificationCenterHeader.background': '#fdf5f5',
+        'notificationCenterHeader.background': '#faeaea',
         'notificationToast.border': '#eecaca',
         'notifications.foreground': '#2c3e50',
-        'notifications.background': '#fdf5f5',
+        'notifications.background': '#faeaea',
         'notifications.border': '#eecaca',
         'notificationLink.foreground': '#d32f2f',
 
@@ -225,7 +226,7 @@ export const redLightTheme = {
         'scrollbarSlider.activeBackground': '#d32f2f40',
 
         // Keybinding
-        'keybindingLabel.background': '#f7eeee',
+        'keybindingLabel.background': '#f5e3e3',
         'keybindingLabel.foreground': '#2c3e50',
         'keybindingLabel.border': '#eecaca',
         'keybindingLabel.bottomBorder': '#eecaca'
