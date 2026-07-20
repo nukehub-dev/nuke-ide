@@ -275,15 +275,15 @@ body {
 
 .gs-action-container-recent {
     margin-bottom: 6px;
-    background: var(--theia-editorWidget-background);
+    background: transparent;
+    border: 1px solid var(--theia-panel-border);
     border-radius: var(--nuke-radius-md, 6px);
-    border: 1px solid transparent;
     transition: all var(--nuke-transition-fast, 0.2s) ease;
 }
 
 .gs-action-container-recent:hover {
     background-color: var(--theia-list-hoverBackground);
-    border-color: var(--theia-panel-border);
+    border-color: var(--theia-focusBorder);
 }
 
 /* Recent workspace item */

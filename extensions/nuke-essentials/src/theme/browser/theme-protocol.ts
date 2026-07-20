@@ -65,9 +65,9 @@ export const THEME_CONFIGS: ThemeConfig[] = [
             accent: '#e06010',
             accentLight: '#ff9500',
             accentDark: '#f5a623',
-            background: '#ffffff',
-            backgroundRgb: '255, 255, 255',
-            foreground: '#2c3e50',
+            background: '#fbfaf8',
+            backgroundRgb: '251, 250, 248',
+            foreground: '#3f3a34',
             foregroundInverse: '#ffffff'
         }
     },

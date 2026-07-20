@@ -145,6 +145,8 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - **Do not remove "unused" Python imports blindly**: some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `dagmc_viz.py`). These carry `# noqa: F401` comments.
 - **`yarn install` runs `lerna run prepare`** (full extension rebuild) via the root `prepare` script; use `yarn install --ignore-scripts` when only the lockfile/node_modules must change.
 - **Keep `**/ssh2` pinned in root `resolutions`**: multiple ssh2 copies (hoisted + nested under `@theia/remote`) each build `sshcrypto.node`, and webpack fails with `Conflict: Multiple assets emit different content to the same filename native/sshcrypto.node`.
+- **Theia does not read VS Code's `button.secondary*` theme keys**: `.theia-button.secondary` is styled from Theia-native `secondaryButton.background/foreground/hoverBackground`. Themes must define both key families or secondary buttons fall back to Theia's slate-navy default.
+- **Theia CSS variables preserve case**: `--theia-<colorId>` only replaces dots with dashes (`focusBorder` → `--theia-focusBorder`). Kebab-case guesses like `--theia-focus-border` or `--theia-input-placeholder-foreground` resolve to nothing.
 
 ## Child NAD Index
 
