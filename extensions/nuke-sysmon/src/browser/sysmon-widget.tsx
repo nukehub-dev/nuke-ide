@@ -191,6 +191,9 @@ export class SysmonWidget extends ReactWidget {
                 </div>
                 <div className="sysmon-header-right">
                     <div className="sysmon-status-badge">
+                        <svg className="sysmon-status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                        </svg>
                         <span className="sysmon-status-dot" />
                         <span>Live Monitoring</span>
                     </div>
@@ -225,7 +228,7 @@ export class SysmonWidget extends ReactWidget {
                     <span className={`sysmon-metric-badge ${status.class}`}>{status.label}</span>
                 </div>
 
-                {this.renderCircularProgress(usagePercent, 'CPU')}
+                {this.renderCircularProgress(usagePercent, 'CPU', status.class)}
 
                 {cpu.temperature && (
                     <div className="sysmon-temp-display">
@@ -293,7 +296,7 @@ export class SysmonWidget extends ReactWidget {
                     <span className={`sysmon-metric-badge ${status.class}`}>{status.label}</span>
                 </div>
 
-                {this.renderCircularProgress(memory.usagePercent, 'Memory')}
+                {this.renderCircularProgress(memory.usagePercent, 'Memory', status.class)}
 
                 <div className="sysmon-progress-container">
                     <div className="sysmon-progress-header">
@@ -354,6 +357,8 @@ export class SysmonWidget extends ReactWidget {
                     <span className={`sysmon-metric-badge ${status.class}`}>{status.label}</span>
                 </div>
 
+                {this.renderCircularProgress(disk.usagePercent, 'Disk', status.class)}
+
                 <div className="sysmon-disk-selector" style={{ marginBottom: '16px' }}>
                     <button
                         className={`sysmon-disk-trigger ${this.showDiskDropdown ? 'open' : ''}`}
@@ -390,8 +395,6 @@ export class SysmonWidget extends ReactWidget {
                     )}
                 </div>
 
-                {this.renderCircularProgress(disk.usagePercent, 'Disk')}
-
                 <div className="sysmon-info-grid">
                     <div className="sysmon-info-item">
                         <div className="sysmon-info-label">Used</div>
@@ -426,10 +429,6 @@ export class SysmonWidget extends ReactWidget {
                         </svg>
                     </div>
                     <span className="sysmon-metric-badge">Active</span>
-                </div>
-
-                <div className="sysmon-metric-value-section" style={{ textAlign: 'center', marginBottom: '16px' }}>
-                    <div className="sysmon-metric-label">Network Activity</div>
                 </div>
 
                 <div className="sysmon-network-stats">
@@ -476,7 +475,7 @@ export class SysmonWidget extends ReactWidget {
         );
     }
 
-    private renderCircularProgress(percent: number, label: string): React.ReactNode {
+    private renderCircularProgress(percent: number, label: string, statusClass?: string): React.ReactNode {
         const radius = 50;
         const circumference = 2 * Math.PI * radius;
         const offset = circumference - (Math.min(100, Math.max(0, percent)) / 100) * circumference;
@@ -486,7 +485,7 @@ export class SysmonWidget extends ReactWidget {
                 <svg width="120" height="120" viewBox="0 0 120 120">
                     <circle className="sysmon-circular-bg" cx="60" cy="60" r={radius} />
                     <circle
-                        className="sysmon-circular-fill"
+                        className={`sysmon-circular-fill ${statusClass || ''}`}
                         cx="60"
                         cy="60"
                         r={radius}
@@ -552,6 +551,12 @@ export class SysmonWidget extends ReactWidget {
     private renderSparkline(element: HTMLElement | null, data: number[], color: string): void {
         if (!element || !this.Plotly || !this.historicalData) return;
 
+        // Plotly cannot resolve CSS custom properties — read computed values
+        const styles = getComputedStyle(element);
+        const textColor = styles.getPropertyValue('--theia-descriptionForeground').trim() || '#888888';
+        const gridColor = styles.getPropertyValue('--theia-panel-border').trim() || '#444444';
+        const fontFamily = styles.getPropertyValue('--theia-ui-font-family').trim() || 'sans-serif';
+
         const plotData = [
             {
                 x: this.historicalData.timestamps.map((t) => new Date(t)),
@@ -560,16 +565,22 @@ export class SysmonWidget extends ReactWidget {
                 mode: 'lines',
                 fill: 'tozeroy',
                 line: { color: color, width: 2, shape: 'spline' },
-                fillcolor: color + '15'
+                fillcolor: color + '20',
+                hovertemplate: '%{y:.1f}%<extra></extra>'
             }
         ];
 
         const layout = {
-            margin: { t: 5, r: 5, b: 30, l: 40 },
+            margin: { t: 10, r: 10, b: 30, l: 44 },
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
             autosize: true,
-            font: { color: 'var(--theia-foreground)', size: 11, family: 'var(--theia-ui-font-family)' },
+            font: { color: textColor, size: 11, family: fontFamily },
+            hoverlabel: {
+                bgcolor: gridColor,
+                bordercolor: color,
+                font: { color: textColor, family: fontFamily }
+            },
             xaxis: {
                 showgrid: false,
                 zeroline: false,
@@ -579,7 +590,7 @@ export class SysmonWidget extends ReactWidget {
             },
             yaxis: {
                 showgrid: true,
-                gridcolor: 'var(--theia-panel-border)',
+                gridcolor: gridColor,
                 zeroline: false,
                 range: [0, 100],
                 ticksuffix: '%',
@@ -588,8 +599,12 @@ export class SysmonWidget extends ReactWidget {
             }
         };
 
-        const config = { displayModeBar: false, staticPlot: true, responsive: true };
-        this.Plotly.newPlot(element, plotData, layout, config);
+        const config = { displayModeBar: false, responsive: true };
+        if (this.Plotly.react) {
+            this.Plotly.react(element, plotData, layout, config);
+        } else {
+            this.Plotly.newPlot(element, plotData, layout, config);
+        }
 
         setTimeout(() => {
             if (element) {
@@ -637,32 +652,79 @@ export class SysmonWidget extends ReactWidget {
         if (!this.currentMetrics?.system) return null;
         const { system } = this.currentMetrics;
 
+        const items: { icon: React.ReactNode; label: string; value: string }[] = [
+            {
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                ),
+                label: 'Hostname',
+                value: system.hostname
+            },
+            {
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                        <path d="M2 17l10 5 10-5" />
+                        <path d="M2 12l10 5 10-5" />
+                    </svg>
+                ),
+                label: 'Operating System',
+                value: `${system.distro} ${system.release}`
+            },
+            {
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                        <rect x="9" y="9" width="6" height="6" />
+                        <line x1="9" y1="1" x2="9" y2="4" />
+                        <line x1="15" y1="1" x2="15" y2="4" />
+                        <line x1="9" y1="20" x2="9" y2="23" />
+                        <line x1="15" y1="20" x2="15" y2="23" />
+                        <line x1="20" y1="9" x2="23" y2="9" />
+                        <line x1="20" y1="14" x2="23" y2="14" />
+                        <line x1="1" y1="9" x2="4" y2="9" />
+                        <line x1="1" y1="14" x2="4" y2="14" />
+                    </svg>
+                ),
+                label: 'Platform',
+                value: `${system.platform} (${system.arch})`
+            }
+        ];
+
+        if (system.processCount !== undefined) {
+            items.push({
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="8" y1="6" x2="21" y2="6" />
+                        <line x1="8" y1="12" x2="21" y2="12" />
+                        <line x1="8" y1="18" x2="21" y2="18" />
+                        <line x1="3" y1="6" x2="3.01" y2="6" />
+                        <line x1="3" y1="12" x2="3.01" y2="12" />
+                        <line x1="3" y1="18" x2="3.01" y2="18" />
+                    </svg>
+                ),
+                label: 'Processes',
+                value: system.processCount.toLocaleString()
+            });
+        }
+
         return (
             <div className="sysmon-system-section">
                 <div className="sysmon-section-title">System Information</div>
                 <div className="sysmon-system-grid">
-                    <div className="sysmon-system-item">
-                        <div className="sysmon-system-label">Hostname</div>
-                        <div className="sysmon-system-value">{system.hostname}</div>
-                    </div>
-                    <div className="sysmon-system-item">
-                        <div className="sysmon-system-label">Operating System</div>
-                        <div className="sysmon-system-value">
-                            {system.distro} {system.release}
+                    {items.map((item) => (
+                        <div className="sysmon-system-item" key={item.label}>
+                            <div className="sysmon-system-icon">{item.icon}</div>
+                            <div className="sysmon-system-text">
+                                <div className="sysmon-system-label">{item.label}</div>
+                                <div className="sysmon-system-value">{item.value}</div>
+                            </div>
                         </div>
-                    </div>
-                    <div className="sysmon-system-item">
-                        <div className="sysmon-system-label">Platform</div>
-                        <div className="sysmon-system-value">
-                            {system.platform} ({system.arch})
-                        </div>
-                    </div>
-                    {system.processCount !== undefined && (
-                        <div className="sysmon-system-item">
-                            <div className="sysmon-system-label">Processes</div>
-                            <div className="sysmon-system-value">{system.processCount.toLocaleString()}</div>
-                        </div>
-                    )}
+                    ))}
                 </div>
             </div>
         );
