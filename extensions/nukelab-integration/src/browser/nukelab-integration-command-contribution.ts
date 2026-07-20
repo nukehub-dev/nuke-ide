@@ -34,22 +34,22 @@ export class NukeLabCommandContribution implements CommandContribution {
     }
 
     registerCommands(commands: CommandRegistry): void {
+        // The IDE is served through the NukeLab gateway on the hub origin, so
+        // origin-relative paths always land on the right page regardless of
+        // how NUKELAB_PUBLIC_URL is (or isn't) configured.
         commands.registerCommand(NukeLabCommands.BACK_TO_NUKELAB, {
-            execute: () => this.navigateTop(this.context?.dashboardUrl || '/')
+            execute: () => this.navigateTop('/')
         });
         commands.registerCommand(NukeLabCommands.OPEN_SERVER_DETAILS, {
-            execute: () => {
-                const url = this.context?.labUrl || '/';
-                this.navigateTop(url.replace(/\/$/, '') + '/servers/' + (this.context?.serverId || ''));
-            },
+            execute: () => this.navigateTop('/servers/' + (this.context?.serverId || '')),
             isEnabled: () => !!this.context?.serverId
         });
         commands.registerCommand(NukeLabCommands.INSTALL_NUKELAB_APP, {
-            execute: () => this.openTab(this.context?.dashboardUrl || '/'),
+            execute: () => this.openTab('/'),
             isEnabled: () => !this.isAppInstalled()
         });
         commands.registerCommand(NukeLabCommands.OPEN_NUKELAB_APP, {
-            execute: () => this.openTab(this.context?.dashboardUrl || '/'),
+            execute: () => this.openTab('/'),
             isEnabled: () => this.isAppInstalled() && !this.isStandalone()
         });
         commands.registerCommand(NukeLabCommands.LOGOUT, {
