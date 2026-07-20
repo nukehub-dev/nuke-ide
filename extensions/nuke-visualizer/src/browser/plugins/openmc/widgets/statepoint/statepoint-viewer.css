@@ -584,12 +584,14 @@
     align-items: center;
     padding: 10px 12px;
     background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
     transition: all 0.15s ease;
 }
 
 .statepoint-viewer .config-item:hover {
     background: var(--theia-list-hoverBackground);
+    border-color: var(--theia-focusBorder);
 }
 
 .statepoint-viewer .config-label {
@@ -644,6 +646,7 @@
     align-items: center;
     padding: 10px 12px;
     background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
 }
 
@@ -1017,6 +1020,7 @@
     margin-bottom: 14px;
     padding: 10px;
     background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
 }
 

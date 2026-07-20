@@ -26,10 +26,11 @@
                 --theme-accent-light: #ff9500;
                 --theme-accent-dark: #f5a623;
                 --theme-accent-glow: rgba(224, 96, 16, 0.5);
-                --theme-background: #ffffff;
-                --theme-foreground: #2c3e50;
+                --theme-background: #fbfaf8;
+                --theme-background-rgb: 251, 250, 248;
+                --theme-foreground: #3f3a34;
                 --theme-foreground-inverse: #ffffff;
-                --theme-description: #5a6c7d;
+                --theme-description: #8a8177;
             }
 
             * {
@@ -73,11 +74,17 @@
 
             .particle {
                 position: absolute;
-                width: 2px;
-                height: 2px;
-                background: rgba(var(--theme-accent-rgb), 0.6);
+                width: 4px;
+                height: 4px;
+                background: rgba(var(--theme-accent-rgb), 0.5);
                 border-radius: 50%;
+                box-shadow: 0 0 8px 2px rgba(var(--theme-accent-rgb), 0.3);
                 animation: particle-drift 15s linear infinite;
+            }
+
+            html.nukeide-light .particle {
+                background: rgba(var(--theme-accent-rgb), 0.55);
+                box-shadow: 0 0 10px 3px rgba(var(--theme-accent-rgb), 0.22);
             }
 
             .particle:nth-child(1) {
@@ -192,6 +199,12 @@
                 }
             }
 
+            html.nukeide-light .grid-overlay {
+                background-image:
+                    linear-gradient(rgba(var(--theme-accent-rgb), 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(var(--theme-accent-rgb), 0.05) 1px, transparent 1px);
+            }
+
             .spinner-container {
                 display: flex;
                 flex-direction: column;
@@ -209,6 +222,34 @@
                 width: 160px;
                 height: 160px;
                 margin-bottom: 32px;
+            }
+
+            /* Soft ambient glow behind the logo */
+            .logo-wrapper::before {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 320px;
+                height: 320px;
+                transform: translate(-50%, -50%);
+                background: radial-gradient(
+                    circle,
+                    rgba(var(--theme-accent-rgb), 0.16) 0%,
+                    rgba(var(--theme-accent-rgb), 0.05) 45%,
+                    transparent 70%
+                );
+                border-radius: 50%;
+                pointer-events: none;
+            }
+
+            html.nukeide-light .logo-wrapper::before {
+                background: radial-gradient(
+                    circle,
+                    rgba(var(--theme-accent-rgb), 0.14) 0%,
+                    rgba(var(--theme-accent-rgb), 0.04) 45%,
+                    transparent 70%
+                );
             }
 
             /* Fusion rings */
@@ -325,7 +366,10 @@
                 font-weight: 700;
                 letter-spacing: 4px;
                 margin-bottom: 36px;
-                color: var(--theme-accent);
+                background: linear-gradient(120deg, var(--theme-accent) 20%, var(--theme-accent-light) 80%);
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
             }
 
             /* Progress Container */
@@ -741,7 +785,7 @@
                         const background = isLight ? theme.backgroundLight : theme.backgroundDark;
                         const accentRgb = isLight ? theme.accentLightRgb || hexToRgb(accent) : theme.accentDarkRgb || hexToRgb(accent);
                         const backgroundRgb = isLight
-                            ? theme.backgroundLightRgb || '255, 255, 255'
+                            ? theme.backgroundLightRgb || '251, 250, 248'
                             : theme.backgroundDarkRgb || '30, 30, 30';
                         document.documentElement.classList.add(isLight ? 'nukeide-light' : 'nukeide-dark');
                         // Apply theme colors as CSS custom properties on <html> before body paints
@@ -766,7 +810,7 @@
                             '--theme-foreground-inverse',
                             isLight ? theme.foregroundInverseLight : theme.foregroundInverseDark
                         );
-                        document.documentElement.style.setProperty('--theme-description', isLight ? '#5a6c7d' : '#9ca3af');
+                        document.documentElement.style.setProperty('--theme-description', isLight ? '#8a8177' : '#9ca3af');
                     } else {
                         document.documentElement.classList.add('nukeide-dark');
                     }

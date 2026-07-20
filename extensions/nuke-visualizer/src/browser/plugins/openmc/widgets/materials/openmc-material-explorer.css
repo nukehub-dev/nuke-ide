@@ -64,12 +64,12 @@
 }
 
 .material-explorer-container .material-explorer-toolbar .search-box:focus-within {
-    border-color: var(--theia-focus-border);
-    box-shadow: 0 0 0 2px var(--theia-focus-border) 20;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder), transparent 70%);
 }
 
 .material-explorer-container .material-explorer-toolbar .search-box i {
-    color: var(--theia-input-placeholder-foreground);
+    color: var(--theia-input-placeholderForeground);
     font-size: 14px;
 }
 
@@ -83,14 +83,14 @@
 }
 
 .material-explorer-container .material-explorer-toolbar .search-box input::placeholder {
-    color: var(--theia-input-placeholder-foreground);
+    color: var(--theia-input-placeholderForeground);
 }
 
 .material-explorer-container .material-explorer-toolbar .stats {
     display: flex;
-    gap: 20px;
+    gap: 8px;
     font-size: 12px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
 }
 
 .material-explorer-container .material-explorer-toolbar .stats span {
@@ -98,7 +98,9 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: var(--theia-badge-background);
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 12px;
     font-weight: 500;
 }
@@ -106,6 +108,7 @@
 .material-explorer-container .material-explorer-toolbar .stats span.depletable-stat {
     background: var(--theia-activityBarBadge-background);
     color: var(--theia-activityBarBadge-foreground);
+    border-color: transparent;
 }
 
 /* ============================================================================

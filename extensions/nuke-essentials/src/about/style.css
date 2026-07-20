@@ -162,7 +162,7 @@
 .about-version-value {
     font-family: var(--theia-code-font-family);
     font-size: 12px;
-    color: var(--theia-foreground);
+    color: var(--theia-badge-foreground);
     padding: 2px 10px;
     background: var(--theia-badge-background);
     border-radius: 4px;
