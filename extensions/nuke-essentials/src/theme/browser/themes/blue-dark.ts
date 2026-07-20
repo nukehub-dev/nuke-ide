@@ -107,6 +107,8 @@ export const blueDarkTheme = {
         'inputValidation.warningBorder': '#b89500',
         'inputValidation.errorBackground': '#5a1d1d',
         'inputValidation.errorBorder': '#be1100',
+        'inputValidation.successBackground': '#1a3324',
+        'inputValidation.successBorder': '#3fb950',
 
         'dropdown.background': '#3c3c3c',
         'dropdown.foreground': '#cccccc',
