@@ -42,9 +42,9 @@ jobs:
             applications/*/node_modules
             extensions/*/node_modules
             ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-ci-${{ hashFiles('yarn.lock') }}
+          key: ci-yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-yarn-ci-
+            ci-yarn-${{ runner.os }}-
             ${{ runner.os }}-yarn-
 
       - name: Install dependencies
@@ -91,9 +91,9 @@ jobs:
             applications/*/node_modules
             extensions/*/node_modules
             ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-ci-${{ hashFiles('yarn.lock') }}
+          key: ci-yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-yarn-ci-
+            ci-yarn-${{ runner.os }}-
             ${{ runner.os }}-yarn-
 
       - name: Install dependencies
@@ -163,9 +163,9 @@ jobs:
             applications/*/node_modules
             extensions/*/node_modules
             ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-ci-${{ hashFiles('yarn.lock') }}
+          key: ci-yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-yarn-ci-
+            ci-yarn-${{ runner.os }}-
             ${{ runner.os }}-yarn-
 
       - name: Install dependencies

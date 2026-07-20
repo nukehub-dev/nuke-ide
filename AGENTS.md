@@ -123,7 +123,7 @@ Tiered policy; the project does not chase one uniform percentage.
 - **Logic layer** (Python parsers/converters/services/command handlers, TS pure helpers): measured and ratcheted. `.coveragerc` holds `fail_under` — it may only go UP; bump it whenever the baseline improves.
 - **Rendering layer** (trame/ParaView/VTK server modules, plugin glue): excluded in `.coveragerc`; covered by error-path contract tests and the docker smoke test instead.
 - Run `yarn test:python:cov` for the Python report (writes `coverage.xml`) and `yarn test:ts` for vitest.
-- New Python tests must pass with only `pytest` + `numpy` installed (use `pytest.importorskip`/guarded imports for heavy deps); the full-dependency profile is exercised by the docker image test step.
+- New Python tests must pass with only `pytest` + `numpy` installed (use `pytest.importorskip`/guarded imports for heavy deps); the full-dependency profile is exercised by the docker image test step. Tests for dependency-absence guards must force the absence (monkeypatch `sys.modules` entries to `None` or module-level `HAS_*` flags to `False`) rather than assume the ambient environment lacks the dependency, so they pass in both profiles.
 
 ## Architecture pointer
 
@@ -144,7 +144,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - **Extension Python code is not pip-installed**; tests put `extensions/<name>/python/` on `sys.path` via `tests/python/conftest.py`. Keep imports package-relative to that layout (`nuke_viz.*`, `plugins.*`, top-level service modules).
 - **Do not remove "unused" Python imports blindly**: some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `dagmc_viz.py`). These carry `# noqa: F401` comments.
 - **`yarn install` runs `lerna run prepare`** (full extension rebuild) via the root `prepare` script; use `yarn install --ignore-scripts` when only the lockfile/node_modules must change.
-- **`--ignore-scripts` also skips native module builds** (`keytar`, `ssh2`, etc.); a following webpack build then fails with `Can't resolve '../build/Release/keytar.node'`. Repair with `cd node_modules/keytar && npx prebuild-install` (or `npm rebuild keytar`).
+- **`--ignore-scripts` also skips native module builds** (`keytar`, `cpu-features`, `ssh2`, etc.); a following webpack build then fails with `Can't resolve '../build/Release/keytar.node'` (or `cpufeatures.node`). Repair with `(cd node_modules/<mod> && npm run install)` (or `npx prebuild-install` for keytar). In CI, `ci.yml` caches use the `ci-yarn-` prefix precisely so `build.yml`'s `${{ runner.os }}-yarn-` restore-keys cannot pick up scriptless node_modules; `build.yml`'s Linux job additionally rebuilds `cpu-features`/`keytar` after install.
 - **Keep `**/ssh2` pinned in root `resolutions`**: multiple ssh2 copies (hoisted + nested under `@theia/remote`) each build `sshcrypto.node`, and webpack fails with `Conflict: Multiple assets emit different content to the same filename native/sshcrypto.node`.
 - **Theia does not read VS Code's `button.secondary*` theme keys**: `.theia-button.secondary` is styled from Theia-native `secondaryButton.background/foreground/hoverBackground`. Themes must define both key families or secondary buttons fall back to Theia's slate-navy default.
 - **Theia CSS variables preserve case**: `--theia-<colorId>` only replaces dots with dashes (`focusBorder` → `--theia-focusBorder`). Kebab-case guesses like `--theia-focus-border` or `--theia-input-placeholder-foreground` resolve to nothing.

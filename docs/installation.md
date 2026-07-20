@@ -104,7 +104,7 @@ lerna run build
 
 **Python backends not found**
 
-> Use the command `Nuke: Switch Environment` to select the correct Python interpreter. If OpenMC is missing, install it via `conda install -c conda-forge openmc`.
+> Use the command `Nuke: Switch Environment` to select the correct Python interpreter. If OpenMC is missing, install it via `pip install openmc --extra-index-url https://shimwell.github.io/wheels` (or `conda install -c conda-forge openmc`).
 
 **Build errors in extensions**
 

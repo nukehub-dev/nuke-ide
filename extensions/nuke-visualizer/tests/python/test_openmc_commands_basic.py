@@ -1,9 +1,10 @@
 """Tests for plugins.openmc.commands basic/depletion/spectrum/geometry handlers.
 
-Heavy dependencies (h5py/vtk/openmc) are not installed here. Handlers import
-their lib modules lazily, so success paths are exercised by injecting fake
-lib modules into sys.modules, and failure paths run against the real
-(missing) dependencies. Error objects are printed as JSON on stdout.
+Handlers import their lib modules lazily, so success paths are exercised by
+injecting fake lib modules into sys.modules, and failure paths force heavy
+dependency absence (h5py/vtk/openmc) via monkeypatch so they run identically
+with or without those packages installed. Error objects are printed as JSON
+on stdout.
 """
 
 import argparse
@@ -74,14 +75,18 @@ def test_cmd_list_success(monkeypatch, capsys):
     assert _stdout_json(capsys) == [{"id": 1}, {"id": 2}]
 
 
-def test_cmd_info_reader_unavailable(capsys):
-    """The real reader needs h5py/vtk, which are missing here: ImportError propagates."""
+def test_cmd_info_reader_unavailable(monkeypatch):
+    """Without h5py the real reader import raises ImportError, which propagates."""
+    monkeypatch.setitem(sys.modules, "h5py", None)
+    monkeypatch.delitem(sys.modules, "plugins.openmc.lib.reader", raising=False)
     args = _parse(basic_cmds.cmd_info, ["sp.h5"])
     with pytest.raises(ImportError):
         basic_cmds.cmd_info(args)
 
 
-def test_cmd_list_reader_unavailable():
+def test_cmd_list_reader_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "h5py", None)
+    monkeypatch.delitem(sys.modules, "plugins.openmc.lib.reader", raising=False)
     args = _parse(basic_cmds.cmd_list, ["sp.h5"])
     with pytest.raises(ImportError):
         basic_cmds.cmd_list(args)
@@ -433,8 +438,10 @@ def test_visualize_geometry_error_returns_json(monkeypatch, capsys):
     assert _stdout_json(capsys)["error"] == "viz exploded"
 
 
-def test_visualize_geometry_library_unavailable(capsys):
-    """The real geometry_viz imports vtk at module level, which fails here."""
+def test_visualize_geometry_library_unavailable(monkeypatch, capsys):
+    """Without vtk the real geometry_viz import fails; the error becomes JSON."""
+    monkeypatch.setitem(sys.modules, "vtk", None)
+    monkeypatch.delitem(sys.modules, "plugins.openmc.lib.geometry_viz", raising=False)
     args = _parse(geometry_cmds.cmd_visualize_geometry, ["geom.xml"])
     assert geometry_cmds.cmd_visualize_geometry(args) == 1
     assert "error" in _stdout_json(capsys)

@@ -29,8 +29,6 @@ dependencies:
   - vtk=9.5.2
   # OpenCASCADE bindings: pythonocc-core provides the OCC module
   - pythonocc-core
-  # OpenMC Monte Carlo code (openmc-studio) — conda-forge only, NOT on PyPI
-  - openmc
   - pip:
       # Trame web UI framework for the visualizer backends
       - trame
@@ -47,11 +45,15 @@ dependencies:
       - cadquery_vtk==9.3.1
       # DAGMC workflows (pinned commit for reproducible builds)
       - pydagmc @ git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8
-      # MOAB/pymoab wheels — not on PyPI or conda-forge; same extra index the
-      # nuke-core health checks use (see nuke-core docs/dev/service-api.md).
-      # Unpinned: the index carries a single current release (weekly CI smoke
-      # builds catch a bad new drop).
+      # OpenMC (openmc-studio) and MOAB/pymoab wheels — published on this
+      # community index, not PyPI; same extra index the nuke-core health checks
+      # use (see nuke-core docs/dev/service-api.md). The openmc wheel bundles
+      # libopenmc and the DAGMC-enabled openmc executable, so the conda-forge
+      # package is intentionally not used — the env stays reproducible from
+      # pip alone for test environments. Unpinned: the index carries a single
+      # current release (weekly CI smoke builds catch a bad new drop).
       - --extra-index-url https://shimwell.github.io/wheels
+      - openmc
       - moab
       # Convenience for interactive sessions
       - ipython
