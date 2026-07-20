@@ -107,7 +107,7 @@
     "nukelab-integration": "0.1.2"
   },
   "devDependencies": {
-    "@theia/cli": "1.72.3"
+    "@theia/cli": "1.73.1"
   },
   "peerDependencies": {
     "react": "^18.0.0",
