@@ -131,6 +131,13 @@
     color: var(--sysmon-text-secondary);
 }
 
+.sysmon-status-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--sysmon-success);
+    flex-shrink: 0;
+}
+
 .sysmon-status-dot {
     width: 8px;
     height: 8px;
@@ -162,7 +169,6 @@
     border-radius: var(--sysmon-radius-lg);
     padding: 20px;
     position: relative;
-    overflow: hidden;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
@@ -183,7 +189,15 @@
 .sysmon-metric-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--sysmon-shadow-lg);
-    border-color: var(--card-accent);
+    border-color: color-mix(in srgb, var(--card-accent), transparent 50%);
+}
+
+/* Align card footers so cards in a row end evenly */
+.sysmon-metric-card .sysmon-progress-container,
+.sysmon-metric-card.disk .sysmon-info-grid,
+.sysmon-cpu-info,
+.sysmon-network-total {
+    margin-top: auto;
 }
 
 .sysmon-metric-card.cpu {
@@ -248,6 +262,22 @@
     flex-shrink: 0;
 }
 
+/* Status-tinted badge pills (color comes from .sysmon-text-*) */
+.sysmon-metric-badge.sysmon-text-success {
+    background: color-mix(in srgb, var(--sysmon-success), transparent 88%);
+    border-color: color-mix(in srgb, var(--sysmon-success), transparent 60%);
+}
+
+.sysmon-metric-badge.sysmon-text-warning {
+    background: color-mix(in srgb, var(--sysmon-warning), transparent 88%);
+    border-color: color-mix(in srgb, var(--sysmon-warning), transparent 60%);
+}
+
+.sysmon-metric-badge.sysmon-text-danger {
+    background: color-mix(in srgb, var(--sysmon-danger), transparent 88%);
+    border-color: color-mix(in srgb, var(--sysmon-danger), transparent 60%);
+}
+
 .sysmon-metric-value-section {
     margin-bottom: 16px;
 }
@@ -297,6 +327,18 @@
     stroke-width: 8;
     stroke-linecap: round;
     transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--card-accent), transparent 55%));
+}
+
+/* Gauge follows status under load */
+.sysmon-circular-fill.sysmon-text-warning {
+    stroke: var(--sysmon-warning);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sysmon-warning), transparent 55%));
+}
+
+.sysmon-circular-fill.sysmon-text-danger {
+    stroke: var(--sysmon-danger);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sysmon-danger), transparent 55%));
 }
 
 .sysmon-circular-text {
@@ -473,10 +515,9 @@
     background: var(--sysmon-glass-bg);
     border: 1px solid var(--sysmon-glass-border);
     border-radius: var(--sysmon-radius-md);
-    padding: 14px;
+    padding: 16px 14px;
     text-align: center;
     transition: all 0.2s ease;
-    height: 90px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -521,11 +562,10 @@
 }
 
 .sysmon-network-stat-value {
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 700;
     color: var(--sysmon-text-primary);
-    height: 24px;
-    line-height: 24px;
+    line-height: 1.3;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
@@ -748,15 +788,22 @@
 }
 
 .sysmon-graph-current {
-    font-size: 18px;
+    font-size: 13px;
     font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-variant-numeric: tabular-nums;
 }
 
 .sysmon-graph-current.cpu {
     color: var(--sysmon-accent-cpu);
+    background: color-mix(in srgb, var(--sysmon-accent-cpu), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--sysmon-accent-cpu), transparent 60%);
 }
 .sysmon-graph-current.memory {
     color: var(--sysmon-accent-memory);
+    background: color-mix(in srgb, var(--sysmon-accent-memory), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--sysmon-accent-memory), transparent 60%);
 }
 
 .sysmon-graph-container {
@@ -801,10 +848,34 @@
 }
 
 .sysmon-system-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     padding: 12px;
     background: var(--sysmon-glass-bg);
     border: 1px solid var(--sysmon-glass-border);
     border-radius: var(--sysmon-radius-sm);
+    min-width: 0;
+}
+
+.sysmon-system-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--sysmon-radius-sm);
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 88%);
+    color: var(--theia-focusBorder);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sysmon-system-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.sysmon-system-text {
     min-width: 0;
 }
 
