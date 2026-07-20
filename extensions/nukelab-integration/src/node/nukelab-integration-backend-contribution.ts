@@ -15,10 +15,13 @@ export interface NukeLabContext {
 @injectable()
 export class NukeLabIntegrationBackendContribution implements BackendApplicationContribution {
     configure(app: express.Application): void {
-        app.get('/api/nukelab/context', (_req, res) => {
+        app.get('/api/nukelab/context', (req, res) => {
+            // Env vars are injected by the NukeLab spawner; the nginx auth
+            // sidecar also forwards the ids as headers on every request, so
+            // use them as a fallback when the env vars are absent.
             const username = process.env.NUKELAB_USERNAME || '';
-            const userId = process.env.NUKELAB_USER_ID || '';
-            const serverId = process.env.NUKELAB_SERVER_ID || '';
+            const userId = process.env.NUKELAB_USER_ID || req.header('x-user-id') || '';
+            const serverId = process.env.NUKELAB_SERVER_ID || req.header('x-server-id') || '';
             const serverName = process.env.NUKELAB_SERVER_NAME || '';
 
             const publicUrl = this.getPublicUrl();
