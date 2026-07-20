@@ -24,10 +24,12 @@
   ],
   "dependencies": {
     "@theia/core": "1.73.1",
+    "@theia/debug": "1.73.1",
     "@theia/editor": "1.73.1",
     "@theia/filesystem": "1.73.1",
     "@theia/keymaps": "1.73.1",
     "@theia/monaco": "1.73.1",
+    "@theia/test": "1.73.1",
     "@theia/workspace": "1.73.1",
     "@theia/plugin-ext-vscode": "1.73.1",
     "@theia/ai-chat": "1.73.1",
@@ -62,6 +64,9 @@
     },
     {
       "frontend": "lib/theme/browser/theme-frontend-module"
+    },
+    {
+      "frontend": "lib/view-filter/browser/view-filter-frontend-module"
     },
     {
       "frontendElectron": "lib/electron-updater/updater-frontend-module",
