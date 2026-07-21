@@ -148,6 +148,7 @@ export const redLightTheme = {
         'terminal.selectionBackground': '#d32f2f30',
 
         // Tabs
+        'editorGroupHeader.tabsBackground': '#f5e3e3',
         'tab.activeBackground': '#fdf6f6',
         'tab.activeForeground': '#2c3e50',
         'tab.activeBorder': '#d32f2f',

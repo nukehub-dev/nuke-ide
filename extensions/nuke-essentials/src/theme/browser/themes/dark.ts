@@ -146,6 +146,7 @@ export const darkTheme = {
         'terminal.selectionBackground': '#264f7840',
 
         // Tabs
+        'editorGroupHeader.tabsBackground': '#2d2d2d',
         'tab.activeBackground': '#1e1e1e',
         'tab.activeForeground': '#ffffff',
         'tab.activeBorder': '#f37524',

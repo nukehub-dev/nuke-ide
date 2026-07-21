@@ -130,6 +130,7 @@ export const blueDarkTheme = {
         'terminal.border': '#333333',
         'terminal.selectionBackground': '#264f7840',
 
+        'editorGroupHeader.tabsBackground': '#2d2d2d',
         'tab.activeBackground': '#1e1e1e',
         'tab.activeForeground': '#ffffff',
         'tab.activeBorder': '#4fc3f7',

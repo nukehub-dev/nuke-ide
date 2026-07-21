@@ -132,6 +132,7 @@ export const blueLightTheme = {
         'terminal.border': '#ccd3d9',
         'terminal.selectionBackground': '#add6ff66',
 
+        'editorGroupHeader.tabsBackground': '#d9e6f2',
         'tab.activeBackground': '#f6fafd',
         'tab.activeForeground': '#2c3e50',
         'tab.activeBorder': '#0288d1',
