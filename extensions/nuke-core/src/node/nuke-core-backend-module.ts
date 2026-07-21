@@ -39,6 +39,7 @@
  * | {@link HealthService}         | `toSelf()`                       | Singleton |
  * | {@link NukeCoreBackendServiceImpl} | `toSelf()`                  | Singleton |
  * | {@link NukeCoreBackendService} | `toService(NukeCoreBackendServiceImpl)` | Singleton |
+ * | {@link BackendApplicationServer} | `to(StaticFrontendServer)`   | Singleton |
  * | {@link ConnectionHandler}     | Dynamic {@link JsonRpcConnectionHandler} | Singleton |
  *
  * The JSON-RPC handler is mounted at {@link NUKE_CORE_BACKEND_PATH} so that
@@ -51,8 +52,10 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler } from '@theia/core/lib/common';
+import { BackendApplicationServer } from '@theia/core/lib/node';
 import { NukeCoreBackendService, NUKE_CORE_BACKEND_PATH, NukeCoreBackendServiceInterface } from '../common/nuke-core-protocol';
 import { NukeCoreBackendServiceImpl } from './nuke-core-backend-service';
+import { StaticFrontendServer } from './static-frontend-server';
 import { EnvironmentService, PackageService, HealthService } from './services';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
@@ -62,6 +65,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(EnvironmentService).toSelf().inSingletonScope();
     bind(PackageService).toSelf().inSingletonScope();
     bind(HealthService).toSelf().inSingletonScope();
+
+    // Serve the built frontend with no-store HTML so redeploys propagate
+    // (replaces Theia's default express.static mount; see static-frontend-server.ts)
+    bind(BackendApplicationServer).to(StaticFrontendServer).inSingletonScope();
 
     // Main backend service
     bind(NukeCoreBackendServiceImpl).toSelf().inSingletonScope();

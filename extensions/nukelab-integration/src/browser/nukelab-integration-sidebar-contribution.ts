@@ -47,6 +47,8 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
                 this.context = (await response.json()) as NukeLabContext;
                 this.commandContribution.setContext(this.context);
                 this.updateUserStatus();
+            } else {
+                console.warn(`[NukeLabIntegration] Context request to ${endpoint} failed with status ${response.status}`);
             }
         } catch (error) {
             console.warn('[NukeLabIntegration] Failed to load context:', error);
