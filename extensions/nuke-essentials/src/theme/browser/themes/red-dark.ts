@@ -146,6 +146,7 @@ export const redDarkTheme = {
         'terminal.selectionBackground': '#e5393540',
 
         // Tabs
+        'editorGroupHeader.tabsBackground': '#2d2d2d',
         'tab.activeBackground': '#1e1e1e',
         'tab.activeForeground': '#ffffff',
         'tab.activeBorder': '#e53935',

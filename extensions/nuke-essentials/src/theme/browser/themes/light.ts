@@ -152,6 +152,7 @@ export const lightTheme = {
         'terminal.selectionBackground': '#f9e2c866',
 
         // Tabs
+        'editorGroupHeader.tabsBackground': '#ede9e2',
         'tab.activeBackground': '#fdfcf9',
         'tab.activeForeground': '#3f3a34',
         'tab.activeBorder': '#f37524',
