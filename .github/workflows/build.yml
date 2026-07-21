@@ -75,6 +75,10 @@ jobs:
               (cd "node_modules/$mod" && npm run install --silent)
             fi
           done
+          # @theia/ffmpeg has no install script — yarn/npm compile its
+          # binding.gyp via the implicit node-gyp install, which scriptless
+          # caches lack. `theia build`'s checkFfmpeg loads ffmpeg.node.
+          (cd node_modules/@theia/ffmpeg && npx node-gyp rebuild)
 
       - name: Download Electron binary
         run: node node_modules/electron/install.js
