@@ -2,6 +2,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
 import { ApplicationShell } from '@theia/core/lib/browser/shell/application-shell';
 import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser/status-bar/status-bar';
+import { Endpoint } from '@theia/core/lib/browser/endpoint';
 import { codicon } from '@theia/core/lib/browser/widgets';
 import { ACCOUNTS_MENU } from '@theia/core/lib/common/menu';
 import { NukeLabContext } from '../common/nukelab-integration-protocol';
@@ -36,7 +37,12 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
 
     protected async loadContext(): Promise<void> {
         try {
-            const response = await fetch('/api/nukelab/context');
+            // Resolve against the current page path (like Theia's own services)
+            // so the request stays under the Traefik route prefix
+            // (/user/<name>/<server>) in the NukeLab deployment; an origin-rooted
+            // URL would hit the hub API instead of this IDE backend.
+            const endpoint = new Endpoint({ path: '/api/nukelab/context' }).getRestUrl().toString();
+            const response = await fetch(endpoint);
             if (response.ok) {
                 this.context = (await response.json()) as NukeLabContext;
                 this.commandContribution.setContext(this.context);

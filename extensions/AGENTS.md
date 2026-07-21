@@ -42,6 +42,7 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 - Do not import from another extension's `src/`; depend on its published `lib/` API via the package name.
 - `noUnusedLocals` is on in the base tsconfig — dead locals fail the build.
 - CSS changes require the extension's `copy-css` step (part of `build`); editing CSS in `lib/` is lost on rebuild.
+- Never fetch extension-backend endpoints with origin-rooted URLs (`fetch('/api/...')`): in the NukeLab deployment Traefik serves the IDE under a `StripPrefix` route (`/user/<name>/<server>`), so an origin-rooted request hits the hub API instead of the IDE backend. Resolve with Theia's `Endpoint` class (`new Endpoint({ path: '/api/...' }).getRestUrl()`), which prefixes the page path, exactly like Theia's own services. Origin-rooted URLs are only correct for hub routes (dashboard, `/servers/<id>`, `/api/auth/*`).
 
 ## Verification
 
