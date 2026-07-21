@@ -1,6 +1,6 @@
 {
   "name": "nuke-sysmon",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "NukeIDE System Monitor - CPU, RAM, Disk, Network stats with graphs",
   "license": "BSD-2-Clause",
   "keywords": [
