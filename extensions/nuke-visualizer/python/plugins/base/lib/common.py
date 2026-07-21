@@ -125,8 +125,10 @@ GLOBAL_STYLES = """
         --nuke-gadget-text: rgba(255,255,255,0.7);
         --nuke-gadget-icon: #ffffff;
         --nuke-gadget-divider: rgba(255,255,255,0.1);
+        --nuke-gadget-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        --nuke-gadget-btn-hover: rgba(255, 255, 255, 0.08);
     }
-    .v-application.v-theme--light {
+    .v-theme--light {
         --nuke-scrollbar-thumb: rgba(90, 90, 90, 0.25);
         --nuke-scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
         --nuke-dropdown-bg: #ffffff;
@@ -137,6 +139,8 @@ GLOBAL_STYLES = """
         --nuke-gadget-text: rgba(0,0,0,0.6);
         --nuke-gadget-icon: rgba(0,0,0,0.7);
         --nuke-gadget-divider: rgba(0,0,0,0.08);
+        --nuke-gadget-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        --nuke-gadget-btn-hover: rgba(0, 0, 0, 0.06);
     }
 
     /* Prevent page-level scrollbar; app fills viewport and internal containers scroll */
@@ -274,6 +278,9 @@ GLOBAL_STYLES = """
     .nuke-camera-gadget {
         background: var(--nuke-gadget-bg) !important;
         border-color: var(--nuke-gadget-border) !important;
+        box-shadow: var(--nuke-gadget-shadow) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         cursor: grab;
     }
     .nuke-camera-gadget:active {
@@ -284,6 +291,13 @@ GLOBAL_STYLES = """
     }
     .nuke-camera-gadget .v-icon {
         color: var(--nuke-gadget-icon) !important;
+    }
+    .nuke-camera-gadget .v-btn {
+        color: var(--nuke-gadget-icon) !important;
+        min-width: 30px !important;
+    }
+    .nuke-camera-gadget .v-btn:hover {
+        background-color: var(--nuke-gadget-btn-hover) !important;
     }
     .nuke-camera-gadget .v-divider {
         border-color: var(--nuke-gadget-divider) !important;
@@ -828,43 +842,38 @@ class UIComponents:
 
         # Helper for consistent styled tooltips
         def btn_with_tooltip(icon_name, text, click_handler, **kwargs):
-            small_icon = kwargs.pop("small", False)
             with vuetify.VTooltip(location="bottom", color="#283593", open_delay=500):
                 with vuetify.Template(v_slot_activator="{ props }"):
-                    with vuetify.VBtn(
-                        icon=True,
-                        size="x-small",
+                    vuetify.VBtn(
+                        icon=icon_name,
+                        variant="text",
+                        size="small",
+                        density="comfortable",
                         click=click_handler,
                         v_bind="props",
                         **kwargs,
-                    ):
-                        vuetify.VIcon(
-                            icon_name, color="white", size="small" if small_icon else None
-                        )
+                    )
                 html.Div(text, style="font-size: 0.75rem; font-weight: 500;")
 
         with vuetify.VContainer(classes="pa-0 ma-0"):
             # View Presets Row (Top)
             if reset_callback and view_callback:
                 with vuetify.VRow(dense=True, justify="center", classes="ma-0 mb-1"):
-                    btn_with_tooltip("mdi-home", "Reset Camera", reset_callback, small=True)
+                    btn_with_tooltip("mdi-home", "Reset Camera", reset_callback)
                     btn_with_tooltip(
                         "mdi-cube-outline",
                         "Isometric View",
                         lambda: view_callback("isometric"),
-                        small=True,
+                    )
+                    btn_with_tooltip("mdi-axis-z-arrow", "Top View", lambda: view_callback("top"))
+                    btn_with_tooltip(
+                        "mdi-axis-x-arrow", "Front View", lambda: view_callback("front")
                     )
                     btn_with_tooltip(
-                        "mdi-axis-z-arrow", "Top View", lambda: view_callback("top"), small=True
-                    )
-                    btn_with_tooltip(
-                        "mdi-axis-x-arrow", "Front View", lambda: view_callback("front"), small=True
-                    )
-                    btn_with_tooltip(
-                        "mdi-axis-y-arrow", "Side View", lambda: view_callback("right"), small=True
+                        "mdi-axis-y-arrow", "Side View", lambda: view_callback("right")
                     )
                 vuetify.VDivider(
-                    classes="mb-2", style="border-color: rgba(255,255,255,0.1) !important;"
+                    classes="mb-2", style="border-color: var(--nuke-gadget-divider) !important;"
                 )
 
             # Pan controls in a 3x3 grid style
@@ -879,16 +888,15 @@ class UIComponents:
                     with vuetify.Template(v_slot_activator="{ props }"):
                         vuetify.VIcon(
                             "mdi-pan",
-                            color="white",
                             size="small",
                             classes="mx-2",
-                            style="opacity: 0.9; cursor: help;",
+                            style="opacity: 0.7; cursor: help;",
                             v_bind="props",
                         )
                     with html.Div(style="padding: 4px;"):
                         html.Div(
                             "Navigation Guide",
-                            style="font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); margin-bottom: 4px;",
+                            style="font-weight: bold; border-bottom: 1px solid var(--nuke-gadget-divider); margin-bottom: 4px;",
                         )
                         html.Div("• Left Click: Rotate", style="font-size: 0.75rem;")
                         html.Div("• Middle / Shift+Left: Pan", style="font-size: 0.75rem;")
@@ -917,7 +925,7 @@ class UIComponents:
         with vuetify.VContainer(
             v_if=("show_camera_gadget",),
             classes="pa-2 ma-2 nuke-camera-gadget",
-            style="position: absolute; top: 0; right: 12px; z-index: 100; border-radius: 12px; border: 1px solid; width: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.4);",
+            style="position: absolute; top: 0; right: 12px; z-index: 100; border-radius: 16px; border: 1px solid; width: auto;",
         ):
             html.Div(
                 "Camera",
