@@ -31,9 +31,10 @@ dependencies:
   - pythonocc-core
   - pip:
       # Trame web UI framework for the visualizer backends
-      - trame
+      # (>=3 required: the visualizer backends use the vuetify3/vue3 API)
+      - trame>=3
       - trame-vtk
-      - trame-vuetify
+      - trame-vuetify>=3
       - trame-components
       - python-multipart
       # CAD import/conversion (openmc-studio cad_conversion).

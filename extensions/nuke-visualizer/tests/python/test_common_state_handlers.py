@@ -706,13 +706,16 @@ def test_create_control_panel_theme_colors():
     drawer = create_control_panel(vuetify, server=SimpleNamespace(), theme="dark", width=300)
     assert drawer.tag == "VNavigationDrawer"
     assert drawer.kwargs["color"] == "#1e1e1e"
-    assert drawer.kwargs["dark"] is True
+    assert drawer.kwargs["theme"] == "dark"
     assert drawer.kwargs["width"] == 300
     assert drawer.kwargs["v_model"] == ("show_controls", True)
+    # Vuetify 3 removed the app/clipped props from VNavigationDrawer.
+    assert "app" not in drawer.kwargs
+    assert "clipped" not in drawer.kwargs
 
     drawer = create_control_panel(vuetify, server=SimpleNamespace(), theme="light")
     assert drawer.kwargs["color"] == "#f5f5f5"
-    assert drawer.kwargs["dark"] is False
+    assert drawer.kwargs["theme"] == "light"
 
 
 def test_create_main_content_builds_toggle_and_view_widget():
@@ -726,5 +729,8 @@ def test_create_main_content_builds_toggle_and_view_widget():
     assert view_widget.tag == "VtkRemoteView"
     assert view_widget.args[0] is view
     assert view_widget.kwargs["interactive_ratio"] == 1
-    # The toggle button contains an icon child.
-    assert vuetify.by_tag("VIcon")[0].args == ("mdi-chevron-right",)
+    # The toggle button is an icon button (Vuetify 3 icon prop, no child VIcon).
+    toggle = vuetify.by_tag("VBtn")[0]
+    assert toggle.kwargs["icon"] == "mdi-chevron-right"
+    assert toggle.kwargs["size"] == "small"
+    assert vuetify.by_tag("VIcon") == []

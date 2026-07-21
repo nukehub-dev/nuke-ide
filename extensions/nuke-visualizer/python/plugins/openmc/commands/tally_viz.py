@@ -199,9 +199,9 @@ def cmd_visualize_mesh(args):
     """Visualize a mesh tally using OpenMC's native VTK export."""
     try:
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
         return 1
@@ -226,7 +226,7 @@ def cmd_visualize_mesh(args):
         vtk_source.UpdatePipeline()
 
         # Create trame application
-        server = get_server(client_type="vue2", port=port)
+        server = get_server(client_type="vue3", port=port)
         state = server.state
 
         # Initialize common state
@@ -379,20 +379,18 @@ def cmd_visualize_mesh(args):
             html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True),
-                app=True,
                 width=300,
-                clipped=True,
                 color="#1e1e1e",
-                dark=True,
+                theme="dark",
             ):
                 with vuetify.VContainer(classes="pa-3"):
                     # Header
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                         html.Div(
                             f"Tally {mesh_data.tally_id}: {mesh_data.tally_name}",
-                            classes="text-subtitle-1 font-weight-medium white--text",
+                            classes="text-subtitle-1 font-weight-medium text-white",
                         )
-                        with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-2")
 
@@ -465,7 +463,7 @@ def cmd_visualize_mesh(args):
                         vuetify.VCheckbox(
                             v_model=("show_scalar_bar", True),
                             label="Show Color Legend",
-                            dense=True,
+                            density="compact",
                             classes="mb-4",
                         )
 
@@ -485,18 +483,18 @@ def cmd_visualize_mesh(args):
                     def save_screenshot():
                         save_screenshot_with_timestamp(capture_screenshot, state)
 
-                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                    vuetify.VListSubheader("Export", classes="text-subtitle-1 mb-2")
                     vuetify.VBtn(
                         "Save Screenshot",
                         click=save_screenshot,
                         block=True,
-                        small=True,
+                        size="small",
                         color="primary",
                         classes="mb-2",
                     )
 
                     with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
-                        vuetify.VSubheader(
+                        vuetify.VListSubheader(
                             ("screenshot_status",), classes="text-caption justify-center"
                         )
 
@@ -507,8 +505,12 @@ def cmd_visualize_mesh(args):
                     classes="ma-2 pa-0",
                     style="position: absolute; top: 0; left: 0; z-index: 100;",
                 ):
-                    with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
-                        vuetify.VIcon("mdi-chevron-right")
+                    vuetify.VBtn(
+                        icon="mdi-chevron-right",
+                        click=toggle_controls,
+                        size="small",
+                        color="primary",
+                    )
 
                 # Camera Navigation Gadget (Top Right)
                 UIComponents.create_canvas_gadget(
@@ -590,9 +592,9 @@ def cmd_visualize_overlay(args):
     """Overlay tally on geometry with slice-based or full 3D visualization."""
     try:
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
         return 1
@@ -646,7 +648,7 @@ def cmd_visualize_overlay(args):
         print(f"[Overlay] Mode: {args.mode}, Plane: {args.plane}", file=sys.stderr)
 
         # Create server
-        server = get_server(client_type="vue2", port=port)
+        server = get_server(client_type="vue3", port=port)
         state = server.state
 
         displays = []
@@ -1118,20 +1120,18 @@ def cmd_visualize_overlay(args):
             html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True),
-                app=True,
                 width=320,
-                clipped=True,
                 color="#1e1e1e",
-                dark=True,
+                theme="dark",
             ):
                 with vuetify.VContainer(classes="pa-4"):
                     # Header
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                         html.Div(
                             f"Tally {state.tally_id}: {state.tally_name}",
-                            classes="text-subtitle-1 font-weight-medium white--text",
+                            classes="text-subtitle-1 font-weight-medium text-white",
                         )
-                        with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
 
@@ -1210,7 +1210,7 @@ def cmd_visualize_overlay(args):
                                 min=0,
                                 max=1,
                                 step=0.01,
-                                dense=True,
+                                density="compact",
                                 hide_details=True,
                                 thumb_label=True,
                             )
@@ -1225,7 +1225,7 @@ def cmd_visualize_overlay(args):
                                 min=0.5,
                                 max=10,
                                 step=0.5,
-                                dense=True,
+                                density="compact",
                                 hide_details=True,
                                 thumb_label=True,
                             )
@@ -1242,7 +1242,7 @@ def cmd_visualize_overlay(args):
                         vuetify.VCheckbox(
                             v_model=("show_scalar_bar", True),
                             label="Show Color Legend",
-                            dense=True,
+                            density="compact",
                             classes="mb-4",
                         )
 
@@ -1259,18 +1259,18 @@ def cmd_visualize_overlay(args):
                     vuetify.VDivider(classes="my-4")
 
                     # Export
-                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                    vuetify.VListSubheader("Export", classes="text-subtitle-1 mb-2")
                     vuetify.VBtn(
                         "Save Screenshot",
                         click=save_screenshot,
                         block=True,
-                        small=True,
+                        size="small",
                         color="primary",
                         classes="mb-2",
                     )
 
                     with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
-                        vuetify.VSubheader(
+                        vuetify.VListSubheader(
                             ("screenshot_status",), classes="text-caption justify-center"
                         )
 
@@ -1281,8 +1281,12 @@ def cmd_visualize_overlay(args):
                     classes="ma-2 pa-0",
                     style="position: absolute; top: 0; left: 0; z-index: 100;",
                 ):
-                    with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
-                        vuetify.VIcon("mdi-chevron-right")
+                    vuetify.VBtn(
+                        icon="mdi-chevron-right",
+                        click=toggle_controls,
+                        size="small",
+                        color="primary",
+                    )
 
                 # Camera Navigation Gadget
                 UIComponents.create_canvas_gadget(
@@ -1341,9 +1345,9 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
     """Common visualization logic for source distribution."""
     try:
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}", file=sys.stderr)
         return 1
@@ -1357,7 +1361,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
         writer.SetInputData(source_poly)
         writer.Write()
 
-        server = get_server(client_type="vue2", port=port)
+        server = get_server(client_type="vue3", port=port)
         state = server.state
 
         init_common_state(state, theme="dark")
@@ -1487,16 +1491,14 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
             html.Component(GLOBAL_STYLES, **{"is": "style"})
             with vuetify.VNavigationDrawer(
                 v_model=("show_controls", True),
-                app=True,
                 width=320,
-                clipped=True,
                 color="#1e1e1e",
-                dark=True,
+                theme="dark",
             ):
                 with vuetify.VContainer(classes="pa-4"):
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
-                        vuetify.VSubheader(title, classes="text-h6 pa-0")
-                        with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                        vuetify.VListSubheader(title, classes="text-h6 pa-0")
+                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
 
@@ -1517,7 +1519,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                     vuetify.VCheckbox(
                         v_model=("parallel_projection", False),
                         label="Parallel Projection (2D/Ortho)",
-                        dense=True,
+                        density="compact",
                         classes="mb-2",
                     )
 
@@ -1528,10 +1530,10 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                         v_model=("color_by", state.color_by),
                         items=("available_arrays",),
                         label="Color By",
-                        dense=True,
-                        outlined=True,
+                        density="compact",
+                        variant="outlined",
                         classes="mb-4",
-                        dark=("sidebar_dark", True),
+                        theme=("sidebar_dark ? 'dark' : 'light'",),
                     )
 
                     UIComponents.color_map_selector_short(vuetify)
@@ -1539,7 +1541,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                     vuetify.VCheckbox(
                         v_model=("show_scalar_bar", True),
                         label="Show Color Legend",
-                        dense=True,
+                        density="compact",
                         classes="mb-4",
                     )
 
@@ -1549,18 +1551,18 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
 
                     vuetify.VDivider(classes="my-4")
 
-                    vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                    vuetify.VListSubheader("Export", classes="text-subtitle-1 mb-2")
                     vuetify.VBtn(
                         "Save Screenshot",
                         click=save_screenshot,
                         block=True,
-                        small=True,
+                        size="small",
                         color="primary",
                         classes="mb-2",
                     )
 
                     with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
-                        vuetify.VSubheader(
+                        vuetify.VListSubheader(
                             ("screenshot_status",), classes="text-caption justify-center"
                         )
 
@@ -1570,8 +1572,12 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                     classes="ma-2 pa-0",
                     style="position: absolute; top: 0; left: 0; z-index: 100;",
                 ):
-                    with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
-                        vuetify.VIcon("mdi-chevron-right")
+                    vuetify.VBtn(
+                        icon="mdi-chevron-right",
+                        click=toggle_controls,
+                        size="small",
+                        color="primary",
+                    )
 
                 UIComponents.create_canvas_gadget(
                     vuetify,

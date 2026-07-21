@@ -213,7 +213,7 @@ def test_screenshot_button(vuetify):
     components = UIComponents.screenshot_button(vuetify, callback)
 
     assert len(components) == 3
-    assert components[0].tag == "VSubheader"
+    assert components[0].tag == "VListSubheader"
     button = vuetify.by_tag("VBtn")[0]
     assert button.kwargs["click"] is callback
     assert button.kwargs["color"] == "primary"

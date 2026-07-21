@@ -530,7 +530,7 @@ class UIComponents:
             "max": 1,
             "step": 0.05,
             "thumb_label": True,
-            "dense": True,
+            "density": "compact",
             "hide_details": True,
             "classes": kwargs.pop("classes", "mb-4"),
         }
@@ -545,7 +545,7 @@ class UIComponents:
             "min": 1,
             "max": 20,
             "step": 0.5,
-            "dense": True,
+            "density": "compact",
             "hide_details": True,
             "classes": kwargs.pop("classes", "mb-4"),
         }
@@ -560,7 +560,7 @@ class UIComponents:
             "min": 0.5,
             "max": 10,
             "step": 0.5,
-            "dense": True,
+            "density": "compact",
             "hide_details": True,
             "classes": kwargs.pop("classes", "mb-4"),
         }
@@ -575,7 +575,7 @@ class UIComponents:
             "min": 0,
             "max": 1,
             "step": 0.05,
-            "dense": True,
+            "density": "compact",
             "hide_details": True,
             "classes": kwargs.pop("classes", "mb-4"),
         }
@@ -590,10 +590,10 @@ class UIComponents:
         defaults = {
             "items": (["Surface", "Surface With Edges", "Wireframe", "Points"],),
             "label": "Representation",
-            "dense": True,
-            "outlined": True,
+            "density": "compact",
+            "variant": "outlined",
             "classes": "mb-4",
-            "dark": ("sidebar_dark", True),
+            "theme": ("sidebar_dark ? 'dark' : 'light'",),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)
@@ -609,10 +609,10 @@ class UIComponents:
         defaults = {
             "items": items_binding,
             "label": "Color By",
-            "dense": True,
-            "outlined": True,
+            "density": "compact",
+            "variant": "outlined",
             "classes": "mb-4",
-            "dark": ("sidebar_dark", True),
+            "theme": ("sidebar_dark ? 'dark' : 'light'",),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)
@@ -629,10 +629,10 @@ class UIComponents:
         defaults = {
             "items": (maps,),
             "label": "Color Map",
-            "dense": True,
-            "outlined": True,
+            "density": "compact",
+            "variant": "outlined",
             "classes": "mb-2",
-            "dark": ("sidebar_dark", True),
+            "theme": ("sidebar_dark ? 'dark' : 'light'",),
         }
         defaults.update(kwargs)
         return vuetify.VSelect(v_model=v_model_binding, **defaults)
@@ -669,8 +669,8 @@ class UIComponents:
                         "Reset",
                         click=reset_callback,
                         block=True,
-                        small=True,
-                        outlined=True,
+                        size="small",
+                        variant="outlined",
                         classes="mb-2",
                     )
                 )
@@ -680,8 +680,8 @@ class UIComponents:
                         "Isometric",
                         click=isometric_callback,
                         block=True,
-                        small=True,
-                        outlined=True,
+                        size="small",
+                        variant="outlined",
                         classes="mb-2",
                     )
                 )
@@ -691,15 +691,21 @@ class UIComponents:
         with vuetify.VRow(dense=True) as row2:
             with vuetify.VCol(cols=4):
                 components.append(
-                    vuetify.VBtn("Front", click=front_callback, block=True, small=True, text=True)
+                    vuetify.VBtn(
+                        "Front", click=front_callback, block=True, size="small", variant="text"
+                    )
                 )
             with vuetify.VCol(cols=4):
                 components.append(
-                    vuetify.VBtn("Side", click=side_callback, block=True, small=True, text=True)
+                    vuetify.VBtn(
+                        "Side", click=side_callback, block=True, size="small", variant="text"
+                    )
                 )
             with vuetify.VCol(cols=4):
                 components.append(
-                    vuetify.VBtn("Top", click=top_callback, block=True, small=True, text=True)
+                    vuetify.VBtn(
+                        "Top", click=top_callback, block=True, size="small", variant="text"
+                    )
                 )
         components.append(row2)
 
@@ -712,19 +718,19 @@ class UIComponents:
             vuetify.VCheckbox(
                 v_model=("show_orientation_axes", True),
                 label="Show 3D Axis Indicator",
-                dense=True,
+                density="compact",
                 classes="mb-2",
             ),
             vuetify.VCheckbox(
                 v_model=("show_bounding_box", False),
                 label="Show Data Bounds Outline",
-                dense=True,
+                density="compact",
                 classes="mb-2",
             ),
             vuetify.VCheckbox(
                 v_model=("show_cube_axes", False),
                 label="Show Coordinate Grid",
-                dense=True,
+                density="compact",
                 classes="mb-4",
             ),
         ]
@@ -734,7 +740,7 @@ class UIComponents:
         """Create a compact grid of appearance toggles."""
 
         # Appearance Section
-        vuetify.VSubheader("Appearance", classes="text-subtitle-1 mb-2")
+        vuetify.VListSubheader("Appearance", classes="text-subtitle-1 mb-2")
         # Background Color
         with vuetify.VContainer(classes="ma-0 pa-0 mb-3", style="overflow: hidden;"):
             UIComponents.background_color_picker(vuetify, ("background_color_hex", "#1a1a26"))
@@ -746,14 +752,14 @@ class UIComponents:
                     vuetify.VCheckbox(
                         v_model=("show_orientation_axes", True),
                         label="3D Axis",
-                        dense=True,
+                        density="compact",
                         hide_details=True,
                     )
                 with vuetify.VCol(cols=6):
                     vuetify.VCheckbox(
                         v_model=("parallel_projection", False),
                         label="Ortho",
-                        dense=True,
+                        density="compact",
                         hide_details=True,
                     )
 
@@ -763,14 +769,14 @@ class UIComponents:
                     vuetify.VCheckbox(
                         v_model=("show_bounding_box", False),
                         label="Bounds",
-                        dense=True,
+                        density="compact",
                         hide_details=True,
                     )
                 with vuetify.VCol(cols=6):
                     vuetify.VCheckbox(
                         v_model=("show_cube_axes", False),
                         label="Grid",
-                        dense=True,
+                        density="compact",
                         hide_details=True,
                     )
 
@@ -781,7 +787,7 @@ class UIComponents:
                         vuetify.VCheckbox(
                             v_model=("show_camera_gadget", True),
                             label="Camera",
-                            dense=True,
+                            density="compact",
                             hide_details=True,
                         )
 
@@ -790,12 +796,12 @@ class UIComponents:
         """Create a screenshot button with status display."""
 
         components = [
-            vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2"),
+            vuetify.VListSubheader("Export", classes="text-subtitle-1 mb-2"),
             vuetify.VBtn(
                 "Save Screenshot",
                 click=callback,
                 block=True,
-                small=True,
+                size="small",
                 color="primary",
                 classes="mb-2",
             ),
@@ -803,7 +809,7 @@ class UIComponents:
 
         # Status container (conditional)
         with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center") as status:
-            vuetify.VSubheader(("screenshot_status",), classes="text-caption justify-center")
+            vuetify.VListSubheader(("screenshot_status",), classes="text-caption justify-center")
         components.append(status)
 
         return components
@@ -822,17 +828,19 @@ class UIComponents:
 
         # Helper for consistent styled tooltips
         def btn_with_tooltip(icon_name, text, click_handler, **kwargs):
-            with vuetify.VTooltip(bottom=True, color="#283593", open_delay=500):
-                with vuetify.Template(v_slot_activator="{ on, attrs }"):
+            small_icon = kwargs.pop("small", False)
+            with vuetify.VTooltip(location="bottom", color="#283593", open_delay=500):
+                with vuetify.Template(v_slot_activator="{ props }"):
                     with vuetify.VBtn(
                         icon=True,
-                        x_small=True,
+                        size="x-small",
                         click=click_handler,
-                        v_on="on",
-                        v_bind="attrs",
+                        v_bind="props",
                         **kwargs,
                     ):
-                        vuetify.VIcon(icon_name, color="white", small=kwargs.get("small", False))
+                        vuetify.VIcon(
+                            icon_name, color="white", size="small" if small_icon else None
+                        )
                 html.Div(text, style="font-size: 0.75rem; font-weight: 500;")
 
         with vuetify.VContainer(classes="pa-0 ma-0"):
@@ -867,16 +875,15 @@ class UIComponents:
                 btn_with_tooltip("mdi-chevron-left", "Pan Left", lambda: pan_callback("left"))
 
                 # Central icon with navigation guide tooltip
-                with vuetify.VTooltip(bottom=True, color="#1A237E"):
-                    with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                with vuetify.VTooltip(location="bottom", color="#1A237E"):
+                    with vuetify.Template(v_slot_activator="{ props }"):
                         vuetify.VIcon(
                             "mdi-pan",
                             color="white",
-                            small=True,
+                            size="small",
                             classes="mx-2",
                             style="opacity: 0.9; cursor: help;",
-                            v_on="on",
-                            v_bind="attrs",
+                            v_bind="props",
                         )
                     with html.Div(style="padding: 4px;"):
                         html.Div(
@@ -895,7 +902,7 @@ class UIComponents:
             # Zoom controls
             with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
                 btn_with_tooltip("mdi-plus-circle-outline", "Zoom In", lambda: zoom_callback(0.85))
-                vuetify.VIcon("mdi-magnify", small=True, classes="mx-2", style="opacity: 0.5;")
+                vuetify.VIcon("mdi-magnify", size="small", classes="mx-2", style="opacity: 0.5;")
                 btn_with_tooltip(
                     "mdi-minus-circle-outline", "Zoom Out", lambda: zoom_callback(1.15)
                 )
@@ -920,9 +927,9 @@ class UIComponents:
 
             # Helper for styled tooltips
             def nav_tooltip(icon_name, text, **kwargs):
-                with vuetify.VTooltip(bottom=True, color="#283593"):
-                    with vuetify.Template(v_slot_activator="{ on, attrs }"):
-                        vuetify.VIcon(icon_name, v_on="on", v_bind="attrs", **kwargs)
+                with vuetify.VTooltip(location="bottom", color="#283593"):
+                    with vuetify.Template(v_slot_activator="{ props }"):
+                        vuetify.VIcon(icon_name, v_bind="props", **kwargs)
                     with html.Div(style="padding: 4px;"):
                         html.Div(
                             text,
@@ -1478,15 +1485,12 @@ def create_control_panel(
             pass
     """
     color = "#1e1e1e" if theme == "dark" else "#f5f5f5"
-    is_dark = theme == "dark"
 
     return vuetify.VNavigationDrawer(
         v_model=show_controls_binding,
-        app=True,
         width=width,
-        clipped=True,
         color=color,
-        dark=is_dark,
+        theme=theme,
     )
 
 
@@ -1500,8 +1504,9 @@ def create_main_content(vuetify, pv_widgets, view, toggle_controls_callback):
         classes="ma-2 pa-0",
         style="position: absolute; top: 0; left: 0; z-index: 100;",
     ) as toggle_btn:
-        with vuetify.VBtn(click=toggle_controls_callback, small=True, fab=True, color="primary"):
-            vuetify.VIcon("mdi-chevron-right")
+        vuetify.VBtn(
+            icon="mdi-chevron-right", click=toggle_controls_callback, size="small", color="primary"
+        )
     components.append(toggle_btn)
 
     # Main view widget
