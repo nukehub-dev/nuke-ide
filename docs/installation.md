@@ -106,6 +106,10 @@ lerna run build
 
 > Use the command `Nuke: Switch Environment` to select the correct Python interpreter. If OpenMC is missing, install it via `pip install openmc --extra-index-url https://shimwell.github.io/wheels` (or `conda install -c conda-forge openmc`).
 
+**Visualizer reports missing/broken trame**
+
+> The visualizer backends need trame >= 3 (`pip install trame trame-vuetify trame-vtk trame-components` or `conda install -c conda-forge trame trame-vuetify trame-vtk trame-components`). Do not mix pip and conda trame packages in the same environment — the install gets clobbered and `trame.app` goes missing; repair with `pip install --force-reinstall trame` or reinstall via conda only.
+
 **Build errors in extensions**
 
 > Run `lerna run build` from the root. If a single extension fails, navigate to it and run `yarn build` or `tsc` directly to see the error.

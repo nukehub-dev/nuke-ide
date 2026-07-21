@@ -112,7 +112,7 @@ VIEW_TYPES = ["isometric", "front", "back", "left", "right", "top", "bottom"]
 # Common CSS styles for visualizer UIs
 GLOBAL_STYLES = """
     /* Theme-aware scrollbar CSS variables
-       Vuetify 2 applies .theme--dark / .theme--light to .v-application */
+       Vuetify 3 applies .v-theme--dark / .v-theme--light to .v-application */
     :root {
         --nuke-scrollbar-thumb: rgba(255, 255, 255, 0.18);
         --nuke-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
@@ -126,7 +126,7 @@ GLOBAL_STYLES = """
         --nuke-gadget-icon: #ffffff;
         --nuke-gadget-divider: rgba(255,255,255,0.1);
     }
-    .v-application.theme--light {
+    .v-application.v-theme--light {
         --nuke-scrollbar-thumb: rgba(90, 90, 90, 0.25);
         --nuke-scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
         --nuke-dropdown-bg: #ffffff;
@@ -186,47 +186,54 @@ GLOBAL_STYLES = """
         scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
     }
 
-    /* Custom scrollbar for dropdowns - theme-neutral */
-    .v-autocomplete__content::-webkit-scrollbar,
-    .v-menu__content::-webkit-scrollbar {
+    /* Custom scrollbar for dropdowns - theme-neutral
+       Vuetify 3 renders select menus in .v-select__content / .v-autocomplete__content
+       overlays; the inner .v-list is the scrolling element */
+    .v-autocomplete__content .v-list::-webkit-scrollbar,
+    .v-select__content .v-list::-webkit-scrollbar {
         width: 6px;
     }
-    .v-autocomplete__content::-webkit-scrollbar-track,
-    .v-menu__content::-webkit-scrollbar-track {
+    .v-autocomplete__content .v-list::-webkit-scrollbar-track,
+    .v-select__content .v-list::-webkit-scrollbar-track {
         background: var(--nuke-scrollbar-track);
     }
-    .v-autocomplete__content::-webkit-scrollbar-thumb,
-    .v-menu__content::-webkit-scrollbar-thumb {
+    .v-autocomplete__content .v-list::-webkit-scrollbar-thumb,
+    .v-select__content .v-list::-webkit-scrollbar-thumb {
         background: var(--nuke-scrollbar-thumb);
         border-radius: 3px;
     }
-    .v-autocomplete__content::-webkit-scrollbar-thumb:hover,
-    .v-menu__content::-webkit-scrollbar-thumb:hover {
+    .v-autocomplete__content .v-list::-webkit-scrollbar-thumb:hover,
+    .v-select__content .v-list::-webkit-scrollbar-thumb:hover {
         background: var(--nuke-scrollbar-thumb-hover);
     }
-    .v-autocomplete__content,
-    .v-menu__content {
+    .v-autocomplete__content .v-list,
+    .v-select__content .v-list {
         scrollbar-width: thin;
         scrollbar-color: var(--nuke-scrollbar-thumb) var(--nuke-scrollbar-track);
     }
 
     /* Dropdown menu styling - Vuetify theme doesn't propagate to portaled menus */
-    .v-autocomplete__content.v-menu__content,
-    .v-menu__content.menuable__content__active {
+    .v-autocomplete__content,
+    .v-select__content {
         border-radius: 8px !important;
         box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
         background-color: var(--nuke-dropdown-bg) !important;
         color: var(--nuke-dropdown-color) !important;
     }
-    .v-menu__content .v-list-item,
-    .v-autocomplete__content .v-list-item {
+    .v-autocomplete__content .v-list,
+    .v-select__content .v-list {
+        background-color: var(--nuke-dropdown-bg) !important;
         color: var(--nuke-dropdown-color) !important;
     }
-    .v-menu__content .v-list-item--active,
+    .v-autocomplete__content .v-list-item,
+    .v-select__content .v-list-item {
+        color: var(--nuke-dropdown-color) !important;
+    }
     .v-autocomplete__content .v-list-item--active,
-    .v-menu__content .v-list-item:hover:not(.v-list-item--disabled),
-    .v-autocomplete__content .v-list-item:hover:not(.v-list-item--disabled) {
+    .v-select__content .v-list-item--active,
+    .v-autocomplete__content .v-list-item:hover:not(.v-list-item--disabled),
+    .v-select__content .v-list-item:hover:not(.v-list-item--disabled) {
         background-color: var(--nuke-dropdown-active) !important;
     }
 
@@ -240,31 +247,24 @@ GLOBAL_STYLES = """
         background-color: rgba(128, 128, 128, 0.15) !important;
     }
 
-    /* Chip styling - theme-neutral */
-    .v-chip.v-size--small,
-    .v-chip.v-size--x-small {
+    /* Chip styling - theme-neutral (Vuetify 3 size classes) */
+    .v-chip--size-small,
+    .v-chip--size-x-small {
         border-radius: 4px !important;
         font-weight: 500;
         background-color: rgba(128, 128, 128, 0.12) !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
     }
-    .v-chip.v-size--x-small {
+    .v-chip--size-x-small {
         height: 20px !important;
         font-size: 0.7rem !important;
         padding: 0 6px !important;
     }
 
     /* VAutocomplete improvements */
-    .v-autocomplete .v-input__prepend-inner {
-        margin-top: 4px !important;
-    }
-    .v-autocomplete.v-text-field--outlined .v-label {
-        top: 8px !important;
-    }
-    .v-autocomplete .v-select__selections {
+    .v-autocomplete .v-field__input {
         padding-top: 4px !important;
         padding-bottom: 4px !important;
-        min-height: 36px !important;
     }
     .v-autocomplete .v-chip {
         margin: 2px 4px !important;
@@ -1559,6 +1559,20 @@ def _check_required_packages(group: str) -> list[str]:
         try:
             importlib.import_module(module)
         except ImportError:
+            if entry.get("submodule"):
+                try:
+                    importlib.import_module(entry["name"])
+                except ImportError:
+                    pass
+                else:
+                    errors.append(
+                        f"{entry['name']} installation looks broken: `{entry['name']}` imports "
+                        f"but `{module}` does not. This usually means pip and conda copies were "
+                        f"mixed in one environment. Reinstall with a single tool: "
+                        f"pip install --force-reinstall {entry['name']} "
+                        f"(or conda install -c conda-forge {entry['name']})"
+                    )
+                    continue
             errors.append(f"{entry['name']} not installed. Run: {_install_hint(entry)}")
     return errors
 

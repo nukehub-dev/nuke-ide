@@ -1671,7 +1671,7 @@ def visualize_geometry(
             save_screenshot_with_timestamp(capture_screenshot, state)
 
         # UI
-        with VAppLayout(server):
+        with VAppLayout(server, theme="dark"):
             # Custom CSS for better UI aesthetics
             html.Component(
                 GLOBAL_STYLES

@@ -21,6 +21,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Error paths and argument handling are covered by `tests/python/test_command_error_paths.py`; keep that contract green when adding commands.
 - Tests: `tests/python/` runs from the repo root via `yarn test:python`; `conftest.py` puts `python/` on `sys.path` and isolates the global command registry between tests.
 - Python package requirements live in `src/common/packages.json` (single source for TS health checks and the Python `check_*_dependencies` functions in `python/plugins/base/lib/common.py`); never inline package lists in services; keep `pydagmc`'s installCommand pinned.
+- Trame UI servers (`base.serve`, dagmc, openmc tally/geometry) target **trame 3 / vuetify3 / vue3** (`trame.ui.vuetify3`, `client_type="vue3"`); trame 2's `trame.ui.vuetify2` no longer exists. `trame`/`trame-vuetify` must be >=3 and may come from pip **or** conda-forge — never mix both in one environment (a clobbered install loses submodules like `trame.app`; `check_trame_dependencies` reports that as a broken install with a reinstall hint).
+- `GLOBAL_STYLES` in `python/plugins/base/lib/common.py` targets Vuetify 3 DOM classes (`.v-theme--*`, `.v-select__content`/`.v-autocomplete__content`, `.v-chip--size-*`, `.v-field__input`); check selectors against the served vuetify3 bundle when touching CSS.
 
 ## Work Guidance
 

@@ -373,7 +373,7 @@ def cmd_visualize_mesh(args):
             return state.show_controls
 
         # UI
-        with VAppLayout(server):
+        with VAppLayout(server, theme="dark"):
             from trame.widgets import html
 
             html.Component(GLOBAL_STYLES, **{"is": "style"})
@@ -1114,7 +1114,7 @@ def cmd_visualize_overlay(args):
             save_screenshot_with_timestamp(capture_screenshot, state)
 
         # UI
-        with VAppLayout(server):
+        with VAppLayout(server, theme="dark"):
             from trame.widgets import html
 
             html.Component(GLOBAL_STYLES, **{"is": "style"})
@@ -1485,7 +1485,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
         def save_screenshot():
             save_screenshot_with_timestamp(capture_screenshot, state)
 
-        with VAppLayout(server):
+        with VAppLayout(server, theme="dark"):
             from trame.widgets import html
 
             html.Component(GLOBAL_STYLES, **{"is": "style"})
