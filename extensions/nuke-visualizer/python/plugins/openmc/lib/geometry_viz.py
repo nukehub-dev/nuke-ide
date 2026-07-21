@@ -1780,7 +1780,6 @@ def visualize_geometry(
                             clearable=True,
                             multiple=True,
                             deletable_chips=True,
-                            attach=True,
                             hide_selected=True,
                             auto_select_first=False,
                             prepend_inner_icon="mdi-magnify",
@@ -1791,8 +1790,7 @@ def visualize_geometry(
                             with vuetify.Template(v_slot_item="{ props, item }"):
                                 with vuetify.VListItem(
                                     v_bind="props",
-                                    title="{{ item.raw.name }}",
-                                    subtitle="ID: {{ item.raw.id }} | Material: {{ item.raw.material }}",
+                                    v_bind_subtitle="'ID: ' + item.raw.id + ' | Material: ' + item.raw.material",
                                 ):
                                     with vuetify.Template(v_slot_prepend="{ item }"):
                                         vuetify.VIcon(

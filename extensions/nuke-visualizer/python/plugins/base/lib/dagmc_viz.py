@@ -572,8 +572,7 @@ def visualize_dagmc(
                     with vuetify.Template(v_slot_item="{ props, item }"):
                         with vuetify.VListItem(
                             v_bind="props",
-                            title="{{ item.raw.name }}",
-                            subtitle="{{ item.raw.subtitle }}",
+                            v_bind_subtitle="item.raw.subtitle",
                         ):
                             with vuetify.Template(v_slot_prepend="{ item }"):
                                 vuetify.VIcon(
@@ -639,8 +638,7 @@ def visualize_dagmc(
                                 with vuetify.Template(v_slot_item="{ props, item }"):
                                     with vuetify.VListItem(
                                         v_bind="props",
-                                        title="{{ item.raw.name }}",
-                                        subtitle="{{ item.raw.subtitle }}",
+                                        v_bind_subtitle="item.raw.subtitle",
                                     ):
                                         with vuetify.Template(v_slot_prepend="{ item }"):
                                             vuetify.VIcon(
