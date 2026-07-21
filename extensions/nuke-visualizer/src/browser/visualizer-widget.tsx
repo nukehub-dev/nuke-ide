@@ -73,6 +73,11 @@ export class VisualizerWidget extends ReactWidget {
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
 
+    constructor(options?: any) {
+        super(options);
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = VisualizerWidget.ID;
