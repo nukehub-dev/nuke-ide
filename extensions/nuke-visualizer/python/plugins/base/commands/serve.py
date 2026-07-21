@@ -327,7 +327,9 @@ def create_app(file_path=None, port=None, theme="dark"):
                 # Header with Hide Button
                 with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                     vuetify.VListSubheader("Display Controls", classes="text-h6 pa-0")
-                    with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
+                    with vuetify.VBtn(
+                        click=toggle_controls, size="small", icon=True, variant="text"
+                    ):
                         vuetify.VIcon("mdi-chevron-left")
                 vuetify.VDivider(classes="mb-4")
 

@@ -528,7 +528,9 @@ def visualize_dagmc(
                 # Header
                 with vuetify.VRow(classes="ma-0", align="center", justify="space-between"):
                     vuetify.VListSubheader("DAGMC", classes="text-subtitle-2 pa-0 font-weight-bold")
-                    with vuetify.VBtn(click=toggle_controls, icon=True, size="x-small"):
+                    with vuetify.VBtn(
+                        click=toggle_controls, icon=True, size="x-small", variant="text"
+                    ):
                         vuetify.VIcon("mdi-chevron-left", size="x-small")
                 vuetify.VListSubheader(
                     "{{ dagmc_title }}", classes="text-caption pa-0 text-truncate"
