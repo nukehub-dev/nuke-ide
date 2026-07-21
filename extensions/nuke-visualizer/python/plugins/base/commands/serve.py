@@ -313,7 +313,7 @@ def create_app(file_path=None, port=None, theme="dark"):
         return state.show_controls
 
     # UI setup
-    with VAppLayout(server):
+    with VAppLayout(server, theme=("sidebar_dark ? 'dark' : 'light'",)):
         # Custom CSS for better UI aesthetics
         html.Component(GLOBAL_STYLES, **{"is": "style"})
 

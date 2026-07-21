@@ -674,6 +674,28 @@ def test_check_trame_dependencies_with_fakes(monkeypatch):
     assert errors == []
 
 
+def test_check_trame_dependencies_broken_trame_install(monkeypatch):
+    """trame imports but trame.app does not → broken-install hint, not 'not installed'.
+
+    This is the pip/conda clobbering case: a fake top-level trame without
+    __path__ makes `import trame.app` fail while `import trame` succeeds.
+    """
+    fake_trame = types.ModuleType("trame")
+    fake_paraview = types.ModuleType("paraview")
+    fake_paraview_simple = types.ModuleType("paraview.simple")
+    fake_paraview.simple = fake_paraview_simple
+    monkeypatch.setitem(sys.modules, "trame", fake_trame)
+    monkeypatch.delitem(sys.modules, "trame.app", raising=False)
+    monkeypatch.setitem(sys.modules, "paraview", fake_paraview)
+    monkeypatch.setitem(sys.modules, "paraview.simple", fake_paraview_simple)
+
+    ok, errors = check_trame_dependencies()
+    assert ok is False
+    assert len(errors) == 1
+    assert "broken" in errors[0]
+    assert "trame.app" in errors[0]
+
+
 def test_check_openmc_dependencies_missing_in_this_env():
     """Missing packages of the "openmc" group are reported with their install hints."""
     ok, message = check_openmc_dependencies()

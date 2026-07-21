@@ -129,9 +129,6 @@ def visualize_dagmc(
     # Initialize common state (this sets sidebar_color, sidebar_dark, background_color_hex)
     init_common_state(state, theme=theme)
 
-    # Set Vuetify app-level theme so menus inherit it correctly
-    state.dark = theme == "dark"
-
     # DAGMC-specific state
     state.dagmc_title = h5m_path.name
     state.selected_volume_ids = highlight_volumes if highlight_volumes else []
@@ -518,7 +515,7 @@ def visualize_dagmc(
         return state.show_controls
 
     # UI
-    with VAppLayout(server):
+    with VAppLayout(server, theme=("sidebar_dark ? 'dark' : 'light'",)):
         html.Component(GLOBAL_STYLES + DAGMC_STYLES, **{"is": "style"})
 
         with vuetify.VNavigationDrawer(
