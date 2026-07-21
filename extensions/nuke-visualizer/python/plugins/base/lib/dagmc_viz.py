@@ -71,10 +71,10 @@ def visualize_dagmc(
     try:
         from paraview import simple
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import html
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}")
         return 1
@@ -123,7 +123,7 @@ def visualize_dagmc(
     actual_port = port or find_free_port()
     actual_port = verify_or_find_port(actual_port)
     print(f"ACTUAL_PORT: {actual_port}")
-    server = get_server(client_type="vue2", port=actual_port)
+    server = get_server(client_type="vue3", port=actual_port)
     state = server.state
 
     # Initialize common state (this sets sidebar_color, sidebar_dark, background_color_hex)
@@ -523,20 +523,22 @@ def visualize_dagmc(
 
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
-            app=True,
             width=300,
-            clipped=True,
             color=("sidebar_color", "#1e1e1e"),
-            dark=("sidebar_dark", True),
+            theme=("sidebar_dark ? 'dark' : 'light'",),
         ):
             with vuetify.VContainer(classes="pa-2"):
                 # Header
                 with vuetify.VRow(classes="ma-0", align="center", justify="space-between"):
-                    vuetify.VSubheader("DAGMC", classes="text-subtitle-2 pa-0 font-weight-bold")
-                    with vuetify.VBtn(click=toggle_controls, icon=True, x_small=True):
-                        vuetify.VIcon("mdi-chevron-left", x_small=True)
-                vuetify.VSubheader("{{ dagmc_title }}", classes="text-caption pa-0 text-truncate")
-                vuetify.VSubheader("{{ model_stats }}", classes="text-caption pa-0 dagmc-stat mb-1")
+                    vuetify.VListSubheader("DAGMC", classes="text-subtitle-2 pa-0 font-weight-bold")
+                    with vuetify.VBtn(click=toggle_controls, icon=True, size="x-small"):
+                        vuetify.VIcon("mdi-chevron-left", size="x-small")
+                vuetify.VListSubheader(
+                    "{{ dagmc_title }}", classes="text-caption pa-0 text-truncate"
+                )
+                vuetify.VListSubheader(
+                    "{{ model_stats }}", classes="text-caption pa-0 dagmc-stat mb-1"
+                )
 
                 vuetify.VDivider(classes="my-2")
 
@@ -548,48 +550,50 @@ def visualize_dagmc(
                     vuetify.VCheckbox(
                         v_model=("show_scalar_bar", False),
                         label="Show Color Legend",
-                        dense=True,
+                        density="compact",
                         classes="mb-4",
                     )
                 vuetify.VDivider(classes="my-2")
 
                 # Volume Selection
-                vuetify.VSubheader("Volumes")
+                vuetify.VListSubheader("Volumes")
                 with vuetify.VAutocomplete(
                     v_model=("selected_volume_ids", []),
                     items=("volume_items", []),
-                    item_text="name",
+                    item_title="name",
                     item_value="id",
                     label="Search & select volumes",
                     multiple=True,
-                    dense=True,
-                    outlined=True,
+                    density="compact",
+                    variant="outlined",
                     clearable=True,
-                    attach=True,
                     hide_selected=True,
-                    dark=("sidebar_dark", True),
                     auto_select_first=False,
                     prepend_inner_icon="mdi-magnify",
                     classes="mb-2",
                 ):
-                    with vuetify.Template(v_slot_item="{ item }"):
-                        with vuetify.VListItemIcon(classes="mr-2"):
-                            vuetify.VIcon(
-                                "mdi-circle", small=True, v_bind_style="{ color: item.color }"
-                            )
-                        with vuetify.VListItemContent():
-                            vuetify.VListItemTitle("{{ item.name }}")
-                            vuetify.VListItemSubtitle("{{ item.subtitle }}")
+                    with vuetify.Template(v_slot_item="{ props, item }"):
+                        with vuetify.VListItem(
+                            v_bind="props",
+                            title="{{ item.raw.name }}",
+                            subtitle="{{ item.raw.subtitle }}",
+                        ):
+                            with vuetify.Template(v_slot_prepend="{ item }"):
+                                vuetify.VIcon(
+                                    "mdi-circle",
+                                    size="small",
+                                    v_bind_style="{ color: item.raw.color }",
+                                )
 
                     with vuetify.Template(v_slot_selection="{ item, index }"):
                         with vuetify.VChip(
-                            x_small=True,
-                            close=True,
-                            v_bind_style="{ borderLeft: '3px solid ' + item.color + ' !important' }",
+                            size="x-small",
+                            closable=True,
+                            v_bind_style="{ borderLeft: '3px solid ' + item.raw.color + ' !important' }",
                             classes="ma-1",
                             click_close="selected_volume_ids.splice(index, 1); set('selected_volume_ids', [...selected_volume_ids])",
                         ):
-                            html.Span("{{ item.name }}")
+                            html.Span("{{ item.raw.name }}")
 
                 with vuetify.VRow(dense=True, classes="mb-2"):
                     with vuetify.VCol(cols=6):
@@ -597,8 +601,8 @@ def visualize_dagmc(
                             "Clear",
                             click=lambda: setattr(state, "selected_volume_ids", []),
                             block=True,
-                            x_small=True,
-                            text=True,
+                            size="x-small",
+                            variant="text",
                             disabled=("selected_volume_ids.length === 0",),
                         )
                     with vuetify.VCol(cols=6):
@@ -608,55 +612,55 @@ def visualize_dagmc(
                                 state, "selected_volume_ids", [c["id"] for c in state.volume_items]
                             ),
                             block=True,
-                            x_small=True,
-                            text=True,
+                            size="x-small",
+                            variant="text",
                         )
                 # Collapsible secondary sections
                 with vuetify.VExpansionPanels(
-                    v_model=("expanded_panels", []), multiple=True, flat=True
+                    v_model=("expanded_panels", []), multiple=True, variant="flat"
                 ):
                     # Groups
                     with vuetify.VExpansionPanel():
-                        with vuetify.VExpansionPanelHeader():
+                        with vuetify.VExpansionPanelTitle():
                             html.Div("Groups")
-                        with vuetify.VExpansionPanelContent():
+                        with vuetify.VExpansionPanelText():
                             with vuetify.VAutocomplete(
                                 v_model=("selected_groups", []),
                                 items=("group_items", []),
-                                item_text="name",
+                                item_title="name",
                                 item_value="id",
                                 label="Search & select groups",
                                 multiple=True,
-                                dense=True,
-                                outlined=True,
+                                density="compact",
+                                variant="outlined",
                                 clearable=True,
-                                attach=True,
                                 hide_selected=True,
-                                dark=("sidebar_dark", True),
                                 auto_select_first=False,
                                 prepend_inner_icon="mdi-magnify",
                                 classes="mb-2",
                             ):
-                                with vuetify.Template(v_slot_item="{ item }"):
-                                    with vuetify.VListItemIcon(classes="mr-2"):
-                                        vuetify.VIcon(
-                                            "mdi-circle",
-                                            small=True,
-                                            v_bind_style="{ color: item.color }",
-                                        )
-                                    with vuetify.VListItemContent():
-                                        vuetify.VListItemTitle("{{ item.name }}")
-                                        vuetify.VListItemSubtitle("{{ item.subtitle }}")
+                                with vuetify.Template(v_slot_item="{ props, item }"):
+                                    with vuetify.VListItem(
+                                        v_bind="props",
+                                        title="{{ item.raw.name }}",
+                                        subtitle="{{ item.raw.subtitle }}",
+                                    ):
+                                        with vuetify.Template(v_slot_prepend="{ item }"):
+                                            vuetify.VIcon(
+                                                "mdi-circle",
+                                                size="small",
+                                                v_bind_style="{ color: item.raw.color }",
+                                            )
 
                                 with vuetify.Template(v_slot_selection="{ item, index }"):
                                     with vuetify.VChip(
-                                        x_small=True,
-                                        close=True,
-                                        v_bind_style="{ borderLeft: '3px solid ' + item.color + ' !important' }",
+                                        size="x-small",
+                                        closable=True,
+                                        v_bind_style="{ borderLeft: '3px solid ' + item.raw.color + ' !important' }",
                                         classes="ma-1",
                                         click_close="selected_groups.splice(index, 1); set('selected_groups', [...selected_groups])",
                                     ):
-                                        html.Span("{{ item.name }}")
+                                        html.Span("{{ item.raw.name }}")
 
                             with vuetify.VRow(dense=True, classes="mb-2"):
                                 with vuetify.VCol(cols=6):
@@ -664,8 +668,8 @@ def visualize_dagmc(
                                         "Clear",
                                         click=lambda: setattr(state, "selected_groups", []),
                                         block=True,
-                                        x_small=True,
-                                        text=True,
+                                        size="x-small",
+                                        variant="text",
                                         disabled=("selected_groups.length === 0",),
                                     )
                                 with vuetify.VCol(cols=6):
@@ -677,28 +681,28 @@ def visualize_dagmc(
                                             [c["id"] for c in state.group_items],
                                         ),
                                         block=True,
-                                        x_small=True,
-                                        text=True,
+                                        size="x-small",
+                                        variant="text",
                                     )
                 vuetify.VDivider(classes="my-2 mb-2")
-                vuetify.VSubheader("Display", classes="text-subtitle-1 mb-2")
+                vuetify.VListSubheader("Display", classes="text-subtitle-1 mb-2")
                 UIComponents.representation_selector(vuetify, classes="mb-2")
                 UIComponents.opacity_slider(vuetify, classes="mb-2")
 
                 vuetify.VDivider(classes="my-2")
 
                 # Clipping Section
-                vuetify.VSubheader("Clipping", classes="text-subtitle-1 mb-2")
+                vuetify.VListSubheader("Clipping", classes="text-subtitle-1 mb-2")
 
                 vuetify.VCheckbox(
                     v_model=("clip_enabled", False),
                     label="Enable Clip Plane",
-                    dense=True,
+                    density="compact",
                     classes="mb-2",
                 )
 
                 with vuetify.VContainer(v_if=("clip_enabled",), classes="pl-4"):
-                    vuetify.VSubheader("Origin", classes="text-caption pa-0")
+                    vuetify.VListSubheader("Origin", classes="text-caption pa-0")
                     with vuetify.VRow(dense=True):
                         for axis in ["x", "y", "z"]:
                             with vuetify.VCol(cols=4):
@@ -706,11 +710,11 @@ def visualize_dagmc(
                                     v_model=(f"clip_origin_{axis}", 0.0),
                                     label=axis.upper(),
                                     type="number",
-                                    dense=True,
-                                    outlined=True,
+                                    density="compact",
+                                    variant="outlined",
                                 )
 
-                    vuetify.VSubheader("Normal", classes="text-caption pa-0 mt-2")
+                    vuetify.VListSubheader("Normal", classes="text-caption pa-0 mt-2")
                     with vuetify.VRow(dense=True):
                         for axis, default in [("x", 1.0), ("y", 0.0), ("z", 0.0)]:
                             with vuetify.VCol(cols=4):
@@ -718,14 +722,14 @@ def visualize_dagmc(
                                     v_model=(f"clip_normal_{axis}", default),
                                     label=axis.upper(),
                                     type="number",
-                                    dense=True,
-                                    outlined=True,
+                                    density="compact",
+                                    variant="outlined",
                                 )
 
                     vuetify.VCheckbox(
                         v_model=("clip_invert", False),
                         label="Invert Clip",
-                        dense=True,
+                        density="compact",
                         classes="mt-2",
                     )
                 vuetify.VDivider(classes="my-2")
@@ -739,17 +743,17 @@ def visualize_dagmc(
                 def save_screenshot():
                     save_screenshot_with_timestamp(capture_screenshot, state)
 
-                vuetify.VSubheader("Export")
+                vuetify.VListSubheader("Export")
                 vuetify.VBtn(
                     "Screenshot",
                     click=save_screenshot,
                     block=True,
-                    x_small=True,
+                    size="x-small",
                     color="primary",
                     classes="mb-1",
                 )
                 with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center pa-0"):
-                    vuetify.VSubheader(
+                    vuetify.VListSubheader(
                         ("screenshot_status",), classes="text-caption justify-center pa-0"
                     )
 
@@ -760,8 +764,9 @@ def visualize_dagmc(
                 classes="ma-2 pa-0",
                 style="position: absolute; top: 0; left: 0; z-index: 100;",
             ):
-                with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
-                    vuetify.VIcon("mdi-chevron-right")
+                vuetify.VBtn(
+                    icon="mdi-chevron-right", click=toggle_controls, size="small", color="primary"
+                )
 
             UIComponents.create_canvas_gadget(
                 vuetify,

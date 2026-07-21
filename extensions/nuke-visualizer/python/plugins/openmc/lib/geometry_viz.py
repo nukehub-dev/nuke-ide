@@ -1231,10 +1231,10 @@ def visualize_geometry(
     try:
         from paraview import simple
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import html
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}")
         return 1
@@ -1294,7 +1294,7 @@ def visualize_geometry(
         writer2.Write()
 
         # Create trame server
-        server = get_server(client_type="vue2", port=port)
+        server = get_server(client_type="vue3", port=port)
         state = server.state
 
         # Initialize common state from plugins.base.lib.common
@@ -1689,10 +1689,10 @@ def visualize_geometry(
             )
 
             with vuetify.VNavigationDrawer(
-                v_model=("show_controls", True), app=True, width=300, dark=True
+                v_model=("show_controls", True), width=300, theme="dark"
             ):
                 with vuetify.VContainer():
-                    vuetify.VSubheader("OpenMC Geometry", classes="text-h6 pa-0")
+                    vuetify.VListSubheader("OpenMC Geometry", classes="text-h6 pa-0")
                     vuetify.VDivider(classes="mb-4")
 
                     # Display Controls - Compact
@@ -1704,7 +1704,7 @@ def visualize_geometry(
                             v_model=("show_overlaps", True),
                             label="Show Overlap Markers",
                             color="error",
-                            dense=True,
+                            density="compact",
                             hide_details=True,
                             classes="mb-2",
                         )
@@ -1714,12 +1714,12 @@ def visualize_geometry(
                     # Clipping Section - Compact
                     with vuetify.VRow(dense=True, classes="mb-2", align="center"):
                         with vuetify.VCol(cols=6):
-                            vuetify.VSubheader("Clipping", classes="text-subtitle-1 pa-0")
+                            vuetify.VListSubheader("Clipping", classes="text-subtitle-1 pa-0")
                         with vuetify.VCol(cols=6, classes="text-right"):
                             vuetify.VCheckbox(
                                 v_model=("clip_enabled", False),
                                 label="Enable",
-                                dense=True,
+                                density="compact",
                                 hide_details=True,
                                 classes="mt-0 pt-0 d-inline-flex",
                             )
@@ -1728,7 +1728,7 @@ def visualize_geometry(
                         # Origin in compact row
                         with vuetify.VRow(dense=True, classes="mb-1"):
                             with vuetify.VCol(cols=12):
-                                vuetify.VSubheader("Origin", classes="text-caption pa-0 mb-1")
+                                vuetify.VListSubheader("Origin", classes="text-caption pa-0 mb-1")
                         with vuetify.VRow(dense=True, classes="mb-2"):
                             for axis in ["x", "y", "z"]:
                                 with vuetify.VCol(cols=4):
@@ -1736,14 +1736,14 @@ def visualize_geometry(
                                         v_model=(f"clip_origin_{axis}", 0.0),
                                         label=axis.upper(),
                                         type="number",
-                                        dense=True,
-                                        outlined=True,
+                                        density="compact",
+                                        variant="outlined",
                                         hide_details=True,
                                     )
                         # Normal in compact row
                         with vuetify.VRow(dense=True, classes="mb-1"):
                             with vuetify.VCol(cols=12):
-                                vuetify.VSubheader("Normal", classes="text-caption pa-0 mb-1")
+                                vuetify.VListSubheader("Normal", classes="text-caption pa-0 mb-1")
                         with vuetify.VRow(dense=True, classes="mb-1"):
                             for axis, default in [("x", 1.0), ("y", 0.0), ("z", 0.0)]:
                                 with vuetify.VCol(cols=4):
@@ -1751,14 +1751,14 @@ def visualize_geometry(
                                         v_model=(f"clip_normal_{axis}", default),
                                         label=axis.upper(),
                                         type="number",
-                                        dense=True,
-                                        outlined=True,
+                                        density="compact",
+                                        variant="outlined",
                                         hide_details=True,
                                     )
                         vuetify.VCheckbox(
                             v_model=("clip_invert", False),
                             label="Invert",
-                            dense=True,
+                            density="compact",
                             hide_details=True,
                             classes="mt-1",
                         )
@@ -1766,17 +1766,17 @@ def visualize_geometry(
                     vuetify.VDivider(classes="my-3")
 
                     # Cell Selection - Compact Design
-                    vuetify.VSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
+                    vuetify.VListSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
                     with vuetify.VContainer(classes="pa-0"):
                         # Quick cell selector with search
                         with vuetify.VAutocomplete(
                             v_model=("selected_cell_ids", []),
                             items=("cell_info", []),
-                            item_text="name",
+                            item_title="name",
                             item_value="id",
                             label="Search & select cells",
-                            dense=True,
-                            outlined=True,
+                            density="compact",
+                            variant="outlined",
                             clearable=True,
                             multiple=True,
                             deletable_chips=True,
@@ -1785,33 +1785,33 @@ def visualize_geometry(
                             auto_select_first=False,
                             prepend_inner_icon="mdi-magnify",
                             classes="mb-2",
-                            dark=("sidebar_dark", True),
+                            theme=("sidebar_dark ? 'dark' : 'light'",),
                         ):
                             # Item slot: customize how each cell appears in the dropdown
-                            with vuetify.Template(v_slot_item="{ item }"):
-                                with vuetify.VListItemIcon(classes="mr-2"):
-                                    vuetify.VIcon(
-                                        "mdi-circle",
-                                        small=True,
-                                        v_bind_style="{ color: item.color }",
-                                    )
-                                with vuetify.VListItemContent():
-                                    vuetify.VListItemTitle("{{ item.name }}")
-                                    vuetify.VListItemSubtitle(
-                                        "ID: {{ item.id }} | Material: {{ item.material }}"
-                                    )
+                            with vuetify.Template(v_slot_item="{ props, item }"):
+                                with vuetify.VListItem(
+                                    v_bind="props",
+                                    title="{{ item.raw.name }}",
+                                    subtitle="ID: {{ item.raw.id }} | Material: {{ item.raw.material }}",
+                                ):
+                                    with vuetify.Template(v_slot_prepend="{ item }"):
+                                        vuetify.VIcon(
+                                            "mdi-circle",
+                                            size="small",
+                                            v_bind_style="{ color: item.raw.color }",
+                                        )
 
                             # Selection slot: customize how selected chips look
                             with vuetify.Template(v_slot_selection="{ item, index }"):
                                 with vuetify.VChip(
-                                    x_small=True,
-                                    close=True,
-                                    v_bind_style="{ borderLeft: '3px solid ' + item.color + ' !important' }",
+                                    size="x-small",
+                                    closable=True,
+                                    v_bind_style="{ borderLeft: '3px solid ' + item.raw.color + ' !important' }",
                                     classes="ma-1",
                                     # Use JS to update state in trame on close
                                     click_close="selected_cell_ids.splice(index, 1); set('selected_cell_ids', [...selected_cell_ids])",
                                 ):
-                                    html.Span("{{ item.name }}")
+                                    html.Span("{{ item.raw.name }}")
 
                         # Quick action buttons
                         with vuetify.VRow(dense=True, classes="mb-2"):
@@ -1820,8 +1820,8 @@ def visualize_geometry(
                                     "Clear All",
                                     click=lambda: setattr(state, "selected_cell_ids", []),
                                     block=True,
-                                    x_small=True,
-                                    text=True,
+                                    size="x-small",
+                                    variant="text",
                                     disabled=("selected_cell_ids.length === 0",),
                                 )
                             with vuetify.VCol(cols=6):
@@ -1833,8 +1833,8 @@ def visualize_geometry(
                                         [c["id"] for c in state.cell_info],
                                     ),
                                     block=True,
-                                    x_small=True,
-                                    text=True,
+                                    size="x-small",
+                                    variant="text",
                                 )
 
                     vuetify.VDivider(classes="my-3")
@@ -1852,19 +1852,19 @@ def visualize_geometry(
                     # Export Section - Compact
                     with vuetify.VRow(dense=True, classes="mb-2", align="center"):
                         with vuetify.VCol(cols=6):
-                            vuetify.VSubheader("Export", classes="text-subtitle-1 pa-0")
+                            vuetify.VListSubheader("Export", classes="text-subtitle-1 pa-0")
                     vuetify.VBtn(
                         "Save Screenshot",
                         click=save_screenshot,
                         block=True,
-                        x_small=True,
+                        size="x-small",
                         color="primary",
                         classes="mb-1",
                     )
                     with vuetify.VContainer(
                         v_if=("screenshot_status",), classes="text-center pa-0"
                     ):
-                        vuetify.VSubheader(
+                        vuetify.VListSubheader(
                             ("screenshot_status",), classes="text-caption justify-center pa-0"
                         )
 
@@ -1875,13 +1875,12 @@ def visualize_geometry(
                     classes="ma-2 pa-0",
                     style="position: absolute; top: 0; left: 0; z-index: 100;",
                 ):
-                    with vuetify.VBtn(
+                    vuetify.VBtn(
+                        icon="mdi-chevron-right",
                         click=lambda: setattr(state, "show_controls", True),
-                        small=True,
-                        fab=True,
+                        size="small",
                         color="primary",
-                    ):
-                        vuetify.VIcon("mdi-chevron-right")
+                    )
 
                 # Camera Navigation Gadget (Top Right)
                 UIComponents.create_canvas_gadget(

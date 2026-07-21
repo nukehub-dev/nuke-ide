@@ -44,15 +44,15 @@ def create_app(file_path=None, port=None, theme="dark"):
     try:
         from paraview import simple
         from trame.app import get_server
-        from trame.ui.vuetify2 import VAppLayout
+        from trame.ui.vuetify3 import VAppLayout
         from trame.widgets import html
         from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify2 as vuetify
+        from trame.widgets import vuetify3 as vuetify
     except ImportError as e:
         print(f"Error: Required dependencies not installed: {e}")
         sys.exit(1)
 
-    server = get_server(client_type="vue2")
+    server = get_server(client_type="vue3")
     state = server.state
 
     # Initialize common state
@@ -319,17 +319,15 @@ def create_app(file_path=None, port=None, theme="dark"):
 
         with vuetify.VNavigationDrawer(
             v_model=("show_controls", True),
-            app=True,
             width=320,
-            clipped=True,
             color=("sidebar_color", "#1e1e1e"),
-            dark=("sidebar_dark", True),
+            theme=("sidebar_dark ? 'dark' : 'light'",),
         ):
             with vuetify.VContainer(classes="pa-4"):
                 # Header with Hide Button
                 with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
-                    vuetify.VSubheader("Display Controls", classes="text-h6 pa-0")
-                    with vuetify.VBtn(click=toggle_controls, small=True, icon=True):
+                    vuetify.VListSubheader("Display Controls", classes="text-h6 pa-0")
+                    with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
                         vuetify.VIcon("mdi-chevron-left")
                 vuetify.VDivider(classes="mb-4")
 
@@ -349,24 +347,24 @@ def create_app(file_path=None, port=None, theme="dark"):
                     vuetify.VCheckbox(
                         v_model=("show_scalar_bar", False),
                         label="Show Color Legend",
-                        dense=True,
+                        density="compact",
                         classes="mb-4",
                     )
 
                 vuetify.VDivider(classes="my-4")
 
                 # Clipping Section
-                vuetify.VSubheader("Clipping", classes="text-subtitle-1 mb-2")
+                vuetify.VListSubheader("Clipping", classes="text-subtitle-1 mb-2")
 
                 vuetify.VCheckbox(
                     v_model=("clip_enabled", False),
                     label="Enable Clip Plane",
-                    dense=True,
+                    density="compact",
                     classes="mb-2",
                 )
 
                 with vuetify.VContainer(v_if=("clip_enabled",), classes="pl-4"):
-                    vuetify.VSubheader("Origin", classes="text-caption pa-0")
+                    vuetify.VListSubheader("Origin", classes="text-caption pa-0")
                     with vuetify.VRow(dense=True):
                         for axis in ["x", "y", "z"]:
                             with vuetify.VCol(cols=4):
@@ -374,11 +372,11 @@ def create_app(file_path=None, port=None, theme="dark"):
                                     v_model=(f"clip_origin_{axis}", 0.0),
                                     label=axis.upper(),
                                     type="number",
-                                    dense=True,
-                                    outlined=True,
+                                    density="compact",
+                                    variant="outlined",
                                 )
 
-                    vuetify.VSubheader("Normal", classes="text-caption pa-0 mt-2")
+                    vuetify.VListSubheader("Normal", classes="text-caption pa-0 mt-2")
                     with vuetify.VRow(dense=True):
                         for axis, default in [("x", 1.0), ("y", 0.0), ("z", 0.0)]:
                             with vuetify.VCol(cols=4):
@@ -386,14 +384,14 @@ def create_app(file_path=None, port=None, theme="dark"):
                                     v_model=(f"clip_normal_{axis}", default),
                                     label=axis.upper(),
                                     type="number",
-                                    dense=True,
-                                    outlined=True,
+                                    density="compact",
+                                    variant="outlined",
                                 )
 
                     vuetify.VCheckbox(
                         v_model=("clip_invert", False),
                         label="Invert Clip",
-                        dense=True,
+                        density="compact",
                         classes="mt-2",
                     )
 
@@ -411,7 +409,7 @@ def create_app(file_path=None, port=None, theme="dark"):
 
                 # Time Navigation Section
                 with vuetify.VContainer(v_if=("has_timesteps",)):
-                    vuetify.VSubheader("Time Navigation", classes="text-subtitle-1 mb-2")
+                    vuetify.VListSubheader("Time Navigation", classes="text-subtitle-1 mb-2")
 
                     with vuetify.VRow(dense=True, align="center"):
                         for btn, action in [
@@ -438,7 +436,7 @@ def create_app(file_path=None, port=None, theme="dark"):
                             ),
                         ]:
                             with vuetify.VCol(cols=3):
-                                vuetify.VBtn(btn, click=action, small=True, text=True)
+                                vuetify.VBtn(btn, click=action, size="small", variant="text")
 
                     vuetify.VSlider(
                         v_model=("current_timestep", 0),
@@ -446,7 +444,7 @@ def create_app(file_path=None, port=None, theme="dark"):
                         max=("len(timestep_values) - 1",),
                         step=1,
                         thumb_label=True,
-                        dense=True,
+                        density="compact",
                         classes="mt-2",
                     )
 
@@ -456,18 +454,18 @@ def create_app(file_path=None, port=None, theme="dark"):
                 def save_screenshot():
                     save_screenshot_with_timestamp(capture_screenshot, state)
 
-                vuetify.VSubheader("Export", classes="text-subtitle-1 mb-2")
+                vuetify.VListSubheader("Export", classes="text-subtitle-1 mb-2")
                 vuetify.VBtn(
                     "Save Screenshot",
                     click=save_screenshot,
                     block=True,
-                    small=True,
+                    size="small",
                     color="primary",
                     classes="mb-2",
                 )
 
                 with vuetify.VContainer(v_if=("screenshot_status",), classes="text-center"):
-                    vuetify.VSubheader(
+                    vuetify.VListSubheader(
                         ("screenshot_status",), classes="text-caption justify-center"
                     )
 
@@ -479,8 +477,9 @@ def create_app(file_path=None, port=None, theme="dark"):
                 classes="ma-2 pa-0",
                 style="position: absolute; top: 0; left: 0; z-index: 100;",
             ):
-                with vuetify.VBtn(click=toggle_controls, small=True, fab=True, color="primary"):
-                    vuetify.VIcon("mdi-chevron-right")
+                vuetify.VBtn(
+                    icon="mdi-chevron-right", click=toggle_controls, size="small", color="primary"
+                )
 
             # Camera Navigation Gadget (Top Right)
             UIComponents.create_canvas_gadget(
