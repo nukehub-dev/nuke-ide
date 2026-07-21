@@ -1,6 +1,6 @@
 {
   "name": "nuke-docs",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Offline documentation server for NukeIDE.",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -14,7 +14,7 @@
   ],
   "dependencies": {
     "@theia/core": "1.73.1",
-    "nuke-essentials": "0.1.2",
+    "nuke-essentials": "0.1.3",
     "markdown-it": "^14.3.0"
   },
   "devDependencies": {

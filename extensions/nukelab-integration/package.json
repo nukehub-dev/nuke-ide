@@ -1,6 +1,6 @@
 {
   "name": "nukelab-integration",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Integrates NukeIDE with the NukeLab v2 gateway: account context, back navigation, logout, and app install.",
   "license": "BSD-2-Clause",
   "keywords": [
