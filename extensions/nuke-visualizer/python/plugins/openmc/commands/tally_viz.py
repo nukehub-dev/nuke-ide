@@ -390,7 +390,9 @@ def cmd_visualize_mesh(args):
                             f"Tally {mesh_data.tally_id}: {mesh_data.tally_name}",
                             classes="text-subtitle-1 font-weight-medium text-white",
                         )
-                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
+                        with vuetify.VBtn(
+                            click=toggle_controls, size="small", icon=True, variant="text"
+                        ):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-2")
 
@@ -1131,7 +1133,9 @@ def cmd_visualize_overlay(args):
                             f"Tally {state.tally_id}: {state.tally_name}",
                             classes="text-subtitle-1 font-weight-medium text-white",
                         )
-                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
+                        with vuetify.VBtn(
+                            click=toggle_controls, size="small", icon=True, variant="text"
+                        ):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
 
@@ -1498,7 +1502,9 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                 with vuetify.VContainer(classes="pa-4"):
                     with vuetify.VRow(classes="ma-0 mb-2", align="center", justify="space-between"):
                         vuetify.VListSubheader(title, classes="text-h6 pa-0")
-                        with vuetify.VBtn(click=toggle_controls, size="small", icon=True):
+                        with vuetify.VBtn(
+                            click=toggle_controls, size="small", icon=True, variant="text"
+                        ):
                             vuetify.VIcon("mdi-chevron-left")
                     vuetify.VDivider(classes="mb-4")
 

@@ -295,6 +295,8 @@ GLOBAL_STYLES = """
     .nuke-camera-gadget .v-btn {
         color: var(--nuke-gadget-icon) !important;
         min-width: 30px !important;
+        width: 30px;
+        height: 30px;
     }
     .nuke-camera-gadget .v-btn:hover {
         background-color: var(--nuke-gadget-btn-hover) !important;
@@ -880,19 +882,17 @@ class UIComponents:
             with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
                 btn_with_tooltip("mdi-chevron-up", "Pan Up", lambda: pan_callback("up"))
 
-            with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
+            with vuetify.VRow(dense=True, justify="center", align="center", classes="ma-0"):
                 btn_with_tooltip("mdi-chevron-left", "Pan Left", lambda: pan_callback("left"))
 
                 # Central icon with navigation guide tooltip
                 with vuetify.VTooltip(location="bottom", color="#1A237E"):
                     with vuetify.Template(v_slot_activator="{ props }"):
-                        vuetify.VIcon(
-                            "mdi-pan",
-                            size="small",
-                            classes="mx-2",
-                            style="opacity: 0.7; cursor: help;",
+                        with html.Div(
                             v_bind="props",
-                        )
+                            style="width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: help;",
+                        ):
+                            vuetify.VIcon("mdi-pan", size="small", style="opacity: 0.7;")
                     with html.Div(style="padding: 4px;"):
                         html.Div(
                             "Navigation Guide",
@@ -908,9 +908,12 @@ class UIComponents:
                 btn_with_tooltip("mdi-chevron-down", "Pan Down", lambda: pan_callback("down"))
 
             # Zoom controls
-            with vuetify.VRow(dense=True, justify="center", classes="ma-0"):
+            with vuetify.VRow(dense=True, justify="center", align="center", classes="ma-0"):
                 btn_with_tooltip("mdi-plus-circle-outline", "Zoom In", lambda: zoom_callback(0.85))
-                vuetify.VIcon("mdi-magnify", size="small", classes="mx-2", style="opacity: 0.5;")
+                with html.Div(
+                    style="width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; opacity: 0.5;"
+                ):
+                    vuetify.VIcon("mdi-magnify", size="small")
                 btn_with_tooltip(
                     "mdi-minus-circle-outline", "Zoom Out", lambda: zoom_callback(1.15)
                 )
