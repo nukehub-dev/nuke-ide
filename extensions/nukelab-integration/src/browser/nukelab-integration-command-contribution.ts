@@ -11,6 +11,10 @@ export namespace NukeLabCommands {
         id: 'nukelab.openServerDetails',
         label: 'NukeLab: Open Server Details'
     };
+    export const OPEN_PROFILE: Command = {
+        id: 'nukelab.openProfile',
+        label: 'NukeLab: Open Profile Settings'
+    };
     export const INSTALL_NUKELAB_APP: Command = {
         id: 'nukelab.installNukeLabApp',
         label: 'NukeLab: Install NukeLab App'
@@ -43,6 +47,9 @@ export class NukeLabCommandContribution implements CommandContribution {
         commands.registerCommand(NukeLabCommands.OPEN_SERVER_DETAILS, {
             execute: () => this.navigateTop('/servers/' + (this.context?.serverId || '')),
             isEnabled: () => !!this.context?.serverId
+        });
+        commands.registerCommand(NukeLabCommands.OPEN_PROFILE, {
+            execute: () => this.navigateTop('/settings/profile')
         });
         commands.registerCommand(NukeLabCommands.INSTALL_NUKELAB_APP, {
             execute: () => this.openTab('/'),
