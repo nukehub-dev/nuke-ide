@@ -66,8 +66,8 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
         this.statusBar.setElement('nukelab-user', {
             text: `$(account) ${user}`,
             alignment: StatusBarAlignment.RIGHT,
-            tooltip: `Signed in to NukeLab as ${user}`,
-            command: this.context?.serverId ? NukeLabCommands.OPEN_SERVER_DETAILS.id : undefined,
+            tooltip: `Signed in to NukeLab as ${user} — open profile settings`,
+            command: NukeLabCommands.OPEN_PROFILE.id,
             priority: 3
         });
     }
