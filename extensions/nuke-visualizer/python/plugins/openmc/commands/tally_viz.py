@@ -962,7 +962,9 @@ def cmd_visualize_overlay(args):
                     return
 
                 if color_by == "Solid Color":
-                    simple.ColorBy(target_display, None)
+                    # See note in plugins/base/lib/common.py: ColorBy(display, None)
+                    # is broken in ParaView 6.1 without a current association.
+                    target_display.SetScalarColoring(None, 0)
                 elif color_by.startswith("Point: "):
                     array_name = color_by[7:]
                     simple.ColorBy(target_display, ("POINTS", array_name))
@@ -1428,7 +1430,9 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
         def on_color_by_change(color_by, **kwargs):
             try:
                 if color_by == "Solid Color":
-                    simple.ColorBy(display, None)
+                    # See note in plugins/base/lib/common.py: ColorBy(display, None)
+                    # is broken in ParaView 6.1 without a current association.
+                    display.SetScalarColoring(None, 0)
                 elif color_by.startswith("Point: "):
                     array_name = color_by[7:]
                     simple.ColorBy(display, ("POINTS", array_name))

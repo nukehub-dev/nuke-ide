@@ -96,6 +96,14 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         this.client = client;
     }
 
+    /**
+     * Check whether a port belongs to a trame server started by this service.
+     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
+     */
+    isVisualizerPort(port: number): boolean {
+        return this.processes.has(port);
+    }
+
     async setPythonConfig(config: PythonConfig): Promise<void> {
         // Also update nuke-core config
         await this.nukeCoreService.setConfig({

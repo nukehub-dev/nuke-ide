@@ -35,6 +35,7 @@ import { MessageService } from '@theia/core/lib/common';
 import './openmc-geometry-tree.css';
 
 import { OpenMCService } from '../../openmc-service';
+import { toProxiedVisualizerUrl } from '../../../../visualizer-url';
 import {
     LoadingAnimations,
     FancyLoadingSpinner,
@@ -80,7 +81,7 @@ export class OpenMCGeometry3DWidget extends ReactWidget {
     }
 
     setServerInfo(url: string, port: number): void {
-        this.serverUrl = url;
+        this.serverUrl = toProxiedVisualizerUrl(url);
         this.serverPort = port;
         this.isLoading = false;
         this.update();

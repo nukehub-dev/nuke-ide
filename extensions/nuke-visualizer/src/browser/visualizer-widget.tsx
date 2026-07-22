@@ -34,6 +34,7 @@ import { CommandRegistry } from '@theia/core/lib/common/command';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
+import { toProxiedVisualizerUrl } from './visualizer-url';
 
 @injectable()
 export class VisualizerWidget extends ReactWidget {
@@ -120,7 +121,7 @@ export class VisualizerWidget extends ReactWidget {
      * Set the server URL directly (for when server is already running, e.g., OpenMC).
      */
     public setServerUrl(url: string, port: number): void {
-        this.serverUrl = url;
+        this.serverUrl = toProxiedVisualizerUrl(url);
         this.serverPort = port;
         this.statusMessage = `Server ready at ${url}`;
         this.update();
@@ -847,7 +848,7 @@ export class VisualizerWidget extends ReactWidget {
                 const setReady = () => {
                     if (loadId !== this.currentLoadId) return;
                     if (!this.serverUrl) {
-                        this.serverUrl = `${url}?theme=${theme}`;
+                        this.serverUrl = `${toProxiedVisualizerUrl(url)}?theme=${theme}`;
                         this.statusMessage = `Server ready at ${url}`;
                         this.update();
                         this.ensureClosable();
@@ -865,7 +866,7 @@ export class VisualizerWidget extends ReactWidget {
                         setReady();
                     }
                 };
-                testImg.src = `${url}/favicon.ico?${Date.now()}`;
+                testImg.src = `${toProxiedVisualizerUrl(url)}/favicon.ico?${Date.now()}`;
 
                 if (!this.serverUrl && attempts >= maxAttempts) {
                     if (this.checkInterval) {
@@ -984,7 +985,7 @@ export class VisualizerWidget extends ReactWidget {
 
                         if (!this.serverUrl) {
                             // Append theme to URL so trame knows which theme to use
-                            this.serverUrl = `${result.url}?theme=${theme}`;
+                            this.serverUrl = `${toProxiedVisualizerUrl(result.url)}?theme=${theme}`;
                             this.statusMessage = `Server ready at ${result.url}`;
                             this.update();
                             this.ensureClosable();
@@ -1010,7 +1011,7 @@ export class VisualizerWidget extends ReactWidget {
                         }
                     };
 
-                    testImg.src = `${result.url}/favicon.ico?${Date.now()}`;
+                    testImg.src = `${toProxiedVisualizerUrl(result.url)}/favicon.ico?${Date.now()}`;
 
                     if (!this.serverUrl && attempts >= maxAttempts) {
                         if (this.checkInterval) {

@@ -538,7 +538,7 @@ Properties:
 
 - `id` — Widget ID (must be unique per instance)
 - `setUri(uri, volumeId?)` — Set the file to visualize
-- `setServerUrl(url)` — Point iframe to running server
+- `setServerUrl(url)` — Point iframe to running server (pass the raw `http://127.0.0.1:<port>` URL from the backend; the widget routes it through the `/visualizer/<port>/` reverse proxy itself)
 - `onServerStop(port)` — Static callback when a server stops
 
 ### `NukeCoreService`

@@ -109,7 +109,9 @@ Python scripts that do the actual scientific visualization.
 - Read domain-specific files (HDF5, XML, VTK)
 - Render 3D scenes (Trame + ParaView)
 - Compute derived data (spectra, spatial plots, cross-sections)
-- Serve HTTP on a localhost port
+- Serve HTTP on the loopback interface (`127.0.0.1:<port>`)
+
+Browser traffic never touches these ports directly: `VisualizerProxyContribution` (in `src/node/visualizer-proxy-contribution.ts`) reverse-proxies `/visualizer/<port>/*` (HTTP + WebSocket) on the Theia backend to `127.0.0.1:<port>`, restricted to ports registered by the visualizer/OpenMC backend services. This makes the widgets work when the IDE runs behind nginx in a container, where loopback ports are unreachable from the user's browser. Widget iframes convert server URLs via `toProxiedVisualizerUrl()` (`src/browser/visualizer-url.ts`), which builds the proxy path with Theia's `Endpoint` class. Trame is path-prefix friendly (relative asset paths, ws URL derived from the page directory), so no response rewriting is needed.
 
 **Key scripts:**
 

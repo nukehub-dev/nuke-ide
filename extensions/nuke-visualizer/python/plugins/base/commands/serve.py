@@ -574,7 +574,9 @@ def cmd_serve(args):
     print("=" * 60)
 
     try:
-        server.start(port=port, host="0.0.0.0", open_browser=False, show_connection_info=False)
+        # Loopback only: browsers reach this server through the Theia
+        # backend's /visualizer/<port>/ reverse proxy.
+        server.start(port=port, host="127.0.0.1", open_browser=False, show_connection_info=False)
     except KeyboardInterrupt:
         print("\nServer stopped by user")
     except Exception as e:

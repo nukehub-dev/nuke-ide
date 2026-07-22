@@ -303,9 +303,14 @@ class _FakeSimple:
 
 def test_color_by_handler_solid_color():
     simple = _FakeSimple()
-    pipeline = {"display": SimpleNamespace(), "view": SimpleNamespace()}
+    display = SimpleNamespace(scalar_coloring_calls=[])
+    display.SetScalarColoring = lambda *args: display.scalar_coloring_calls.append(args)
+    pipeline = {"display": display, "view": SimpleNamespace()}
     StateHandlers.create_color_by_handler(pipeline, SimpleNamespace(), simple)("Solid Color")
-    assert simple.color_by_calls == [None]
+    # ColorBy(display, None) is broken in ParaView 6.1 without a current
+    # association, so the handler resets via SetScalarColoring directly.
+    assert display.scalar_coloring_calls == [(None, 0)]
+    assert simple.color_by_calls == []
 
 
 def test_color_by_handler_point_and_cell_arrays_apply_preset():
