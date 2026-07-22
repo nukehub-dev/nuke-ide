@@ -518,6 +518,10 @@ export class MyExtension {
     // Get current config
     const config = await this.backend.getConfig();
 
+    // Get the suggested default config (e.g. $NUKE_DIR/bin/python inside
+    // NukeLab container images); empty when no suggestion applies
+    const suggested = await this.backend.getSuggestedConfig();
+
     // Detect Python with requirements
     const result = await this.backend.detectPythonWithRequirements({
       requiredPackages: [{ name: 'openmc' }],
