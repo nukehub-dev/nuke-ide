@@ -35,14 +35,13 @@
  * code after a redeploy and the browser has no URL-level signal that anything
  * changed.
  *
- * The HTML shell and the JS/CSS bundles are served with
- * `Cache-Control: no-store`: every load fetches them fresh, so redeploys
- * propagate without users having to hard-refresh, and `no-store` pages are
- * excluded from the browser's back/forward cache, which would otherwise
- * resurrect a stale shell without revalidation. This trades bandwidth
- * (the un-hashed bundles are re-downloaded on every load) for correctness.
- * Images, fonts, and other assets keep express's default ETag revalidation
- * (304 when unchanged), so those stay cheap.
+ * The HTML shell is tiny, so it is served with `Cache-Control: no-store`:
+ * every navigation fetches it fresh, and `no-store` pages are excluded from
+ * the browser's back/forward cache, which would otherwise resurrect a stale
+ * shell without revalidation. The heavy JS/CSS bundles keep express's default
+ * ETag revalidation (`max-age=0`): every load revalidates each asset, but
+ * unchanged ones come back as cheap 304s instead of full downloads — the
+ * browser-native equivalent of a cache version check.
  *
  * @module nuke-core/node
  */
@@ -59,7 +58,7 @@ export class StaticFrontendServer implements BackendApplicationServer {
         app.use(
             express.static(frontendPath, {
                 setHeaders: (res, filePath) => {
-                    if (/\.(html|js|css|map)$/.test(filePath)) {
+                    if (filePath.endsWith('.html')) {
                         res.setHeader('Cache-Control', 'no-store');
                     }
                 }
