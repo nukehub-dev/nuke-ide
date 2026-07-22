@@ -5,9 +5,13 @@ import { NukeLabCommandContribution } from './nukelab-integration-command-contri
 import { NukeLabMenuContribution } from './nukelab-integration-menu-contribution';
 import { NukeLabSidebarContribution } from './nukelab-integration-sidebar-contribution';
 import { NukeLabAppStatusService } from './nukelab-integration-app-status-service';
+import { NukeLabActivityContribution } from './nukelab-integration-activity-contribution';
 
 export default new ContainerModule((bind) => {
     bind(NukeLabAppStatusService).toSelf().inSingletonScope();
+
+    bind(NukeLabActivityContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(NukeLabActivityContribution);
 
     bind(NukeLabCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeLabCommandContribution);
