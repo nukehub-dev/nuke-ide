@@ -24,6 +24,18 @@ if _SCRIPT_DIR not in sys.path:
 from nuke_viz.plugin import get_commands, setup_parser_for_handler
 from nuke_viz.registry import discover_plugins
 
+# Force ParaView into pvbatch-style offscreen mode BEFORE any plugin imports
+# paraview.simple or creates a view: without this, `simple.Render()` maps a
+# native render window whenever the process has an X connection (DISPLAY set),
+# instead of staying offscreen for trame to stream. Some commands (e.g.
+# dagmc.info, base.convert) work without paraview, so tolerate its absence.
+try:
+    import paraview
+
+    paraview.options.batch = True
+except ImportError:
+    pass
+
 
 def main():
     # 1. Auto-discover all plugins (this triggers @command registration)

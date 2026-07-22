@@ -8,10 +8,17 @@ import os
 import sys
 from pathlib import Path
 
-# Force headless/offscreen rendering BEFORE importing vtk or paraview
-os.environ["DISPLAY"] = ""
+# Force headless/offscreen rendering BEFORE importing vtk or paraview.
+# Only clear DISPLAY if it isn't already set: container environments that
+# provide an Xvfb display (e.g. DISPLAY=:99) must keep it, because
+# conda-forge VTK builds are X11/GLX-only and abort with
+# "bad X server connection" (then segfault via the EGL/OSMesa fallbacks)
+# when there is no X connection at all. Keeping the render window offscreen
+# (no native window popup) is handled by paraview.options.batch = True in
+# server.py — there is no VTK runtime env var for it.
+if "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = ""
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-os.environ["VTK_USE_OFFSCREEN"] = "1"
 
 # Import common utilities
 from nuke_viz.plugin import arg, command
