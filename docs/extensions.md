@@ -46,13 +46,13 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 ## Utility Extensions
 
-| Extension               | Purpose                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| **nuke-essentials**     | Common UI components, commands, and utilities shared across NukeIDE extensions     |
-| **nuke-sysmon**         | System resource monitoring inside the IDE                                          |
-| **nuke-fileinfo**       | File properties and metadata viewer (MIME types, permissions, checksums, Git info) |
-| **nuke-docs**           | Native in-IDE documentation widget (Help → NukeIDE Documentation)                  |
-| **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, and app install  |
+| Extension               | Purpose                                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **nuke-essentials**     | Common UI components, commands, and utilities shared across NukeIDE extensions                                               |
+| **nuke-sysmon**         | System resource monitoring inside the IDE                                                                                    |
+| **nuke-fileinfo**       | File properties and metadata viewer (MIME types, permissions, checksums, Git info)                                           |
+| **nuke-docs**           | Native in-IDE documentation widget (Help → NukeIDE Documentation)                                                            |
+| **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, app install, and interaction-gated idle-activity heartbeat |
 
 ## Adding a New Extension
 
