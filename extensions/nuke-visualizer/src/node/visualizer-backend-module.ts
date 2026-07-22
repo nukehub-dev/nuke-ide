@@ -31,6 +31,7 @@ import { BackendApplicationContribution } from '@theia/core/lib/node/backend-app
 import { VisualizerBackendService, VISUALIZER_BACKEND_PATH, VisualizerClient } from '../common/base-visualizer-protocol';
 import { OpenMCBackendService, OPENMC_BACKEND_PATH } from '../common/openmc-protocol';
 import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
+import { VisualizerProxyContribution } from './visualizer-proxy-contribution';
 import { OpenMCBackendServiceImpl } from './plugins/openmc/openmc-backend-service';
 import { PythonCommandHelper } from './services/python-command-helper';
 import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService } from './plugins/openmc/services';
@@ -40,6 +41,11 @@ export default new ContainerModule(
         bind(VisualizerBackendServiceImpl).toSelf().inSingletonScope();
         bind(VisualizerBackendService).toService(VisualizerBackendServiceImpl);
         bind(BackendApplicationContribution).toService(VisualizerBackendServiceImpl);
+
+        // Reverse proxy so browsers reach trame servers (127.0.0.1:<port>)
+        // through the Theia backend at /visualizer/<port>/* (HTTP + WS).
+        bind(VisualizerProxyContribution).toSelf().inSingletonScope();
+        bind(BackendApplicationContribution).toService(VisualizerProxyContribution);
 
         bind(ConnectionHandler)
             .toDynamicValue(

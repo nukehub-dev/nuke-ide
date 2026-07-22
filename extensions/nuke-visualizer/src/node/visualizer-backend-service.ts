@@ -79,6 +79,14 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         this.client = client;
     }
 
+    /**
+     * Check whether a port belongs to a trame server started by this service.
+     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
+     */
+    isVisualizerPort(port: number): boolean {
+        return this.processes.has(port);
+    }
+
     private log(message: string): void {
         console.log(`[VisualizerBackend] ${message}`);
         this.client?.log(message);

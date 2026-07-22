@@ -961,6 +961,9 @@ class UIComponents:
             # Draggable script
             html.Component(
                 """
+            /* NOTE: trame transmits component content as a single line, so
+               this script must not contain line comments (// ...) — they
+               would comment out the rest of the script. */
 (function() {
     function initDrag() {
         var el = document.querySelector('.nuke-camera-gadget');
@@ -969,7 +972,7 @@ class UIComponents:
         var isDragging = false, startX, startY, startLeft, startTop;
         var parent = el.offsetParent || el.parentElement;
 
-        // Convert initial right-positioned element to left-positioned for dragging
+        /* Convert initial right-positioned element to left-positioned for dragging */
         if (!el.style.left || el.style.left === 'auto') {
             var rect = el.getBoundingClientRect();
             var pRect = parent.getBoundingClientRect();
@@ -1080,7 +1083,12 @@ class StateHandlers:
                     return
 
                 if color_by == "Solid Color":
-                    simple.ColorBy(display, None)
+                    # Reset scalar coloring. `ColorBy(display, None)` is broken in
+                    # ParaView 6.1 when the display has no current array
+                    # association (ColorArrayName.GetAssociation() returns "NONE",
+                    # which GetAssociationFromString rejects). SetScalarColoring
+                    # with an explicit association works regardless.
+                    display.SetScalarColoring(None, 0)
                 elif color_by.startswith("Point: "):
                     array_name = color_by[7:]
                     simple.ColorBy(display, ("POINTS", array_name))
