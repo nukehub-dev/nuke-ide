@@ -312,6 +312,14 @@ export interface NukeCoreBackendServiceInterface {
     getConfig(): Promise<PythonConfig>;
 
     /**
+     * Suggest a default Python configuration for this machine.
+     * Used to auto-configure when the user has not set pythonPath/condaEnv,
+     * e.g. inside NukeLab container images that export NUKE_DIR.
+     * @returns A promise resolving to the suggested configuration (possibly empty).
+     */
+    getSuggestedConfig(): Promise<PythonConfig>;
+
+    /**
      * Detect Python command based on current config.
      * @returns A promise resolving to the detection result.
      */

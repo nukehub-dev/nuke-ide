@@ -102,6 +102,20 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
     }
 
     /**
+     * Suggest a default Python configuration for this machine.
+     *
+     * Used by the frontend to auto-configure itself when the user has not
+     * set `nuke.pythonPath`/`nuke.condaEnv` — e.g. inside NukeLab container
+     * images where `NUKE_DIR` points at the prebuilt toolchain env.
+     *
+     * @returns A promise resolving to the suggested {@link PythonConfig} (possibly empty)
+     * @see {@link EnvironmentService.getSuggestedConfig}
+     */
+    async getSuggestedConfig(): Promise<PythonConfig> {
+        return this.environmentService.getSuggestedConfig();
+    }
+
+    /**
      * Detect a usable Python interpreter on the system.
      *
      * Tries the configured path first, then falls back to standard search
