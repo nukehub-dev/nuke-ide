@@ -121,8 +121,10 @@ export class NukeCoreService {
     protected init(): void {
         console.log('[NukeCore] Service initialized');
 
-        // Sync from preferences initially
-        this.syncFromPreferences();
+        // Sync from preferences initially, then adopt the backend-suggested
+        // default environment (e.g. $NUKE_DIR inside NukeLab container
+        // images) when the user has not configured one.
+        this.syncFromPreferences().then(() => this.applySuggestedConfigIfUnconfigured());
 
         // Listen for preference changes
         this.preferences.onPreferenceChanged((event) => {
@@ -132,6 +134,27 @@ export class NukeCoreService {
                 setTimeout(() => this.syncFromPreferences(), 0);
             }
         });
+    }
+
+    /**
+     * Apply the backend-suggested default configuration when the user has not
+     * configured a Python environment via the nuke.* preferences.
+     * Session-scoped only: preferences are not modified, so an explicit user
+     * setting always wins on the next startup.
+     */
+    protected async applySuggestedConfigIfUnconfigured(): Promise<void> {
+        try {
+            if (this.isConfigured()) {
+                return;
+            }
+            const suggested = await this.backend.getSuggestedConfig();
+            if (suggested.pythonPath || suggested.condaEnv) {
+                console.log(`[NukeCore] Applying suggested default environment: ${suggested.pythonPath || suggested.condaEnv}`);
+                await this.setConfig(suggested);
+            }
+        } catch (e) {
+            console.warn('[NukeCore] Failed to apply suggested default configuration:', e);
+        }
     }
 
     /**

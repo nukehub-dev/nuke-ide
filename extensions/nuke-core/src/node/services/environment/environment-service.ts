@@ -102,6 +102,32 @@ export class EnvironmentService {
     }
 
     /**
+     * Suggest a default Python configuration for the current machine.
+     *
+     * Returns the Python from `$NUKE_DIR` (set by NukeLab container images
+     * such as radiation-transport, where the nuclear toolchain lives in a
+     * conda prefix env at /opt/nuke) when that interpreter exists. Returns an
+     * empty config otherwise, letting callers fall back to their own logic.
+     *
+     * @returns A {@link PythonConfig} with a suggested `pythonPath`, or empty
+     */
+    async getSuggestedConfig(): Promise<PythonConfig> {
+        const nukeDir = process.env.NUKE_DIR;
+        if (!nukeDir) {
+            return {};
+        }
+        const path = await import('path');
+        const fs = await import('fs');
+        const pythonPath = path.join(nukeDir, 'bin', 'python');
+        try {
+            await fs.promises.access(pythonPath, fs.constants.X_OK);
+            return { pythonPath };
+        } catch {
+            return {};
+        }
+    }
+
+    /**
      * Clear all internal caches, including the cached Python command,
      * environment list, and provider-specific caches.
      */
