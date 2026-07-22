@@ -38,6 +38,8 @@ Set at least one of the following:
 
 > **Tip:** You only need to set **one** of these. If both are set, `nuke.pythonPath` takes priority.
 
+> **Note — NukeLab containers:** when NukeIDE runs inside a NukeLab environment image that exports `NUKE_DIR` (e.g. the `radiation-transport` image, where the toolchain lives in a conda env at `/opt/nuke`), Nuke Core auto-configures itself to `$NUKE_DIR/bin/python` at startup if you have not set either preference. The auto-configured value is session-scoped — an explicit preference always wins.
+
 **How to find your Python path:**
 
 ```bash

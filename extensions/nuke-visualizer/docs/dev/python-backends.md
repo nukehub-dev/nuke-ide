@@ -280,16 +280,22 @@ If you need shared caching, implement it in the Node backend, not in Python.
 
 ## Headless / Offscreen Rendering
 
-For VTK/ParaView scripts running in a headless environment (servers, containers):
+VTK/ParaView scripts must render offscreen so trame streams the view instead of a native window popping up. Two mechanisms, both already wired in `server.py` / `plugins/base/commands/serve.py`:
 
 ```python
-import os
-os.environ['DISPLAY'] = ''
-os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-os.environ['VTK_USE_OFFSCREEN'] = '1'
+# serve.py, BEFORE importing vtk or paraview:
+if "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = ""  # preserve an inherited Xvfb display (e.g. :99)
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+# server.py, before plugin discovery:
+import paraview
+paraview.options.batch = True  # pvbatch-style: never maps a native window
 ```
 
-Set these **before** importing `vtk` or `paraview`.
+Rules:
+
+- Do **not** force `DISPLAY = ""`: conda-forge VTK builds are X11/GLX-only and abort with `bad X server connection` (then segfault via the EGL/OSMesa fallbacks) when no X connection exists. Container images provide Xvfb (`DISPLAY=:99`) for exactly this.
 
 ---
 

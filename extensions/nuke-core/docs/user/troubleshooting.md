@@ -85,7 +85,10 @@ Common issues and how to fix them. If you're stuck after working through this gu
    # or
    ls -la /path/to/your/.venv/bin/python
    ```
-2. **Check standard paths.** Nuke Core scans common locations, but non-standard paths may be missed.
+2. **Check standard paths.** Nuke Core discovers conda environments via `conda env list`, so an env that conda itself does not report is invisible to Nuke Core too. Conda only lists envs from its `envs_dirs` and the _creating user's_ `~/.conda/environments.txt` — a prefix env created by another user (e.g. `/opt/nuke` baked into a container image built as root) is missing for everyone else. Register it for all users with:
+   ```bash
+   conda config --system --append envs_dirs /opt   # parent dir of the env
+   ```
 3. **Set it manually.** Use `nuke.pythonPath` (full path to the Python executable) or `nuke.condaEnv` (environment name) as a workaround.
 4. **Restart NukeIDE** after installing a new environment — detection runs at startup and on demand.
 
