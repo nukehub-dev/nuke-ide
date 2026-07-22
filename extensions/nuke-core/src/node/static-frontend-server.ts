@@ -31,15 +31,18 @@
  * Custom {@link BackendApplicationServer} that replaces Theia's default
  * `express.static` mount for the built frontend. Theia's webpack build does
  * not content-hash its JS output (`bundle.js` and lazy chunks keep stable
- * names across builds), so a cached HTML shell can reference stale bundles
- * after a redeploy and the browser has no URL-level signal that anything
+ * names across builds), so a cached HTML shell or bundle can reference stale
+ * code after a redeploy and the browser has no URL-level signal that anything
  * changed.
  *
- * The HTML shell is tiny, so it is served with `Cache-Control: no-store`:
- * every navigation fetches it fresh, and `no-store` pages are excluded from
- * the browser's back/forward cache, which would otherwise resurrect a stale
- * shell without revalidation. The heavy JS/CSS assets keep express's default
- * ETag revalidation (304 when unchanged), so warm loads stay cheap.
+ * The HTML shell and the JS/CSS bundles are served with
+ * `Cache-Control: no-store`: every load fetches them fresh, so redeploys
+ * propagate without users having to hard-refresh, and `no-store` pages are
+ * excluded from the browser's back/forward cache, which would otherwise
+ * resurrect a stale shell without revalidation. This trades bandwidth
+ * (the un-hashed bundles are re-downloaded on every load) for correctness.
+ * Images, fonts, and other assets keep express's default ETag revalidation
+ * (304 when unchanged), so those stay cheap.
  *
  * @module nuke-core/node
  */
@@ -56,7 +59,7 @@ export class StaticFrontendServer implements BackendApplicationServer {
         app.use(
             express.static(frontendPath, {
                 setHeaders: (res, filePath) => {
-                    if (filePath.endsWith('.html')) {
+                    if (/\.(html|js|css|map)$/.test(filePath)) {
                         res.setHeader('Cache-Control', 'no-store');
                     }
                 }
