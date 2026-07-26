@@ -299,6 +299,23 @@ Rules:
 
 ---
 
+## Local / Remote Rendering Modes
+
+All trame 3D viewers use `VtkRemoteLocalView` (trame-vtk >= 2.11), which embeds both a **local** vtk.js view (client-side WebGL) and a **remote** ParaView view (server-rendered image stream). The user switches modes at runtime via a small toggle (bottom-right of the canvas); the default is **local**, so CPU-bound containers do not pay for server renders during interaction. Remote mode remains as a fallback.
+
+Shared helpers in `plugins/base/lib/common.py`:
+
+- `create_view_widget(pv_widgets, view, namespace, default_mode=None, **kwargs)` — builds the `VtkRemoteLocalView` with a unique state namespace per viewer (`dagmcView`, `serveView`, `geomView`, `tallyView`, `tallySliceView`, `tally3dView`). The mode lives in the state variable `<namespace>Mode` ("local"|"remote"). `default_mode=None` reads `NUKE_VISUALIZER_RENDER_MODE` ("local"/"remote", default "local"; invalid values fall back to "local"). `disable_auto_switch=True` is always set to avoid surprise server-side renders while the local scene loads.
+- `update_view_widget(view_widget, state)` — mode-aware push: `update_geometry()` in local mode, `update_image()` in remote mode. Use it instead of the bare `view_widget.update()` (which pushes both). `create_update_view` already routes through it.
+- `UIComponents.create_render_mode_toggle(vuetify, namespace)` — the floating local/remote toggle; place it next to the canvas gadget with the same namespace as the view widget.
+
+Rules:
+
+- One namespace per viewer; the widget, the toggle, and every update call must share it.
+- Do not construct `pv_widgets.VtkRemoteView` directly for new viewers — use `create_view_widget`.
+
+---
+
 ## Helper Modules
 
 Reusable Python code should go in `python/plugins/<name>/lib/`, not in the main command modules.
