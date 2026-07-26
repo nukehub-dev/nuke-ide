@@ -31,9 +31,10 @@ dependencies:
   - pythonocc-core
   - pip:
       # Trame web UI framework for the visualizer backends
-      # (>=3 required: the visualizer backends use the vuetify3/vue3 API)
+      # (>=3 required: the visualizer backends use the vuetify3/vue3 API;
+      # trame-vtk>=2.11 required for VtkRemoteLocalView local/remote toggle)
       - trame>=3
-      - trame-vtk
+      - trame-vtk>=2.11
       - trame-vuetify>=3
       - trame-components
       - python-multipart

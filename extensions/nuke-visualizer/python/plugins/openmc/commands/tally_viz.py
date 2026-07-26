@@ -33,11 +33,13 @@ from plugins.base.lib.common import (
     create_reset_camera_controller,
     create_set_camera_view_controller,
     create_update_view,
+    create_view_widget,
     create_zoom_camera_controller,
     find_free_port,
     hex_to_rgb,
     init_common_state,
     save_screenshot_with_timestamp,
+    update_view_widget,
 )
 
 # Import openmc for filter type checking
@@ -523,8 +525,11 @@ def cmd_visualize_mesh(args):
                     view_callback=set_camera_view,
                 )
 
-                view_widget = pv_widgets.VtkRemoteView(
-                    view, interactive_ratio=1, style="width: 100%; height: 100%;"
+                # Local/remote rendering mode toggle (bottom right)
+                UIComponents.create_render_mode_toggle(vuetify, "tallyView")
+
+                view_widget = create_view_widget(
+                    pv_widgets, view, "tallyView", style="width: 100%; height: 100%;"
                 )
                 pipeline["view_widget"] = view_widget
 
@@ -550,7 +555,7 @@ def cmd_visualize_mesh(args):
             try:
                 simple.Render(view)
                 if pipeline.get("view_widget"):
-                    pipeline["view_widget"].update()
+                    update_view_widget(pipeline["view_widget"], state)
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
 
@@ -1303,8 +1308,11 @@ def cmd_visualize_overlay(args):
                     view_callback=set_camera_view,
                 )
 
-                view_widget = pv_widgets.VtkRemoteView(
-                    view, interactive_ratio=1, style="width: 100%; height: 100%;"
+                # Local/remote rendering mode toggle (bottom right)
+                UIComponents.create_render_mode_toggle(vuetify, "tallySliceView")
+
+                view_widget = create_view_widget(
+                    pv_widgets, view, "tallySliceView", style="width: 100%; height: 100%;"
                 )
                 pipeline["view_widget"] = view_widget
 
@@ -1330,7 +1338,7 @@ def cmd_visualize_overlay(args):
             try:
                 simple.Render(view)
                 if pipeline.get("view_widget"):
-                    pipeline["view_widget"].update()
+                    update_view_widget(pipeline["view_widget"], state)
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
 
@@ -1597,8 +1605,11 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
                     view_callback=set_camera_view,
                 )
 
-                view_widget = pv_widgets.VtkRemoteView(
-                    view, interactive_ratio=1, style="width: 100%; height: 100%;"
+                # Local/remote rendering mode toggle (bottom right)
+                UIComponents.create_render_mode_toggle(vuetify, "tally3dView")
+
+                view_widget = create_view_widget(
+                    pv_widgets, view, "tally3dView", style="width: 100%; height: 100%;"
                 )
                 pipeline["view_widget"] = view_widget
 
@@ -1623,7 +1634,7 @@ def _visualize_source_common(source_poly, port, title="OpenMC Source"):
             try:
                 simple.Render(view)
                 if pipeline.get("view_widget"):
-                    pipeline["view_widget"].update()
+                    update_view_widget(pipeline["view_widget"], state)
             except Exception as e:
                 print(f"Warning: camera update failed: {e}", file=sys.stderr)
 

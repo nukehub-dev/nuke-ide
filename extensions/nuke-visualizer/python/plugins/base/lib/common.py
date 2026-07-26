@@ -304,6 +304,18 @@ GLOBAL_STYLES = """
     .nuke-camera-gadget .v-divider {
         border-color: var(--nuke-gadget-divider) !important;
     }
+
+    /* Render mode toggle - theme aware */
+    .nuke-render-toggle {
+        background: var(--nuke-gadget-bg) !important;
+        border-color: var(--nuke-gadget-border) !important;
+        box-shadow: var(--nuke-gadget-shadow) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .nuke-render-toggle .v-btn {
+        color: var(--nuke-gadget-icon) !important;
+    }
 """
 
 
@@ -1011,6 +1023,35 @@ class UIComponents:
                 **{"is": "script"},
             )
 
+    @staticmethod
+    def create_render_mode_toggle(vuetify, namespace):
+        """Create a floating local/remote rendering mode toggle.
+
+        Switches the ``<namespace>Mode`` state variable of the
+        VtkRemoteLocalView created with the same namespace (see
+        ``create_view_widget``).
+        """
+        from trame.widgets import html
+
+        def mode_btn(icon, tooltip, value):
+            with vuetify.VTooltip(location="top", color="#283593", open_delay=500):
+                with vuetify.Template(v_slot_activator="{ props }"):
+                    vuetify.VBtn(icon=icon, value=value, v_bind="props", size="small")
+                html.Div(tooltip, style="font-size: 0.75rem; font-weight: 500;")
+
+        with vuetify.VContainer(
+            classes="pa-1 ma-2 nuke-render-toggle",
+            style="position: absolute; bottom: 0; right: 0; z-index: 100; width: auto; border-radius: 16px; border: 1px solid;",
+        ):
+            with vuetify.VBtnToggle(
+                v_model=(f"{namespace}Mode", "local"),
+                density="compact",
+                rounded="lg",
+                mandatory=True,
+            ):
+                mode_btn("mdi-laptop", "Local rendering (browser)", "local")
+                mode_btn("mdi-monitor", "Remote rendering (server)", "remote")
+
 
 # =============================================================================
 # STATE CHANGE HANDLERS
@@ -1424,6 +1465,92 @@ def create_capture_screenshot_controller(pipeline):
 # =============================================================================
 
 
+def _default_render_mode() -> str:
+    """Initial render mode from NUKE_VISUALIZER_RENDER_MODE ("local"/"remote")."""
+    mode = os.environ.get("NUKE_VISUALIZER_RENDER_MODE", "local").strip().lower()
+    return mode if mode in ("local", "remote") else "local"
+
+
+def _register_composite_data_serializers():
+    """Register trame-vtk serializers for VTK composite data types.
+
+    ParaView 6 feeds vtkPartitionedDataSet(Collection) to its composite
+    mappers; trame-vtk (<= 2.11.13) has no serializer for those types, so
+    every actor is silently dropped and local (vtk.js) rendering stays empty.
+    Flatten composite inputs to vtkPolyData and delegate to the existing
+    polydata serializer.
+    """
+    from trame_vtk.modules.vtk.serializers import initialize_serializers
+    from trame_vtk.modules.vtk.serializers.registry import SERIALIZERS
+    from trame_vtk.modules.vtk.serializers.serialize import serialize
+
+    initialize_serializers()
+
+    if "vtkPartitionedDataSetCollection" in SERIALIZERS:
+        return
+
+    from vtkmodules.vtkFiltersGeometry import vtkCompositeDataGeometryFilter
+
+    def composite_to_polydata_serializer(parent, instance, obj_id, context, depth):
+        geometry = vtkCompositeDataGeometryFilter()
+        geometry.SetInputDataObject(instance)
+        geometry.Update()
+        return serialize(parent, geometry.GetOutput(), obj_id, context, depth)
+
+    SERIALIZERS["vtkPartitionedDataSetCollection"] = composite_to_polydata_serializer
+    SERIALIZERS["vtkPartitionedDataSet"] = composite_to_polydata_serializer
+
+
+def create_view_widget(pv_widgets, view, namespace, default_mode=None, **kwargs):
+    """Create a VtkRemoteLocalView with a state-backed local/remote mode switch.
+
+    The widget embeds both a local (vtk.js, client-side WebGL) and a remote
+    (server-rendered) view; the state variable ``<namespace>Mode``
+    ("local"|"remote") switches between them at runtime.
+
+    Args:
+        pv_widgets: trame.widgets.paraview module
+        view: ParaView view proxy
+        namespace: trame state namespace for the widget (unique per viewer)
+        default_mode: initial mode; when None, NUKE_VISUALIZER_RENDER_MODE is
+            read ("local"/"remote", default "local"; invalid values fall back
+            to "local")
+        **kwargs: forwarded to VtkRemoteLocalView (e.g. style=...)
+    """
+    if default_mode not in ("local", "remote"):
+        default_mode = _default_render_mode()
+    _register_composite_data_serializers()
+    widget = pv_widgets.VtkRemoteLocalView(
+        view,
+        namespace=namespace,
+        mode=(f"{namespace}Mode", default_mode),
+        disable_auto_switch=True,
+        interactive_ratio=1,
+        **kwargs,
+    )
+    # VtkRemoteLocalView only uses the mode tuple's start value server-side and
+    # never writes it to state; an unset <ns>Mode renders nothing client-side.
+    widget.server.state[f"{namespace}Mode"] = default_mode
+    # Stash the namespace so update helpers can find the mode state variable.
+    widget._nuke_view_namespace = namespace
+    return widget
+
+
+def update_view_widget(view_widget, state, namespace=None):
+    """Push a mode-aware update to a view widget.
+
+    In "local" mode only the geometry/scene is pushed (rendered client-side);
+    in "remote" mode only the server-rendered image. Plain VtkRemoteView
+    widgets (no mode-specific methods) fall back to a full update().
+    """
+    namespace = namespace or getattr(view_widget, "_nuke_view_namespace", "view")
+    if getattr(state, f"{namespace}Mode", "local") == "remote":
+        push = getattr(view_widget, "update_image", None) or view_widget.update
+    else:
+        push = getattr(view_widget, "update_geometry", None) or view_widget.update
+    push()
+
+
 def create_update_view(pipeline, state, simple):
     """Create a standard update_view function.
 
@@ -1447,9 +1574,14 @@ def create_update_view(pipeline, state, simple):
 
             if view_widget:
                 if push_camera and hasattr(state, "camera_update_counter"):
+                    # In local (vtk.js) mode the client owns the camera, so a
+                    # server-side camera change must be pushed explicitly;
+                    # no-op for widgets without push_camera.
+                    if hasattr(view_widget, "push_camera"):
+                        view_widget.push_camera()
                     state.camera_update_counter += 1
                 else:
-                    view_widget.update()
+                    update_view_widget(view_widget, state)
         except Exception as e:
             print(f"Error updating view: {e}")
 
@@ -1513,8 +1645,8 @@ def create_control_panel(
     )
 
 
-def create_main_content(vuetify, pv_widgets, view, toggle_controls_callback):
-    """Create the main content area with toggle button and view widget."""
+def create_main_content(vuetify, pv_widgets, view, toggle_controls_callback, namespace="view"):
+    """Create the main content area with toggle button, render-mode toggle and view widget."""
     components = []
 
     # Toggle button when controls are hidden
@@ -1528,13 +1660,17 @@ def create_main_content(vuetify, pv_widgets, view, toggle_controls_callback):
         )
     components.append(toggle_btn)
 
-    # Main view widget
-    view_widget = pv_widgets.VtkRemoteView(
+    # Main view widget (local vtk.js / remote ParaView, switchable at runtime)
+    view_widget = create_view_widget(
+        pv_widgets,
         view,
-        interactive_ratio=1,
+        namespace,
         style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;",
     )
     components.append(view_widget)
+
+    # Local/remote rendering mode toggle (bottom right)
+    UIComponents.create_render_mode_toggle(vuetify, namespace)
 
     return components, view_widget
 

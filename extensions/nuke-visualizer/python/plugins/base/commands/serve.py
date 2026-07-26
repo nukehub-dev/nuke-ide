@@ -34,12 +34,14 @@ from plugins.base.lib.common import (
     create_reset_camera_controller,
     create_set_camera_view_controller,
     create_update_view,
+    create_view_widget,
     create_zoom_camera_controller,
     find_free_port,
     get_available_arrays,
     hex_to_rgb,
     init_common_state,
     save_screenshot_with_timestamp,
+    update_view_widget,
     verify_or_find_port,
 )
 
@@ -499,23 +501,27 @@ def create_app(file_path=None, port=None, theme="dark"):
                 view_callback=set_camera_view,
             )
 
+            # Local/remote rendering mode toggle (bottom right)
+            UIComponents.create_render_mode_toggle(vuetify, "serveView")
+
             # Main visualization view
-            view_widget = pv_widgets.VtkRemoteView(
+            view_widget = create_view_widget(
+                pv_widgets,
                 view,
-                interactive_ratio=1,
+                "serveView",
                 style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;",
             )
             pipeline["view_widget"] = view_widget
 
             @server.controller.add("view_update")
             def view_update():
-                view_widget.update()
+                update_view_widget(view_widget, state)
 
             @state.change("camera_update_counter")
             def on_camera_update(camera_update_counter, **kwargs):
                 try:
                     simple.Render(view)
-                    view_widget.update()
+                    update_view_widget(view_widget, state)
                 except Exception as e:
                     print(f"Warning: camera update failed: {e}")
 
@@ -523,7 +529,7 @@ def create_app(file_path=None, port=None, theme="dark"):
             def on_appearance_update(appearance_update, **kwargs):
                 try:
                     simple.Render(view)
-                    view_widget.update()
+                    update_view_widget(view_widget, state)
                 except Exception as e:
                     print(f"Warning: appearance update failed: {e}")
 

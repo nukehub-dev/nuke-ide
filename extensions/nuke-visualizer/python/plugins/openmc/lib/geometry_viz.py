@@ -24,10 +24,12 @@ from plugins.base.lib.common import (
     create_reset_camera_controller,
     create_set_camera_view_controller,
     create_update_view,
+    create_view_widget,
     create_zoom_camera_controller,
     hex_to_rgb,
     init_common_state,
     save_screenshot_with_timestamp,
+    update_view_widget,
 )
 
 
@@ -1792,7 +1794,7 @@ def visualize_geometry(
                                     v_bind="props",
                                     v_bind_subtitle="'ID: ' + item.raw.id + ' | Material: ' + item.raw.material",
                                 ):
-                                    with vuetify.Template(v_slot_prepend="{ item }"):
+                                    with vuetify.Template(v_slot_prepend=True):
                                         vuetify.VIcon(
                                             "mdi-circle",
                                             size="small",
@@ -1889,41 +1891,44 @@ def visualize_geometry(
                     view_callback=set_camera_view,
                 )
 
+                # Local/remote rendering mode toggle (bottom right)
+                UIComponents.create_render_mode_toggle(vuetify, "geomView")
+
                 # View container with explicit sizing
                 with vuetify.VContainer(
                     fluid=True,
                     classes="pa-0 ma-0 fill-height",
                     style="height: 100vh; width: 100%; position: relative;",
                 ):
-                    view_widget = pv_widgets.VtkRemoteView(
-                        view, interactive_ratio=1, style="width: 100%; height: 100%;"
+                    view_widget = create_view_widget(
+                        pv_widgets, view, "geomView", style="width: 100%; height: 100%;"
                     )
                     pipeline["view_widget"] = view_widget
 
                     # Force initial render and update
                     simple.Render(view)
-                    view_widget.update()
+                    update_view_widget(view_widget, state)
 
                 @state.change("camera_update_counter")
                 def on_camera_update(camera_update_counter, **kwargs):
                     try:
                         simple.Render(view)
                         if pipeline.get("view_widget"):
-                            pipeline["view_widget"].update()
+                            update_view_widget(pipeline["view_widget"], state)
                     except Exception as e:
                         print(f"Camera update error: {e}", flush=True)
 
         # Ensure initial view is properly rendered
         update_view()
 
-        # Trigger update after client connects (for VtkRemoteView)
+        # Trigger update after client connects
         @server.controller.add("on_client_connected")
         def on_client_connected(**kwargs):
             try:
                 print("Client connected, updating view...", flush=True)
                 simple.Render(view)
                 if pipeline.get("view_widget"):
-                    pipeline["view_widget"].update()
+                    update_view_widget(pipeline["view_widget"], state)
             except Exception as e:
                 print(f"Error in on_client_connected: {e}", flush=True)
 

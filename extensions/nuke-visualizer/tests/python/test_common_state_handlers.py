@@ -31,12 +31,14 @@ from plugins.base.lib.common import (  # noqa: E402
     create_reset_camera_controller,
     create_set_camera_view_controller,
     create_update_view,
+    create_view_widget,
     create_zoom_camera_controller,
     find_free_port,
     get_available_arrays,
     get_data_bounds,
     init_common_state,
     save_screenshot_with_timestamp,
+    update_view_widget,
 )
 
 
@@ -47,6 +49,7 @@ class FakeWidget:
         self.tag = tag
         self.args = args
         self.kwargs = kwargs
+        self.server = SimpleNamespace(state={})
 
     def __enter__(self):
         return self
@@ -627,6 +630,74 @@ def test_update_view_tolerates_render_failure(capsys):
 
 
 # ---------------------------------------------------------------------------
+# create_view_widget / update_view_widget
+# ---------------------------------------------------------------------------
+
+
+def test_create_view_widget_defaults_to_local(monkeypatch):
+    monkeypatch.delenv("NUKE_VISUALIZER_RENDER_MODE", raising=False)
+    widget = create_view_widget(FakeVuetify(), SimpleNamespace(), "myView")
+    assert widget.tag == "VtkRemoteLocalView"
+    assert widget.kwargs["namespace"] == "myView"
+    assert widget.kwargs["mode"] == ("myViewMode", "local")
+    assert widget.kwargs["disable_auto_switch"] is True
+    assert widget.kwargs["interactive_ratio"] == 1
+    # The initial mode is written to state (VtkRemoteLocalView does not do it).
+    assert widget.server.state["myViewMode"] == "local"
+    # The namespace is stashed so update helpers can find the mode variable.
+    assert widget._nuke_view_namespace == "myView"
+
+
+def test_create_view_widget_reads_env(monkeypatch):
+    monkeypatch.setenv("NUKE_VISUALIZER_RENDER_MODE", "remote")
+    widget = create_view_widget(FakeVuetify(), SimpleNamespace(), "myView")
+    assert widget.kwargs["mode"] == ("myViewMode", "remote")
+
+
+def test_create_view_widget_ignores_invalid_env(monkeypatch):
+    monkeypatch.setenv("NUKE_VISUALIZER_RENDER_MODE", "bogus")
+    widget = create_view_widget(FakeVuetify(), SimpleNamespace(), "myView")
+    assert widget.kwargs["mode"] == ("myViewMode", "local")
+
+
+def test_create_view_widget_explicit_mode_overrides_env(monkeypatch):
+    monkeypatch.setenv("NUKE_VISUALIZER_RENDER_MODE", "remote")
+    widget = create_view_widget(FakeVuetify(), SimpleNamespace(), "myView", default_mode="local")
+    assert widget.kwargs["mode"] == ("myViewMode", "local")
+
+
+def _recording_widget():
+    calls = []
+    widget = SimpleNamespace(
+        update=lambda: calls.append("update"),
+        update_image=lambda: calls.append("image"),
+        update_geometry=lambda: calls.append("geometry"),
+    )
+    return widget, calls
+
+
+def test_update_view_widget_pushes_geometry_in_local_mode():
+    widget, calls = _recording_widget()
+    widget._nuke_view_namespace = "myView"
+    update_view_widget(widget, SimpleNamespace(myViewMode="local"))
+    assert calls == ["geometry"]
+
+
+def test_update_view_widget_pushes_image_in_remote_mode():
+    widget, calls = _recording_widget()
+    widget._nuke_view_namespace = "myView"
+    update_view_widget(widget, SimpleNamespace(myViewMode="remote"))
+    assert calls == ["image"]
+
+
+def test_update_view_widget_falls_back_to_update():
+    calls = []
+    widget = SimpleNamespace(update=lambda: calls.append("update"))
+    update_view_widget(widget, SimpleNamespace())
+    assert calls == ["update"]
+
+
+# ---------------------------------------------------------------------------
 # save_screenshot_with_timestamp
 # ---------------------------------------------------------------------------
 
@@ -745,7 +816,11 @@ def test_create_control_panel_theme_colors():
     assert drawer.kwargs["theme"] == "light"
 
 
-def test_create_main_content_builds_toggle_and_view_widget():
+def test_create_main_content_builds_toggle_and_view_widget(monkeypatch):
+    # create_render_mode_toggle lazily imports trame.widgets.html; stub it so
+    # the test passes both with and without trame installed.
+    monkeypatch.setitem(sys.modules, "trame.widgets", SimpleNamespace(html=FakeVuetify()))
+
     vuetify = FakeVuetify()
     pv_widgets = FakeVuetify()
     view = SimpleNamespace()
@@ -753,9 +828,16 @@ def test_create_main_content_builds_toggle_and_view_widget():
     components, view_widget = create_main_content(vuetify, pv_widgets, view, lambda: None)
 
     assert len(components) == 2
-    assert view_widget.tag == "VtkRemoteView"
+    assert view_widget.tag == "VtkRemoteLocalView"
     assert view_widget.args[0] is view
     assert view_widget.kwargs["interactive_ratio"] == 1
+    assert view_widget.kwargs["namespace"] == "view"
+    assert view_widget.kwargs["mode"] == ("viewMode", "local")
+    assert view_widget.kwargs["disable_auto_switch"] is True
+    # The render-mode toggle drives the same <namespace>Mode state variable.
+    toggles = vuetify.by_tag("VBtnToggle")
+    assert len(toggles) == 1
+    assert toggles[0].kwargs["v_model"] == ("viewMode", "local")
     # The toggle button is an icon button (Vuetify 3 icon prop, no child VIcon).
     toggle = vuetify.by_tag("VBtn")[0]
     assert toggle.kwargs["icon"] == "mdi-chevron-right"
