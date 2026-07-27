@@ -114,7 +114,8 @@ GitHub Actions workflows under `.github/workflows/`:
 
 - `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage, and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
-- `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch.
+- `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional rendering check (`applications/docker/render_smoke_test.py` — the trame/ParaView/VTK seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
+- `upstream-latest.yml` — weekly early-warning job: builds the backend conda env with the `paraview` pin relaxed (everything else already floats) and runs pytest + the rendering smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
 
 ## Coverage
 

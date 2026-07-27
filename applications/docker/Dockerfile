@@ -50,18 +50,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Python backend environment (OpenMC, Trame/ParaView, CAD toolchain, Node 22).
 # Node comes from conda so no separate Node installation is needed.
 COPY applications/docker/environment.yml /tmp/environment.yml
-# Large wheels (ParaView/VTK, OCP, MOAB) can hit flaky connections; be generous
+# Large wheels (ParaView/VTK, OCCT, MOAB) can hit flaky connections; be generous
 # with retries for both conda package fetches and the pip subprocess.
 ENV PIP_RETRIES=10 \
     PIP_TIMEOUT=120
 RUN conda config --set remote_max_retries 10 \
     && conda env create -f /tmp/environment.yml \
-    # pip's cadquery_vtk shares the vtkmodules namespace with conda's vtk and
-    # clobbers some conda files during env creation. Re-write the conda VTK
-    # family LAST so paraview keeps working; the pip-only libs that OCP needs
-    # are not conda-owned and survive this reinstall.
-    && conda install -n ide -y --force-reinstall -c conda-forge \
-       paraview=6.0.1 vtk=9.5.2 vtk-base=9.5.2 vtk-io-ffmpeg=9.5.2 \
     && conda clean -afy \
     && rm /tmp/environment.yml \
     # Keep pip's download cache out of the image layers

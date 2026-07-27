@@ -1,0 +1,92 @@
+name: Upstream latest
+
+# Tests the Python backend stack against the LATEST upstream releases, with
+# the paraview pin relaxed. environment.yml stays pinned for reproducible
+# builds (docker image, user installs); this job is the early-warning signal
+# that a new paraview/vtk/trame/openmc release breaks us — it fails here
+# before it would ever reach a release build.
+
+on:
+  schedule:
+    # Weekly (Wednesdays ~05:17 UTC), offset from the docker smoke build.
+    - cron: '17 5 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Open/update an issue when a scheduled run fails.
+  issues: write
+
+jobs:
+  latest-deps:
+    name: Test against latest upstream releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install X/GL system libraries
+        # gmsh and OCP/cadquery link X/GL even headless (same list as the
+        # docker image's runtime stage).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglu1-mesa libxft2 libxext6 libxrender1 \
+            libxinerama1 libxcursor1 libxfixes3 libxi6
+
+      - name: Set up conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: ide
+
+      - name: Create environment with latest paraview
+        # Relax ONLY the paraview pin; everything else already floats.
+        run: |
+          sed 's/- paraview=.*/- paraview/' applications/docker/environment.yml > /tmp/environment-latest.yml
+          conda env create -n ide -f /tmp/environment-latest.yml
+
+      - name: Run extension test suite
+        run: |
+          pip install -q pytest
+          python -m pytest -q
+
+      - name: Smoke test the rendering stack
+        # Same functional check as the docker job: offscreen render, composite
+        # serialization, VtkRemoteLocalView API. Headless, no X server.
+        run: |
+          env -u DISPLAY VTK_USE_OFFSCREEN=1 QT_QPA_PLATFORM=offscreen \
+            python applications/docker/render_smoke_test.py
+
+      - name: Open issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Latest upstream dependency check failed';
+            const labels = ['ci', 'upstream-regression'];
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+            });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The weekly check against the latest upstream releases failed (paraview pin relaxed, everything else floating).\n\nRun: ${runUrl}\n\nThis means a new upstream release (paraview/vtk/trame/openmc) breaks the backend stack. The pinned \`environment.yml\` is unaffected — decide whether to fix forward or document the incompatibility before the next pin bump.`;
+            const open = existing.find((issue) => issue.title === title);
+            if (open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels,
+              });
+            }

@@ -1,13 +1,8 @@
 # Conda environment for NukeIDE's Python backends.
-# Mirrors the 'trame' development environment used by the project
-# (Python 3.13, OpenMC + Trame/ParaView visualization + CAD toolchain).
+# Python 3.13, OpenMC + Trame/ParaView visualization + CAD toolchain.
 #
 # Used by applications/docker/Dockerfile; can also be created locally:
 #   conda env create -f applications/docker/environment.yml
-# Afterwards, run the same repair step the Dockerfile runs (pip's cadquery_vtk
-# clobbers conda's vtkmodules files during creation):
-#   conda install -n ide -y --force-reinstall -c conda-forge \
-#       paraview=6.0.1 vtk=9.5.2 vtk-base=9.5.2 vtk-io-ffmpeg=9.5.2
 name: ide
 channels:
   - conda-forge
@@ -22,29 +17,25 @@ dependencies:
   - matplotlib
   - pandas
   - pyyaml
-  # Visualization (served by the nuke-visualizer extension).
-  # Pinned: pip's cadquery_vtk shares the vtkmodules namespace with conda's
-  # vtk; this exact combo is verified to coexist (mirrors the dev env).
-  - paraview=6.0.1
-  - vtk=9.5.2
+  # Visualization (served by the nuke-visualizer extension). Everything comes
+  # from conda so the whole stack shares conda's vtk. trame>=3 required: the
+  # visualizer backends use the vuetify3/vue3 API (trame 2's trame.ui.vuetify2
+  # is gone); trame-vtk>=2.11 required for VtkRemoteLocalView's local/remote
+  # toggle.
+  - paraview=6.1.1
+  - trame>=3
+  - trame-vtk>=2.11
+  - trame-vuetify>=3
+  - trame-components
+  - python-multipart
+  # CAD import/conversion (openmc-studio cad_conversion). Conda cadquery pulls
+  # conda ocp and links conda's vtk — never install pip cadquery/cadquery-ocp/
+  # cadquery_vtk here: their vtkmodules builds clobber conda's vtk files.
+  - python-gmsh
+  - cadquery
   # OpenCASCADE bindings: pythonocc-core provides the OCC module
   - pythonocc-core
   - pip:
-      # Trame web UI framework for the visualizer backends
-      # (>=3 required: the visualizer backends use the vuetify3/vue3 API;
-      # trame-vtk>=2.11 required for VtkRemoteLocalView local/remote toggle)
-      - trame>=3
-      - trame-vtk>=2.11
-      - trame-vuetify>=3
-      - trame-components
-      - python-multipart
-      # CAD import/conversion (openmc-studio cad_conversion).
-      # Pinned: cadquery-ocp needs the pip-style VTK libs shipped by
-      # cadquery_vtk; this exact combo is verified against conda vtk 9.5.2.
-      - gmsh
-      - cadquery==2.7.0
-      - cadquery-ocp==7.8.1.1.post1
-      - cadquery_vtk==9.3.1
       # DAGMC workflows (pinned commit for reproducible builds)
       - pydagmc @ git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8
       # OpenMC (openmc-studio) and MOAB/pymoab wheels — published on this
