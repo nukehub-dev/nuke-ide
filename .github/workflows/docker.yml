@@ -26,6 +26,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Open/update an issue when a scheduled (weekly) run fails.
+  issues: write
 
 jobs:
   build-and-smoke-test:
@@ -65,6 +67,32 @@ jobs:
             pip install -q pytest && python -m pytest -q
           "
 
+      - name: Smoke test the rendering stack
+        # Functional check of the trame/ParaView/VTK seam the unit tests skip
+        # (they run without the rendering stack): offscreen render, composite
+        # data serialization for local (vtk.js) rendering, and the
+        # VtkRemoteLocalView API surface. This is what catches upstream
+        # trame-vtk/ParaView/OpenMC releases breaking the visualizer.
+        run: |
+          docker run --rm --entrypoint python nuke-ide:latest \
+            /opt/nuke-ide/applications/docker/render_smoke_test.py
+
+      - name: Record resolved dependency versions
+        # Snapshot the exact resolution of every green build so a later
+        # upstream regression can be diffed against the last-good versions.
+        run: |
+          docker run --rm --entrypoint conda nuke-ide:latest list -n ide > conda-list.txt
+          docker run --rm --entrypoint pip nuke-ide:latest freeze > pip-freeze.txt
+
+      - name: Upload dependency snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-snapshot
+          path: |
+            conda-list.txt
+            pip-freeze.txt
+          retention-days: 90
+
       - name: Smoke test the IDE server
         run: |
           set -e
@@ -85,3 +113,39 @@ jobs:
             docker logs nuke-ide-test 2>&1 | tail -50
             exit 1
           fi
+
+      - name: Open issue on scheduled failure
+        # Weekly runs float the unpinned deps (trame, trame-vtk, openmc wheel,
+        # base images); a red run means an upstream release broke us. File it
+        # so it becomes a work item instead of a silently missed signal.
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Weekly docker smoke build failed';
+            const labels = ['ci', 'upstream-regression'];
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+            });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The weekly docker build & smoke test failed.\n\nRun: ${runUrl}\n\nCheck the "Smoke test the rendering stack" step first — it exercises the trame/ParaView/VTK seam against the latest upstream releases. Diff the run's \`dependency-snapshot\` artifact against the last green one to identify the breaking release.`;
+            const open = existing.find((issue) => issue.title === title);
+            if (open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels,
+              });
+            }
