@@ -27,12 +27,14 @@ jobs:
 
       - name: Install X/GL system libraries
         # gmsh and OCP/cadquery link X/GL even headless (same list as the
-        # docker image's runtime stage).
+        # docker image's runtime stage). libosmesa6 provides the OSMesa
+        # software-GL backend — the only one that works without an X server.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgl1 libglu1-mesa libxft2 libxext6 libxrender1 \
-            libxinerama1 libxcursor1 libxfixes3 libxi6
+            libxinerama1 libxcursor1 libxfixes3 libxi6 \
+            libosmesa6
 
       - name: Set up conda
         uses: conda-incubator/setup-miniconda@v3
