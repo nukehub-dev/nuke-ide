@@ -117,6 +117,13 @@ GitHub Actions workflows under `.github/workflows/`:
 - `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional rendering check (`applications/docker/render_smoke_test.py` — the trame/ParaView/VTK seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
 - `upstream-latest.yml` — weekly early-warning job: builds the backend conda env with the `paraview` pin relaxed (everything else already floats) and runs pytest + the rendering smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
 
+## Releases
+
+1. Move anything releasable under `CHANGELOG.md`'s `Unreleased` into a new `## [x.y.z] - YYYY-MM-DD` section (Keep a Changelog format; hand-curated, not generated).
+2. `yarn bump-version <x.y.z>` (runs `scripts/bump-version.js`: lerna.json + every app/extension `package.json` and their internal dependency versions).
+3. Run the pre-commit checks (`yarn lint`, `yarn test:python`, `npx lerna run build`), commit, then `git tag v<x.y.z>`.
+4. Pushing the tag triggers `build.yml`, which drafts the GitHub Release (auto-generated notes complement the curated changelog).
+
 ## Coverage
 
 Tiered policy; the project does not chase one uniform percentage.
