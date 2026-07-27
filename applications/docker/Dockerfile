@@ -42,9 +42,13 @@ FROM docker.io/condaforge/miniforge3:latest AS runtime
 
 # System libraries needed by gmsh (libXft/libGL family) and the OCP/cadquery
 # VTK bindings — even though rendering is headless, these wheels link X/GL.
+# libosmesa6 is not optional: the container has no X server and no EGL device,
+# so conda VTK's only working GL backend is the OSMesa software renderer —
+# without it every ParaView render fails (caught by render_smoke_test.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglu1-mesa libxft2 libxext6 libxrender1 \
     libxinerama1 libxcursor1 libxfixes3 libxi6 \
+    libosmesa6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python backend environment (OpenMC, Trame/ParaView, CAD toolchain, Node 22).
