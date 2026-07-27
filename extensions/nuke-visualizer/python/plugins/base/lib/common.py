@@ -1479,10 +1479,16 @@ def _register_composite_data_serializers():
     every actor is silently dropped and local (vtk.js) rendering stays empty.
     Flatten composite inputs to vtkPolyData and delegate to the existing
     polydata serializer.
+
+    No-op when trame-vtk is not installed: without it there is no serializer
+    registry to extend (and unit tests run without the rendering stack).
     """
-    from trame_vtk.modules.vtk.serializers import initialize_serializers
-    from trame_vtk.modules.vtk.serializers.registry import SERIALIZERS
-    from trame_vtk.modules.vtk.serializers.serialize import serialize
+    try:
+        from trame_vtk.modules.vtk.serializers import initialize_serializers
+        from trame_vtk.modules.vtk.serializers.registry import SERIALIZERS
+        from trame_vtk.modules.vtk.serializers.serialize import serialize
+    except ImportError:
+        return
 
     initialize_serializers()
 

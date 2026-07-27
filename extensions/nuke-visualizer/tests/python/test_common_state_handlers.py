@@ -21,6 +21,7 @@ np = pytest.importorskip("numpy")
 from plugins.base.lib.common import (  # noqa: E402
     StateHandlers,
     VisualizerState,
+    _register_composite_data_serializers,
     calculate_camera_position,
     check_openmc_dependencies,
     check_trame_dependencies,
@@ -664,6 +665,88 @@ def test_create_view_widget_explicit_mode_overrides_env(monkeypatch):
     monkeypatch.setenv("NUKE_VISUALIZER_RENDER_MODE", "remote")
     widget = create_view_widget(FakeVuetify(), SimpleNamespace(), "myView", default_mode="local")
     assert widget.kwargs["mode"] == ("myViewMode", "local")
+
+
+# ---------------------------------------------------------------------------
+# _register_composite_data_serializers
+# ---------------------------------------------------------------------------
+
+
+def _stub_trame_vtk(monkeypatch, serializers):
+    """Put a fake trame_vtk serializers package into sys.modules."""
+    initialized = []
+
+    def serialize(parent, data, obj_id, context, depth):
+        return ("serialized", data)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "trame_vtk.modules.vtk.serializers",
+        SimpleNamespace(initialize_serializers=lambda: initialized.append(True)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "trame_vtk.modules.vtk.serializers.registry",
+        SimpleNamespace(SERIALIZERS=serializers),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "trame_vtk.modules.vtk.serializers.serialize",
+        SimpleNamespace(serialize=serialize),
+    )
+    return initialized
+
+
+class _FakeGeometryFilter:
+    def __init__(self):
+        self.input = None
+
+    def SetInputDataObject(self, obj):
+        self.input = obj
+
+    def Update(self):
+        pass
+
+    def GetOutput(self):
+        return "polydata"
+
+
+def test_register_composite_data_serializers_missing_trame_vtk(monkeypatch):
+    # Force the absence so the test passes even where trame-vtk is installed.
+    monkeypatch.setitem(sys.modules, "trame_vtk", None)
+    monkeypatch.setitem(sys.modules, "trame_vtk.modules.vtk.serializers", None)
+    _register_composite_data_serializers()  # must not raise
+
+
+def test_register_composite_data_serializers_registers(monkeypatch):
+    serializers = {}
+    initialized = _stub_trame_vtk(monkeypatch, serializers)
+    monkeypatch.setitem(
+        sys.modules,
+        "vtkmodules.vtkFiltersGeometry",
+        SimpleNamespace(vtkCompositeDataGeometryFilter=_FakeGeometryFilter),
+    )
+
+    _register_composite_data_serializers()
+
+    assert initialized == [True]
+    assert set(serializers) == {"vtkPartitionedDataSetCollection", "vtkPartitionedDataSet"}
+    # The serializer flattens composite input to polydata and delegates.
+    assert serializers["vtkPartitionedDataSet"](None, "composite", "id", None, 0) == (
+        "serialized",
+        "polydata",
+    )
+
+
+def test_register_composite_data_serializers_already_registered(monkeypatch):
+    existing = object()
+    serializers = {"vtkPartitionedDataSetCollection": existing}
+    initialized = _stub_trame_vtk(monkeypatch, serializers)
+
+    _register_composite_data_serializers()
+
+    assert initialized == [True]
+    assert serializers == {"vtkPartitionedDataSetCollection": existing}
 
 
 def _recording_widget():
