@@ -8,7 +8,7 @@ Real-time system resource monitor for NukeIDE.
 
 ## Features
 
-- **CPU Monitor** — Real-time CPU usage percentage with historical graph
+- **CPU Monitor** — Real-time CPU usage percentage with historical graph. Inside a container, CPU is derived from the cgroup CPU counter (`cpu.stat` / `cpuacct.usage`) relative to the container's CPU quota, so it reflects only this container; on bare metal it falls back to host-wide load.
 - **Memory Monitor** — RAM usage and available memory
 - **Disk Monitor** — Disk space usage per mounted volume
 - **Network Monitor** — Network I/O statistics
