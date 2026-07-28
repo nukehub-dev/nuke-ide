@@ -78,6 +78,10 @@ asarUnpack:
 linux:
   icon: logo.png
   category: Development
+  # Derive the installed .desktop filename from package.json's desktopName so
+  # StartupWMClass matches Electron's app_id (window <-> desktop entry
+  # association on Linux desktops).
+  syncDesktopName: true
   target:
     - target: AppImage
       arch:

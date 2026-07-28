@@ -2,6 +2,7 @@
   "private": true,
   "name": "nuke-ide-electron",
   "productName": "NukeIDE",
+  "desktopName": "org.nukehub.nukeide.desktop",
   "version": "0.1.3",
   "description": "NukeIDE is an open-source IDE for nuclear simulation and engineering.",
   "license": "BSD-2-Clause",
