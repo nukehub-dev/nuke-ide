@@ -122,7 +122,7 @@ GitHub Actions workflows under `.github/workflows/`:
 1. Move anything releasable under `CHANGELOG.md`'s `Unreleased` into a new `## [x.y.z] - YYYY-MM-DD` section (Keep a Changelog format; hand-curated, not generated).
 2. `yarn bump-version <x.y.z>` (runs `scripts/bump-version.js`: lerna.json + every app/extension `package.json` and their internal dependency versions).
 3. Run the pre-commit checks (`yarn lint`, `yarn test:python`, `npx lerna run build`), commit, then `git tag v<x.y.z>`.
-4. Pushing the tag triggers `build.yml`, which drafts the GitHub Release (auto-generated notes complement the curated changelog).
+4. Pushing the tag triggers `build.yml`, which drafts the GitHub Release. The release body is extracted automatically from the tag's `CHANGELOG.md` section (GitHub's auto-generated notes are PR-based and useless for this trunk-based repo), so the changelog entry is what users read.
 
 ## Coverage
 
