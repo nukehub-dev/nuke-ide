@@ -2,6 +2,9 @@ appId: org.nukehub.nukeide
 productName: NukeIDE
 copyright: Copyright © 2025 NukeHub Team
 
+# Used for local `yarn package:electron` publishes only. CI passes
+# --publish never: the three platform jobs must not race to create the
+# release — build.yml's `release` job drafts it centrally from artifacts.
 publish:
   provider: github
   owner: nukehub-dev

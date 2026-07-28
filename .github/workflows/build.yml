@@ -87,9 +87,10 @@ jobs:
         run: yarn build:electron:prod
 
       - name: Package Electron app
-        run: yarn --cwd applications/electron dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --publish never: electron-builder must not create/upload the GitHub
+        # release itself (its token has no contents:write, and three platform
+        # jobs would race). The release job below drafts it from artifacts.
+        run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -161,9 +162,10 @@ jobs:
         run: yarn build:electron:prod
 
       - name: Package Electron app
-        run: yarn --cwd applications/electron dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --publish never: electron-builder must not create/upload the GitHub
+        # release itself (its token has no contents:write, and three platform
+        # jobs would race). The release job below drafts it from artifacts.
+        run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -235,9 +237,10 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Package Electron app
-        run: yarn --cwd applications/electron dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --publish never: electron-builder must not create/upload the GitHub
+        # release itself (its token has no contents:write, and three platform
+        # jobs would race). The release job below drafts it from artifacts.
+        run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
