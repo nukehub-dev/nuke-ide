@@ -259,6 +259,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        # Needed for CHANGELOG.md (the release body is extracted from it).
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
