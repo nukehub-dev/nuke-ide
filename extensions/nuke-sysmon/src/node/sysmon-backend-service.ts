@@ -214,7 +214,7 @@ export class SysmonBackendService {
                 const usageDeltaNs = cgroupUsageNs - this.previousCgroupCpu.usageNs;
                 const timeDeltaNs = (now - this.previousCgroupCpu.timestamp) * 1e6;
                 if (usageDeltaNs >= 0 && timeDeltaNs > 0) {
-                    usagePercent = Math.min(100, Math.round(((usageDeltaNs / timeDeltaNs) / allocatedCpus) * 100));
+                    usagePercent = Math.min(100, Math.round((usageDeltaNs / timeDeltaNs / allocatedCpus) * 100));
                 }
             }
             this.previousCgroupCpu = { usageNs: cgroupUsageNs, timestamp: now };
