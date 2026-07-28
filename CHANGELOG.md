@@ -50,5 +50,5 @@ First tagged release.
   `cadquery-ocp`/`cadquery_vtk` pins and the Dockerfile's VTK force-reinstall
   repair step are gone.
 
-[Unreleased]: https://github.com/ahnaf-tahmid-chowdhury/nuke-ide/compare/v0.1.3...HEAD
-[0.1.3]: https://github.com/ahnaf-tahmid-chowdhury/nuke-ide/releases/tag/v0.1.3
+[Unreleased]: https://github.com/nukehub-dev/nuke-ide/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.1.3
