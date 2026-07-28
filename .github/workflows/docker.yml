@@ -85,7 +85,7 @@ jobs:
           docker run --rm --entrypoint pip nuke-ide:latest freeze > pip-freeze.txt
 
       - name: Upload dependency snapshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-snapshot
           path: |
