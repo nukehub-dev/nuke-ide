@@ -26,6 +26,8 @@
 // *****************************************************************************
 
 import { injectable } from '@theia/core/shared/inversify';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as si from 'systeminformation';
 import {
     SystemMetrics,
@@ -59,6 +61,9 @@ export class SysmonBackendService {
     private cpuInfo: { manufacturer: string; brand: string; speed: number; cores: number; physicalCores: number } | null = null;
 
     private previousNetworkStats: { bytesReceived: number; bytesSent: number; timestamp: number; iface: string } | null = null;
+
+    // Last cgroup CPU counter sample, used to derive container-scoped usage.
+    private previousCgroupCpu: { usageNs: number; timestamp: number } | null = null;
 
     async initialize(): Promise<void> {
         // Collect static system info once
@@ -190,17 +195,131 @@ export class SysmonBackendService {
     }
 
     private async getCpuMetrics(): Promise<CpuMetrics> {
-        const [currentLoad, cpuTemperature] = await Promise.all([
+        const [currentLoad, cpuTemperature, cgroupUsageNs, allocatedCpus] = await Promise.all([
             si.currentLoad(),
-            si.cpuTemperature().catch(() => ({ main: undefined })) as Promise<{ main?: number }>
+            si.cpuTemperature().catch(() => ({ main: undefined })) as Promise<{ main?: number }>,
+            this.readCgroupCpuUsageNs(),
+            this.getAllocatedCpuCount()
         ]);
 
+        let usagePercent: number;
+        if (cgroupUsageNs !== null && allocatedCpus !== null) {
+            // Container-scoped: /proc/stat (used by si.currentLoad) reports
+            // host-wide CPU, which is meaningless inside a container. Derive
+            // usage from the cgroup CPU counter instead, relative to the
+            // container's CPU quota, so 100% means all allocated cores busy.
+            usagePercent = 0;
+            const now = Date.now();
+            if (this.previousCgroupCpu) {
+                const usageDeltaNs = cgroupUsageNs - this.previousCgroupCpu.usageNs;
+                const timeDeltaNs = (now - this.previousCgroupCpu.timestamp) * 1e6;
+                if (usageDeltaNs >= 0 && timeDeltaNs > 0) {
+                    usagePercent = Math.min(100, Math.round(((usageDeltaNs / timeDeltaNs) / allocatedCpus) * 100));
+                }
+            }
+            this.previousCgroupCpu = { usageNs: cgroupUsageNs, timestamp: now };
+        } else {
+            // Bare metal / dev: no cgroup limits, host-wide load is correct.
+            this.previousCgroupCpu = null;
+            usagePercent = Math.round(currentLoad.currentLoad || 0);
+        }
+
         return {
-            usagePercent: Math.round(currentLoad.currentLoad || 0),
+            usagePercent,
             loadAverage: currentLoad.avgLoad ? [currentLoad.avgLoad] : [0, 0, 0],
             temperature: cpuTemperature.main,
             info: this.cpuInfo || undefined
         };
+    }
+
+    /**
+     * Total CPU time consumed by this container's cgroup, in nanoseconds.
+     * Returns null when no cgroup CPU counter is readable (bare metal).
+     */
+    private async readCgroupCpuUsageNs(): Promise<number | null> {
+        // cgroup v2: /sys/fs/cgroup/cpu.stat contains "usage_usec <n>".
+        try {
+            const stat = await fs.promises.readFile('/sys/fs/cgroup/cpu.stat', 'utf8');
+            const match = stat.match(/^usage_usec (\d+)$/m);
+            if (match) {
+                return Number(match[1]) * 1000;
+            }
+        } catch {
+            // not cgroup v2
+        }
+        // cgroup v1: cpuacct.usage is already in nanoseconds.
+        try {
+            const raw = await fs.promises.readFile('/sys/fs/cgroup/cpuacct/cpuacct.usage', 'utf8');
+            const ns = Number(raw.trim());
+            if (Number.isFinite(ns)) {
+                return ns;
+            }
+        } catch {
+            // not cgroup v1
+        }
+        return null;
+    }
+
+    /**
+     * Number of CPUs allocated to this container (cgroup quota, else cpuset).
+     * Returns null when the container has no CPU restriction visible, in
+     * which case host-wide metrics are the meaningful fallback.
+     */
+    private async getAllocatedCpuCount(): Promise<number | null> {
+        // cgroup v2: /sys/fs/cgroup/cpu.max is "<quota|max> <period>".
+        try {
+            const content = (await fs.promises.readFile('/sys/fs/cgroup/cpu.max', 'utf8')).trim();
+            const [quota, period] = content.split(/\s+/);
+            if (quota && quota !== 'max') {
+                const q = Number(quota);
+                const p = Number(period);
+                if (q > 0 && p > 0) {
+                    return q / p;
+                }
+            }
+        } catch {
+            // not cgroup v2
+        }
+        // cgroup v1: cpu.cfs_quota_us / cpu.cfs_period_us.
+        try {
+            const [quotaRaw, periodRaw] = await Promise.all([
+                fs.promises.readFile('/sys/fs/cgroup/cpu/cpu.cfs_quota_us', 'utf8'),
+                fs.promises.readFile('/sys/fs/cgroup/cpu/cpu.cfs_period_us', 'utf8')
+            ]);
+            const q = Number(quotaRaw.trim());
+            const p = Number(periodRaw.trim());
+            if (q > 0 && p > 0) {
+                return q / p;
+            }
+        } catch {
+            // no v1 quota
+        }
+        // No bandwidth quota: fall back to the cpuset (v2 then v1).
+        for (const path of ['/sys/fs/cgroup/cpuset.cpus.effective', '/sys/fs/cgroup/cpuset/cpuset.cpus']) {
+            try {
+                const cpus = (await fs.promises.readFile(path, 'utf8')).trim();
+                if (cpus) {
+                    return this.countCpusInList(cpus);
+                }
+            } catch {
+                // try next
+            }
+        }
+        return null;
+    }
+
+    /** Count entries in a cpuset list like "0-3,8,10-11". */
+    private countCpusInList(list: string): number {
+        let count = 0;
+        for (const part of list.split(',')) {
+            const range = part.split('-').map(Number);
+            if (range.length === 2 && range[1] >= range[0]) {
+                count += range[1] - range[0] + 1;
+            } else if (range.length === 1 && Number.isFinite(range[0])) {
+                count += 1;
+            }
+        }
+        return count > 0 ? count : os.cpus().length;
     }
 
     private async getMemoryMetrics(): Promise<MemoryMetrics> {
