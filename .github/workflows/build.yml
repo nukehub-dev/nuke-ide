@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -32,7 +32,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -44,7 +44,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/electron
@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
@@ -93,7 +93,7 @@ jobs:
         run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NukeIDE-Linux
           path: |
@@ -106,10 +106,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -121,7 +121,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $env:GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -133,7 +133,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~\AppData\Local\electron\Cache
@@ -143,7 +143,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
@@ -168,7 +168,7 @@ jobs:
         run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NukeIDE-Windows
           path: |
@@ -179,10 +179,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -194,7 +194,7 @@ jobs:
         run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -206,7 +206,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Cache Electron
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/Library/Caches/electron
@@ -216,7 +216,7 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Cache plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: plugins
           key: ${{ runner.os }}-plugins-${{ hashFiles('package.json') }}
@@ -243,7 +243,7 @@ jobs:
         run: yarn --cwd applications/electron dist --publish never
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NukeIDE-macOS
           path: |
@@ -261,10 +261,10 @@ jobs:
     steps:
       - name: Checkout
         # Needed for CHANGELOG.md (the release body is extracted from it).
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -290,7 +290,7 @@ jobs:
           cat release-notes.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/**
           draft: true
