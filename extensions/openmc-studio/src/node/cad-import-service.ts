@@ -313,9 +313,14 @@ export class OpenMCCADImportService {
             }
 
             // If no JSON found, return error with partial output
+            const fullStderr = result.stderr ? result.stderr.toString().trim() : '';
+            if (fullStderr) {
+                console.error('[CAD Import] Python subprocess failed with stderr:\n', fullStderr);
+            }
+            const stderrHint = fullStderr ? ` Stderr: ${fullStderr.substring(0, 2000)}` : '';
             return {
                 success: false,
-                error: `Failed to parse CAD import result. Output: ${output.substring(0, 200)}...`,
+                error: `Failed to parse CAD import result. Output: ${output.substring(0, 500)}...${stderrHint}`,
                 warnings
             };
         } catch (error) {

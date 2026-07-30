@@ -169,7 +169,7 @@ class TestConvertToDagmc:
             monkeypatch.setitem(sys.modules, name, None)
         result = nurbs_handler.convert_to_dagmc("model.step")
         assert result["success"] is False
-        assert result["error"].startswith("Required dependency missing:")
+        assert result["error"].startswith("Required dependency missing or incompatible:")
         assert result["output_path"] is None
         assert result["warnings"] == []
 
@@ -215,17 +215,23 @@ class TestConvertToDagmc:
         assert seen["scale"] == 2.0
         assert seen["auto"] is False
 
-    def test_failure_reports_hint(self, monkeypatch, tmp_path):
-        """A failed native conversion surfaces the install-hint error."""
+    def test_failure_reports_actual_reason(self, monkeypatch, tmp_path):
+        """A failed native conversion surfaces the underlying warning, not a generic hint."""
         self._install_ocp_probes(monkeypatch)
-        monkeypatch.setattr(nurbs_handler, "_native_dagmc_conversion", lambda *a: False)
+
+        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust):
+            warnings.append("Failed to read CAD file, status=0")
+            return False
+
+        monkeypatch.setattr(nurbs_handler, "_native_dagmc_conversion", fake_native)
         out = str(tmp_path / "out.h5m")
 
         result = nurbs_handler.convert_to_dagmc("model.step", output_path=out)
 
         assert result["success"] is False
         assert result["output_path"] == out
-        assert "Failed to convert CAD to DAGMC" in result["error"]
+        assert "Failed to read CAD file, status=0" == result["error"]
+        assert result["warnings"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -642,4 +648,6 @@ class TestNativeDagmcConversion:
         )
 
         assert ok is False
-        assert any("Missing dependency for fast DAGMC conversion" in w for w in warnings)
+        assert any(
+            "Missing or incompatible dependency for fast DAGMC conversion" in w for w in warnings
+        )

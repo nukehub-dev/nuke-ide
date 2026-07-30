@@ -27,7 +27,10 @@ try:
     from OCP.TopoDS import TopoDS
 
     HAS_CADQUERY = True
-except ImportError:
+except (ImportError, AttributeError):
+    # AttributeError can be raised by incompatible OCP/CadQuery builds
+    # (e.g. missing TopoDS.Vertex). Treat a broken OCCT stack as unavailable
+    # and fall back to gmsh sampling + fitting.
     HAS_CADQUERY = False
 
 

@@ -147,8 +147,8 @@ def convert_to_dagmc(
         from OCP.BRepMesh import BRepMesh_IncrementalMesh  # noqa: F401  # availability probe
         from OCP.STEPControl import STEPControl_Reader  # noqa: F401  # availability probe
         from pymoab import core as _moab_core  # noqa: F401  # availability probe
-    except ImportError as e:
-        result["error"] = f"Required dependency missing: {e}"
+    except (ImportError, AttributeError) as e:
+        result["error"] = f"Required dependency missing or incompatible: {e}"
         return result
 
     if output_path is None:
@@ -169,7 +169,15 @@ def convert_to_dagmc(
     if h5m_success:
         result["success"] = True
     else:
-        result["error"] = "Failed to convert CAD to DAGMC .h5m. Ensure pymoab or h5py is installed."
+        # Surface the actual failure reason from warnings rather than a
+        # misleading blanket message about pymoab/h5py.
+        if result["warnings"]:
+            result["error"] = result["warnings"].pop(0)
+        else:
+            result["error"] = (
+                "Failed to convert CAD to DAGMC .h5m. "
+                "Ensure the CAD environment has OCP (CadQuery OCC) and pymoab installed."
+            )
 
     return result
 
@@ -193,8 +201,8 @@ def _native_dagmc_conversion(
         from OCP.TopoDS import TopoDS
         from pymoab import core as moab_core
         from pymoab import types
-    except ImportError as e:
-        warnings.append(f"Missing dependency for fast DAGMC conversion: {e}")
+    except (ImportError, AttributeError) as e:
+        warnings.append(f"Missing or incompatible dependency for fast DAGMC conversion: {e}")
         return False
 
     try:

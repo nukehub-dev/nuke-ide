@@ -24,6 +24,7 @@ Options:
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 
 # Ensure our package is importable
@@ -31,12 +32,21 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from cad_conversion import (
-    gmsh_utils,
-    nurbs_handler,
-    surface_extractor,
-    topology,
-)
+try:
+    from cad_conversion import (
+        gmsh_utils,
+        nurbs_handler,
+        surface_extractor,
+        topology,
+    )
+except Exception as _import_err:
+    _err = {
+        "success": False,
+        "error": f"Failed to load CAD conversion module: {_import_err}",
+        "warnings": [traceback.format_exc()],
+    }
+    print(json.dumps(_err))
+    sys.exit(1)
 
 # Optional imports - handled gracefully if not available
 try:
@@ -177,6 +187,8 @@ def convert_cad_to_openmc(
         else:
             result["success"] = False
             result["error"] = dagmc_res.get("error", "DAGMC conversion failed")
+            if dagmc_res.get("warnings"):
+                result["warnings"].extend(dagmc_res["warnings"])
             return result
 
     # ------------------------------------------------------------------
