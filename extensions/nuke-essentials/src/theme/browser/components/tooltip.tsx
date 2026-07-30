@@ -83,6 +83,20 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
         };
     }, []);
 
+    // Hide the tooltip when the page (or any scrolling container) scrolls or
+    // the window resizes: the anchor coordinates are computed at show time and
+    // would otherwise float over unrelated content.
+    React.useEffect(() => {
+        if (!visible) return;
+        const hide = () => setVisible(false);
+        window.addEventListener('scroll', hide, true);
+        window.addEventListener('resize', hide);
+        return () => {
+            window.removeEventListener('scroll', hide, true);
+            window.removeEventListener('resize', hide);
+        };
+    }, [visible]);
+
     const tooltipElement =
         visible && coords ? (
             <div
@@ -100,7 +114,17 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
 
     return (
         <>
-            <span ref={childRef} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
+            <span
+                ref={childRef}
+                onMouseEnter={showTooltip}
+                onMouseLeave={hideTooltip}
+                onMouseDown={hideTooltip}
+                // Hug the anchored content: in stretchy flex-column containers a
+                // plain inline span inflates to the full container width, which
+                // would position the tooltip against that inflated rect instead
+                // of the actual control.
+                style={{ display: 'inline-flex', alignItems: 'center', width: 'fit-content', maxWidth: '100%' }}
+            >
                 {children}
             </span>
             {tooltipElement && ReactDOM.createPortal(tooltipElement, document.body)}
@@ -155,6 +179,19 @@ export const useTooltip = (content: string, position: 'top' | 'bottom' | 'left' 
             if (timerRef.current) clearTimeout(timerRef.current);
         };
     }, []);
+
+    // Hide the tooltip when the page (or any scrolling container) scrolls or
+    // the window resizes: the anchor coordinates are computed at show time.
+    React.useEffect(() => {
+        if (!visible) return;
+        const hide = () => setVisible(false);
+        window.addEventListener('scroll', hide, true);
+        window.addEventListener('resize', hide);
+        return () => {
+            window.removeEventListener('scroll', hide, true);
+            window.removeEventListener('resize', hide);
+        };
+    }, [visible]);
 
     const tooltipElement = visible
         ? ReactDOM.createPortal(

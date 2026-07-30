@@ -66,7 +66,8 @@ export function renderPhysicsSection(host: SimulationDashboardWidget, state: Ope
                             </select>
                             <span className="form-hint">How energy from photon-produced electrons is treated</span>
                         </div>
-                        <div className="form-group checkbox">
+                        <div className="form-group checkbox stacked">
+                            <label aria-hidden="true">&nbsp;</label>
                             <label>
                                 <input
                                     type="checkbox"

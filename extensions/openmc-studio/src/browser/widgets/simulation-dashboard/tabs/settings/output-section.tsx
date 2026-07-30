@@ -95,7 +95,7 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
             <h4>
                 <i className="codicon codicon-output"></i> Output Files
             </h4>
-            <div className="form-row">
+            <div className="checkbox-grid">
                 <div className="form-group checkbox">
                     <label>
                         <input
@@ -140,7 +140,7 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
             <h4>
                 <i className="codicon codicon-symbol-namespace"></i> Sourcepoint
             </h4>
-            <div className="form-row">
+            <div className="checkbox-grid">
                 <div className="form-group checkbox">
                     <label>
                         <input
@@ -161,8 +161,6 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
                         Write to separate file (source.h5)
                     </label>
                 </div>
-            </div>
-            <div className="form-row">
                 <div className="form-group checkbox">
                     <label>
                         <input
@@ -203,41 +201,44 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
             <h4>
                 <i className="codicon codicon-pulse"></i> Particle Tracks
             </h4>
+            {tracks.length > 0 && (
+                <div className="track-row track-header">
+                    <label>Batch</label>
+                    <label>Generation</label>
+                    <label>Particle</label>
+                    <span></span>
+                </div>
+            )}
             {tracks.map((track, trackIndex) => (
-                <div className="form-row" key={trackIndex}>
-                    {(['Batch', 'Generation', 'Particle'] as const).map((label, coord) => (
-                        <div className="form-group" key={label}>
-                            <label>{label}</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={track[coord]}
-                                onChange={(e) => {
-                                    const newTracks = tracks.map((t) => [...t] as [number, number, number]);
-                                    newTracks[trackIndex][coord] = parseInt(e.target.value) || 1;
-                                    host.stateManager.updateSettings({ tracks: newTracks });
-                                }}
-                            />
-                        </div>
+                <div className="track-row" key={trackIndex}>
+                    {([0, 1, 2] as const).map((coord) => (
+                        <input
+                            key={coord}
+                            type="number"
+                            min={1}
+                            value={track[coord]}
+                            onChange={(e) => {
+                                const newTracks = tracks.map((t) => [...t] as [number, number, number]);
+                                newTracks[trackIndex][coord] = parseInt(e.target.value) || 1;
+                                host.stateManager.updateSettings({ tracks: newTracks });
+                            }}
+                        />
                     ))}
-                    <div className="form-group">
-                        <label>&nbsp;</label>
-                        <Tooltip content="Remove track" position="top">
-                            <button
-                                className="theia-button secondary small"
-                                onClick={() =>
-                                    host.stateManager.updateSettings({
-                                        tracks:
-                                            tracks.filter((_, i) => i !== trackIndex).length > 0
-                                                ? tracks.filter((_, i) => i !== trackIndex)
-                                                : undefined
-                                    })
-                                }
-                            >
-                                <i className="codicon codicon-trash"></i>
-                            </button>
-                        </Tooltip>
-                    </div>
+                    <Tooltip content="Remove track" position="top">
+                        <button
+                            className="theia-button secondary small track-delete"
+                            onClick={() =>
+                                host.stateManager.updateSettings({
+                                    tracks:
+                                        tracks.filter((_, i) => i !== trackIndex).length > 0
+                                            ? tracks.filter((_, i) => i !== trackIndex)
+                                            : undefined
+                                })
+                            }
+                        >
+                            <i className="codicon codicon-trash"></i>
+                        </button>
+                    </Tooltip>
                 </div>
             ))}
             <div className="form-row">
@@ -249,7 +250,9 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
                         <i className="codicon codicon-add"></i> Add Track
                     </button>
                 </div>
-                <div className="form-group">
+            </div>
+            <div className="form-row">
+                <div className="form-group max-tracks">
                     <label>Max Tracks</label>
                     <input
                         type="number"

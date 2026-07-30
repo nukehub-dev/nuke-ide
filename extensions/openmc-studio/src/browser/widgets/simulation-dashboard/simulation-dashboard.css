@@ -386,8 +386,8 @@
     padding: 16px;
 }
 
-/* Source Header with Type Select and Main Snap Button */
-.simulation-dashboard .source-header {
+/* Source Editor Header with Spatial Select and Main Snap Button */
+.simulation-dashboard .source-editor-header {
     display: flex;
     align-items: flex-end;
     gap: 12px;
@@ -449,8 +449,8 @@
 }
 
 .simulation-dashboard .quick-snaps-buttons button {
-    flex: 1;
-    min-width: 120px;
+    flex: none;
+    width: auto;
     justify-content: center;
 }
 
@@ -2191,39 +2191,6 @@
 }
 
 /* Depletion Warning Box */
-.simulation-dashboard .depletion-warning-box {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 20px;
-    background: var(--theia-inputValidation-warningBackground);
-    border: 1px solid var(--theia-inputValidation-warningBorder);
-    border-radius: 8px;
-}
-
-.simulation-dashboard .depletion-warning-box > i {
-    font-size: 32px;
-    color: var(--theia-inputValidation-warningBorder);
-    flex-shrink: 0;
-}
-
-.simulation-dashboard .warning-content {
-    flex: 1;
-}
-
-.simulation-dashboard .warning-content strong {
-    display: block;
-    font-size: 14px;
-    color: var(--theia-inputValidation-warningBorder);
-    margin-bottom: 4px;
-}
-
-.simulation-dashboard .warning-content p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--theia-foreground);
-}
-
 /* Depletion Materials Grid */
 .simulation-dashboard .depletion-materials-grid {
     display: grid;
@@ -3149,4 +3116,255 @@
     display: flex;
     align-items: center;
     gap: 6px;
+}
+
+/* Compact setup checklist chips + readiness pill */
+.simulation-dashboard .checklist-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 12px 0;
+}
+
+.simulation-dashboard .checklist-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-editor-background);
+}
+
+.simulation-dashboard .checklist-chip i {
+    font-size: 13px;
+}
+
+.simulation-dashboard .checklist-chip em {
+    font-style: normal;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.simulation-dashboard .checklist-chip.done {
+    border-color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .checklist-chip.done i {
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .checklist-chip.partial {
+    border-color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .checklist-chip.partial i {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .checklist-chip.missing {
+    border-color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .checklist-chip.missing i {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .checklist-chip.optional i {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .readiness-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.simulation-dashboard .readiness-pill.ready {
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
+.simulation-dashboard .readiness-pill.not-ready {
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .restart-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-editor-background);
+    font-size: 12px;
+}
+
+/* Restart option row (particle-restart controls, open tracks) */
+.simulation-dashboard .restart-option {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 8px 0;
+}
+
+.simulation-dashboard .restart-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+/* Kinetics section marker (composed onto the shared settings-section) */
+.simulation-dashboard .kinetics-section {
+    margin-top: 4px;
+}
+
+/* Validation + file summary text */
+.simulation-dashboard .issue-message {
+    font-size: 12px;
+}
+
+.simulation-dashboard .file-path-summary {
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
+}
+
+/* Source card header: chevron toggle + segmented type control */
+.simulation-dashboard .source-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--theia-titleBar-inactiveBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-card.collapsed .source-card-header {
+    border-bottom: none;
+}
+
+.simulation-dashboard .source-card-chevron {
+    cursor: pointer;
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .source-card-title {
+    white-space: nowrap;
+}
+
+.simulation-dashboard .strength-chip {
+    color: var(--theia-descriptionForeground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .segmented-control {
+    display: inline-flex;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-left: auto;
+}
+
+.simulation-dashboard .segmented-control .segment {
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--theia-editor-background);
+    color: var(--theia-descriptionForeground);
+    border: none;
+    cursor: pointer;
+    transition:
+        background 150ms cubic-bezier(0.4, 0, 0.2, 1),
+        color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .segmented-control .segment + .segment {
+    border-left: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .segmented-control .segment:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.simulation-dashboard .segmented-control .segment.active {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.simulation-dashboard .source-card-body {
+    padding: 0;
+}
+
+.simulation-dashboard .constraints-editor {
+    padding: 0 16px 16px;
+}
+
+/* Output section: fixed 2-column checkbox grids */
+.simulation-dashboard .checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 280px));
+    gap: 8px 16px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+/* Output section: particle track row grid */
+.simulation-dashboard .track-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.simulation-dashboard .track-row.track-header {
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .track-row.track-header label {
+    display: block;
+    margin-bottom: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.simulation-dashboard .track-row input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .track-row .track-delete {
+    align-self: center;
+}
+
+/* Output section: natural-width max tracks field */
+.simulation-dashboard .form-group.max-tracks input {
+    max-width: 200px;
 }

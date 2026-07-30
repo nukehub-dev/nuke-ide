@@ -372,3 +372,72 @@
     color: var(--theia-descriptionForeground);
     margin-top: 4px;
 }
+
+/* ============================================================================
+   Warning Box (consistent vertical spacing across tabs)
+   ============================================================================ */
+:is(.simulation-dashboard, .openmc-widget) .depletion-warning-box {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 8px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .depletion-warning-box > i {
+    font-size: 32px;
+    color: var(--theia-inputValidation-warningBorder);
+    flex-shrink: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .warning-content {
+    flex: 1;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .warning-content strong {
+    display: block;
+    font-size: 14px;
+    color: var(--theia-inputValidation-warningBorder);
+    margin-bottom: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .warning-content p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--theia-foreground);
+}
+
+/* Summary chip inside category headers (collapsed section summaries) */
+:is(.simulation-dashboard, .openmc-widget) .category-header .summary-chip {
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-top: 0;
+}
+
+/* Stacked checkbox group: invisible label spacer aligns the checkbox with
+   neighbouring label+input columns */
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox.stacked {
+    flex-direction: column;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox.stacked > label[aria-hidden='true'] {
+    visibility: hidden;
+    user-select: none;
+}
+
+/* Bottom spacing for bare hints ending a section (matches form-group rhythm):
+   hints directly in the section, or in a section wrapper that is not a
+   form-group (hints inside form-groups already get the group's margin). */
+:is(.simulation-dashboard, .openmc-widget) .settings-section > .form-hint:last-child,
+:is(.simulation-dashboard, .openmc-widget) .settings-section > div:not(.form-group) > .form-hint:last-child {
+    margin-bottom: 16px;
+}

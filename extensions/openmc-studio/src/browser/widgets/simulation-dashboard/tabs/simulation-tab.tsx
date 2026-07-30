@@ -30,6 +30,7 @@ import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
+import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
 import { deriveTrackCaptureSettings, isParticleRestartFile, parseParticleRestartFileName } from '../../../../common/particle-restart';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -44,6 +45,9 @@ export class SimulationTabContribution implements DashboardTabContribution {
     readonly icon = 'play';
     readonly order = 6;
 
+    /** Setup checklist collapse override (undefined = auto: collapsed when ready). */
+    private checklistCollapsed?: boolean;
+
     /**
      * Render the Simulation tab with setup checklist, controls, and console output.
      * @param host - Simulation dashboard widget host.
@@ -51,226 +55,72 @@ export class SimulationTabContribution implements DashboardTabContribution {
      * @returns Simulation tab React node.
      */
     render(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
+        const checklist = computeSetupChecklist(state);
+        const readiness = computeReadiness(state);
+        const configuredCount = checklist.filter((item) => item.status === 'done' || item.status === 'partial').length;
+        // Default: expanded when something required is missing, collapsed when ready
+        const checklistCollapsed = this.checklistCollapsed ?? readiness.ready;
+
+        const statusIcon = (status: ChecklistStatus): string =>
+            status === 'done' ? 'check' : status === 'partial' ? 'warning' : status === 'missing' ? 'circle-outline' : 'circle-outline';
+
         return (
             <div className="simulation-tab">
-                {/* Quick Actions */}
+                {/* Setup Checklist (collapsible) */}
                 <div className="quick-actions-panel">
-                    <h4>
-                        <i className="codicon codicon-rocket"></i> Setup Checklist
-                    </h4>
-                    <div className="checklist-grid">
-                        {/* Materials Check - only counts OpenMC materials */}
-                        {(() => {
-                            const openMCMaterialCount = state.materials.length;
-                            const dagmcMaterials = state.settings.dagmcInfo?.materials;
-                            const dagmcMaterialCount = dagmcMaterials ? Object.keys(dagmcMaterials).length : 0;
-                            const hasDagmcFile = !!state.settings.dagmcFile;
-
-                            // For DAGMC mode: materials are 'done' only when user has created OpenMC materials
-                            // that match the DAGMC material names
-                            let isMaterialsDone: boolean;
-                            let statusText: string;
-                            let statusClass: string;
-
-                            if (hasDagmcFile) {
-                                if (dagmcMaterialCount === 0) {
-                                    // No materials in DAGMC file - user needs to check their geometry export
-                                    isMaterialsDone = openMCMaterialCount > 0;
-                                    statusText =
-                                        openMCMaterialCount > 0 ? `${openMCMaterialCount} defined` : '0 defined (no DAGMC mats found)';
-                                    statusClass = openMCMaterialCount > 0 ? 'done' : '';
-                                } else if (openMCMaterialCount === 0) {
-                                    // DAGMC has materials but user hasn't created OpenMC materials yet
-                                    isMaterialsDone = false;
-                                    statusText = `0 / ${dagmcMaterialCount} DAGMC materials configured`;
-                                    statusClass = '';
-                                } else {
-                                    // Check if all DAGMC materials have matching OpenMC materials
-                                    const openMCMaterialNames = new Set(state.materials.map((m) => m.name.toLowerCase()));
-                                    const missingDagmcMats = Object.keys(dagmcMaterials!).filter(
-                                        (dm) => !openMCMaterialNames.has(dm.toLowerCase())
-                                    );
-                                    const definedCount = dagmcMaterialCount - missingDagmcMats.length;
-
-                                    isMaterialsDone = missingDagmcMats.length === 0;
-                                    statusText = `${definedCount} / ${dagmcMaterialCount} DAGMC materials defined`;
-                                    statusClass = isMaterialsDone ? 'done' : 'partial';
-                                }
-                            } else {
-                                // CSG mode
-                                isMaterialsDone = openMCMaterialCount > 0;
-                                statusText = openMCMaterialCount > 0 ? `${openMCMaterialCount} defined` : 'Not configured';
-                                statusClass = isMaterialsDone ? 'done' : '';
-                            }
-
-                            return (
-                                <div className={`checklist-item ${statusClass}`}>
-                                    <div className="checklist-icon">
-                                        <i className={`codicon codicon-${isMaterialsDone ? 'check' : 'circle-outline'}`}></i>
-                                    </div>
-                                    <div className="checklist-content">
-                                        <span className="checklist-title">Materials</span>
-                                        <span className="checklist-status">{statusText}</span>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Geometry Check - includes both CSG and DAGMC geometry */}
-                        {(() => {
-                            const hasCSG = state.geometry.cells.length > 0;
-                            const hasDagmc = !!state.settings.dagmcFile;
-                            const dagmcVolumeCount = state.settings.dagmcInfo?.volumeCount || 0;
-                            const isGeometryDone = hasCSG || hasDagmc;
-
-                            return (
-                                <div className={`checklist-item ${isGeometryDone ? 'done' : ''}`}>
-                                    <div className="checklist-icon">
-                                        <i className={`codicon codicon-${isGeometryDone ? 'check' : 'circle-outline'}`}></i>
-                                    </div>
-                                    <div className="checklist-content">
-                                        <span className="checklist-title">Geometry</span>
-                                        <span className="checklist-status">
-                                            {hasCSG
-                                                ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces`
-                                                : hasDagmc
-                                                  ? `${dagmcVolumeCount} DAGMC volumes`
-                                                  : 'Not configured'}
-                                        </span>
-                                    </div>
-                                    {!hasDagmc &&
-                                        (state.geometry.cells.length === 0 ? (
+                    <div
+                        className="category-header"
+                        onClick={() => {
+                            this.checklistCollapsed = !checklistCollapsed;
+                            host.update();
+                        }}
+                    >
+                        <i className={`codicon codicon-chevron-${checklistCollapsed ? 'right' : 'down'}`}></i>
+                        <span>Setup Checklist</span>
+                        <span className="count-badge">
+                            {configuredCount} / {checklist.length} configured
+                        </span>
+                    </div>
+                    {!checklistCollapsed && (
+                        <div className="checklist-chips">
+                            {checklist.map((item) => (
+                                <span key={item.id} className={`checklist-chip ${item.status}`}>
+                                    <i className={`codicon codicon-${statusIcon(item.status)}`}></i>
+                                    {item.label}
+                                    <em>{item.detail}</em>
+                                    {item.id === 'geometry' &&
+                                        (state.geometry.cells.length === 0 && !state.settings.dagmcFile ? (
                                             <Tooltip content="Create geometry using CSG Builder">
-                                                <button
-                                                    className="theia-button primary small open-csg-btn"
-                                                    onClick={() => host.openCSGBuilder()}
-                                                >
+                                                <button className="theia-button primary small" onClick={() => host.openCSGBuilder()}>
                                                     <i className="codicon codicon-graph"></i> Open CSG Builder
                                                 </button>
                                             </Tooltip>
                                         ) : (
                                             <Tooltip content="Edit geometry in CSG Builder">
-                                                <button
-                                                    className="theia-button secondary small open-csg-btn"
-                                                    onClick={() => host.openCSGBuilder()}
-                                                >
+                                                <button className="theia-button secondary small" onClick={() => host.openCSGBuilder()}>
                                                     <i className="codicon codicon-edit"></i> Edit
                                                 </button>
                                             </Tooltip>
                                         ))}
-                                    {hasDagmc && (
-                                        <Tooltip content="View DAGMC geometry in CSG Builder">
-                                            <button
-                                                className="theia-button secondary small open-csg-btn"
-                                                onClick={() => host.openCSGBuilder()}
-                                            >
-                                                <i className="codicon codicon-file-code"></i> View
-                                            </button>
-                                        </Tooltip>
-                                    )}
-                                </div>
-                            );
-                        })()}
-
-                        <div className={`checklist-item ${state.settings.sources.length > 0 ? 'done' : ''}`}>
-                            <div className="checklist-icon">
-                                <i className={`codicon codicon-${state.settings.sources.length > 0 ? 'check' : 'circle-outline'}`}></i>
-                            </div>
-                            <div className="checklist-content">
-                                <span className="checklist-title">Source</span>
-                                <span className="checklist-status">
-                                    {state.settings.sources.length > 0 ? `${state.settings.sources.length} defined` : 'Not configured'}
                                 </span>
-                            </div>
+                            ))}
                         </div>
+                    )}
 
-                        {/* Tallies Check */}
-                        {(() => {
-                            const tallies = state.tallies || [];
-                            const hasTallies = tallies.length > 0;
-
-                            return (
-                                <div className={`checklist-item ${hasTallies ? 'done' : ''}`}>
-                                    <div className="checklist-icon">
-                                        <i className={`codicon codicon-${hasTallies ? 'check' : 'circle-outline'}`}></i>
-                                    </div>
-                                    <div className="checklist-content">
-                                        <span className="checklist-title">Tallies</span>
-                                        <span className="checklist-status">
-                                            {hasTallies ? `${tallies.length} defined` : 'Optional - none configured'}
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Depletion Check */}
-                        {(() => {
-                            const depletion = state.depletion;
-                            const isEnabled = !!depletion?.enabled;
-                            const stepCount = depletion?.timeSteps?.length || 0;
-                            const isDone = !isEnabled || (isEnabled && stepCount > 0 && !!depletion?.chainFile);
-
-                            return (
-                                <div className={`checklist-item ${isEnabled ? (isDone ? 'done' : 'partial') : ''}`}>
-                                    <div className="checklist-icon">
-                                        <i
-                                            className={`codicon codicon-${isEnabled ? (isDone ? 'check' : 'warning') : 'circle-outline'}`}
-                                        ></i>
-                                    </div>
-                                    <div className="checklist-content">
-                                        <span className="checklist-title">Depletion</span>
-                                        <span className="checklist-status">
-                                            {!isEnabled
-                                                ? 'Disabled'
-                                                : isDone
-                                                  ? `Enabled (${stepCount} steps)`
-                                                  : `Enabled (Missing ${!depletion?.chainFile ? 'chain file' : 'steps'})`}
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Variance Reduction Check */}
-                        {(() => {
-                            const vr = state.varianceReduction;
-                            const hasVR =
-                                !!vr &&
-                                (vr.survivalBiasing ||
-                                    vr.weightWindows ||
-                                    vr.sourceBiasing ||
-                                    vr.weightWindowGenerator ||
-                                    vr.cutoff?.weight !== undefined);
-
-                            return (
-                                <>
-                                    <div className={`checklist-item ${hasVR ? 'done' : ''}`}>
-                                        <div className="checklist-icon">
-                                            <i className={`codicon codicon-${hasVR ? 'check' : 'circle-outline'}`}></i>
-                                        </div>
-                                        <div className="checklist-content">
-                                            <span className="checklist-title">Variance Reduction</span>
-                                            <span className="checklist-status">{hasVR ? 'Enabled' : 'Optional - none configured'}</span>
-                                        </div>
-                                    </div>
-                                </>
-                            );
-                        })()}
-                    </div>
-                </div>
-
-                <div className="simulation-status">
+                    {/* Slim readiness indicator */}
                     {host.isRunning ? (
                         <div className="status-running">
                             <i className="codicon codicon-sync codicon-spin"></i>
                             <span>Simulation running...</span>
                         </div>
+                    ) : readiness.ready ? (
+                        <span className="readiness-pill ready">
+                            <i className="codicon codicon-check"></i> Ready to run
+                        </span>
                     ) : (
-                        <div className="status-ready">
-                            <i className="codicon codicon-check"></i>
-                            <span>Ready to run</span>
-                        </div>
+                        <span className="readiness-pill not-ready">
+                            <i className="codicon codicon-warning"></i> Not ready — missing: {readiness.missing.join(', ')}
+                        </span>
                     )}
                 </div>
 
@@ -297,29 +147,6 @@ export class SimulationTabContribution implements DashboardTabContribution {
                         </div>
                     </div>
                 )}
-
-                <div className="restart-option">
-                    <Tooltip content="Restart the simulation from a previous statepoint file (openmc -r)">
-                        <button className="theia-button secondary" onClick={() => this.browseRestartFile(host)} disabled={host.isRunning}>
-                            <i className="codicon codicon-history"></i>
-                            Restart from Statepoint
-                        </button>
-                    </Tooltip>
-                    {state.settings.restartFile && (
-                        <span className="restart-file">
-                            {state.settings.restartFile.split('/').pop()}
-                            <Tooltip content="Clear restart file">
-                                <button
-                                    className="theia-button secondary small"
-                                    onClick={() => host.stateManager.updateSettings({ restartFile: undefined })}
-                                    disabled={host.isRunning}
-                                >
-                                    <i className="codicon codicon-close"></i>
-                                </button>
-                            </Tooltip>
-                        </span>
-                    )}
-                </div>
 
                 {isParticleRestartFile(state.settings.restartFile) && this.renderParticleRestartSection(host, state)}
 
@@ -362,7 +189,33 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             Optimization
                         </button>
                     </Tooltip>
+                    <Tooltip content="Restart the simulation from a previous statepoint file (openmc -r)">
+                        <button
+                            className="theia-button secondary large"
+                            onClick={() => this.browseRestartFile(host)}
+                            disabled={host.isRunning}
+                        >
+                            <i className="codicon codicon-history"></i>
+                            Restart…
+                        </button>
+                    </Tooltip>
                 </div>
+
+                {state.settings.restartFile && (
+                    <span className="restart-file restart-chip">
+                        <i className="codicon codicon-history"></i>
+                        {state.settings.restartFile.split('/').pop()}
+                        <Tooltip content="Clear restart file">
+                            <button
+                                className="theia-button secondary small"
+                                onClick={() => host.stateManager.updateSettings({ restartFile: undefined })}
+                                disabled={host.isRunning}
+                            >
+                                <i className="codicon codicon-close"></i>
+                            </button>
+                        </Tooltip>
+                    </span>
+                )}
 
                 {host.validationIssues.length > 0 && (
                     <div className="validation-results">

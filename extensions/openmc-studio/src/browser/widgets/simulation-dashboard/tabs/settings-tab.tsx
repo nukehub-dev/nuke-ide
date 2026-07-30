@@ -46,7 +46,7 @@ import {
     changeSourceType,
     renderFileSourceEditor,
     renderCompiledSourceEditor,
-    renderConstraintsEditor,
+    ConstraintsEditor,
     renderSurfaceSourceSection
 } from './settings/source-details';
 import { renderOutputSection } from './settings/output-section';
@@ -63,6 +63,37 @@ export class SettingsTabContribution implements DashboardTabContribution {
     readonly label = 'Settings';
     readonly icon = 'settings';
     readonly order = 0;
+
+    /** Indices of collapsed source cards (persisted per card index). */
+    private readonly collapsedSources = new Set<number>();
+
+    /**
+     * Whether a source card is collapsed. Default: expanded for the first
+     * source, collapsed for the others when there are multiple sources.
+     * @param index - Source index.
+     * @param totalSources - Total number of sources.
+     * @returns Whether the card should render collapsed.
+     */
+    private isSourceCardCollapsed(index: number, totalSources: number): boolean {
+        if (this.collapsedSources.has(index)) {
+            return true;
+        }
+        return index > 0 && totalSources > 1;
+    }
+
+    /**
+     * Toggle a source card's collapsed state.
+     * @param host - Simulation dashboard widget host.
+     * @param index - Source index.
+     */
+    private toggleSourceCard(host: SimulationDashboardWidget, index: number): void {
+        if (this.collapsedSources.has(index)) {
+            this.collapsedSources.delete(index);
+        } else {
+            this.collapsedSources.add(index);
+        }
+        host.update();
+    }
 
     /**
      * Render the Settings tab with run configuration and source definitions.
@@ -296,31 +327,48 @@ export class SettingsTabContribution implements DashboardTabContribution {
                             </p>
                         </div>
                     ) : (
-                        settings.sources.map((source, index) => (
-                            <div key={index} className="source-card">
-                                <div className="source-header">
-                                    <span>Source {index + 1}</span>
-                                    <select
-                                        value={source.type ?? 'independent'}
-                                        onChange={(e) => changeSourceType(host, index, e.target.value as OpenMCSourceType)}
-                                    >
-                                        <option value="independent">Independent</option>
-                                        <option value="file">File</option>
-                                        <option value="compiled">Compiled</option>
-                                    </select>
-                                    <Tooltip content="Remove Source" position="top">
-                                        <button className="theia-button secondary small" onClick={() => this.removeSource(host, index)}>
-                                            <i className="codicon codicon-trash"></i>
-                                        </button>
-                                    </Tooltip>
+                        settings.sources.map((source, index) => {
+                            const sourceType = source.type ?? 'independent';
+                            const isCollapsed = this.isSourceCardCollapsed(index, settings.sources.length);
+                            return (
+                                <div key={index} className={`source-card${isCollapsed ? ' collapsed' : ''}`}>
+                                    <div className="source-card-header">
+                                        <i
+                                            className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'} source-card-chevron`}
+                                            onClick={() => this.toggleSourceCard(host, index)}
+                                        ></i>
+                                        <span className="source-card-title">Source {index + 1}</span>
+                                        <span className="strength-chip">×{source.strength ?? 1.0}</span>
+                                        <div className="segmented-control">
+                                            {(['independent', 'file', 'compiled'] as const).map((type) => (
+                                                <button
+                                                    key={type}
+                                                    className={`segment${sourceType === type ? ' active' : ''}`}
+                                                    onClick={() => changeSourceType(host, index, type as OpenMCSourceType)}
+                                                >
+                                                    {type === 'independent' ? 'Independent' : type === 'file' ? 'File' : 'Compiled'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <Tooltip content="Remove Source" position="top">
+                                            <button className="theia-button secondary small" onClick={() => this.removeSource(host, index)}>
+                                                <i className="codicon codicon-trash"></i>
+                                            </button>
+                                        </Tooltip>
+                                    </div>
+                                    {!isCollapsed && (
+                                        <div className="source-card-body">
+                                            {sourceType === 'independent' &&
+                                                this.renderSourceEditor(host, source as OpenMCIndependentSource, index)}
+                                            {sourceType === 'file' && renderFileSourceEditor(host, source as OpenMCFileSource, index)}
+                                            {sourceType === 'compiled' &&
+                                                renderCompiledSourceEditor(host, source as OpenMCCompiledSource, index)}
+                                            <ConstraintsEditor host={host} source={source} index={index} />
+                                        </div>
+                                    )}
                                 </div>
-                                {(source.type ?? 'independent') === 'independent' &&
-                                    this.renderSourceEditor(host, source as OpenMCIndependentSource, index)}
-                                {source.type === 'file' && renderFileSourceEditor(host, source as OpenMCFileSource, index)}
-                                {source.type === 'compiled' && renderCompiledSourceEditor(host, source as OpenMCCompiledSource, index)}
-                                {renderConstraintsEditor(host, source, index)}
-                            </div>
-                        ))
+                            );
+                        })
                     )}
 
                     {renderSurfaceSourceSection(host, state)}
@@ -369,7 +417,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
         return (
             <div className="source-editor">
                 {/* Source Header */}
-                <div className="source-header">
+                <div className="source-editor-header">
                     <div className="source-type-select">
                         <label>Spatial Distribution</label>
                         <select

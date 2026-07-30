@@ -237,30 +237,33 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                     />
                                     <span className="form-hint">0 disables diagonal stabilization</span>
                                 </div>
-                                <div className="form-group checkbox">
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={randomRay.volumeNormalizedFluxTallies ?? false}
-                                            onChange={(e) => updateRandomRay({ volumeNormalizedFluxTallies: e.target.checked })}
-                                        />
-                                        Volume-normalized flux tallies
-                                    </label>
-                                </div>
-                                <div className="form-group checkbox">
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={randomRay.adjoint ?? false}
-                                            onChange={(e) => updateRandomRay({ adjoint: e.target.checked })}
-                                        />
-                                        Adjoint flux mode
-                                    </label>
-                                    <span className="form-hint">
-                                        Runs a forward then an adjoint solve — used by FW-CADIS weight window generation (see the Variance
-                                        Reduction tab)
-                                    </span>
-                                </div>
+                            </div>
+                            <div className="form-group checkbox">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={randomRay.volumeNormalizedFluxTallies ?? false}
+                                        onChange={(e) => updateRandomRay({ volumeNormalizedFluxTallies: e.target.checked })}
+                                    />
+                                    Volume-normalized flux tallies
+                                </label>
+                                <span className="form-hint">
+                                    Report flux tallies in units of cm/cm³ (normalized per source-region volume)
+                                </span>
+                            </div>
+                            <div className="form-group checkbox">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={randomRay.adjoint ?? false}
+                                        onChange={(e) => updateRandomRay({ adjoint: e.target.checked })}
+                                    />
+                                    Adjoint flux mode
+                                </label>
+                                <span className="form-hint">
+                                    Runs a forward then an adjoint solve — used by FW-CADIS weight window generation (see the Variance
+                                    Reduction tab)
+                                </span>
                             </div>
 
                             <h4>
