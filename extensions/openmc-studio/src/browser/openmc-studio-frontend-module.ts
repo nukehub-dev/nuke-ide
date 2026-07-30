@@ -39,6 +39,7 @@ import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider, FrontendApplicationContribution, OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { MenuContribution } from '@theia/core/lib/common/menu';
+import { bindContributionProvider } from '@theia/core/lib/common/contribution-provider';
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
 // Protocol imports
@@ -191,6 +192,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // ============================================================================
     // Dashboard Tabs
     // ============================================================================
+    bindContributionProvider(bind, DashboardTabContribution);
     bind(DashboardTabRegistry).toSelf().inSingletonScope();
     bind(DashboardTabContribution).to(SettingsTabContribution).inSingletonScope();
     bind(DashboardTabContribution).to(MaterialsTabContribution).inSingletonScope();
