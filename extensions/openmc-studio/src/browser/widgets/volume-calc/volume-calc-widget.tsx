@@ -269,7 +269,7 @@ export class VolumeCalcWidget extends ReactWidget {
                   : state.geometry.universes.map((u) => ({ id: u.id, label: u.name || `Universe ${u.id}` }));
 
         return (
-            <div className="volume-calc-widget">
+            <div className="volume-calc-widget openmc-widget">
                 <div className="settings-section">
                     <h3>
                         <i className="codicon codicon-symbol-ruler"></i> Domains

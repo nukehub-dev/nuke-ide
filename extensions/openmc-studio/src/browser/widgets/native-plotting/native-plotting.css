@@ -91,3 +91,9 @@
 .native-plotting-widget .generated-files-list li {
     padding: 4px 0;
 }
+
+.native-plotting-widget .plot-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}

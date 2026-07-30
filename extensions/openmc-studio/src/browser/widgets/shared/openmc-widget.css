@@ -1,0 +1,258 @@
+/* ============================================================================
+   OpenMC Studio Shared Widget Design System
+   ============================================================================
+   Generic form/section/button styles shared by all OpenMC Studio widgets.
+   Scoped with :is() so they apply both inside the Simulation Dashboard
+   (.simulation-dashboard, unchanged) and standalone widgets that add the
+   .openmc-widget class to their root element.
+
+   Rules here were moved out of simulation-dashboard.css; selectors are
+   intentionally identical apart from the :is() scoping.
+   ============================================================================ */
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transition: box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: section-slide-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    animation-fill-mode: both;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section:nth-child(1) {
+    animation-delay: 0.05s;
+}
+:is(.simulation-dashboard, .openmc-widget) .settings-section:nth-child(2) {
+    animation-delay: 0.1s;
+}
+:is(.simulation-dashboard, .openmc-widget) .settings-section:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section:hover {
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section h3 i {
+    color: var(--theia-focusBorder);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .settings-section h3 button {
+    margin-left: auto;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group {
+    margin-bottom: 16px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='text'],
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number'],
+:is(.simulation-dashboard, .openmc-widget) .form-group select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+}
+
+/* Hide number input spinners to prevent overflow */
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number']::-webkit-outer-spin-button,
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number'] {
+    -moz-appearance: textfield;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group input:focus,
+:is(.simulation-dashboard, .openmc-widget) .form-group select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: normal;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox input[type='checkbox'] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--theia-focusBorder);
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox input[type='checkbox']:hover {
+    transform: scale(1.1);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: nowrap;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-row .form-group {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-row .form-group input,
+:is(.simulation-dashboard, .openmc-widget) .form-row .form-group select {
+    margin-top: auto;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--theia-descriptionForeground);
+    animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .empty-state i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.3;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .empty-state p {
+    margin: 0;
+    font-size: 14px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button {
+    min-width: auto !important;
+    margin-left: 0;
+    padding: 8px 16px;
+    border: 1px solid var(--theia-button-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button.primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-button-border);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button.primary:hover:not(:disabled) {
+    background: var(--theia-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button.secondary {
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    border-color: var(--theia-button-secondaryBorder);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button.secondary:hover:not(:disabled) {
+    background: var(--theia-button-secondaryHoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button.small {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .theia-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Large button variant (dashboard scopes its own under .simulation-actions) */
+:is(.simulation-dashboard, .openmc-widget) .theia-button.large {
+    font-size: 15px;
+}
+
+/* Checkbox list rows (score/filter/domain selectors) */
+:is(.simulation-dashboard, .openmc-widget) .checkbox-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .score-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    cursor: pointer;
+}

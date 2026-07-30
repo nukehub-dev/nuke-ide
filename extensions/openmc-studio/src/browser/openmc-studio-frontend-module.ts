@@ -89,6 +89,7 @@ import { MgxsGeneratorWidget } from './widgets/mgxs-generator/mgxs-generator-wid
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
 // Import CSS
+import './widgets/shared/openmc-widget.css';
 import './widgets/simulation-dashboard/simulation-dashboard.css';
 import './widgets/csg-builder/csg-builder.css';
 import './widgets/dagmc-editor/dagmc-editor.css';

@@ -198,7 +198,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
      */
     protected render(): React.ReactNode {
         return (
-            <div className="mgxs-generator-widget">
+            <div className="mgxs-generator-widget openmc-widget">
                 <div className="settings-section">
                     <h3>
                         <i className="codicon codicon-library"></i> Multi-Group Cross Section Library

@@ -539,7 +539,7 @@ export class NativePlottingWidget extends ReactWidget {
         const selectedPlot = plots.find((p) => p.id === this.selectedPlotId);
 
         return (
-            <div className="native-plotting-widget">
+            <div className="native-plotting-widget openmc-widget">
                 <div className="plot-list-panel">
                     <div className="plot-list-header">
                         <h4>

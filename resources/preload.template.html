@@ -981,6 +981,11 @@
               const progressText = document.getElementById('progress-text');
               const loadingStatus = document.getElementById('loading-status');
 
+              // Splash DOM is gone (replaced after load) — stop the loop without rescheduling
+              if (!progressFill || !progressText || !loadingStatus) {
+                return;
+              }
+
               if (currentStage < loadingStages.length) {
                 const stage = loadingStages[currentStage];
                 progressFill.style.width = stage.percent + '%';
