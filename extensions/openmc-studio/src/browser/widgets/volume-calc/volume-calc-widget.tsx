@@ -90,6 +90,9 @@ export class VolumeCalcWidget extends ReactWidget {
 
         this.stateManager.onStateChange(() => this.update());
         this.stateManager.onStateReload(() => this.update());
+
+        // ReactWidget only renders on update(); schedule the initial paint explicitly.
+        this.update();
     }
 
     /**
