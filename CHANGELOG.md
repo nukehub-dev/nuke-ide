@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Phase 5: comprehensive OpenMC feature completeness (`.crush/PHASE5_PLAN_V2.md`).
+
+### Added
+
+- openmc-studio: simulation dashboard tabs are now modular contributions behind a
+  `DashboardTabRegistry` (the monolithic dashboard widget was split into per-tab
+  modules), and `.nuke-openmc` project files carry schema version 1.1.0 with a
+  chained migration hook.
+- openmc-studio: full source model — file sources, compiled sources, multi-source
+  lists with strengths, source constraints, and surface source write/read.
+- openmc-studio: output-control settings (statepoint/sourcepoint batches, track
+  files, collision tracks), photon physics (`electron_treatment`,
+  `atomic_relaxation`), Shannon entropy mesh, and restart-from-statepoint runs.
+- openmc-studio: complete tally score catalog (79 scores incl. photon,
+  particle-production, and IFP kinetics scores) and descriptor-driven filter
+  editors for all 23 supported filter types.
+- openmc-studio: IFP kinetics workflow (`ifp_n_generation`, auto-generated IFP
+  tallies with optional per-delayed-group β_eff) with validation.
+- openmc-studio: volume-calculation window with trigger support and
+  adopt-into-materials; native plotting window for slice, voxel, solid and
+  wireframe ray-trace plots (PNG output, voxel→VTK handoff).
+- openmc-studio: advanced depletion — `IndependentOperator` (file or
+  generate-from-model MicroXS), integrator transfer rates, all normalization
+  modes with per-nuclide fission Q, and `diff_burnable_mats`.
+- openmc-studio: macroscopic (multigroup) materials and NCrystal material import
+  (optional dependency, env-gated).
+- openmc-studio: random ray support — dedicated dashboard tab, MGXS generator
+  window (`convert_to_multigroup`/`convert_to_random_ray`), and FW-CADIS weight
+  window generation via the adjoint workflow.
+- openmc-studio: DAGMC material overrides (by-name replace, per-cell assignment),
+  `auto_geom_ids`/`auto_mat_ids` toggles, and sync-for-depletion.
+- openmc-studio: single-particle restart runs with track capture (`-t`) and
+  post-run track handoff.
+- nuke-visualizer: shared HDF5 output readers and viewers for `tracks*.h5`,
+  `collision_track.h5`, and `weight_windows.h5` (convert→VTK→trame pipeline),
+  registered through a new `OutputViewerRegistry`.
+- nuke-visualizer: IFP kinetics tab in the statepoint viewer (β_eff/Λ_eff with
+  uncertainties, CSV export), particle-restart preview viewer, and a random-ray
+  results viewer with initial-coloring support (`base.serve --color-by`).
+
+### Fixed
+
+- openmc-studio: `tallies.xml` and `plots.xml` are now parsed back on XML import
+  (previously export-only), and plots use the real OpenMC element format.
+- openmc-studio: tallies emit a single space-joined `<nuclides>` element (the
+  repeated `<nuclide>` form was silently ignored by OpenMC), and tally codegen
+  emits real filter constructors instead of invalid `openmc.Filter()` calls.
+- openmc-studio: weight window generators use the real
+  `<weight_window_generators>` settings.xml format.
+
 ## [0.1.3] - 2026-07-28
 
 First tagged release.

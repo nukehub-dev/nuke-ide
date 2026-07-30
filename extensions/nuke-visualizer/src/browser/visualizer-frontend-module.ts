@@ -70,6 +70,18 @@ import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoin
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 import { HealthCheckFramework } from './services/health-check-framework';
 import { VisualizerHealthService } from './services/visualizer-health-service';
+import { bindContributionProvider } from '@theia/core/lib/common/contribution-provider';
+import { OutputViewerContribution, OutputViewerRegistry } from './output-viewer/output-viewer-registry';
+import { OpenMCTracksViewerWidget } from './plugins/openmc/widgets/tracks/openmc-tracks-viewer-widget';
+import { OpenMCCollisionTrackViewerWidget } from './plugins/openmc/widgets/collision-track/openmc-collision-track-viewer-widget';
+import { OpenMCWeightWindowsViewerWidget } from './plugins/openmc/widgets/weight-windows/openmc-weight-windows-viewer-widget';
+import { OpenMCTracksViewerContribution } from './plugins/openmc/contributions/openmc-tracks-viewer-contribution';
+import { OpenMCCollisionTrackViewerContribution } from './plugins/openmc/contributions/openmc-collision-track-viewer-contribution';
+import { OpenMCWeightWindowsViewerContribution } from './plugins/openmc/contributions/openmc-weight-windows-viewer-contribution';
+import { OpenMCRandomRayResultsWidget } from './plugins/openmc/widgets/random-ray/random-ray-results-widget';
+import { OpenMCRandomRayCommands } from './plugins/openmc/commands/random-ray-commands';
+import { OpenMCParticleRestartWidget } from './plugins/openmc/widgets/particle-restart/openmc-particle-restart-widget';
+import { OpenMCParticleRestartViewerContribution } from './plugins/openmc/contributions/openmc-particle-restart-viewer-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -79,6 +91,99 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(VisualizerHealthService).toSelf().inSingletonScope();
     // Bind preferences
     bindVisualizerPreferences(bind);
+
+    // Output viewer registry: OpenMC output-file viewers (tracks, collision
+    // tracks, weight windows, ...) register as OutputViewerContributions and
+    // are consulted first by VisualizerOpenHandler and OpenMCContribution.
+    bindContributionProvider(bind, OutputViewerContribution);
+    bind(OutputViewerRegistry).toSelf().inSingletonScope();
+
+    // Bind tracks viewer widget
+    bind(OpenMCTracksViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCTracksViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCTracksViewerWidget>(OpenMCTracksViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCTracksViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCTracksViewerContribution);
+
+    // Bind collision track viewer widget
+    bind(OpenMCCollisionTrackViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCCollisionTrackViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCCollisionTrackViewerWidget>(OpenMCCollisionTrackViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCCollisionTrackViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCCollisionTrackViewerContribution);
+
+    // Bind weight windows viewer widget
+    bind(OpenMCWeightWindowsViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCWeightWindowsViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCWeightWindowsViewerWidget>(OpenMCWeightWindowsViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCWeightWindowsViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCWeightWindowsViewerContribution);
+
+    // Bind random-ray results widget + open command (no OutputViewerContribution:
+    // random-ray outputs are plain <name>.vtk files with no distinctive pattern,
+    // so they keep the standard VTK handler and this command is the opt-in)
+    bind(OpenMCRandomRayResultsWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCRandomRayResultsWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCRandomRayResultsWidget>(OpenMCRandomRayResultsWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCRandomRayCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCRandomRayCommands);
+
+    // Bind particle restart preview widget (tabular — no trame pipeline)
+    bind(OpenMCParticleRestartWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCParticleRestartWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCParticleRestartWidget>(OpenMCParticleRestartWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCParticleRestartViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCParticleRestartViewerContribution);
 
     // Bind backend service proxy with client implementation for logging
     bind(VisualizerBackendService)

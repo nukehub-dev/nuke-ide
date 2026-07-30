@@ -172,25 +172,28 @@ def run_depletion(args):
 
     model = openmc.model.Model(geometry=geometry, materials=materials, settings=settings)
 
+    # Parse structured options
+    fission_q = json.loads(args.fission_q) if getattr(args, "fission_q", None) else None
+    transfer_rates = (
+        json.loads(args.transfer_rates) if getattr(args, "transfer_rates", None) else []
+    )
+
     # Create the operator
-    if args.operator == "coupled":
+    chain = openmc.deplete.Chain.from_xml(chain_file)
+    if args.operator == "independent":
+        operator = build_independent_operator(args, model, materials, chain, fission_q)
+    else:
         log_progress("Creating CoupledOperator...")
-        chain = openmc.deplete.Chain.from_xml(chain_file)
-        operator = openmc.deplete.CoupledOperator(
-            model, chain, normalization_mode=args.normalization or "fission-q"
-        )
-    elif args.operator == "independent":
-        log_progress("Creating IndependentOperator...")
-        # For independent operator, we need to provide flux data
-        raise NotImplementedError(
-            "Independent operator requires pre-computed flux data. Use 'coupled' operator instead."
-        )
-    else:  # openmc (default)
-        log_progress("Creating OpenMC operator...")
-        chain = openmc.deplete.Chain.from_xml(chain_file)
-        operator = openmc.deplete.CoupledOperator(
-            model, chain, normalization_mode=args.normalization or "fission-q"
-        )
+        # Only pass W6 kwargs when enabled to keep the default call shape stable
+        coupled_kwargs = {"normalization_mode": args.normalization or "fission-q"}
+        if getattr(args, "diff_burnable_mats", False):
+            coupled_kwargs["diff_burnable_mats"] = True
+            coupled_kwargs["diff_volume_method"] = getattr(
+                args, "diff_volume_method", "divide equally"
+            )
+        if fission_q is not None:
+            coupled_kwargs["fission_q"] = fission_q
+        operator = openmc.deplete.CoupledOperator(model, chain, **coupled_kwargs)
 
     # Create the integrator (solver)
     # Map solver names to OpenMC integrator class names
@@ -224,6 +227,22 @@ def run_depletion(args):
         time_steps,
         power=total_power,
     )
+
+    # Apply external transfer rates (Integrator.add_transfer_rate)
+    for tr in transfer_rates:
+        units = tr.get("units", "1/s")
+        destination = tr.get("destinationMaterial")
+        log_progress(
+            f"Transfer rate: {tr['element']} from material {tr['material']} at {tr['rate']} {units}"
+            + (f" to material {destination}" if destination else "")
+        )
+        integrator.add_transfer_rate(
+            tr["material"],
+            [tr["element"]],
+            tr["rate"],
+            transfer_rate_units=units,
+            destination_material=destination,
+        )
 
     # Run depletion
     log_progress("Starting depletion simulation...")
@@ -285,6 +304,82 @@ def run_depletion(args):
     return summary
 
 
+def load_flux_file(path):
+    """Load a flux array from a .npy or delimiter-separated text file.
+
+    Args:
+        path: Path to the flux file (.npy, .csv, or whitespace-separated text).
+
+    Returns:
+        numpy.ndarray with the group fluxes.
+    """
+    import numpy as np
+
+    if str(path).endswith(".npy"):
+        return np.load(path)
+    return np.loadtxt(path, delimiter="," if str(path).endswith(".csv") else None)
+
+
+def build_independent_operator(args, model, materials, chain, fission_q):
+    """Create an IndependentOperator from file inputs or a model transport solve.
+
+    Args:
+        args: Parsed command-line arguments.
+        model: The loaded openmc.Model.
+        materials: Loaded openmc.Materials.
+        chain: Loaded openmc.deplete.Chain.
+        fission_q: Optional custom fission Q dictionary.
+
+    Returns:
+        openmc.deplete.IndependentOperator instance.
+
+    Raises:
+        ValueError: If no depletable materials exist or the file inputs do not
+            match the depletable material count.
+    """
+    import openmc
+
+    depletable = [m for m in materials if m.depletable]
+    if not depletable:
+        raise ValueError("Independent operator requires at least one depletable material")
+
+    if getattr(args, "generate_microxs", False):
+        log_progress(
+            "Computing multigroup fluxes and cross sections via transport solve (this may take a while)..."
+        )
+        fluxes, micros = openmc.deplete.get_microxs_and_flux(model, depletable, chain_file=chain)
+    else:
+        flux_files = (
+            [f.strip() for f in args.flux_files.split(",")]
+            if getattr(args, "flux_files", None)
+            else []
+        )
+        microxs_files = (
+            [f.strip() for f in args.microxs_files.split(",")]
+            if getattr(args, "microxs_files", None)
+            else []
+        )
+        if len(flux_files) != len(depletable) or len(microxs_files) != len(depletable):
+            raise ValueError(
+                f"Independent operator needs one flux file and one MicroXS file per depletable material "
+                f"({len(depletable)} needed, got {len(flux_files)} flux and {len(microxs_files)} MicroXS files), "
+                "or use --generate-microxs"
+            )
+        log_progress(f"Loading fluxes and MicroXS for {len(depletable)} depletable material(s)...")
+        fluxes = [load_flux_file(f) for f in flux_files]
+        micros = [openmc.deplete.MicroXS.from_csv(f) for f in microxs_files]
+
+    log_progress(f"Creating IndependentOperator for {len(depletable)} depletable material(s)...")
+    return openmc.deplete.IndependentOperator(
+        depletable,
+        fluxes,
+        micros,
+        chain,
+        normalization_mode=args.normalization or "fission-q",
+        fission_q=fission_q,
+    )
+
+
 def main():
     """Main entry point for CLI usage.
 
@@ -327,6 +422,38 @@ Examples:
         help="Transport normalization mode",
     )
     parser.add_argument("--mpi-processes", type=int, help="Number of MPI processes")
+    parser.add_argument(
+        "--flux-files",
+        help="Comma-separated flux file paths for the independent operator (one per depletable material)",
+    )
+    parser.add_argument(
+        "--microxs-files",
+        help="Comma-separated MicroXS CSV file paths for the independent operator (one per depletable material)",
+    )
+    parser.add_argument(
+        "--generate-microxs",
+        action="store_true",
+        help="Compute fluxes and micro cross sections from the model via a transport solve",
+    )
+    parser.add_argument(
+        "--transfer-rates",
+        help='JSON list of transfer rates: [{"material": 1, "element": "U", "rate": 1e-5, "units": "1/s", "destinationMaterial": 2}]',
+    )
+    parser.add_argument(
+        "--fission-q",
+        help='JSON dict of custom fission Q values per nuclide [eV]: {"U235": 2.02e8}',
+    )
+    parser.add_argument(
+        "--diff-burnable-mats",
+        action="store_true",
+        help="Distinguish burnable materials that share the same composition (higher memory/runtime cost)",
+    )
+    parser.add_argument(
+        "--diff-volume-method",
+        choices=["divide equally", "match cell"],
+        default="divide equally",
+        help="How volumes are assigned to differentiated materials",
+    )
 
     args = parser.parse_args()
 

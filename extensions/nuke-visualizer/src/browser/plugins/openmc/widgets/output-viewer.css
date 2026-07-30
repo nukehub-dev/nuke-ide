@@ -1,0 +1,184 @@
+/* ============================================================================
+   OpenMC Output File Viewers (tracks / collision track / weight windows)
+   ============================================================================ */
+
+.openmc-output-viewer-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    overflow: hidden;
+}
+
+.openmc-output-viewer-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.openmc-output-viewer-file {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+}
+
+.openmc-output-viewer-reload {
+    display: flex;
+    align-items: center;
+}
+
+.openmc-output-viewer-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.openmc-output-viewer-control select,
+.openmc-output-viewer-control input {
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.openmc-output-viewer-control input[type='number'] {
+    width: 70px;
+}
+
+.openmc-output-viewer-control input[type='text'] {
+    width: 120px;
+}
+
+.openmc-output-viewer-hint {
+    padding: 4px 16px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+}
+
+.openmc-output-viewer-iframe {
+    flex: 1;
+    min-height: 0;
+    border: none;
+    width: 100%;
+}
+
+.openmc-output-viewer-status {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--theia-descriptionForeground);
+    font-size: 13px;
+    padding: 24px;
+    text-align: center;
+}
+
+.openmc-output-viewer-status.error {
+    color: var(--theia-errorForeground);
+    flex-direction: row;
+}
+
+.openmc-output-viewer-spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: var(--theia-focusBorder);
+    border-right-color: var(--theia-focusBorder);
+    animation: openmc-output-viewer-spin 1s linear infinite;
+}
+
+@keyframes openmc-output-viewer-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.openmc-output-viewer-panel {
+    flex-shrink: 0;
+    max-height: 40%;
+    overflow: auto;
+    border-top: 1px solid var(--theia-panel-border);
+    padding: 8px 16px;
+    font-size: 12px;
+}
+
+.openmc-output-viewer-panel h4 {
+    margin: 4px 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.openmc-output-viewer-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.openmc-output-viewer-table th,
+.openmc-output-viewer-table td {
+    text-align: left;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    white-space: nowrap;
+}
+
+.openmc-output-viewer-table th {
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    background: var(--theia-editor-background);
+}
+
+.openmc-output-viewer-pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    color: var(--theia-descriptionForeground);
+}
+
+.openmc-output-viewer-card {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.openmc-output-viewer-card-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.openmc-output-viewer-card dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 2px 12px;
+    margin: 0;
+}
+
+.openmc-output-viewer-card dt {
+    color: var(--theia-descriptionForeground);
+}
+
+.openmc-output-viewer-card dd {
+    margin: 0;
+    font-family: var(--theia-monospace-font-family, monospace);
+}

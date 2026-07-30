@@ -47,6 +47,7 @@ import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@th
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
+import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { DAGMCInfo, DAGMCVolume } from '../../../common/openmc-state-schema';
@@ -117,7 +118,7 @@ interface DAGMCModelData {
 }
 
 /** Active tab in the DAGMC editor. */
-type EditorTab = 'volumes' | 'materials' | 'groups' | 'properties' | 'faceting';
+type EditorTab = 'volumes' | 'materials' | 'groups' | 'properties' | 'faceting' | 'overrides';
 
 /**
  * Visual editor for DAGMC faceted geometry files.
@@ -155,6 +156,9 @@ export class DAGMCEditorWidget extends ReactWidget {
     @inject(OpenMCStudioBackendService)
     protected readonly backendService!: OpenMCStudioBackendService;
 
+    @inject(OpenMCXMLGenerationService)
+    protected readonly xmlService!: OpenMCXMLGenerationService;
+
     @inject(WidgetManager)
     protected readonly widgetManager!: WidgetManager;
 
@@ -165,6 +169,10 @@ export class DAGMCEditorWidget extends ReactWidget {
     protected readonly statusBarVisibility!: NukeCoreStatusBarVisibilityService;
 
     private activeTab: EditorTab = 'volumes';
+    private overrideOldMaterial = '';
+    private overrideNewMaterial = '';
+    private isSyncingDepletion = false;
+    private syncDepletionStatus = '';
     private visibilityHandle?: { dispose: () => void };
     private filterType: 'all' | 'assigned' | 'unassigned' | 'high-poly' = 'all';
     private modelData?: DAGMCModelData;
@@ -422,6 +430,7 @@ export class DAGMCEditorWidget extends ReactWidget {
             { id: 'volumes', label: 'Volumes', icon: 'package', count: this.modelData?.volumeCount },
             { id: 'materials', label: 'Materials', icon: 'symbol-color', count: Object.keys(this.modelData?.materials || {}).length },
             { id: 'groups', label: 'Groups', icon: 'folder', count: this.modelData?.groups.length },
+            { id: 'overrides', label: 'Overrides', icon: 'arrow-swap' },
             { id: 'properties', label: 'Properties', icon: 'info' },
             { id: 'faceting', label: 'Faceting', icon: 'settings-gear' }
         ];
@@ -501,6 +510,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     {this.activeTab === 'volumes' && this.renderVolumesTab()}
                     {this.activeTab === 'materials' && this.renderMaterialsTab()}
                     {this.activeTab === 'groups' && this.renderGroupsTab()}
+                    {this.activeTab === 'overrides' && this.renderOverridesTab()}
                     {this.activeTab === 'properties' && this.renderPropertiesTab()}
                     {this.activeTab === 'faceting' && this.renderFacetingTab()}
                 </div>
@@ -1071,6 +1081,245 @@ export class DAGMCEditorWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    /**
+     * Render the overrides tab: by-name material replacement, per-cell
+     * overrides, auto-id toggles, and the sync-for-depletion action.
+     * @returns Overrides tab React node.
+     */
+    private renderOverridesTab(): React.ReactNode {
+        if (!this.modelData) return null;
+
+        const state = this.stateManager.getState();
+        const dagmcInfo = state.settings.dagmcInfo;
+        const modelMaterialNames = Object.keys(this.modelData.materials);
+        const projectMaterials = state.materials;
+
+        return (
+            <div className="overrides-tab">
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-arrow-swap"></i> Replace Material by Name
+                    </h3>
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>From Material (in file)</label>
+                            <select value={this.overrideOldMaterial} onChange={(e) => (this.overrideOldMaterial = e.target.value)}>
+                                <option value="">Select...</option>
+                                {modelMaterialNames.map((name) => (
+                                    <option key={name} value={name}>
+                                        {name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>To Material (project)</label>
+                            <select value={this.overrideNewMaterial} onChange={(e) => (this.overrideNewMaterial = e.target.value)}>
+                                <option value="">Select...</option>
+                                {projectMaterials.map((mat) => (
+                                    <option key={mat.id} value={mat.name}>
+                                        {mat.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>&nbsp;</label>
+                            <button
+                                className="theia-button primary"
+                                disabled={!this.overrideOldMaterial || !this.overrideNewMaterial}
+                                onClick={() => this.replaceMaterialByName()}
+                            >
+                                <i className="codicon codicon-arrow-swap"></i> Replace
+                            </button>
+                        </div>
+                    </div>
+                    <span className="form-hint">Reassigns all volumes with the selected material in the .h5m file</span>
+                </div>
+
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-symbol-numeric"></i> Per-Cell Overrides
+                    </h3>
+                    <table className="override-table">
+                        <thead>
+                            <tr>
+                                <th>Volume</th>
+                                <th>Current Material</th>
+                                <th>Override With</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {this.modelData.volumes.map((volume) => (
+                                <tr key={volume.id}>
+                                    <td>#{volume.id}</td>
+                                    <td>{volume.material || <em>unassigned</em>}</td>
+                                    <td>
+                                        <select
+                                            value="__keep__"
+                                            onChange={(e) => {
+                                                if (e.target.value !== '__keep__') {
+                                                    this.assignMaterial(volume.id, e.target.value);
+                                                }
+                                            }}
+                                        >
+                                            <option value="__keep__">Change...</option>
+                                            {projectMaterials.map((mat) => (
+                                                <option key={mat.id} value={mat.name}>
+                                                    {mat.name}
+                                                </option>
+                                            ))}
+                                            <option value="">(remove assignment)</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-symbol-key"></i> ID Conflict Resolution
+                    </h3>
+                    <div className="form-group checkbox">
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={dagmcInfo?.autoGeomIds ?? false}
+                                disabled={!dagmcInfo}
+                                onChange={(e) =>
+                                    dagmcInfo &&
+                                    this.stateManager.updateSettings({ dagmcInfo: { ...dagmcInfo, autoGeomIds: e.target.checked } })
+                                }
+                            />
+                            Auto-resolve geometry ID conflicts (auto_geom_ids)
+                        </label>
+                    </div>
+                    <div className="form-group checkbox">
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={dagmcInfo?.autoMatIds ?? false}
+                                disabled={!dagmcInfo}
+                                onChange={(e) =>
+                                    dagmcInfo &&
+                                    this.stateManager.updateSettings({ dagmcInfo: { ...dagmcInfo, autoMatIds: e.target.checked } })
+                                }
+                            />
+                            Auto-resolve material ID conflicts (auto_mat_ids)
+                        </label>
+                    </div>
+                    {!dagmcInfo && <span className="form-hint">Load DAGMC info (via the CSG Builder or dashboard) to enable these.</span>}
+                    <span className="form-hint">Written as attributes on the dagmc_universe element in geometry.xml</span>
+                </div>
+
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-sync"></i> Sync for Depletion
+                    </h3>
+                    <p className="form-hint">
+                        Runs OpenMC's init_lib → sync_dagmc_universes → finalize_lib sequence so every DAGMC cell gets an explicit material
+                        assignment in geometry.xml (required for per-cell burnup tracking). Rewrites geometry.xml in the chosen working
+                        directory — does NOT modify the .h5m file.
+                    </p>
+                    <button className="theia-button primary" disabled={this.isSyncingDepletion} onClick={() => this.syncForDepletion()}>
+                        <i className="codicon codicon-sync"></i>
+                        {this.isSyncingDepletion ? 'Synchronizing...' : 'Sync for Depletion'}
+                    </button>
+                    {this.syncDepletionStatus && <p className="form-hint">{this.syncDepletionStatus}</p>}
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * Replace a material by name across all volumes via the backend.
+     */
+    private async replaceMaterialByName(): Promise<void> {
+        if (!this.modelData || !this.overrideOldMaterial || !this.overrideNewMaterial) return;
+
+        const result = await this.backendService.dagmcReplaceMaterial(
+            this.modelData.filePath,
+            this.overrideOldMaterial,
+            this.overrideNewMaterial
+        );
+        if (!result.success) {
+            this.messageService.error(result.error || 'Material replacement failed');
+            return;
+        }
+
+        this.messageService.info(result.message || 'Material replaced');
+
+        // Update local model data
+        for (const volume of this.modelData.volumes) {
+            if ((volume.material || undefined) === (this.overrideOldMaterial || undefined)) {
+                volume.material = this.overrideNewMaterial || undefined;
+            }
+        }
+        this.modelData.materials = this.buildMaterialsMap({ volumes: this.modelData.volumes });
+        this.update();
+    }
+
+    /**
+     * Run the sync-for-depletion sequence in a chosen working directory.
+     */
+    private async syncForDepletion(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Select Working Directory for Sync (model XML will be generated there)',
+            canSelectFiles: false,
+            canSelectFolders: true
+        };
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (!uri) {
+            return;
+        }
+        const workingDirectory = uri.path.toString();
+
+        this.isSyncingDepletion = true;
+        this.syncDepletionStatus = 'Generating model XML...';
+        this.update();
+
+        try {
+            const state = this.stateManager.getState();
+            const xmlResult = await this.xmlService.generateXML({
+                state,
+                outputDirectory: workingDirectory,
+                files: {
+                    materials: true,
+                    settings: true,
+                    geometry: true,
+                    tallies: false,
+                    plots: false
+                }
+            });
+            if (!xmlResult.success) {
+                this.messageService.error(`Failed to generate XML: ${xmlResult.error}`);
+                this.syncDepletionStatus = `XML generation failed: ${xmlResult.error}`;
+                return;
+            }
+
+            this.syncDepletionStatus = 'Running DAGMC sync (init_lib → sync_dagmc_universes → finalize_lib)...';
+            this.update();
+
+            const result = await this.backendService.dagmcSyncForDepletion(workingDirectory);
+            if (result.success) {
+                this.syncDepletionStatus = `Synced ${result.cellCount ?? 0} cell(s) across ${result.materialCount ?? 0} material(s); geometry.xml updated with cell overrides.`;
+                this.messageService.info(this.syncDepletionStatus);
+            } else {
+                this.syncDepletionStatus = `Sync failed: ${result.error}`;
+                this.messageService.error(result.error || 'DAGMC sync failed');
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.syncDepletionStatus = `Error: ${msg}`;
+            this.messageService.error(msg);
+        } finally {
+            this.isSyncingDepletion = false;
+            this.update();
+        }
     }
 
     /**

@@ -20,13 +20,14 @@
 // SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
 // INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF PROVIDED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
 import * as React from 'react';
 import { OpenMCTallyScore } from '../../../../common/openmc-state-schema';
+import { getScoresByCategory, getScoreEntry, isCustomMtScore } from '../../../../common/scores-catalog';
 
 /**
  * Props for the {@link ScoreSelector} component.
@@ -39,64 +40,19 @@ interface ScoreSelectorProps {
 }
 
 /**
- * Categorized list of available OpenMC tally scores.
- */
-const AVAILABLE_SCORES: { category: string; scores: { value: OpenMCTallyScore; label: string }[] }[] = [
-    {
-        category: 'Basic',
-        scores: [
-            { value: 'flux', label: 'Flux' },
-            { value: 'total', label: 'Total' },
-            { value: 'absorption', label: 'Absorption' },
-            { value: 'fission', label: 'Fission' }
-        ]
-    },
-    {
-        category: 'Reaction Rates',
-        scores: [
-            { value: 'scatter', label: 'Scatter' },
-            { value: 'elastic', label: 'Elastic' },
-            { value: 'nu-fission', label: 'nu-Fission' },
-            { value: 'nu-scatter', label: 'nu-Scatter' },
-            { value: 'kappa-fission', label: 'kappa-Fission' },
-            { value: 'prompt-nu-fission', label: 'Prompt nu-Fission' },
-            { value: 'delayed-nu-fission', label: 'Delayed nu-Fission' }
-        ]
-    },
-    {
-        category: 'Legendre Moments',
-        scores: [
-            { value: 'scatter-1', label: 'P1 Scatter' },
-            { value: 'scatter-2', label: 'P2 Scatter' },
-            { value: 'scatter-3', label: 'P3 Scatter' },
-            { value: 'scatter-4', label: 'P4 Scatter' },
-            { value: 'nu-fission-1', label: 'P1 nu-Fission' },
-            { value: 'nu-fission-2', label: 'P2 nu-Fission' },
-            { value: 'nu-fission-3', label: 'P3 nu-Fission' },
-            { value: 'nu-fission-4', label: 'P4 nu-Fission' }
-        ]
-    },
-    {
-        category: 'Advanced',
-        scores: [
-            { value: 'current', label: 'Current' },
-            { value: 'heating', label: 'Heating' },
-            { value: 'heating-local', label: 'Heating (Local)' },
-            { value: 'events', label: 'Events' },
-            { value: 'inverse-velocity', label: 'Inverse Velocity' },
-            { value: 'activation', label: 'Activation' }
-        ]
-    }
-];
-
-/**
  * Component for selecting physical quantities (scores) to tally.
  *
- * Scores are organized into categories: Basic, Reaction Rates, Legendre Moments, and Advanced.
+ * Renders the full OpenMC score catalog (see `src/common/scores-catalog.ts`)
+ * grouped into collapsible categories, plus a custom integer-MT input. Scores
+ * already on the tally that are not in the catalog (custom MTs, legacy names)
+ * stay visible in a "Custom / Legacy" group so existing tallies keep working.
  *
  * @see {@link TallyEditor}
  */
 export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }) => {
+    const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({ basic: false });
+    const [customMt, setCustomMt] = React.useState('');
+
     /** Toggle a score in or out of the current selection. */
     const toggleScore = (score: OpenMCTallyScore) => {
         if (scores.includes(score)) {
@@ -106,22 +62,76 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
         }
     };
 
+    /** Toggle a category's collapsed state. */
+    const toggleCategory = (category: string) => {
+        setCollapsed({ ...collapsed, [category]: !(collapsed[category] ?? true) });
+    };
+
+    /** Scores on the tally that are not in the catalog (custom MTs, legacy names). */
+    const customScores = scores.filter((s) => !getScoreEntry(s));
+
+    /** Add the custom MT number from the input to the selection. */
+    const addCustomMt = () => {
+        const mt = customMt.trim();
+        if (isCustomMtScore(mt) && !scores.includes(mt)) {
+            onUpdate([...scores, mt]);
+        }
+        setCustomMt('');
+    };
+
     return (
         <div className="score-selector">
             <div className="score-categories">
-                {AVAILABLE_SCORES.map((cat) => (
-                    <div key={cat.category} className="score-category">
-                        <div className="category-label">{cat.category}</div>
+                {getScoresByCategory().map((cat) => {
+                    const isCollapsed = collapsed[cat.category] ?? cat.category !== 'basic';
+                    return (
+                        <div key={cat.category} className="score-category">
+                            <div className="category-label" onClick={() => toggleCategory(cat.category)} style={{ cursor: 'pointer' }}>
+                                <i className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'}`}></i>
+                                {cat.label}
+                            </div>
+                            {!isCollapsed && (
+                                <div className="score-grid">
+                                    {cat.scores.map((s) => (
+                                        <label key={s.name} className="score-checkbox-label">
+                                            <input type="checkbox" checked={scores.includes(s.name)} onChange={() => toggleScore(s.name)} />
+                                            <span>{s.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+                {customScores.length > 0 && (
+                    <div className="score-category">
+                        <div className="category-label">Custom / Legacy</div>
                         <div className="score-grid">
-                            {cat.scores.map((s) => (
-                                <label key={s.value} className="score-checkbox-label">
-                                    <input type="checkbox" checked={scores.includes(s.value)} onChange={() => toggleScore(s.value)} />
-                                    <span>{s.label}</span>
+                            {customScores.map((s) => (
+                                <label key={s} className="score-checkbox-label">
+                                    <input type="checkbox" checked onChange={() => toggleScore(s)} />
+                                    <span>{s}</span>
                                 </label>
                             ))}
                         </div>
                     </div>
-                ))}
+                )}
+            </div>
+            <div className="custom-mt-input" style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <input
+                    type="text"
+                    value={customMt}
+                    placeholder="Custom MT number (e.g. 102)"
+                    onChange={(e) => setCustomMt(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            addCustomMt();
+                        }
+                    }}
+                />
+                <button className="theia-button secondary small" onClick={addCustomMt} disabled={!isCustomMtScore(customMt.trim())}>
+                    <i className="codicon codicon-add"></i> Add MT
+                </button>
             </div>
         </div>
     );

@@ -29,5 +29,6 @@
     },
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
     { "name": "OCP", "required": false, "installCommand": "pip install cadquery-ocp" }
-  ]
+  ],
+  "ncrystal": [{ "name": "ncrystal", "required": false }]
 }

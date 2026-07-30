@@ -34,7 +34,13 @@ import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
 import { VisualizerProxyContribution } from './visualizer-proxy-contribution';
 import { OpenMCBackendServiceImpl } from './plugins/openmc/openmc-backend-service';
 import { PythonCommandHelper } from './services/python-command-helper';
-import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService } from './plugins/openmc/services';
+import {
+    OpenMCStatepointService,
+    OpenMCGeometryService,
+    OpenMCXSService,
+    OpenMCDepletionService,
+    OpenMCOutputService
+} from './plugins/openmc/services';
 
 export default new ContainerModule(
     (bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
@@ -66,6 +72,7 @@ export default new ContainerModule(
         bind(OpenMCGeometryService).toSelf().inSingletonScope();
         bind(OpenMCXSService).toSelf().inSingletonScope();
         bind(OpenMCDepletionService).toSelf().inSingletonScope();
+        bind(OpenMCOutputService).toSelf().inSingletonScope();
         bind(OpenMCBackendServiceImpl).toSelf().inSingletonScope();
         bind(OpenMCBackendService).toService(OpenMCBackendServiceImpl);
 

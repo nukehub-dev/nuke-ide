@@ -42,6 +42,9 @@ import { DAGMCEditorWidget } from '../widgets/dagmc-editor/dagmc-editor-widget';
 import { TallyConfiguratorWidget } from '../widgets/tally-configurator/tally-configurator-widget';
 import { SimulationComparisonWidget } from '../widgets/simulation-comparison/comparison-widget';
 import { OptimizationWidget } from '../widgets/optimization/optimization-widget';
+import { VolumeCalcWidget } from '../widgets/volume-calc/volume-calc-widget';
+import { NativePlottingWidget } from '../widgets/native-plotting/native-plotting-widget';
+import { MgxsGeneratorWidget } from '../widgets/mgxs-generator/mgxs-generator-widget';
 import { OpenMCPythonExporter } from '../script-generator/python-exporter';
 
 export namespace OpenMCViewCommands {
@@ -110,6 +113,27 @@ export namespace OpenMCViewCommands {
         category: CATEGORY,
         label: 'Optimization Study'
     };
+
+    /** Open the volume calculation widget. */
+    export const OPEN_VOLUME_CALC: Command = {
+        id: 'openmc.openVolumeCalc',
+        category: CATEGORY,
+        label: 'Volume Calculation'
+    };
+
+    /** Open the native plotting widget. */
+    export const OPEN_NATIVE_PLOTTING: Command = {
+        id: 'openmc.openNativePlotting',
+        category: CATEGORY,
+        label: 'Native Plotting'
+    };
+
+    /** Open the MGXS generator widget. */
+    export const OPEN_MGXS_GENERATOR: Command = {
+        id: 'openmc.openMgxsGenerator',
+        category: CATEGORY,
+        label: 'MGXS Generator'
+    };
 }
 
 /**
@@ -170,6 +194,18 @@ export class ViewCommands {
 
         registry.registerCommand(OpenMCViewCommands.OPEN_OPTIMIZATION, {
             execute: () => this.openWidget(OptimizationWidget.ID)
+        });
+
+        registry.registerCommand(OpenMCViewCommands.OPEN_VOLUME_CALC, {
+            execute: () => this.openWidget(VolumeCalcWidget.ID)
+        });
+
+        registry.registerCommand(OpenMCViewCommands.OPEN_NATIVE_PLOTTING, {
+            execute: () => this.openWidget(NativePlottingWidget.ID)
+        });
+
+        registry.registerCommand(OpenMCViewCommands.OPEN_MGXS_GENERATOR, {
+            execute: () => this.openWidget(MgxsGeneratorWidget.ID)
         });
     }
 

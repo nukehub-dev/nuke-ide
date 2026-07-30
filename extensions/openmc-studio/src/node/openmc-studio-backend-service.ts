@@ -60,10 +60,28 @@ import {
     ProjectLoadResult,
     TemplatesResponse,
     ApplyTemplateRequest,
+    VolumeCalculationRequest,
+    VolumeCalculationResult,
+    PlotGenerationRequest,
+    PlotGenerationResult,
+    NCrystalImportResult,
+    MgxsGenerationRequest,
+    MgxsGenerationResult,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-studio-protocol';
 
-import { OpenMCState, OpenMCProjectFile } from '../common/openmc-state-schema';
+import {
+    OpenMCState,
+    OpenMCProjectFile,
+    OpenMCIndependentSource,
+    OpenMCTally,
+    OpenMCTallyFilter,
+    OpenMCMesh,
+    OpenMCPlotConfig
+} from '../common/openmc-state-schema';
+
+import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
+import { migrateProjectFile } from '../common/openmc-state-migration';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -218,6 +236,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     const settingsData = await this.parseSettingsXML(settingsPath);
                     state.settings = settingsData.settings;
                     warnings.push(...settingsData.warnings);
+                    // Weight window generator lives on OpenMCState.varianceReduction, not settings
+                    if (settingsData.weightWindowGenerator) {
+                        state.varianceReduction = {
+                            ...(state.varianceReduction ?? {}),
+                            weightWindowGenerator: settingsData.weightWindowGenerator
+                        };
+                    }
                     this.log(`Imported settings`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -225,6 +250,41 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
             } else {
                 warnings.push('settings.xml not found');
+            }
+
+            // Import tallies.xml
+            const talliesPath = path.join(request.directory, 'tallies.xml');
+            if (fs.existsSync(talliesPath)) {
+                try {
+                    const talliesData = await this.parseTalliesXML(talliesPath);
+                    state.tallies = talliesData.tallies;
+                    state.meshes = talliesData.meshes;
+                    warnings.push(...talliesData.warnings);
+                    this.log(`Imported ${talliesData.tallies.length} tallies, ${talliesData.meshes.length} meshes`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Failed to parse tallies.xml: ${msg}`);
+                }
+            }
+
+            // Derive kinetics settings from any IFP tallies found (keeps re-export idempotent)
+            const derivedKinetics = deriveKineticsFromTallies(state.tallies, state.settings.kinetics);
+            if (derivedKinetics) {
+                state.settings.kinetics = derivedKinetics;
+            }
+
+            // Import plots.xml
+            const plotsPath = path.join(request.directory, 'plots.xml');
+            if (fs.existsSync(plotsPath)) {
+                try {
+                    const plotsData = await this.parsePlotsXML(plotsPath);
+                    state.plots = plotsData.plots;
+                    warnings.push(...plotsData.warnings);
+                    this.log(`Imported ${plotsData.plots.length} plots`);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    errors.push(`Failed to parse plots.xml: ${msg}`);
+                }
             }
 
             if (state.materials.length === 0 && state.geometry.cells.length === 0) {
@@ -349,6 +409,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                             fraction: 1.0
                         });
                     }
+                }
+
+                // Parse macroscopic (multigroup) data set
+                if (mat.macroscopic?.$?.name) {
+                    material.macroscopic = { name: mat.macroscopic.$.name };
                 }
 
                 // Parse temperature
@@ -566,7 +631,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return values;
     }
 
-    private async parseSettingsXML(filePath: string): Promise<{ settings: any; warnings: string[] }> {
+    private async parseSettingsXML(filePath: string): Promise<{ settings: any; weightWindowGenerator?: any; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -613,71 +678,741 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             settings.sourceRejectionFraction = parseFloat(s.source_rejection_fraction);
         }
 
+        // Seed
+        if (s.seed) {
+            settings.seed = parseInt(s.seed);
+        }
+
+        // IFP kinetics generations
+        if (s.ifp_n_generation !== undefined) {
+            settings.kinetics = { ...(settings.kinetics ?? {}), enabled: true, ifpNGenerations: parseInt(s.ifp_n_generation) };
+        }
+
+        // Photon transport and photon physics
+        if (s.photon_transport !== undefined) {
+            settings.photonTransport = this.parseXmlBool(s.photon_transport);
+        }
+        if (s.electron_treatment) {
+            settings.electronTreatment = s.electron_treatment.toString();
+        }
+        if (s.atomic_relaxation !== undefined) {
+            settings.atomicRelaxation = this.parseXmlBool(s.atomic_relaxation);
+        }
+
+        // Output control
+        if (s.output) {
+            const output: any = {};
+            if (s.output.summary !== undefined) {
+                output.summary = this.parseXmlBool(s.output.summary);
+            }
+            if (s.output.tallies !== undefined) {
+                output.tallies = this.parseXmlBool(s.output.tallies);
+            }
+            if (s.output.path) {
+                output.path = s.output.path.toString();
+            }
+            settings.output = output;
+        }
+
+        // Statepoint batches
+        if (s.state_point?.batches) {
+            settings.statepointBatches = this.parseNumberList(s.state_point.batches).map((n) => Math.trunc(n));
+        }
+
+        // Sourcepoint options
+        if (s.source_point) {
+            const sp: any = {};
+            if (s.source_point.batches) {
+                sp.batches = this.parseNumberList(s.source_point.batches).map((n) => Math.trunc(n));
+            }
+            if (s.source_point.separate !== undefined) {
+                sp.separate = this.parseXmlBool(s.source_point.separate);
+            }
+            if (s.source_point.write !== undefined) {
+                sp.write = this.parseXmlBool(s.source_point.write);
+            }
+            if (s.source_point.overwrite_latest !== undefined) {
+                sp.overwrite = this.parseXmlBool(s.source_point.overwrite_latest);
+            }
+            if (s.source_point.mcpl !== undefined) {
+                sp.mcpl = this.parseXmlBool(s.source_point.mcpl);
+            }
+            settings.sourcePoint = sp;
+        }
+
+        // Surface source writing
+        if (s.surf_source_write) {
+            const ssw: any = {};
+            if (s.surf_source_write.surface_ids) {
+                ssw.surfaceIds = this.parseNumberList(s.surf_source_write.surface_ids).map((n) => Math.trunc(n));
+            }
+            if (s.surf_source_write.mcpl !== undefined) {
+                ssw.mcpl = this.parseXmlBool(s.surf_source_write.mcpl);
+            }
+            if (s.surf_source_write.max_particles !== undefined) {
+                ssw.maxParticles = parseInt(s.surf_source_write.max_particles);
+            }
+            if (s.surf_source_write.max_source_files !== undefined) {
+                ssw.maxSourceFiles = parseInt(s.surf_source_write.max_source_files);
+            }
+            if (s.surf_source_write.cell !== undefined) {
+                ssw.cell = parseInt(s.surf_source_write.cell);
+            }
+            if (s.surf_source_write.cellfrom !== undefined) {
+                ssw.cellfrom = parseInt(s.surf_source_write.cellfrom);
+            }
+            if (s.surf_source_write.cellto !== undefined) {
+                ssw.cellto = parseInt(s.surf_source_write.cellto);
+            }
+            settings.surfaceSourceWrite = ssw;
+        }
+
+        // Surface source reading
+        if (s.surf_source_read?.path) {
+            settings.surfaceSourceRead = { path: s.surf_source_read.path.toString() };
+        }
+
+        // Particle tracks (flattened [batch, generation, particle] triples)
+        if (s.track) {
+            const values = this.parseNumberList(s.track).map((n) => Math.trunc(n));
+            const tracks: [number, number, number][] = [];
+            for (let i = 0; i + 2 < values.length; i += 3) {
+                tracks.push([values[i], values[i + 1], values[i + 2]]);
+            }
+            settings.tracks = tracks;
+        }
+        if (s.max_tracks !== undefined) {
+            settings.maxTracks = parseInt(s.max_tracks);
+        }
+
+        // Collision track output
+        if (s.collision_track) {
+            const ct: any = {};
+            if (s.collision_track.cell_ids) {
+                ct.cellIds = this.parseNumberList(s.collision_track.cell_ids).map((n) => Math.trunc(n));
+            }
+            if (s.collision_track.reactions) {
+                ct.reactions = s.collision_track.reactions
+                    .toString()
+                    .trim()
+                    .split(/\s+/)
+                    .map((token: string) => (/^-?\d+$/.test(token) ? parseInt(token) : token));
+            }
+            if (s.collision_track.universe_ids) {
+                ct.universeIds = this.parseNumberList(s.collision_track.universe_ids).map((n) => Math.trunc(n));
+            }
+            if (s.collision_track.material_ids) {
+                ct.materialIds = this.parseNumberList(s.collision_track.material_ids).map((n) => Math.trunc(n));
+            }
+            if (s.collision_track.nuclides) {
+                ct.nuclides = s.collision_track.nuclides.toString().trim().split(/\s+/);
+            }
+            if (s.collision_track.deposited_E_threshold !== undefined) {
+                ct.depositedEnergyThreshold = parseFloat(s.collision_track.deposited_E_threshold);
+            }
+            if (s.collision_track.max_collisions !== undefined) {
+                ct.maxCollisions = parseInt(s.collision_track.max_collisions);
+            }
+            if (s.collision_track.max_collision_track_files !== undefined) {
+                ct.maxCollisionTrackFiles = parseInt(s.collision_track.max_collision_track_files);
+            }
+            if (s.collision_track.mcpl !== undefined) {
+                ct.mcpl = this.parseXmlBool(s.collision_track.mcpl);
+            }
+            settings.collisionTrack = ct;
+        }
+
+        // Shannon entropy mesh (reference + inline <mesh> element)
+        if (s.entropy_mesh !== undefined) {
+            const entropyMeshId = parseInt(s.entropy_mesh);
+            const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
+            const meshElem = meshElems.find((m: any) => parseInt(m.$?.id) === entropyMeshId);
+            if (meshElem) {
+                settings.entropyMesh = {
+                    id: entropyMeshId,
+                    lowerLeft: this.parseNumberList(meshElem.lower_left) as [number, number, number],
+                    upperRight: this.parseNumberList(meshElem.upper_right) as [number, number, number],
+                    shape: this.parseNumberList(meshElem.dimension).map((n) => Math.trunc(n)) as [number, number, number]
+                };
+            } else {
+                warnings.push(`Entropy mesh with ID ${entropyMeshId} referenced but not found in settings.xml`);
+            }
+        }
+
+        // Energy mode and MGXS library (multi-group / random ray)
+        if (s.energy_mode) {
+            settings.energyMode = s.energy_mode.toString() === 'multi-group' ? 'multigroup' : s.energy_mode.toString();
+        }
+        if (s.cross_sections) {
+            settings.mgxsLibrary = s.cross_sections.toString();
+        }
+
+        // Random ray solver settings
+        if (s.random_ray) {
+            const rr = s.random_ray;
+            const randomRay: any = {};
+            if (rr.distance_inactive !== undefined) {
+                randomRay.distanceInactive = parseFloat(rr.distance_inactive);
+            }
+            if (rr.distance_active !== undefined) {
+                randomRay.distanceActive = parseFloat(rr.distance_active);
+            }
+            if (rr.volume_estimator) {
+                randomRay.volumeEstimator = rr.volume_estimator.toString();
+            }
+            if (rr.source_shape) {
+                randomRay.sourceShape = rr.source_shape.toString();
+            }
+            if (rr.volume_normalized_flux_tallies !== undefined) {
+                randomRay.volumeNormalizedFluxTallies = this.parseXmlBool(rr.volume_normalized_flux_tallies);
+            }
+            if (rr.sample_method) {
+                randomRay.sampleMethod = rr.sample_method.toString();
+            }
+            if (rr.diagonal_stabilization_rho !== undefined) {
+                randomRay.diagonalStabilizationRho = parseFloat(rr.diagonal_stabilization_rho);
+            }
+            if (rr.adjoint !== undefined) {
+                randomRay.adjoint = this.parseXmlBool(rr.adjoint);
+            }
+            if (rr.ray_source?.source?.space?.parameters) {
+                const params = this.parseNumberList(rr.ray_source.source.space.parameters);
+                if (params.length >= 6) {
+                    randomRay.raySource = {
+                        lowerLeft: params.slice(0, 3),
+                        upperRight: params.slice(3, 6)
+                    };
+                }
+            }
+            if (rr.source_region_meshes?.mesh) {
+                const srMesh = rr.source_region_meshes.mesh;
+                randomRay.sourceRegionMeshId = parseInt(srMesh.$?.id);
+                const domainElems = Array.isArray(srMesh.domain) ? srMesh.domain : srMesh.domain ? [srMesh.domain] : [];
+                randomRay.sourceRegionDomainIds = domainElems.map((d: any) => parseInt(d.$?.id)).filter((n: number) => !isNaN(n));
+                if (domainElems.length > 0 && domainElems[0].$?.type) {
+                    randomRay.sourceRegionDomainType = domainElems[0].$.type;
+                }
+            }
+            settings.randomRay = randomRay;
+        }
+
+        // Weight window generator (real OpenMC format); returned via the
+        // varianceReduction side channel since it lives on OpenMCState, not OpenMCSettings
+        let parsedWeightWindowGenerator: any;
+        if (s.weight_window_generators?.weight_windows_generator) {
+            const wwgElems = Array.isArray(s.weight_window_generators.weight_windows_generator)
+                ? s.weight_window_generators.weight_windows_generator
+                : [s.weight_window_generators.weight_windows_generator];
+            const wwg = wwgElems[0];
+            const weightWindowGenerator: any = {};
+            if (wwg.mesh !== undefined) {
+                weightWindowGenerator.meshId = parseInt(wwg.mesh);
+            }
+            if (wwg.energy_bounds) {
+                weightWindowGenerator.energyBounds = this.parseNumberList(wwg.energy_bounds);
+            }
+            if (wwg.particle_type) {
+                weightWindowGenerator.particleType = wwg.particle_type.toString();
+            }
+            if (wwg.max_realizations !== undefined) {
+                weightWindowGenerator.maxRealizations = parseInt(wwg.max_realizations);
+            }
+            if (wwg.update_interval !== undefined) {
+                weightWindowGenerator.updateInterval = parseInt(wwg.update_interval);
+            }
+            if (wwg.on_the_fly !== undefined) {
+                weightWindowGenerator.onTheFly = this.parseXmlBool(wwg.on_the_fly);
+            }
+            if (wwg.method) {
+                weightWindowGenerator.method = wwg.method.toString();
+            }
+            if (wwg.targets) {
+                weightWindowGenerator.targetTallyIds = this.parseNumberList(wwg.targets).map((n) => Math.trunc(n));
+            }
+            parsedWeightWindowGenerator = weightWindowGenerator;
+        }
+
         // Source
         if (s.source) {
             const sources = Array.isArray(s.source) ? s.source : [s.source];
 
             for (const src of sources) {
-                const source: any = {
-                    spatial: { type: 'point', origin: [0, 0, 0] },
-                    energy: { type: 'discrete', energies: [1e6] }
-                };
-
-                // Parse spatial distribution
-                if (src.space) {
-                    const spaceType = src.space.$.type || 'point';
-                    source.spatial.type = spaceType;
-
-                    // Parse parameters
-                    if (src.space.parameters) {
-                        const params = src.space.parameters.toString().trim().split(/\s+/).map(Number);
-
-                        if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
-                            source.spatial.lowerLeft = params.slice(0, 3);
-                            source.spatial.upperRight = params.slice(3, 6);
-                        } else if (spaceType === 'point' && params.length >= 3) {
-                            source.spatial.origin = params.slice(0, 3);
-                        } else if ((spaceType === 'sphere' || spaceType === 'spherical') && params.length >= 4) {
-                            source.spatial.center = params.slice(0, 3);
-                            source.spatial.radius = params[3];
-                        }
-                    }
+                const source = this.parseSourceElement(src);
+                if (source) {
+                    settings.sources.push(source);
                 }
-
-                // Parse energy distribution
-                if (src.energy) {
-                    const energyType = src.energy.$.type || 'discrete';
-                    source.energy.type = energyType;
-
-                    if (src.energy.parameters) {
-                        const params = src.energy.parameters.toString().trim().split(/\s+/).map(Number);
-
-                        if (energyType === 'discrete') {
-                            source.energy.energies = params;
-                        } else if (energyType === 'uniform' && params.length >= 2) {
-                            source.energy.min = params[0];
-                            source.energy.max = params[1];
-                        } else if (energyType === 'maxwell' && params.length >= 1) {
-                            source.energy.temperature = params[0];
-                        } else if (energyType === 'watt' && params.length >= 2) {
-                            source.energy.a = params[0];
-                            source.energy.b = params[1];
-                        }
-                    }
-                }
-
-                // Parse angle distribution
-                if (src.angle) {
-                    source.angle = {
-                        type: src.angle.$.type || 'isotropic'
-                    };
-                }
-
-                settings.sources.push(source);
             }
         }
 
-        return { settings, warnings };
+        return { settings, weightWindowGenerator: parsedWeightWindowGenerator, warnings };
+    }
+
+    /**
+     * Parse a boolean XML text value ('true'/'false'/'1'/'0').
+     */
+    private parseXmlBool(value: any): boolean {
+        const text = value.toString().toLowerCase();
+        return text === 'true' || text === '1';
+    }
+
+    /**
+     * Parse a whitespace-separated XML number list.
+     */
+    private parseNumberList(value: any): number[] {
+        return value
+            .toString()
+            .trim()
+            .split(/\s+/)
+            .filter((token: string) => token.length > 0)
+            .map(Number);
+    }
+
+    /**
+     * Parse a <source> element (independent, file, or compiled) into schema form.
+     * Attribute/element names match openmc/source.py.
+     */
+    private parseSourceElement(src: any): any {
+        const attrs = src.$ || {};
+        const sourceType = attrs.type || 'independent';
+
+        const source: any = {};
+        if (attrs.strength !== undefined) {
+            source.strength = parseFloat(attrs.strength);
+        }
+
+        if (sourceType === 'file') {
+            source.type = 'file';
+            source.path = attrs.file || '';
+        } else if (sourceType === 'compiled') {
+            source.type = 'compiled';
+            source.library = attrs.library || '';
+            if (attrs.parameters !== undefined) {
+                source.parameters = attrs.parameters;
+            }
+        } else {
+            // Independent source (type attribute absent means 'independent')
+            if (attrs.particle) {
+                source.particle = attrs.particle;
+            }
+
+            // Parse spatial distribution
+            source.spatial = { type: 'point', origin: [0, 0, 0] };
+            if (src.space) {
+                const spaceType = src.space.$.type || 'point';
+
+                if (spaceType === 'spherical') {
+                    // Our generator writes spherical as origin attr + r/cos_theta/phi children
+                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
+                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
+                    source.spatial = {
+                        type: 'sphere',
+                        center: origin.slice(0, 3),
+                        radius: rParams.length >= 2 ? rParams[1] : 1
+                    };
+                } else if (spaceType === 'cylindrical') {
+                    // Our generator writes cylindrical as origin attr + r/phi/z children
+                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
+                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
+                    const zParams = src.space.z?.$?.parameters ? this.parseNumberList(src.space.z.$.parameters) : [-0.5, 0.5];
+                    source.spatial = {
+                        type: 'cylinder',
+                        center: origin.slice(0, 3),
+                        radius: rParams.length >= 2 ? rParams[1] : 1,
+                        height: zParams.length >= 2 ? zParams[1] - zParams[0] : 1,
+                        axis: 'z'
+                    };
+                } else if (src.space.parameters) {
+                    const params = this.parseNumberList(src.space.parameters);
+
+                    if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
+                        source.spatial = { type: 'box', lowerLeft: params.slice(0, 3), upperRight: params.slice(3, 6) };
+                    } else if (spaceType === 'point' && params.length >= 3) {
+                        source.spatial = { type: 'point', origin: params.slice(0, 3) };
+                    }
+                }
+            }
+
+            // Parse energy distribution
+            source.energy = { type: 'discrete', energies: [1e6] };
+            if (src.energy) {
+                const energyType = src.energy.$.type || 'discrete';
+                const params = src.energy.parameters ? this.parseNumberList(src.energy.parameters) : [];
+
+                if (energyType === 'discrete') {
+                    // Our generator writes interleaved energy/probability pairs
+                    const energies: number[] = [];
+                    const probabilities: number[] = [];
+                    for (let i = 0; i + 1 < params.length; i += 2) {
+                        energies.push(params[i]);
+                        probabilities.push(params[i + 1]);
+                    }
+                    source.energy =
+                        energies.length > 0
+                            ? { type: 'discrete', energies, probabilities }
+                            : { type: 'discrete', energies: params.length > 0 ? params : [1e6] };
+                } else if (energyType === 'uniform' && params.length >= 2) {
+                    source.energy = { type: 'uniform', min: params[0], max: params[1] };
+                } else if (energyType === 'maxwell' && params.length >= 1) {
+                    source.energy = { type: 'maxwell', temperature: params[0] };
+                } else if (energyType === 'watt' && params.length >= 2) {
+                    source.energy = { type: 'watt', a: params[0], b: params[1] };
+                }
+            }
+
+            // Parse angle distribution
+            if (src.angle) {
+                source.angle = {
+                    type: src.angle.$.type || 'isotropic'
+                };
+            }
+        }
+
+        // Parse constraints sub-element (valid for all source types)
+        if (src.constraints) {
+            const c = src.constraints;
+            const constraints: any = {};
+            if (c.domain_type) {
+                constraints.domainType = c.domain_type.toString();
+            }
+            if (c.domain_ids) {
+                constraints.domainIds = this.parseNumberList(c.domain_ids).map((n) => Math.trunc(n));
+            }
+            if (c.time_bounds) {
+                constraints.timeBounds = this.parseNumberList(c.time_bounds).slice(0, 2);
+            }
+            if (c.energy_bounds) {
+                constraints.energyBounds = this.parseNumberList(c.energy_bounds).slice(0, 2);
+            }
+            if (c.fissionable !== undefined) {
+                constraints.fissionable = this.parseXmlBool(c.fissionable);
+            }
+            if (c.rejection_strategy) {
+                constraints.rejectionStrategy = c.rejection_strategy.toString();
+            }
+            if (Object.keys(constraints).length > 0) {
+                source.constraints = constraints;
+            }
+        }
+
+        return source;
+    }
+
+    /**
+     * Parse tallies.xml into state tallies and meshes.
+     * Handles every filter type the generator emits, including expansion and
+     * energy-function filters.
+     * @param filePath - Path to tallies.xml
+     * @returns Parsed tallies, meshes, and warnings
+     */
+    private async parseTalliesXML(filePath: string): Promise<{ tallies: OpenMCTally[]; meshes: OpenMCMesh[]; warnings: string[] }> {
+        const fs = await import('fs');
+        const xml2js = await import('xml2js');
+
+        const warnings: string[] = [];
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parser = new xml2js.Parser({ explicitArray: false });
+        const result = await parser.parseStringPromise(xml);
+
+        const tallies: OpenMCTally[] = [];
+        const meshes: OpenMCMesh[] = [];
+
+        if (!result.tallies) {
+            warnings.push('No tallies element found in tallies.xml');
+            return { tallies, meshes, warnings };
+        }
+
+        const t = result.tallies;
+
+        // Meshes
+        const meshElems = Array.isArray(t.mesh) ? t.mesh : t.mesh ? [t.mesh] : [];
+        for (const meshElem of meshElems) {
+            meshes.push(this.parseMeshElement(meshElem));
+        }
+
+        // Filter definitions (top-level, referenced by ID from tallies)
+        const filterDefs = new Map<number, OpenMCTallyFilter>();
+        const filterElems = Array.isArray(t.filter) ? t.filter : t.filter ? [t.filter] : [];
+        for (const filterElem of filterElems) {
+            const id = parseInt(filterElem.$?.id);
+            if (!isNaN(id)) {
+                filterDefs.set(id, this.parseFilterElement(filterElem));
+            }
+        }
+
+        // Tallies
+        const tallyElems = Array.isArray(t.tally) ? t.tally : t.tally ? [t.tally] : [];
+        for (const tallyElem of tallyElems) {
+            const tally: OpenMCTally = {
+                id: parseInt(tallyElem.$?.id) || tallies.length + 1,
+                name: tallyElem.$?.name,
+                scores: tallyElem.scores ? tallyElem.scores.toString().trim().split(/\s+/) : [],
+                nuclides: [],
+                filters: []
+            };
+
+            // multiply_density attribute (written when false)
+            if (tallyElem.$?.multiply_density !== undefined) {
+                tally.multiplyDensity = this.parseXmlBool(tallyElem.$.multiply_density);
+            }
+
+            // Nuclides: real OpenMC writes a single space-joined <nuclides>
+            // element; tolerate repeated <nuclide> elements from older exports
+            if (tallyElem.nuclides) {
+                tally.nuclides = tallyElem.nuclides.toString().trim().split(/\s+/);
+            } else if (tallyElem.nuclide) {
+                const nuclideElems = Array.isArray(tallyElem.nuclide) ? tallyElem.nuclide : [tallyElem.nuclide];
+                tally.nuclides = nuclideElems.map((n: any) => n.toString());
+            }
+
+            // Filters: space-separated filter IDs referencing top-level definitions
+            if (tallyElem.filters) {
+                const filterIds = this.parseNumberList(tallyElem.filters).map((n) => Math.trunc(n));
+                for (const filterId of filterIds) {
+                    const def = filterDefs.get(filterId);
+                    if (def) {
+                        tally.filters.push({ ...def });
+                    } else {
+                        warnings.push(`Tally ${tally.id} references unknown filter ID ${filterId}`);
+                    }
+                }
+            }
+
+            // Estimator
+            if (tallyElem.estimator) {
+                tally.estimator = tallyElem.estimator.toString() as OpenMCTally['estimator'];
+            }
+
+            tallies.push(tally);
+        }
+
+        return { tallies, meshes, warnings };
+    }
+
+    /**
+     * Parse a <mesh> element from tallies.xml.
+     */
+    private parseMeshElement(meshElem: any): OpenMCMesh {
+        const id = parseInt(meshElem.$?.id) || 0;
+        const type = meshElem.$?.type || 'regular';
+
+        if (type === 'cylindrical') {
+            return {
+                type: 'cylindrical',
+                id,
+                origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
+                axis: meshElem.axis ? (this.parseNumberList(meshElem.axis) as [number, number, number]) : undefined,
+                rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
+                phiGrid: meshElem.phi_grid ? this.parseNumberList(meshElem.phi_grid) : [],
+                zGrid: meshElem.z_grid ? this.parseNumberList(meshElem.z_grid) : []
+            };
+        }
+
+        if (type === 'spherical') {
+            return {
+                type: 'spherical',
+                id,
+                origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
+                rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
+                thetaGrid: meshElem.theta_grid ? this.parseNumberList(meshElem.theta_grid) : [],
+                phiGrid: meshElem.phi_grid ? this.parseNumberList(meshElem.phi_grid) : []
+            };
+        }
+
+        return {
+            type: 'regular',
+            id,
+            lowerLeft: meshElem.lower_left ? (this.parseNumberList(meshElem.lower_left) as [number, number, number]) : [0, 0, 0],
+            upperRight: meshElem.upper_right ? (this.parseNumberList(meshElem.upper_right) as [number, number, number]) : [0, 0, 0],
+            dimension: meshElem.dimension
+                ? (this.parseNumberList(meshElem.dimension).map((n) => Math.trunc(n)) as [number, number, number])
+                : [1, 1, 1]
+        };
+    }
+
+    /**
+     * Parse a <filter> element from tallies.xml into schema form.
+     */
+    private parseFilterElement(filterElem: any): OpenMCTallyFilter {
+        const type = filterElem.$?.type || 'cell';
+        const filter: OpenMCTallyFilter = { type, bins: [] };
+
+        switch (type) {
+            case 'mesh':
+            case 'meshsurface': {
+                const meshIds = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
+                filter.bins = meshIds;
+                filter.meshId = meshIds[0];
+                break;
+            }
+
+            case 'legendre':
+            case 'spatiallegendre':
+            case 'sphericalharmonics':
+            case 'zernike':
+            case 'zernikeradial':
+                filter.order = filterElem.order !== undefined ? parseInt(filterElem.order) : 0;
+                if (type === 'spatiallegendre') {
+                    filter.axis = (filterElem.axis ?? 'z').toString() as 'x' | 'y' | 'z';
+                    filter.min = filterElem.min !== undefined ? parseFloat(filterElem.min) : 0;
+                    filter.max = filterElem.max !== undefined ? parseFloat(filterElem.max) : 0;
+                }
+                if (type === 'sphericalharmonics' && filterElem.$?.cosine) {
+                    filter.cosine = filterElem.$.cosine as 'scatter' | 'particle';
+                }
+                if (type === 'zernike' || type === 'zernikeradial') {
+                    filter.center = {
+                        x: filterElem.x !== undefined ? parseFloat(filterElem.x) : 0,
+                        y: filterElem.y !== undefined ? parseFloat(filterElem.y) : 0,
+                        r: filterElem.r !== undefined ? parseFloat(filterElem.r) : 1
+                    };
+                }
+                break;
+
+            case 'energyfunction':
+                filter.energyValues = filterElem.energy ? this.parseNumberList(filterElem.energy) : [];
+                filter.responseValues = filterElem.y ? this.parseNumberList(filterElem.y) : [];
+                if (filterElem.interpolation) {
+                    filter.interpolation = filterElem.interpolation.toString() as OpenMCTallyFilter['interpolation'];
+                }
+                break;
+
+            case 'particle':
+                // Real OpenMC writes particle names; map back to numeric bins (1=neutron, 2=photon)
+                filter.bins = filterElem.bins
+                    ? filterElem.bins
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .map((token: string) => (token === 'photon' ? 2 : token === 'neutron' ? 1 : parseInt(token) || 1))
+                    : [];
+                break;
+
+            default:
+                filter.bins = filterElem.bins ? this.parseNumberList(filterElem.bins) : [];
+        }
+
+        return filter;
+    }
+
+    /**
+     * Parse plots.xml into plot configurations.
+     * Handles slice, voxel, solid_raytrace, and wireframe_raytrace plots
+     * (element names per openmc/plots.py to_xml_element methods).
+     * @param filePath - Path to plots.xml
+     * @returns Parsed plots and warnings
+     */
+    private async parsePlotsXML(filePath: string): Promise<{ plots: OpenMCPlotConfig[]; warnings: string[] }> {
+        const fs = await import('fs');
+        const xml2js = await import('xml2js');
+
+        const warnings: string[] = [];
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parser = new xml2js.Parser({ explicitArray: false });
+        const result = await parser.parseStringPromise(xml);
+
+        const plots: OpenMCPlotConfig[] = [];
+        if (!result.plots) {
+            warnings.push('No plots element found in plots.xml');
+            return { plots, warnings };
+        }
+
+        const plotElems = Array.isArray(result.plots.plot) ? result.plots.plot : result.plots.plot ? [result.plots.plot] : [];
+        for (const plotElem of plotElems) {
+            plots.push(this.parsePlotElement(plotElem, plots.length + 1));
+        }
+
+        return { plots, warnings };
+    }
+
+    /**
+     * Parse a single <plot> element from plots.xml.
+     */
+    private parsePlotElement(plotElem: any, fallbackId: number): OpenMCPlotConfig {
+        const attrs = plotElem.$ || {};
+        const xmlType = attrs.type || 'slice';
+        const type: OpenMCPlotConfig['type'] =
+            xmlType === 'solid_raytrace' ? 'solid-raytrace' : xmlType === 'wireframe_raytrace' ? 'wireframe-raytrace' : xmlType;
+
+        const plot: OpenMCPlotConfig = {
+            id: parseInt(attrs.id) || fallbackId,
+            type,
+            basis: (attrs.basis || 'xy') as OpenMCPlotConfig['basis'],
+            origin: [0, 0, 0],
+            colorBy: (attrs.color_by || 'cell') as OpenMCPlotConfig['colorBy']
+        };
+
+        if (attrs.name) {
+            plot.name = attrs.name;
+        }
+
+        const pixels = plotElem.pixels ? this.parseNumberList(plotElem.pixels).map((n) => Math.trunc(n)) : [];
+
+        if (type === 'slice') {
+            plot.origin = (plotElem.origin ? this.parseNumberList(plotElem.origin) : [0, 0, 0]) as [number, number, number];
+            const width = plotElem.width ? this.parseNumberList(plotElem.width) : [];
+            plot.width = width[0];
+            plot.height = width.length > 1 ? width[1] : width[0];
+            if (pixels.length >= 2) {
+                plot.pixels = [pixels[0], pixels[1]];
+            }
+            if (plotElem.meshlines !== undefined) {
+                plot.meshlines = true;
+            }
+        } else if (type === 'voxel') {
+            // Real OpenMC voxel: center origin + 3-value width + voxel counts in pixels
+            const origin = plotElem.origin ? this.parseNumberList(plotElem.origin) : [0, 0, 0];
+            const width = plotElem.width ? this.parseNumberList(plotElem.width) : [0, 0, 0];
+            plot.origin = origin as [number, number, number];
+            plot.lowerLeft = origin.map((v, i) => v - (width[i] ?? 0) / 2) as [number, number, number];
+            plot.upperRight = origin.map((v, i) => v + (width[i] ?? 0) / 2) as [number, number, number];
+            if (pixels.length >= 3) {
+                plot.voxels = [pixels[0], pixels[1], pixels[2]];
+            }
+        } else {
+            // Ray-trace plots
+            if (pixels.length >= 2) {
+                plot.pixels = [pixels[0], pixels[1]];
+            }
+            if (plotElem.camera_position) {
+                plot.cameraPosition = this.parseNumberList(plotElem.camera_position) as [number, number, number];
+            }
+            if (plotElem.look_at) {
+                plot.lookAt = this.parseNumberList(plotElem.look_at) as [number, number, number];
+            }
+            if (plotElem.horizontal_field_of_view !== undefined) {
+                plot.horizontalFieldOfView = parseFloat(plotElem.horizontal_field_of_view);
+            }
+            if (plotElem.orthographic_width !== undefined) {
+                plot.orthographicWidth = parseFloat(plotElem.orthographic_width);
+            }
+            if (type === 'solid-raytrace') {
+                if (plotElem.light_position) {
+                    plot.lightPosition = this.parseNumberList(plotElem.light_position) as [number, number, number];
+                }
+                if (plotElem.diffuse_fraction !== undefined) {
+                    plot.diffuseFraction = parseFloat(plotElem.diffuse_fraction);
+                }
+                if (plotElem.opaque_ids) {
+                    plot.opaqueIds = this.parseNumberList(plotElem.opaque_ids).map((n) => Math.trunc(n));
+                }
+            } else {
+                if (plotElem.wireframe_thickness !== undefined) {
+                    plot.wireframeThickness = parseInt(plotElem.wireframe_thickness);
+                }
+                if (plotElem.wireframe_color) {
+                    plot.wireframeColor = this.parseNumberList(plotElem.wireframe_color).map((n) => Math.trunc(n)) as [
+                        number,
+                        number,
+                        number
+                    ];
+                }
+                if (plotElem.wireframe_ids) {
+                    plot.wireframeIds = this.parseNumberList(plotElem.wireframe_ids).map((n) => Math.trunc(n));
+                }
+            }
+        }
+
+        return plot;
     }
 
     /**
@@ -752,6 +1487,46 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async checkMPI(): Promise<{ available: boolean; version?: string; processes?: number; error?: string }> {
         return this.runnerService.checkMPI();
+    }
+
+    /**
+     * Run a stochastic volume calculation.
+     * @param request - Volume calculation configuration
+     * @returns Volume calculation result with per-domain volumes
+     */
+    async runVolumeCalculation(request: VolumeCalculationRequest): Promise<VolumeCalculationResult> {
+        this.log(`Running volume calculation in ${request.workingDirectory}`);
+        return this.runnerService.runVolumeCalculation(request);
+    }
+
+    /**
+     * Generate native OpenMC plots.
+     * @param request - Plot generation configuration
+     * @returns Plot generation result with generated file paths
+     */
+    async generatePlots(request: PlotGenerationRequest): Promise<PlotGenerationResult> {
+        this.log(`Generating plots in ${request.workingDirectory}`);
+        return this.runnerService.generatePlots(request);
+    }
+
+    /**
+     * Import a material composition from an NCrystal configuration string.
+     * @param cfg - NCrystal configuration string
+     * @returns The imported material composition
+     */
+    async importNCrystalMaterial(cfg: string): Promise<NCrystalImportResult> {
+        this.log(`Importing NCrystal material: ${cfg}`);
+        return this.runnerService.importNCrystalMaterial(cfg);
+    }
+
+    /**
+     * Generate an MGXS library from the model.
+     * @param request - MGXS generation configuration
+     * @returns The generated library path
+     */
+    async generateMgxs(request: MgxsGenerationRequest): Promise<MgxsGenerationResult> {
+        this.log(`Generating MGXS library in ${request.workingDirectory}`);
+        return this.runnerService.generateMgxs(request);
     }
 
     // ============================================================================
@@ -906,11 +1681,71 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // IFP kinetics: requires eigenvalue mode; ifp_n_generation must not exceed inactive batches
+        if (settings.kinetics?.enabled) {
+            const eigenRun = settings.run.mode === 'eigenvalue' ? settings.run : undefined;
+            if (!eigenRun) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: 'IFP kinetics requires eigenvalue (criticality) run mode',
+                    suggestion: 'Switch the run mode to eigenvalue or disable kinetics'
+                });
+            } else if (settings.kinetics.ifpNGenerations !== undefined && settings.kinetics.ifpNGenerations > eigenRun.inactive) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: `IFP generations (${settings.kinetics.ifpNGenerations}) exceed inactive batches (${eigenRun.inactive})`,
+                    suggestion: 'Reduce IFP generations or increase the number of inactive batches'
+                });
+            }
+        }
+
+        // Multi-group mode requires an MGXS library
+        if (settings.energyMode === 'multigroup' && !settings.mgxsLibrary) {
+            issues.push({
+                severity: 'warning',
+                category: 'settings',
+                message: 'Multi-group energy mode requires an MGXS library',
+                suggestion: 'Set the MGXS library path in the Random Ray tab (generate one with the MGXS Generator window)'
+            });
+        }
+
+        // Random ray requires inactive batches in both run modes (random_ray.rst:108)
+        if (settings.randomRay) {
+            const inactiveBatches =
+                settings.run.mode === 'eigenvalue'
+                    ? settings.run.inactive
+                    : settings.run.mode === 'fixed source'
+                      ? settings.run.inactive
+                      : 0;
+            if (!inactiveBatches || inactiveBatches <= 0) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: 'Random ray requires inactive batches in both eigenvalue and fixed source mode',
+                    suggestion: 'Set inactive batches > 0 (Random Ray mode needs them to develop the scattering source)'
+                });
+            }
+            // Ray source should cover the geometry domain when bounds are verifiable
+            if (settings.randomRay.raySource) {
+                const hasGeometry = request.state.geometry.cells.length > 0 || !!settings.dagmcFile;
+                if (!hasGeometry) {
+                    issues.push({
+                        severity: 'warning',
+                        category: 'settings',
+                        message: 'Cannot verify ray source coverage: no geometry defined',
+                        suggestion: 'Define geometry before relying on the ray source box'
+                    });
+                }
+            }
+        }
+
         // For DAGMC: validate source is within geometry bounds
         if (settings.dagmcFile && settings.dagmcInfo?.boundingBox && settings.sources.length > 0) {
             const geomBounds = settings.dagmcInfo.boundingBox;
             for (const source of settings.sources) {
-                const spatial = source.spatial as any;
+                const spatial = (source as OpenMCIndependentSource).spatial as any;
                 if (spatial.type === 'box' && spatial.lowerLeft && spatial.upperRight) {
                     // Check if source box extends beyond geometry bounds
                     const sourceExtendsBeyond =
@@ -1157,7 +1992,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         try {
             const fs = await import('fs');
             const content = fs.readFileSync(projectPath, 'utf-8');
-            const project: OpenMCProjectFile = JSON.parse(content);
+            const parsed: OpenMCProjectFile = JSON.parse(content);
+            const { project, migratedFrom } = migrateProjectFile(parsed);
+
+            if (migratedFrom) {
+                this.log(`Migrated project from schema ${migratedFrom} to ${OPENMC_STATE_SCHEMA_VERSION}`);
+            }
 
             return {
                 success: true,
@@ -1493,6 +2333,44 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }> {
         this.log(`Deleting group "${groupName}" from ${filePath}`);
         return this.dagmcEditorService.deleteGroup(filePath, groupName);
+    }
+
+    /**
+     * Replace a material by name across all volumes in a DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param oldName - Material name to replace
+     * @param newName - Material name to assign instead
+     * @returns Operation result
+     */
+    async dagmcReplaceMaterial(
+        filePath: string,
+        oldName: string,
+        newName: string
+    ): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }> {
+        this.log(`Replacing material "${oldName}" with "${newName}" in ${filePath}`);
+        return this.dagmcEditorService.replaceMaterial(filePath, oldName, newName);
+    }
+
+    /**
+     * Synchronize DAGMC universes for depletion.
+     * @param workingDirectory - Directory containing the model XML files
+     * @returns Sync result with cell/material counts
+     */
+    async dagmcSyncForDepletion(workingDirectory: string): Promise<{
+        success: boolean;
+        cellCount?: number;
+        materialCount?: number;
+        materialNames?: string[];
+        geometryXml?: string;
+        error?: string;
+        output?: string;
+    }> {
+        this.log(`Synchronizing DAGMC universes for depletion in ${workingDirectory}`);
+        return this.dagmcEditorService.syncForDepletion(workingDirectory);
     }
 
     /**

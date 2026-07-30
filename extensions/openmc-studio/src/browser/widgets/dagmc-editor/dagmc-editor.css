@@ -2257,3 +2257,23 @@
         font-size: 11px;
     }
 }
+
+/* Overrides tab */
+.dagmc-editor .override-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+
+.dagmc-editor .override-table th,
+.dagmc-editor .override-table td {
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 12px;
+}
+
+.dagmc-editor .override-table th {
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+}

@@ -93,4 +93,9 @@ export namespace OpenMCCommands {
         label: 'Open OpenMC Tallies',
         iconClass: 'codicon codicon-list-tree'
     };
+    export const OPEN_RANDOM_RAY_RESULTS: Command = {
+        id: 'openmc.open-random-ray-results',
+        label: 'Open as Random Ray Results...',
+        iconClass: 'codicon codicon-symbol-misc'
+    };
 }

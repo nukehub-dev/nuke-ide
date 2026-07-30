@@ -39,9 +39,11 @@ import {
     OpenMCStatepointFullInfo,
     OpenMCTallyInfo,
     OpenMCKGenerationData,
+    OpenMCKineticsResult,
     HDF5_FILE_FILTER,
     GEOMETRY_FILE_FILTER
 } from '../../../../../common/openmc-protocol';
+import { formatUncertainty, formatValue, hasIfpTallies, kineticsToCsv } from './kinetics-utils';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
@@ -78,6 +80,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     private statepointInfo: OpenMCStatepointFullInfo | null = null;
     private tallies: OpenMCTallyInfo[] = [];
     private kGenerationData: OpenMCKGenerationData | null = null;
+    private kineticsData: OpenMCKineticsResult | null = null;
+    private kineticsLoading: boolean = false;
+    private kineticsError: string | null = null;
     private isLoading: boolean = false;
     private loadingMessage: string = 'Loading...';
     private activeTab: string = 'overview';
@@ -198,6 +203,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.statepointInfo = info;
         this.tallies = tallies;
         this.kGenerationData = kData || null;
+        this.kineticsData = null;
+        this.kineticsError = null;
+        this.kineticsLoading = false;
         this.update();
     }
 
@@ -206,6 +214,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.statepointInfo = null;
         this.tallies = [];
         this.kGenerationData = null;
+        this.kineticsData = null;
+        this.kineticsError = null;
+        this.kineticsLoading = false;
         this.update();
     }
 
@@ -464,7 +475,49 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
 
     protected setActiveTab(tab: string): void {
         this.activeTab = tab;
+        if (tab === 'ifp-kinetics' && !this.kineticsData && !this.kineticsLoading && !this.kineticsError) {
+            this.loadKinetics();
+        }
         this.update();
+    }
+
+    /** True when the loaded statepoint contains IFP tallies (β_eff / Λ_eff available). */
+    protected hasKineticsTallies(): boolean {
+        return hasIfpTallies(this.tallies);
+    }
+
+    /** Lazily fetch IFP kinetics parameters from the backend (`openmc.kinetics`). */
+    protected async loadKinetics(): Promise<void> {
+        const uri = this.statepointUri;
+        if (!uri || this.kineticsLoading) {
+            return;
+        }
+        this.kineticsLoading = true;
+        this.kineticsError = null;
+        this.update();
+        const { data, error } = await this.openmcService.getKineticsParameters(uri);
+        this.kineticsLoading = false;
+        if (data) {
+            this.kineticsData = data;
+        } else {
+            this.kineticsError = error || 'Failed to compute kinetics parameters';
+        }
+        this.update();
+    }
+
+    /** Export the loaded kinetics parameters as a CSV download. */
+    protected exportKineticsCsv(): void {
+        if (!this.kineticsData) {
+            return;
+        }
+        const csv = kineticsToCsv(this.kineticsData);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${this.statepointUri?.path.base ?? 'statepoint'}.kinetics.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
     }
 
     protected render(): React.ReactNode {
@@ -531,6 +584,15 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                             <i className={codicon('flame')}></i>
                             K-Effective
                         </button>
+                        {this.hasKineticsTallies() && (
+                            <button
+                                className={`tab ${this.activeTab === 'ifp-kinetics' ? 'active' : ''}`}
+                                onClick={() => this.setActiveTab('ifp-kinetics')}
+                            >
+                                <i className={codicon('watch')}></i>
+                                Kinetics (IFP)
+                            </button>
+                        )}
                         <button
                             className={`tab ${this.activeTab === 'tallies' ? 'active' : ''}`}
                             onClick={() => this.setActiveTab('tallies')}
@@ -552,6 +614,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 <div className="content">
                     {this.activeTab === 'overview' && this.renderOverview()}
                     {this.activeTab === 'kinetics' && this.renderKinetics()}
+                    {this.activeTab === 'ifp-kinetics' && this.hasKineticsTallies() && this.renderIfpKinetics()}
                     {this.activeTab === 'tallies' && this.renderTallies()}
                     {this.activeTab === 'performance' && this.renderPerformance()}
                 </div>
@@ -842,6 +905,126 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                     <div className="kinetics-empty">
                         <i className={codicon('info')}></i>
                         <p>No k-effective data available for this simulation.</p>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    private renderIfpKinetics(): React.ReactNode {
+        if (this.kineticsLoading) {
+            return (
+                <div className="tab-content">
+                    <div className="kinetics-empty">
+                        <SimpleLoadingSpinner message="Computing kinetics parameters…" />
+                    </div>
+                </div>
+            );
+        }
+
+        if (this.kineticsError) {
+            const noIfpData = this.kineticsError.includes('No IFP tallies');
+            return (
+                <div className="tab-content">
+                    <div className="kinetics-empty">
+                        <i className={codicon(noIfpData ? 'info' : 'error')}></i>
+                        <p>{noIfpData ? 'No kinetics data in this statepoint (no IFP tallies found).' : this.kineticsError}</p>
+                        {!noIfpData && (
+                            <button className="theia-button secondary" onClick={() => this.loadKinetics()}>
+                                Retry
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const data = this.kineticsData;
+        if (!data || (!data.betaEffective && !data.generationTime)) {
+            return (
+                <div className="tab-content">
+                    <div className="kinetics-empty">
+                        <i className={codicon('info')}></i>
+                        <p>No kinetics data in this statepoint.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="tab-content">
+                {/* β_eff Hero */}
+                {data.betaEffective && (
+                    <div className="kinetics-hero">
+                        <div className="kinetics-hero-content">
+                            <div className="kinetics-k">
+                                <div className="kinetics-k-value">{formatValue(data.betaEffective.mean)}</div>
+                                <div className="kinetics-k-uncertainty">± {formatValue(data.betaEffective.stdDev, 2)}</div>
+                            </div>
+                            <div className="kinetics-k-label">Effective delayed neutron fraction β_eff</div>
+                            <div className="kinetics-stats">
+                                {data.generationTime && (
+                                    <div className="kinetics-stat">
+                                        <span className="kinetics-stat-value">{formatValue(data.generationTime.mean)} s</span>
+                                        <span className="kinetics-stat-label">Λ_eff</span>
+                                    </div>
+                                )}
+                                <div className="kinetics-stat">
+                                    <span className="kinetics-stat-value">{data.method}</span>
+                                    <span className="kinetics-stat-label">Computed via</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Parameters table */}
+                <div className="kinetics-section">
+                    <div className="kinetics-section-header">
+                        <i className={codicon('table')}></i>
+                        <h3>Kinetics Parameters</h3>
+                        <button className="theia-button secondary kinetics-export-btn" onClick={() => this.exportKineticsCsv()}>
+                            <i className={codicon('export')}></i>
+                            Export CSV
+                        </button>
+                    </div>
+                    <div className="kinetics-estimators-grid">
+                        {data.betaEffective && (
+                            <div className="kinetics-estimator-row">
+                                <span className="kinetics-estimator-label">β_eff (total)</span>
+                                <span className="kinetics-estimator-value">{formatUncertainty(data.betaEffective)}</span>
+                            </div>
+                        )}
+                        {data.generationTime && (
+                            <div className="kinetics-estimator-row">
+                                <span className="kinetics-estimator-label">Λ_eff (generation time)</span>
+                                <span className="kinetics-estimator-value">{formatUncertainty(data.generationTime)} s</span>
+                            </div>
+                        )}
+                        {data.keff && (
+                            <div className="kinetics-estimator-row">
+                                <span className="kinetics-estimator-label">k_eff (reference)</span>
+                                <span className="kinetics-estimator-value">{formatUncertainty(data.keff)}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Per-group β_eff */}
+                {data.betaEffectiveGroups && data.betaEffectiveGroups.length > 1 && (
+                    <div className="kinetics-section">
+                        <div className="kinetics-section-header">
+                            <i className={codicon('list-ordered')}></i>
+                            <h3>β_eff per Delayed Group</h3>
+                        </div>
+                        <div className="kinetics-estimators-grid">
+                            {data.betaEffectiveGroups.map((group, index) => (
+                                <div className="kinetics-estimator-row" key={index}>
+                                    <span className="kinetics-estimator-label">Group {index + 1}</span>
+                                    <span className="kinetics-estimator-value">{formatUncertainty(group)}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

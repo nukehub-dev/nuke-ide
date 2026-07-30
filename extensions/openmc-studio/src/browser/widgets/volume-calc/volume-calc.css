@@ -1,0 +1,49 @@
+/* Volume Calculation widget styles */
+
+.volume-calc-widget {
+    padding: 16px;
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.volume-calc-widget .domain-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+
+.volume-calc-widget .volume-calc-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.volume-calc-widget .volume-calc-status {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.volume-calc-widget .volume-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+}
+
+.volume-calc-widget .volume-results-table th,
+.volume-calc-widget .volume-results-table td {
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+}
+
+.volume-calc-widget .volume-results-table th {
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+}

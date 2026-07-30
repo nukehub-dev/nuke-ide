@@ -14,6 +14,12 @@ _COMMAND_MODULES = [
     "xs_plot",
     "statepoint",
     "tally_viz",
+    "tracks",
+    "collision_track",
+    "weight_windows",
+    "kinetics",
+    "particle_restart",
+    "output_vtk",
 ]
 
 for mod_name in _COMMAND_MODULES:

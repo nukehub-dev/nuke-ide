@@ -67,11 +67,22 @@ import {
 
 // Widget imports
 import { SimulationDashboardWidget } from './widgets/simulation-dashboard/simulation-dashboard-widget';
+import { DashboardTabContribution, DashboardTabRegistry } from './widgets/simulation-dashboard/tabs/tab-registry';
+import { SettingsTabContribution } from './widgets/simulation-dashboard/tabs/settings-tab';
+import { MaterialsTabContribution } from './widgets/simulation-dashboard/tabs/materials-tab';
+import { TalliesTabContribution } from './widgets/simulation-dashboard/tabs/tallies-tab';
+import { DepletionTabContribution } from './widgets/simulation-dashboard/tabs/depletion-tab';
+import { VarianceReductionTabContribution } from './widgets/simulation-dashboard/tabs/variance-reduction-tab';
+import { RandomRayTabContribution } from './widgets/simulation-dashboard/tabs/random-ray-tab';
+import { SimulationTabContribution } from './widgets/simulation-dashboard/tabs/simulation-tab';
 import { CSGBuilderWidget } from './widgets/csg-builder/csg-builder-widget';
 import { DAGMCEditorWidget } from './widgets/dagmc-editor/dagmc-editor-widget';
 import { TallyConfiguratorWidget } from './widgets/tally-configurator/tally-configurator-widget';
 import { SimulationComparisonWidget } from './widgets/simulation-comparison/comparison-widget';
 import { OptimizationWidget } from './widgets/optimization/optimization-widget';
+import { VolumeCalcWidget } from './widgets/volume-calc/volume-calc-widget';
+import { NativePlottingWidget } from './widgets/native-plotting/native-plotting-widget';
+import { MgxsGeneratorWidget } from './widgets/mgxs-generator/mgxs-generator-widget';
 
 // Preferences
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
@@ -83,6 +94,9 @@ import './widgets/dagmc-editor/dagmc-editor.css';
 import './widgets/tally-configurator/tally-configurator.css';
 import './widgets/simulation-comparison/comparison.css';
 import './widgets/optimization/optimization.css';
+import './widgets/volume-calc/volume-calc.css';
+import './widgets/native-plotting/native-plotting.css';
+import './widgets/mgxs-generator/mgxs-generator.css';
 
 /**
  * The OpenMC Studio frontend {@link ContainerModule}.
@@ -175,6 +189,18 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(FrontendApplicationContribution).toService(OpenMCOpenHandlerContribution);
 
     // ============================================================================
+    // Dashboard Tabs
+    // ============================================================================
+    bind(DashboardTabRegistry).toSelf().inSingletonScope();
+    bind(DashboardTabContribution).to(SettingsTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(MaterialsTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(TalliesTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(DepletionTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(VarianceReductionTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(RandomRayTabContribution).inSingletonScope();
+    bind(DashboardTabContribution).to(SimulationTabContribution).inSingletonScope();
+
+    // ============================================================================
     // Widget Factories
     // ============================================================================
     bind(SimulationDashboardWidget).toSelf();
@@ -222,6 +248,30 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         id: OptimizationWidget.ID,
         createWidget: () => container.get(OptimizationWidget)
     }));
+
+    bind(VolumeCalcWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: VolumeCalcWidget.ID,
+            createWidget: () => container.get(VolumeCalcWidget)
+        }))
+        .inSingletonScope();
+
+    bind(NativePlottingWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: NativePlottingWidget.ID,
+            createWidget: () => container.get(NativePlottingWidget)
+        }))
+        .inSingletonScope();
+
+    bind(MgxsGeneratorWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: MgxsGeneratorWidget.ID,
+            createWidget: () => container.get(MgxsGeneratorWidget)
+        }))
+        .inSingletonScope();
 
     console.log('[OpenMC Studio] Frontend module initialized');
 });

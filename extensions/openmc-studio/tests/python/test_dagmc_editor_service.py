@@ -348,6 +348,57 @@ class TestAssignMaterial:
         result = des.assign_material(str(tmp_path / "m.h5m"), 1, "steel")
         assert result["success"] is False
         assert "bad file" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# replace_material
+# ---------------------------------------------------------------------------
+
+
+class TestReplaceMaterial:
+    def test_replaces_all_matching_volumes(self, des, monkeypatch, tmp_path):
+        """All volumes with the old material are reassigned and the file is saved."""
+        vols = [
+            FakeVolume(1, material="fuel"),
+            FakeVolume(2, material="fuel"),
+            FakeVolume(3, material="water"),
+        ]
+        model = FakeModel(volumes=vols)
+        _install_model(des, monkeypatch, model)
+        target = str(tmp_path / "m.h5m")
+
+        result = des.replace_material(target, "fuel", "uo2")
+
+        assert result["success"] is True
+        assert result["updated"] == 2
+        assert vols[0].material == "uo2"
+        assert vols[1].material == "uo2"
+        assert vols[2].material == "water"
+        assert ("write_file", target) in model.mb.calls
+
+    def test_no_matching_volumes_returns_error(self, des, monkeypatch, tmp_path):
+        """No volumes with the old material yields an error dict."""
+        _install_model(des, monkeypatch, FakeModel(volumes=[FakeVolume(1, material="water")]))
+        result = des.replace_material(str(tmp_path / "m.h5m"), "fuel", "uo2")
+        assert result["success"] is False
+        assert "No volumes" in result["error"]
+
+    def test_empty_new_name_removes_assignment(self, des, monkeypatch, tmp_path):
+        """An empty new material name clears the assignment on matching volumes."""
+        vol = FakeVolume(1, material="fuel")
+        _install_model(des, monkeypatch, FakeModel(volumes=[vol]))
+        result = des.replace_material(str(tmp_path / "m.h5m"), "fuel", "")
+        assert result["success"] is True
+        assert vol.material is None
+
+    def test_model_failure_returns_error(self, des, monkeypatch, tmp_path):
+        """A Model constructor failure yields an error dict with a traceback."""
+        monkeypatch.setattr(
+            des, "Model", lambda file_path: (_ for _ in ()).throw(ValueError("bad file"))
+        )
+        result = des.replace_material(str(tmp_path / "m.h5m"), "fuel", "uo2")
+        assert result["success"] is False
+        assert "bad file" in result["error"]
         assert "traceback" in result
 
 

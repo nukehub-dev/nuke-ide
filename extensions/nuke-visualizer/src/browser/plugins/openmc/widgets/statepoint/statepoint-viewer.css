@@ -808,6 +808,13 @@
     letter-spacing: 0.5px;
 }
 
+.statepoint-viewer .kinetics-export-btn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .statepoint-viewer .kinetics-plot {
     background: var(--theia-editor-background);
     border-radius: 8px;

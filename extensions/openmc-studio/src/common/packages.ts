@@ -54,3 +54,6 @@ export const CAD_PACKAGES: PackageDependency[] = packages.cad;
 
 /** Full package set verified by the OpenMC health check. */
 export const OPENMC_HEALTH_PACKAGES: PackageDependency[] = packages.health;
+
+/** NCrystal (optional) for NCrystal material import in the materials tab. */
+export const NCRYSTAL_PACKAGES: PackageDependency[] = packages.ncrystal;

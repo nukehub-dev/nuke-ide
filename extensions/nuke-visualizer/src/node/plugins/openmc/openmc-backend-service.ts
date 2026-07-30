@@ -40,11 +40,24 @@ import {
     XSGroupStructuresResponse,
     PythonConfig,
     VisualizerClient,
-    OPENMC_REQUIREMENTS
+    OPENMC_REQUIREMENTS,
+    OpenMCTracksInfo,
+    OpenMCTracksData,
+    OpenMCTracksDataOptions,
+    OpenMCTracksVtkOptions,
+    OpenMCCollisionTrackInfo,
+    OpenMCCollisionTrackData,
+    OpenMCCollisionTrackQuery,
+    OpenMCCollisionVtkOptions,
+    OpenMCWeightWindowsData,
+    OpenMCVtkConversionResult,
+    OpenMCKineticsResult,
+    OpenMCVtkFileInfo,
+    OpenMCParticleRestart
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
-import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService } from './services';
+import { OpenMCStatepointService, OpenMCGeometryService, OpenMCXSService, OpenMCDepletionService, OpenMCOutputService } from './services';
 
 interface OpenMCProcess {
     process: RawProcess;
@@ -91,6 +104,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     @inject(OpenMCDepletionService)
     protected readonly depletionService: OpenMCDepletionService;
+
+    @inject(OpenMCOutputService)
+    protected readonly outputService: OpenMCOutputService;
 
     setClient(client: VisualizerClient): void {
         this.client = client;
@@ -888,6 +904,56 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
                 exitDisposable.dispose();
             };
         });
+    }
+
+    // === Output File Viewers (tracks / collision track / weight windows) ===
+
+    async getTracksInfo(filePath: string): Promise<OpenMCTracksInfo> {
+        return this.outputService.getTracksInfo(filePath);
+    }
+
+    async getTracksData(filePath: string, options?: OpenMCTracksDataOptions): Promise<OpenMCTracksData> {
+        return this.outputService.getTracksData(filePath, options);
+    }
+
+    async convertTracksToVtk(filePath: string, options?: OpenMCTracksVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertTracksToVtk(filePath, options);
+    }
+
+    async getCollisionTrackInfo(filePath: string): Promise<OpenMCCollisionTrackInfo> {
+        return this.outputService.getCollisionTrackInfo(filePath);
+    }
+
+    async getCollisionTrackData(filePath: string, query?: OpenMCCollisionTrackQuery): Promise<OpenMCCollisionTrackData> {
+        return this.outputService.getCollisionTrackData(filePath, query);
+    }
+
+    async convertCollisionTrackToVtk(filePath: string, options?: OpenMCCollisionVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertCollisionTrackToVtk(filePath, options);
+    }
+
+    async getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData> {
+        return this.outputService.getWeightWindows(filePath);
+    }
+
+    async convertWeightWindowsToVtk(filePath: string): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertWeightWindowsToVtk(filePath);
+    }
+
+    async getKineticsParameters(statepointPath: string): Promise<OpenMCKineticsResult> {
+        return this.outputService.getKineticsParameters(statepointPath);
+    }
+
+    async convertVoxelToVtk(filePath: string): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertVoxelToVtk(filePath);
+    }
+
+    async getVtkInfo(filePath: string): Promise<OpenMCVtkFileInfo> {
+        return this.outputService.getVtkInfo(filePath);
+    }
+
+    async getParticleRestart(filePath: string): Promise<OpenMCParticleRestart> {
+        return this.outputService.getParticleRestart(filePath);
     }
 
     private async findFreePort(startPort: number): Promise<number> {

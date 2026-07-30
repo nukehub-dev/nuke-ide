@@ -209,6 +209,53 @@ def assign_material(file_path: str, volume_id: int, material_name: str) -> dict:
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
+def replace_material(file_path: str, old_name: str, new_name: str) -> dict:
+    """Reassign all volumes with one material to another material.
+
+    This is the by-name equivalent of :func:`assign_material` (OpenMC's
+    ``DAGMCUniverse.add_material_override`` semantics applied across the file).
+
+    Args:
+        file_path: Path to the DAGMC .h5m file.
+        old_name: Material name to replace (empty string matches unassigned volumes).
+        new_name: Material name to assign instead (empty string removes the assignment).
+
+    Returns:
+        Dictionary with success flag and the number of volumes updated.
+    """
+    try:
+        model = Model(file_path)
+
+        old = old_name or None
+        new = new_name or None
+
+        updated = 0
+        for volume in model.volumes_by_id.values():
+            current = volume.material or None
+            if current == old:
+                volume.material = new
+                updated += 1
+
+        if updated == 0:
+            return {
+                "success": False,
+                "error": f'No volumes with material "{old_name}" found',
+            }
+
+        # Save
+        model.mb.write_file(file_path)
+
+        return {
+            "success": True,
+            "updated": updated,
+            "message": f'Replaced material "{old_name}" with "{new_name}" on {updated} volume(s)',
+        }
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
 def create_group(file_path: str, group_name: str, volume_ids: list = None) -> dict:
     """Create a new DAGMC group with optional volumes.
 
@@ -868,6 +915,16 @@ def main():
         volume_id = int(sys.argv[3])
         material_name = sys.argv[4]
         result = assign_material(file_path, volume_id, material_name)
+        print(json.dumps(result))
+
+    elif command == "replace_material":
+        if len(sys.argv) < 5:
+            print(json.dumps({"success": False, "error": "Insufficient arguments"}))
+            sys.exit(1)
+        file_path = sys.argv[2]
+        old_name = sys.argv[3]
+        new_name = sys.argv[4]
+        result = replace_material(file_path, old_name, new_name)
         print(json.dumps(result))
 
     elif command == "create_group":

@@ -296,6 +296,10 @@ export interface DAGMCInfo {
     };
     fileSizeMB?: number;
     totalSurfaceArea?: number;
+    /** Auto-resolve geometry ID conflicts on the DAGMC universe (auto_geom_ids) */
+    autoGeomIds?: boolean;
+    /** Auto-resolve material ID conflicts on the DAGMC universe (auto_mat_ids) */
+    autoMatIds?: boolean;
 }
 
 // ============================================================================
@@ -361,6 +365,11 @@ export interface OpenMCMaterial {
     nuclides: OpenMCNuclide[];
     /** List of S(α,β) thermal scattering data */
     thermalScattering: OpenMCThermalScattering[];
+    /** Macroscopic (multigroup) cross section data; when set, the material carries no nuclide decomposition */
+    macroscopic?: {
+        /** Name of the macroscopic data set in the MGXS library (e.g. 'UO2') */
+        name: string;
+    };
     /** Whether material is depletable */
     isDepletable?: boolean;
     /** Optional volume in cm³ (required for depletion) */
@@ -487,18 +496,50 @@ export interface OpenMCSourceAngle {
     };
 }
 
-/** External source definition */
-export interface OpenMCSource {
+/** Source type discriminator */
+export type OpenMCSourceType = 'independent' | 'file' | 'compiled';
+
+/**
+ * Constraints on sampled source particles.
+ * Maps to the `<constraints>` sub-element of `<source>` in settings.xml.
+ * @see {@link OpenMCSourceBase.constraints}
+ */
+export interface OpenMCSourceConstraints {
+    /** Domain type for rejection-based constraints */
+    domainType?: 'cell' | 'material' | 'universe';
+    /** Domain IDs the sampled site must be within */
+    domainIds?: number[];
+    /** Only accept sites in fissionable material */
+    fissionable?: boolean;
+    /** Energy bounds [min, max] in eV the sampled site must be within */
+    energyBounds?: [number, number];
+    /** Time bounds [min, max] in seconds the sampled site must be within */
+    timeBounds?: [number, number];
+    /** What happens when a site is rejected: resample a new site or kill the particle */
+    rejectionStrategy?: 'resample' | 'kill';
+}
+
+/** Base source definition shared by all source types */
+export interface OpenMCSourceBase {
     /** Source name/ID */
     id?: string;
+    /** Source type; absent means 'independent' (backward compatible with pre-1.2 project files) */
+    type?: OpenMCSourceType;
+    /** Source strength (relative weight when multiple sources are defined) */
+    strength?: number;
+    /** Constraints on sampled source particles */
+    constraints?: OpenMCSourceConstraints;
+}
+
+/** Independent source: explicit spatial/energy/angular distributions */
+export interface OpenMCIndependentSource extends OpenMCSourceBase {
+    type?: 'independent';
     /** Spatial distribution */
     spatial: OpenMCSourceSpatial;
     /** Energy distribution */
     energy: OpenMCSourceEnergy;
     /** Angular distribution (default: isotropic) */
     angle?: OpenMCSourceAngle;
-    /** Source strength (particles per batch) */
-    strength?: number;
     /** Particle type: 'neutron', 'photon' */
     particle?: 'neutron' | 'photon';
     /** Time distribution (for time-dependent problems) */
@@ -507,6 +548,25 @@ export interface OpenMCSource {
         params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
     };
 }
+
+/** File source: particles read from a source file (e.g. surface source file) */
+export interface OpenMCFileSource extends OpenMCSourceBase {
+    type: 'file';
+    /** Path to the source file */
+    path: string;
+}
+
+/** Compiled source: particles sampled by a compiled shared library */
+export interface OpenMCCompiledSource extends OpenMCSourceBase {
+    type: 'compiled';
+    /** Path to the compiled shared library */
+    library: string;
+    /** Parameter string passed to the library function */
+    parameters?: string;
+}
+
+/** External source definition (discriminated union over source types) */
+export type OpenMCSource = OpenMCIndependentSource | OpenMCFileSource | OpenMCCompiledSource;
 
 // ============================================================================
 // Settings - Run Configuration
@@ -539,6 +599,8 @@ export interface OpenMCFixedSourceSettings {
     particles: number;
     /** Number of batches */
     batches: number;
+    /** Number of inactive batches (required for random ray fixed source mode) */
+    inactive?: number;
 }
 
 /** Volume calculation settings */
@@ -567,12 +629,85 @@ export type OpenMCRunSettings = OpenMCEigenvalueSettings | OpenMCFixedSourceSett
 
 /** Shannon entropy mesh for convergence monitoring */
 export interface OpenMCEntropyMesh {
+    /** Mesh ID written to settings.xml (auto-assigned when absent) */
+    id?: number;
     /** Lower-left corner */
     lowerLeft: [number, number, number];
     /** Upper-right corner */
     upperRight: [number, number, number];
     /** Number of mesh cells in each dimension */
     shape: [number, number, number];
+}
+
+/** Surface source writing settings (settings.xml `<surf_source_write>`) */
+export interface OpenMCSurfaceSourceWrite {
+    /** Surface IDs on which to bank particles */
+    surfaceIds?: number[];
+    /** Cell ID for source banking (crossing in either direction) */
+    cell?: number;
+    /** Cell ID for source banking (leaving the cell) */
+    cellfrom?: number;
+    /** Cell ID for source banking (entering the cell) */
+    cellto?: number;
+    /** Maximum number of particles banked per process */
+    maxParticles?: number;
+    /** Maximum number of surface source files written */
+    maxSourceFiles?: number;
+    /** Write MCPL-format files instead of HDF5 */
+    mcpl?: boolean;
+}
+
+/** Collision track output settings (settings.xml `<collision_track>`) */
+export interface OpenMCCollisionTrack {
+    /** Maximum number of collisions to record */
+    maxCollisions?: number;
+    /** Reaction filter: MT numbers or reaction names */
+    reactions?: (number | string)[];
+    /** Material ID filter */
+    materialIds?: number[];
+    /** Nuclide filter (e.g. 'U235') */
+    nuclides?: string[];
+    /** Cell ID filter */
+    cellIds?: number[];
+    /** Universe ID filter */
+    universeIds?: number[];
+    /** Deposited energy threshold in eV */
+    depositedEnergyThreshold?: number;
+    /** Maximum number of collision track files */
+    maxCollisionTrackFiles?: number;
+    /** Write MCPL-format file */
+    mcpl?: boolean;
+}
+
+/** Random ray solver settings (settings.xml `<random_ray>`, openmc/settings.py) */
+export interface OpenMCRandomRaySettings {
+    /** Total inactive distance in cm a ray travels */
+    distanceInactive?: number;
+    /** Total active distance in cm a ray travels */
+    distanceActive?: number;
+    /** Assumed source distribution shape within each source region */
+    sourceShape?: 'flat' | 'linear' | 'linear_xy';
+    /** Volume estimator for the solver */
+    volumeEstimator?: 'naive' | 'simulation_averaged' | 'hybrid';
+    /** Normalize flux tallies by volume */
+    volumeNormalizedFluxTallies?: boolean;
+    /** Sampling method for ray starting points */
+    sampleMethod?: 'prng' | 'halton' | 's2';
+    /** Diagonal stabilization parameter rho (0 disables) */
+    diagonalStabilizationRho?: number;
+    /** Enable adjoint flux mode (FW-CADIS: forward solve then adjoint solve) */
+    adjoint?: boolean;
+    /** Source region mesh ID (references a regular mesh in state.meshes) */
+    sourceRegionMeshId?: number;
+    /** Source region domain type */
+    sourceRegionDomainType?: 'cell' | 'material' | 'universe';
+    /** Source region domain IDs covered by the mesh */
+    sourceRegionDomainIds?: number[];
+    /** Ray source: uniform spatial box over the domain */
+    raySource?: {
+        lowerLeft: [number, number, number];
+        upperRight: [number, number, number];
+    };
 }
 
 /** Main settings structure */
@@ -599,8 +734,52 @@ export interface OpenMCSettings {
     };
     /** Energy mode: 'continuous-energy' or 'multigroup' */
     energyMode?: 'continuous-energy' | 'multigroup';
+    /** Random ray solver settings (requires multigroup energy mode) */
+    randomRay?: OpenMCRandomRaySettings;
+    /** Path to the MGXS library file (mgxs.h5) for multi-group runs */
+    mgxsLibrary?: string;
     /** Photon transport toggle */
     photonTransport?: boolean;
+    /** Electron treatment for photon transport: 'led' (local energy deposition) or 'ttb' (thick-target bremsstrahlung) */
+    electronTreatment?: 'led' | 'ttb';
+    /** Atomic relaxation after photoelectric effect (default: true) */
+    atomicRelaxation?: boolean;
+    /** Output control (settings.xml `<output>`) */
+    output?: {
+        /** Write summary.h5 (default: true); overrides legacy {@link OpenMCSettings.outputSummary} when set */
+        summary?: boolean;
+        /** Write tallies.out (default: true) */
+        tallies?: boolean;
+        /** Output directory path */
+        path?: string;
+    };
+    /** Particle tracks to write: [batch, generation, particle ID] triples */
+    tracks?: [number, number, number][];
+    /** Maximum number of tracks to write */
+    maxTracks?: number;
+    /** Collision track output settings */
+    collisionTrack?: OpenMCCollisionTrack;
+    /** Surface source writing settings */
+    surfaceSourceWrite?: OpenMCSurfaceSourceWrite;
+    /** Surface source reading: path to a surface source file */
+    surfaceSourceRead?: {
+        path?: string;
+    };
+    /** Restart run option: statepoint file to restart from (passed as CLI `-r`, not written to settings.xml) */
+    restartFile?: string;
+    /** Kinetics parameters via the Iterated Fission Probability (IFP) method */
+    kinetics?: {
+        /** Whether IFP kinetics tallies are auto-generated on export */
+        enabled?: boolean;
+        /** IFP generations (`settings.ifp_n_generation`); must be > 0 and <= inactive batches */
+        ifpNGenerations?: number;
+        /** Precursor groups for group-wise β_eff (DelayedGroupFilter 1..N); absent or ≤ 1 means total β_eff only */
+        numPrecursorGroups?: number;
+        /** Compute β_eff (auto-generates the ifp-beta-numerator tally; default true) */
+        computeBetaEff?: boolean;
+        /** Compute Λ_eff generation time (auto-generates the ifp-time-numerator tally; default true) */
+        computeGenerationTime?: boolean;
+    };
     /** Whether to create a summary.h5 file */
     outputSummary?: boolean;
     /** Whether to create a statepoint at each batch */
@@ -665,12 +844,15 @@ export type OpenMCTallyFilterType =
     | 'material'
     | 'cell'
     | 'cellborn'
+    | 'cellfrom'
     | 'surface'
     | 'mesh'
+    | 'meshsurface'
     | 'pre-collision'
     | 'post-collision'
     | 'energy'
     | 'energyout'
+    | 'energyfunction'
     | 'mu'
     | 'polar'
     | 'azimuthal'
@@ -690,8 +872,26 @@ export interface OpenMCTallyFilter {
     type: OpenMCTallyFilterType;
     /** Filter bins (IDs for cell/material/universe, values for energy, etc.) */
     bins: number[];
-    /** For mesh filter: mesh ID */
+    /** For mesh/meshsurface filter: mesh ID */
     meshId?: number;
+    /** For expansion filters (legendre, spatiallegendre, sphericalharmonics, zernike, zernikeradial): expansion order */
+    order?: number;
+    /** For spatiallegendre filter: expansion axis */
+    axis?: 'x' | 'y' | 'z';
+    /** For spatiallegendre filter: minimum value along the axis */
+    min?: number;
+    /** For spatiallegendre filter: maximum value along the axis */
+    max?: number;
+    /** For sphericalharmonics filter: cosine treatment */
+    cosine?: 'scatter' | 'particle';
+    /** For zernike/zernikeradial filters: normalization circle (center x, y and radius) */
+    center?: { x: number; y: number; r: number };
+    /** For energyfunction filter: energy grid points in eV */
+    energyValues?: number[];
+    /** For energyfunction filter: response values at each energy grid point */
+    responseValues?: number[];
+    /** For energyfunction filter: interpolation scheme */
+    interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
 }
 
 /** Tally score types */
@@ -861,7 +1061,23 @@ export interface OpenMCVarianceReduction {
     weightWindows?: OpenMCWeightWindows;
     /** Weight window generator settings */
     weightWindowGenerator?: {
+        /** Mesh ID for the generated weight windows */
+        meshId?: number;
+        /** Energy group boundaries in eV */
+        energyBounds?: number[];
+        /** Generation method: 'magic' (default) or 'fw_cadis' (requires multi-group mode) */
+        method?: 'magic' | 'fw_cadis';
+        /** Maximum tally realizations when generating weight windows */
+        maxRealizations?: number;
+        /** Tally realizations between updates */
+        updateInterval?: number;
+        /** Apply generated weight windows on the fly */
+        onTheFly?: boolean;
+        /** FW-CADIS target tally IDs (local variance reduction) */
+        targetTallyIds?: number[];
+        /** Legacy iterations field (maps to maxRealizations when present) */
         iterations?: number;
+        /** Particle type */
         particleType?: 'neutron' | 'photon';
     };
     /** Source biasing settings */
@@ -909,10 +1125,36 @@ export interface OpenMCDepletion {
     normalizationMode?: 'source-rate' | 'fission-q' | 'energy-deposition';
     /** Fission Q values for normalization (optional) */
     fissionQ?: { [nuclide: string]: number };
+    /** External transfer rates between materials */
+    transferRates?: OpenMCTransferRate[];
+    /** Distinguish burnable materials that share the same composition */
+    diffBurnableMats?: boolean;
+    /** How volumes are assigned to differentiated materials */
+    diffVolumeMethod?: 'divide equally' | 'match cell';
+    /** Flux file paths for the independent operator (one per depletable material, aligned by index) */
+    fluxFiles?: string[];
+    /** MicroXS file paths for the independent operator (one per depletable material, aligned by index) */
+    microxsFiles?: string[];
+    /** Compute fluxes and micro cross sections from the current model via a transport solve */
+    generateFromModel?: boolean;
     /** Decay-only steps (indices of timesteps) */
     decayOnlySteps?: number[];
     /** Reduce or eliminate output files */
     reduceOutput?: boolean;
+}
+
+/** External transfer rate between materials (Integrator.add_transfer_rate) */
+export interface OpenMCTransferRate {
+    /** Source material ID */
+    material: number;
+    /** Element or nuclide being transferred (e.g. 'U', 'Gd155') */
+    element: string;
+    /** Transfer rate value (positive = removal, negative = feed) */
+    rate: number;
+    /** Rate units (default '1/s') */
+    units?: '1/s' | '1/min' | '1/h' | '1/d' | '1/a';
+    /** Optional destination material ID */
+    destinationMaterial?: number;
 }
 
 // ============================================================================
@@ -1050,21 +1292,23 @@ export interface OpenMCState {
     plots?: OpenMCPlotConfig[];
 }
 
-/** Plot configuration for OpenMC's built-in 2D plotting */
+/** Plot configuration for OpenMC's built-in plotting */
 export interface OpenMCPlotConfig {
     /** Plot ID */
     id: number;
-    /** Plot type: 'slice' or 'voxel' */
-    type: 'slice' | 'voxel';
-    /** Basis plane: 'xy', 'xz', 'yz' */
+    /** Plot type */
+    type: 'slice' | 'voxel' | 'solid-raytrace' | 'wireframe-raytrace';
+    /** Plot name (optional display name) */
+    name?: string;
+    /** Basis plane: 'xy', 'xz', 'yz' (slice only) */
     basis: 'xy' | 'xz' | 'yz';
-    /** Origin coordinates */
+    /** Origin coordinates (center for slice/voxel) */
     origin: [number, number, number];
     /** Width in x-direction (for slice) */
     width?: number;
     /** Height in y-direction (for slice) */
     height?: number;
-    /** Pixel resolution [x, y] (for slice) */
+    /** Pixel resolution [x, y] (for slice and ray-trace plots) */
     pixels?: [number, number];
     /** Lower-left corner (for voxel) */
     lowerLeft?: [number, number, number];
@@ -1076,6 +1320,28 @@ export interface OpenMCPlotConfig {
     colorBy: 'cell' | 'material' | 'temperature' | 'density';
     /** Whether to show mesh lines */
     meshlines?: boolean;
+    /** Camera position (ray-trace plots) */
+    cameraPosition?: [number, number, number];
+    /** Point the camera looks at (ray-trace plots) */
+    lookAt?: [number, number, number];
+    /** Camera up vector (ray-trace plots) */
+    up?: [number, number, number];
+    /** Horizontal field of view in degrees (ray-trace plots) */
+    horizontalFieldOfView?: number;
+    /** Orthographic projection width; 0/absent means perspective (ray-trace plots) */
+    orthographicWidth?: number;
+    /** Light position (solid ray-trace; defaults to camera position) */
+    lightPosition?: [number, number, number];
+    /** Diffuse light fraction (solid ray-trace) */
+    diffuseFraction?: number;
+    /** Domain IDs rendered opaque (solid ray-trace) */
+    opaqueIds?: number[];
+    /** Wireframe line thickness in pixels (wireframe ray-trace) */
+    wireframeThickness?: number;
+    /** Wireframe line color as RGB triple (wireframe ray-trace) */
+    wireframeColor?: [number, number, number];
+    /** Domain IDs outlined by the wireframe (wireframe ray-trace) */
+    wireframeIds?: number[];
 }
 
 // ============================================================================
@@ -1143,5 +1409,5 @@ export interface OpenMCProjectTemplate {
 // Version
 // ============================================================================
 
-/** Current schema version (for migration support) */
-export const OPENMC_STATE_SCHEMA_VERSION = '1.0.0';
+/** Current schema version (for migration support; see openmc-state-migration.ts) */
+export const OPENMC_STATE_SCHEMA_VERSION = '1.1.0';

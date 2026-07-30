@@ -51,6 +51,7 @@ import { OpenMCGeometryContribution } from './contributions/openmc-geometry-cont
 import { OpenMCDepletionContribution } from './contributions/openmc-depletion-contribution';
 import { OpenMCOverlayContribution } from './contributions/openmc-overlay-contribution';
 import { OpenMCPlottingContribution } from './contributions/openmc-plotting-contribution';
+import { OutputViewerRegistry } from '../../output-viewer/output-viewer-registry';
 
 @injectable()
 export class OpenMCContribution implements FrontendApplicationContribution, OpenHandler {
@@ -97,7 +98,17 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     @inject(OpenMCPlottingContribution)
     protected readonly plotting: OpenMCPlottingContribution;
 
+    @inject(OutputViewerRegistry)
+    protected readonly outputViewerRegistry: OutputViewerRegistry;
+
     canHandle(uri: URI, options?: WidgetOpenerOptions): number {
+        // Specialized OpenMC output viewers (tracks, collision tracks, weight
+        // windows, ...) registered with the OutputViewerRegistry win first.
+        const contribution = this.outputViewerRegistry.getHandlerFor(uri);
+        if (contribution) {
+            return contribution.canHandle(uri);
+        }
+
         // Handle diff URIs (comparison between files)
         if (DiffUris.isDiffUri(uri)) {
             const [uriA, uriB] = DiffUris.decode(uri);
@@ -145,6 +156,14 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
     }
 
     async open(uri: URI, options?: WidgetOpenerOptions): Promise<Widget> {
+        // Specialized OpenMC output viewers registered with the
+        // OutputViewerRegistry win first (mirrors canHandle).
+        const contribution = this.outputViewerRegistry.getHandlerFor(uri);
+        if (contribution) {
+            await contribution.open(uri);
+            return new Widget();
+        }
+
         // Handle comparison URIs (e.g., diff://...)
         if (DiffUris.isDiffUri(uri)) {
             const [uriA, uriB] = DiffUris.decode(uri);

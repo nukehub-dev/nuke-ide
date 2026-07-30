@@ -45,7 +45,15 @@ import {
     SimulationRunResult,
     SimulationProgress,
     SimulationLogResult,
-    OpenMCStudioClient
+    OpenMCStudioClient,
+    VolumeCalculationRequest,
+    VolumeCalculationResult,
+    PlotGenerationRequest,
+    PlotGenerationResult,
+    DepletionRunSettings,
+    NCrystalImportResult,
+    MgxsGenerationRequest,
+    MgxsGenerationResult
 } from '../common/openmc-studio-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
@@ -88,9 +96,7 @@ export class OpenMCRunnerService {
      * Check if depletion is enabled in the working directory by looking for
      * depletion settings in settings.xml.
      */
-    private async checkDepletionEnabled(
-        workingDirectory: string
-    ): Promise<{ enabled: boolean; settings?: { chainFile?: string; timeSteps: number[]; power?: number; powerDensity?: number } }> {
+    private async checkDepletionEnabled(workingDirectory: string): Promise<{ enabled: boolean; settings?: DepletionRunSettings }> {
         const fs = await import('fs');
 
         const settingsPath = path.join(workingDirectory, 'settings.xml');
@@ -98,47 +104,101 @@ export class OpenMCRunnerService {
             return { enabled: false };
         }
 
+        const extractTag = (xml: string, tag: string): string | undefined => {
+            const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+            return match ? match[1] : undefined;
+        };
+
+        const unescapeXml = (text: string): string =>
+            text
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&apos;/g, "'")
+                .replace(/&amp;/g, '&');
+
         try {
             const content = fs.readFileSync(settingsPath, 'utf-8');
             // Check for <depletion> tag
             const depletionMatch = content.match(/<depletion>[\s\S]*?<\/depletion>/);
-            if (depletionMatch) {
-                const depletionXml = depletionMatch[0];
-
-                // Extract chain file
-                const chainFileMatch = depletionXml.match(/<chain_file>(.*?)<\/chain_file>/);
-                const chainFile = chainFileMatch ? chainFileMatch[1] : undefined;
-
-                // Extract time steps
-                const timeStepsMatch = depletionXml.match(/<time_steps>(.*?)<\/time_steps>/);
-                const timeSteps = timeStepsMatch
-                    ? timeStepsMatch[1]
-                          .trim()
-                          .split(/\s+/)
-                          .map(Number)
-                          .filter((n) => !isNaN(n))
-                    : [];
-
-                // Extract power
-                const powerMatch = depletionXml.match(/<power>(.*?)<\/power>/);
-                const power = powerMatch ? Number(powerMatch[1]) : undefined;
-
-                // Extract power density
-                const powerDensityMatch = depletionXml.match(/<power_density>(.*?)<\/power_density>/);
-                const powerDensity = powerDensityMatch ? Number(powerDensityMatch[1]) : undefined;
-
-                return {
-                    enabled: true,
-                    settings: {
-                        chainFile,
-                        timeSteps,
-                        power,
-                        powerDensity
-                    }
-                };
+            if (!depletionMatch) {
+                return { enabled: false };
             }
 
-            return { enabled: false };
+            const depletionXml = depletionMatch[0];
+
+            // Extract chain file
+            const chainFile = extractTag(depletionXml, 'chain_file');
+
+            // Extract time steps
+            const timeStepsText = extractTag(depletionXml, 'time_steps');
+            const timeSteps = timeStepsText
+                ? timeStepsText
+                      .trim()
+                      .split(/\s+/)
+                      .map(Number)
+                      .filter((n) => !isNaN(n))
+                : [];
+
+            // Extract power
+            const powerText = extractTag(depletionXml, 'power');
+            const power = powerText !== undefined ? Number(powerText) : undefined;
+
+            // Extract power density
+            const powerDensityText = extractTag(depletionXml, 'power_density');
+            const powerDensity = powerDensityText !== undefined ? Number(powerDensityText) : undefined;
+
+            const settings: DepletionRunSettings = { chainFile, timeSteps, power, powerDensity };
+
+            // Advanced options
+            const operator = extractTag(depletionXml, 'operator');
+            if (operator) {
+                settings.operator = operator as DepletionRunSettings['operator'];
+            }
+            const solver = extractTag(depletionXml, 'solver');
+            if (solver) {
+                settings.solver = solver;
+            }
+            const normalization = extractTag(depletionXml, 'normalization');
+            if (normalization) {
+                settings.normalization = normalization;
+            }
+            if (extractTag(depletionXml, 'diff_burnable_mats') === 'true') {
+                settings.diffBurnableMats = true;
+            }
+            const diffVolumeMethod = extractTag(depletionXml, 'diff_volume_method');
+            if (diffVolumeMethod) {
+                settings.diffVolumeMethod = diffVolumeMethod as DepletionRunSettings['diffVolumeMethod'];
+            }
+            const fluxFiles = extractTag(depletionXml, 'flux_files');
+            if (fluxFiles) {
+                settings.fluxFiles = fluxFiles.split(',').filter((f) => f.length > 0);
+            }
+            const microxsFiles = extractTag(depletionXml, 'microxs_files');
+            if (microxsFiles) {
+                settings.microxsFiles = microxsFiles.split(',').filter((f) => f.length > 0);
+            }
+            if (extractTag(depletionXml, 'generate_microxs') === 'true') {
+                settings.generateFromModel = true;
+            }
+            const transferRates = extractTag(depletionXml, 'transfer_rates');
+            if (transferRates) {
+                try {
+                    settings.transferRates = JSON.parse(unescapeXml(transferRates));
+                } catch {
+                    this.log('Warning: failed to parse <transfer_rates> JSON in settings.xml');
+                }
+            }
+            const fissionQ = extractTag(depletionXml, 'fission_q');
+            if (fissionQ) {
+                try {
+                    settings.fissionQ = JSON.parse(unescapeXml(fissionQ));
+                } catch {
+                    this.log('Warning: failed to parse <fission_q> JSON in settings.xml');
+                }
+            }
+
+            return { enabled: true, settings };
         } catch (e) {
             console.error('[OpenMC Runner] Error checking depletion settings:', e);
             return { enabled: false };
@@ -413,6 +473,11 @@ export class OpenMCRunnerService {
             args = [];
         }
 
+        // Restart from a previous statepoint file (openmc -r <file>)
+        if (request.restartFile) {
+            args.push('-r', request.restartFile);
+        }
+
         // Add any additional arguments
         if (request.args) {
             args.push(...request.args);
@@ -600,6 +665,11 @@ export class OpenMCRunnerService {
             args = [];
         }
 
+        // Restart from a previous statepoint file (openmc -r <file>)
+        if (request.restartFile) {
+            args.push('-r', request.restartFile);
+        }
+
         // Add any additional arguments
         if (request.args) {
             args.push(...request.args);
@@ -770,7 +840,7 @@ export class OpenMCRunnerService {
     private async startDepletionSimulation(
         processId: string,
         request: SimulationRunRequest,
-        depletionSettings: { chainFile?: string; timeSteps: number[]; power?: number; powerDensity?: number }
+        depletionSettings: DepletionRunSettings
     ): Promise<{ processId: string; success: boolean; error?: string }> {
         const { spawn } = await import('child_process');
         const path = await import('path');
@@ -804,9 +874,35 @@ export class OpenMCRunnerService {
             args.push('--power-density', String(depletionSettings.powerDensity));
         }
 
-        // Default solver and operator
-        args.push('--solver', 'cecm');
-        args.push('--operator', 'coupled');
+        // Solver and operator
+        args.push('--solver', depletionSettings.solver ?? 'cecm');
+        args.push('--operator', depletionSettings.operator ?? 'coupled');
+
+        // Advanced options
+        if (depletionSettings.normalization) {
+            args.push('--normalization', depletionSettings.normalization);
+        }
+        if (depletionSettings.diffBurnableMats) {
+            args.push('--diff-burnable-mats');
+        }
+        if (depletionSettings.diffVolumeMethod) {
+            args.push('--diff-volume-method', depletionSettings.diffVolumeMethod);
+        }
+        if (depletionSettings.fluxFiles && depletionSettings.fluxFiles.length > 0) {
+            args.push('--flux-files', depletionSettings.fluxFiles.join(','));
+        }
+        if (depletionSettings.microxsFiles && depletionSettings.microxsFiles.length > 0) {
+            args.push('--microxs-files', depletionSettings.microxsFiles.join(','));
+        }
+        if (depletionSettings.generateFromModel) {
+            args.push('--generate-microxs');
+        }
+        if (depletionSettings.transferRates && depletionSettings.transferRates.length > 0) {
+            args.push('--transfer-rates', JSON.stringify(depletionSettings.transferRates));
+        }
+        if (depletionSettings.fissionQ && Object.keys(depletionSettings.fissionQ).length > 0) {
+            args.push('--fission-q', JSON.stringify(depletionSettings.fissionQ));
+        }
 
         // Add MPI processes if enabled
         if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
@@ -1177,5 +1273,195 @@ export class OpenMCRunnerService {
         }
 
         this.runningSimulations.clear();
+    }
+
+    // ============================================================================
+    // Volume Calculation & Native Plotting
+    // ============================================================================
+
+    /**
+     * Run a stochastic volume calculation via python/run_volume_calc.py (blocking).
+     * @param request - Volume calculation request
+     * @returns Volume calculation result with per-domain volumes
+     */
+    async runVolumeCalculation(request: VolumeCalculationRequest): Promise<VolumeCalculationResult> {
+        this.log(`Running volume calculation in ${request.workingDirectory}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'run_volume_calc.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: run_volume_calc.py' };
+        }
+
+        const args: string[] = [
+            scriptPath,
+            request.workingDirectory,
+            '--domain-type',
+            request.domainType,
+            '--domain-ids',
+            request.domainIds.join(','),
+            '--samples',
+            String(request.samples)
+        ];
+        if (request.lowerLeft) {
+            args.push('--lower-left', request.lowerLeft.join(','));
+        }
+        if (request.upperRight) {
+            args.push('--upper-right', request.upperRight.join(','));
+        }
+        if (request.triggerType) {
+            args.push('--trigger-type', request.triggerType);
+            if (request.triggerThreshold !== undefined) {
+                args.push('--trigger-threshold', String(request.triggerThreshold));
+            }
+        }
+
+        return this.executePythonScriptJson<VolumeCalculationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Generate native OpenMC plots via python/generate_plots.py (blocking).
+     * @param request - Plot generation request with plot configurations
+     * @returns Plot generation result with generated file paths
+     */
+    async generatePlots(request: PlotGenerationRequest): Promise<PlotGenerationResult> {
+        this.log(`Generating ${request.plots.length} plot(s) in ${request.workingDirectory}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'generate_plots.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: generate_plots.py' };
+        }
+
+        // Write plot configurations to a JSON file in the working directory
+        const configPath = path.join(request.workingDirectory, '.nuke-plots-config.json');
+        try {
+            fs.writeFileSync(configPath, JSON.stringify(request.plots, null, 2));
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return { success: false, error: `Failed to write plot configuration: ${msg}` };
+        }
+
+        const args: string[] = [scriptPath, request.workingDirectory, '--plots-config', configPath];
+        if (request.convertVoxelToVtk) {
+            args.push('--convert-vtk');
+        }
+
+        return this.executePythonScriptJson<PlotGenerationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Import a material composition from an NCrystal configuration string via
+     * python/ncrystal_import.py (blocking one-shot job).
+     * @param cfg - NCrystal configuration string, e.g. `Al_sg225.ncmat;temp=300K`
+     * @returns The imported material composition
+     */
+    async importNCrystalMaterial(cfg: string): Promise<NCrystalImportResult> {
+        this.log(`Importing NCrystal material: ${cfg}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'ncrystal_import.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: ncrystal_import.py' };
+        }
+
+        return this.executePythonScriptJson<NCrystalImportResult>([scriptPath, cfg], process.cwd());
+    }
+
+    /**
+     * Generate an MGXS library via python/generate_mgxs.py (blocking).
+     * @param request - MGXS generation configuration
+     * @returns The generated library path
+     */
+    async generateMgxs(request: MgxsGenerationRequest): Promise<MgxsGenerationResult> {
+        this.log(`Generating MGXS library in ${request.workingDirectory} (method=${request.method}, groups=${request.groups})`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'generate_mgxs.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: generate_mgxs.py' };
+        }
+
+        const args: string[] = [scriptPath, request.workingDirectory, '--method', request.method, '--groups', request.groups];
+        if (request.particles) {
+            args.push('--particles', String(request.particles));
+        }
+        if (request.correction) {
+            args.push('--correction', request.correction);
+        }
+        if (request.temperatures && request.temperatures.length > 0) {
+            args.push('--temperatures', request.temperatures.join(','));
+        }
+        if (request.output) {
+            args.push('--output', request.output);
+        }
+        if (request.randomRay) {
+            args.push('--random-ray');
+        }
+
+        return this.executePythonScriptJson<MgxsGenerationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Execute a Python script that streams progress on stderr and prints one
+     * final JSON object on stdout, and parse the result.
+     * @param args - Full argument vector (script path first)
+     * @param cwd - Working directory for the spawned process
+     * @returns The parsed JSON result
+     */
+    private async executePythonScriptJson<T extends { success: boolean; error?: string; output?: string }>(
+        args: string[],
+        cwd: string
+    ): Promise<T> {
+        const { spawn } = await import('child_process');
+
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        this.log(`Using Python: ${pythonCommand}${pythonInfo.version ? ` (${pythonInfo.version})` : ''}`);
+
+        const pythonBinDir = path.dirname(pythonCommand);
+        const currentPath = process.env.PATH || '';
+        const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
+
+        return new Promise<T>((resolve) => {
+            const childProcess = spawn(pythonCommand, args, {
+                cwd,
+                env: { ...process.env, PATH: newPath },
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+            let stderr = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stderr += chunk;
+                // Stream progress lines to the client log
+                this.safeLog(chunk);
+            });
+
+            childProcess.on('error', (error) => {
+                resolve({ success: false, error: `Failed to start Python: ${error.message}`, output: stderr } as T);
+            });
+
+            childProcess.on('close', (code) => {
+                const lastLine = stdout.trim().split('\n').pop() || '';
+                try {
+                    const result = JSON.parse(lastLine) as T;
+                    result.output = result.output ?? stderr;
+                    if (code !== 0 && result.success !== false) {
+                        result.success = false;
+                        result.error = result.error || `Process exited with code ${code}`;
+                    }
+                    resolve(result);
+                } catch (error) {
+                    resolve({
+                        success: false,
+                        error: `Failed to parse script output: ${lastLine || stderr || `exit code ${code}`}`,
+                        output: stderr
+                    } as T);
+                }
+            });
+        });
     }
 }

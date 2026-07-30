@@ -76,6 +76,22 @@ export interface DAGMCEditorOperationResult {
     error?: string;
 }
 
+/** Result of the DAGMC sync-for-depletion job (sync_dagmc_depletion.py). */
+export interface DAGMCSyncResult {
+    success: boolean;
+    /** Number of synchronized DAGMC cells */
+    cellCount?: number;
+    /** Number of distinct materials referenced by synchronized cells */
+    materialCount?: number;
+    /** Material names assigned to synchronized cells */
+    materialNames?: string[];
+    /** geometry.xml path rewritten with cell overrides */
+    geometryXml?: string;
+    error?: string;
+    /** Captured script progress output */
+    output?: string;
+}
+
 export interface DAGMCFacetingParamsResult {
     success: boolean;
     data?: {
@@ -284,6 +300,131 @@ export class DAGMCEditorService {
 
             childProcess.on('error', (error: Error) => {
                 resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Replace a material by name across all volumes in a DAGMC file.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param oldName - Material name to replace
+     * @param newName - Material name to assign instead
+     * @returns Operation result with updated volume count
+     */
+    async replaceMaterial(filePath: string, oldName: string, newName: string): Promise<DAGMCEditorOperationResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'replace_material', filePath, oldName, newName];
+
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                if (code !== 0) {
+                    resolve({
+                        success: false,
+                        error: `Process exited with code ${code}`
+                    });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCEditorOperationResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Synchronize DAGMC universes for depletion via the documented
+     * init_lib → sync_dagmc_universes → finalize_lib sequence.
+     * Rewrites geometry.xml in the working directory with per-cell material
+     * overrides (does not modify the .h5m file).
+     * @param workingDirectory - Directory containing the model XML files
+     * @returns Sync result with cell/material counts
+     */
+    async syncForDepletion(workingDirectory: string): Promise<DAGMCSyncResult> {
+        if (!this.pythonPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'sync_dagmc_depletion.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: sync_dagmc_depletion.py' };
+        }
+
+        return new Promise((resolve) => {
+            const childProcess = cp.spawn(this.pythonPath!, [scriptPath, workingDirectory], {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+            let stderr = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                stderr += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                const jsonLine = stdout
+                    .trim()
+                    .split('\n')
+                    .reverse()
+                    .find((l) => l.trim().startsWith('{'));
+
+                if (!jsonLine) {
+                    resolve({ success: false, error: `No JSON output found (exit code ${code})`, output: stderr });
+                    return;
+                }
+
+                try {
+                    const result = JSON.parse(jsonLine) as DAGMCSyncResult;
+                    result.output = result.output ?? stderr;
+                    resolve(result);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}`, output: stderr });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}`, output: stderr });
             });
         });
     }

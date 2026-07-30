@@ -40,11 +40,170 @@ import {
     OpenMCProjectTemplate,
     OpenMCSurface,
     OpenMCCell,
+    OpenMCPlotConfig,
+    OpenMCTransferRate,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
 
 export { OPENMC_STATE_SCHEMA_VERSION };
+
+// ============================================================================
+// Volume Calculation & Native Plotting
+// ============================================================================
+
+/** Stochastic volume calculation run request */
+export interface VolumeCalculationRequest {
+    /** Working directory containing the model XML files */
+    workingDirectory: string;
+    /** Domain type for the volume calculation */
+    domainType: 'cell' | 'material' | 'universe';
+    /** Domain IDs to calculate volumes of */
+    domainIds: number[];
+    /** Number of samples */
+    samples: number;
+    /** Sampling bounding box lower-left (auto-detected by OpenMC when absent) */
+    lowerLeft?: [number, number, number];
+    /** Sampling bounding box upper-right */
+    upperRight?: [number, number, number];
+    /** Trigger type to halt the calculation early */
+    triggerType?: 'std_dev' | 'variance' | 'rel_err';
+    /** Trigger threshold */
+    triggerThreshold?: number;
+}
+
+/** Volume result for one domain */
+export interface VolumeDomainResult {
+    /** Domain ID */
+    id: number;
+    /** Estimated volume in cm³ */
+    volume: number;
+    /** Standard deviation of the estimate */
+    stdDev: number;
+    /** Atom count estimates per nuclide */
+    atoms?: Record<string, { value: number; stdDev: number }>;
+}
+
+/** Stochastic volume calculation run result */
+export interface VolumeCalculationResult {
+    success: boolean;
+    results?: VolumeDomainResult[];
+    /** Path to the volume_1.h5 results file */
+    volumeFile?: string;
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
+/** Native plot generation request */
+export interface PlotGenerationRequest {
+    /** Working directory containing the model XML files */
+    workingDirectory: string;
+    /** Plot configurations to generate */
+    plots: OpenMCPlotConfig[];
+    /** Whether to convert voxel plots to VTK (.vti) after generation */
+    convertVoxelToVtk?: boolean;
+}
+
+/** A generated plot output file */
+export interface GeneratedPlotFile {
+    /** Plot ID this file belongs to */
+    plotId: number;
+    /** Plot type */
+    type: string;
+    /** Absolute file path */
+    path: string;
+    /** File kind */
+    kind: 'png' | 'h5' | 'vti';
+}
+
+/** Native plot generation result */
+export interface PlotGenerationResult {
+    success: boolean;
+    files?: GeneratedPlotFile[];
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
+/** NCrystal material import result */
+export interface NCrystalImportResult {
+    success: boolean;
+    /** Imported material composition */
+    material?: {
+        nuclides: { name: string; fraction: number; fractionType: 'ao' | 'wo' }[];
+        /** Density in g/cm³ */
+        density: number;
+        densityUnit: string;
+        /** Temperature in K */
+        temperature?: number;
+    };
+    error?: string;
+}
+
+/** MGXS library generation request */
+export interface MgxsGenerationRequest {
+    /** Working directory containing the model XML files */
+    workingDirectory: string;
+    /** MGXS generation method */
+    method: 'material_wise' | 'stochastic_slab' | 'infinite_medium';
+    /** Energy group structure name (e.g. 'CASMO-2', 'XMAS-172') */
+    groups: string;
+    /** Particles for the generation runs */
+    particles?: number;
+    /** Transport correction */
+    correction?: 'none' | 'P0';
+    /** Temperatures in K for MGXS generation */
+    temperatures?: number[];
+    /** Output library filename (default mgxs.h5) */
+    output?: string;
+    /** Also convert the model to random ray */
+    randomRay?: boolean;
+}
+
+/** MGXS library generation result */
+export interface MgxsGenerationResult {
+    success: boolean;
+    /** Absolute path to the generated mgxs.h5 library */
+    mgxsPath?: string;
+    /** Whether random ray conversion was applied */
+    randomRayApplied?: boolean;
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
+/** Depletion run settings extracted from the settings.xml `<depletion>` block */
+export interface DepletionRunSettings {
+    /** Depletion chain XML file path */
+    chainFile?: string;
+    /** Time steps in seconds */
+    timeSteps: number[];
+    /** Power level in Watts */
+    power?: number;
+    /** Power density in W/g */
+    powerDensity?: number;
+    /** Operator type */
+    operator?: 'coupled' | 'independent' | 'openmc';
+    /** Solver method */
+    solver?: string;
+    /** Transport normalization mode */
+    normalization?: string;
+    /** Custom fission Q values per nuclide [eV] */
+    fissionQ?: Record<string, number>;
+    /** Distinguish burnable materials that share the same composition */
+    diffBurnableMats?: boolean;
+    /** How volumes are assigned to differentiated materials */
+    diffVolumeMethod?: 'divide equally' | 'match cell';
+    /** Flux file paths for the independent operator */
+    fluxFiles?: string[];
+    /** MicroXS file paths for the independent operator */
+    microxsFiles?: string[];
+    /** Compute fluxes and micro cross sections from the model via a transport solve */
+    generateFromModel?: boolean;
+    /** External transfer rates between materials */
+    transferRates?: OpenMCTransferRate[];
+}
 
 // ============================================================================
 // Service Symbols
@@ -173,6 +332,8 @@ export interface SimulationRunRequest {
     };
     /** OpenMC command-line arguments */
     args?: string[];
+    /** Statepoint file to restart the simulation from (passed as CLI `-r`) */
+    restartFile?: string;
     /** Environment variables */
     env?: { [key: string]: string };
 }
@@ -540,6 +701,18 @@ export interface OpenMCStudioBackendService {
     /** Check if MPI is available */
     checkMPI(): Promise<{ available: boolean; version?: string; processes?: number; error?: string }>;
 
+    /** Run a stochastic volume calculation (blocking) */
+    runVolumeCalculation(request: VolumeCalculationRequest): Promise<VolumeCalculationResult>;
+
+    /** Generate native OpenMC plots (blocking) */
+    generatePlots(request: PlotGenerationRequest): Promise<PlotGenerationResult>;
+
+    /** Import a material composition from an NCrystal configuration string */
+    importNCrystalMaterial(cfg: string): Promise<NCrystalImportResult>;
+
+    /** Generate an MGXS library via Model.convert_to_multigroup (blocking) */
+    generateMgxs(request: MgxsGenerationRequest): Promise<MgxsGenerationResult>;
+
     // === Validation ===
 
     /** Validate simulation state */
@@ -694,6 +867,28 @@ export interface OpenMCStudioBackendService {
         success: boolean;
         message?: string;
         error?: string;
+    }>;
+
+    /** Replace a material by name across all volumes in a DAGMC file */
+    dagmcReplaceMaterial(
+        filePath: string,
+        oldName: string,
+        newName: string
+    ): Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+    }>;
+
+    /** Synchronize DAGMC universes for depletion (rewrites geometry.xml with per-cell material overrides) */
+    dagmcSyncForDepletion(workingDirectory: string): Promise<{
+        success: boolean;
+        cellCount?: number;
+        materialCount?: number;
+        materialNames?: string[];
+        geometryXml?: string;
+        error?: string;
+        output?: string;
     }>;
 
     /** Get faceting parameters from a DAGMC file */

@@ -433,12 +433,12 @@ class TestPowerHandling:
 
 
 class TestOperatorAndSolverFailures:
-    def test_independent_operator_not_implemented(self, monkeypatch, tmp_path, chain_file):
-        """The independent operator raises NotImplementedError."""
+    def test_independent_operator_requires_flux_inputs(self, monkeypatch, tmp_path, chain_file):
+        """The independent operator raises ValueError without flux/MicroXS inputs."""
         _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
         workdir = _workdir(tmp_path)
 
-        with pytest.raises(NotImplementedError, match="Independent operator"):
+        with pytest.raises(ValueError, match="one flux file and one MicroXS file"):
             run_depletion.run_depletion(
                 _args(workdir, chain_file=chain_file, operator="independent")
             )

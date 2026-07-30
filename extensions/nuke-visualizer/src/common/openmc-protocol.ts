@@ -375,6 +375,44 @@ export interface OpenMCBackendService {
 
     /** Get visualization data for overlaps (markers, highlights) */
     getOverlapVisualization(geometryPath: string, overlaps: OpenMCOverlap[]): Promise<OpenMCOverlapVizData>;
+
+    // === Output File Viewers (tracks / collision track / weight windows) ===
+
+    /** Get summary info for particle track file(s) */
+    getTracksInfo(filePath: string): Promise<OpenMCTracksInfo>;
+
+    /** Get decimated track polylines (paginated) */
+    getTracksData(filePath: string, options?: OpenMCTracksDataOptions): Promise<OpenMCTracksData>;
+
+    /** Convert track file(s) to a VTK polyline file for the trame viewer */
+    convertTracksToVtk(filePath: string, options?: OpenMCTracksVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Get summary info for a collision track file */
+    getCollisionTrackInfo(filePath: string): Promise<OpenMCCollisionTrackInfo>;
+
+    /** Get collision track rows (filtered, paginated) */
+    getCollisionTrackData(filePath: string, query?: OpenMCCollisionTrackQuery): Promise<OpenMCCollisionTrackData>;
+
+    /** Convert a collision track file to a VTK point cloud for the trame viewer */
+    convertCollisionTrackToVtk(filePath: string, options?: OpenMCCollisionVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Read a weight windows file (meshes + bounds) */
+    getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData>;
+
+    /** Convert a weight windows file to a VTK rectilinear grid for the trame viewer */
+    convertWeightWindowsToVtk(filePath: string): Promise<OpenMCVtkConversionResult>;
+
+    /** Get IFP kinetics parameters (beta_eff, Lambda_eff) from a statepoint */
+    getKineticsParameters(statepointPath: string): Promise<OpenMCKineticsResult>;
+
+    /** Convert a voxel plot (.h5) to VTK image data (.vti) */
+    convertVoxelToVtk(filePath: string): Promise<OpenMCVtkConversionResult>;
+
+    /** Inspect a VTK file (arrays, ranges, dimensions) */
+    getVtkInfo(filePath: string): Promise<OpenMCVtkFileInfo>;
+
+    /** Read a particle restart file (lost-particle state) */
+    getParticleRestart(filePath: string): Promise<OpenMCParticleRestart>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -1488,4 +1526,263 @@ export interface OpenMCEnergyDistribution {
     counts: number[];
     /** Weighted counts */
     weightedCounts: number[];
+}
+
+// ============================================================================
+// Output File Viewer Types (tracks / collision track / weight windows)
+// ============================================================================
+
+/** Per-particle segment metadata within a single track */
+export interface OpenMCTrackSegmentInfo {
+    /** Particle name (neutron, photon, ...) */
+    particle: string;
+    /** PDG number */
+    pdg: number;
+    /** Number of states in this segment */
+    nStates: number;
+}
+
+/** Metadata for one track (one source particle history) */
+export interface OpenMCTrackInfo {
+    /** Source file this track was read from */
+    file: string;
+    /** HDF5 dataset name (track_<batch>_<gen>_<id>) */
+    dataset: string;
+    /** Batch number */
+    batch: number;
+    /** Generation number */
+    generation: number;
+    /** Particle ID within the generation */
+    particleId: number;
+    /** Total states across all segments */
+    nStates: number;
+    /** Per-particle segments */
+    segments: OpenMCTrackSegmentInfo[];
+}
+
+/** Summary of particle track file(s) from `openmc.tracks-info` */
+export interface OpenMCTracksInfo {
+    files: string[];
+    nTracks: number;
+    totalStates: number;
+    tracks: OpenMCTrackInfo[];
+}
+
+/** Options for `openmc.tracks-data` */
+export interface OpenMCTracksDataOptions {
+    offset?: number;
+    limit?: number;
+    maxPoints?: number;
+    particle?: string;
+    cell?: number[];
+    material?: number[];
+}
+
+/** Decimated polyline data for one track segment */
+export interface OpenMCTrackSegmentData extends OpenMCTrackSegmentInfo {
+    /** Decimation stride (1 = no decimation) */
+    stride: number;
+    positions: number[][];
+    energies: number[];
+    times: number[];
+    weights: number[];
+    cellIds: number[];
+}
+
+/** Track polyline data from `openmc.tracks-data` */
+export interface OpenMCTracksData {
+    files: string[];
+    totalTracks: number;
+    offset: number;
+    returnedTracks: number;
+    tracks: Array<Omit<OpenMCTrackInfo, 'nStates' | 'segments'> & { segments: OpenMCTrackSegmentData[] }>;
+}
+
+/** Options for `openmc.tracks-vtk` */
+export interface OpenMCTracksVtkOptions {
+    particle?: string;
+    cell?: number[];
+    material?: number[];
+    maxTracks?: number;
+    maxPoints?: number;
+}
+
+/** Summary of a collision track file from `openmc.collision-track-info` */
+export interface OpenMCCollisionTrackInfo {
+    files: string[];
+    nCollisions: number;
+    columns: string[];
+}
+
+/** Query for `openmc.collision-track-data` */
+export interface OpenMCCollisionTrackQuery {
+    offset?: number;
+    limit?: number;
+    mt?: number[];
+    cell?: number[];
+}
+
+/** Flat collision row arrays from `openmc.collision-track-data` */
+export interface OpenMCCollisionRows {
+    positions: number[][];
+    energies: number[];
+    energyLosses: number[];
+    times: number[];
+    weights: number[];
+    eventMt: number[];
+    cellIds: number[];
+    nuclideIds: number[];
+    materialIds: number[];
+    particles: number[];
+}
+
+/** Collision track rows from `openmc.collision-track-data` */
+export interface OpenMCCollisionTrackData {
+    files: string[];
+    totalCollisions: number;
+    matchedCollisions: number;
+    offset: number;
+    returned: number;
+    collisions: OpenMCCollisionRows;
+}
+
+/** Options for `openmc.collision-vtk` */
+export interface OpenMCCollisionVtkOptions {
+    mt?: number[];
+    cell?: number[];
+    limit?: number;
+}
+
+/** Mesh metadata from a weight windows file */
+export interface OpenMCWeightWindowMesh {
+    id: number;
+    type: string;
+    dimension?: number[];
+    lower_left?: number[];
+    upper_right?: number[];
+    width?: number[];
+}
+
+/** One weight window from a weight windows file */
+export interface OpenMCWeightWindow {
+    id: number;
+    meshId: number;
+    particleType: string;
+    energyBounds: number[];
+    /** Flat bounds storage shape: [nEnergy, nz, ny, nx] */
+    boundsShape: number[];
+    lowerBounds: number[];
+    upperBounds: number[];
+    survivalRatio: number;
+    maxSplit: number;
+    weightCutoff: number;
+    maxLowerBoundRatio: number | null;
+}
+
+/** Weight windows file content from `openmc.weight-windows` */
+export interface OpenMCWeightWindowsData {
+    file: string;
+    meshes: OpenMCWeightWindowMesh[];
+    weightWindows: OpenMCWeightWindow[];
+}
+
+/** Result of a `openmc.*-vtk` conversion command */
+export interface OpenMCVtkConversionResult {
+    success: boolean;
+    /** Path to the generated VTK file (on success) */
+    vtkPath?: string;
+    error?: string;
+    /** Conversion stats (keys vary per command, e.g. nLines, nPoints, arrays) */
+    stats?: Record<string, unknown>;
+}
+
+// ============================================================================
+// Kinetics Parameters (IFP) Types
+// ============================================================================
+
+/** A measured quantity with its 1-sigma uncertainty */
+export interface OpenMCKineticsValue {
+    mean: number;
+    stdDev: number;
+}
+
+/** IFP kinetics parameters from `openmc.kinetics` */
+export interface OpenMCKineticsResult {
+    /** Statepoint file the parameters were computed from */
+    file: string;
+    /** Computation path: 'openmc' (openmc.StatePoint) or 'h5py' (direct fallback) */
+    method: 'openmc' | 'h5py';
+    /** k-effective used for the generation-time normalization (if available) */
+    keff?: OpenMCKineticsValue | null;
+    /** Effective delayed neutron fraction, total over delayed groups (if available) */
+    betaEffective?: OpenMCKineticsValue | null;
+    /** β_eff per delayed group (when the beta tally has a DelayedGroupFilter) */
+    betaEffectiveGroups?: OpenMCKineticsValue[] | null;
+    /** Effective generation time Λ_eff in seconds (if available) */
+    generationTime?: OpenMCKineticsValue | null;
+}
+
+// ============================================================================
+// Voxel Plot / VTK Inspection Types (random-ray results viewer)
+// ============================================================================
+
+/** Metadata for one VTK point/cell data array */
+export interface OpenMCVtkArrayInfo {
+    name: string;
+    association: 'point' | 'cell';
+    components: number;
+    /** [min, max] over all components */
+    range: [number, number];
+}
+
+/** VTK file inspection result from `openmc.vtk-info` */
+export interface OpenMCVtkFileInfo {
+    file: string;
+    /** VTK class name, e.g. 'vtkImageData' */
+    type: string;
+    nPoints: number;
+    nCells: number;
+    bounds: number[];
+    arrays: OpenMCVtkArrayInfo[];
+    /** Image-data only: grid dimensions (points per axis) */
+    dimensions?: number[];
+    spacing?: number[];
+    origin?: number[];
+}
+
+// ============================================================================
+// Particle Restart Types
+// ============================================================================
+
+/** Particle restart file content from `openmc.particle-restart` */
+export interface OpenMCParticleRestart {
+    file: string;
+    /** HDF5 filetype attribute ('particle restart') */
+    filetype: string | null;
+    version: number[] | null;
+    /** Batch containing the lost particle */
+    currentBatch: number;
+    /** Generation containing the lost particle */
+    currentGeneration: number;
+    generationsPerBatch: number;
+    /** Particles per generation in the original run */
+    nParticles: number;
+    /** 'eigenvalue' | 'fixed source' | 'particle restart' */
+    runMode: string | null;
+    /** Particle identifier */
+    particleId: number;
+    /** Particle name (neutron, photon, ...) */
+    particle: string;
+    /** PDG number */
+    pdg: number;
+    /** Particle weight */
+    weight: number;
+    /** Energy [eV] */
+    energy: number;
+    /** Time [s] (may be null on older files) */
+    time: number | null;
+    /** Position [cm] */
+    position: number[];
+    /** Direction cosines */
+    direction: number[];
 }

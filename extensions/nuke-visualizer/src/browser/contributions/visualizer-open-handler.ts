@@ -30,6 +30,7 @@ import { OpenHandler, FrontendApplication, WidgetManager } from '@theia/core/lib
 import URI from '@theia/core/lib/common/uri';
 import { VisualizerWidget } from '../visualizer-widget';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+import { OutputViewerRegistry } from '../output-viewer/output-viewer-registry';
 
 @injectable()
 export class VisualizerOpenHandler implements OpenHandler {
@@ -45,7 +46,17 @@ export class VisualizerOpenHandler implements OpenHandler {
     @inject(NukeCoreStatusBarVisibility)
     protected readonly visibilityService: NukeCoreStatusBarVisibilityService;
 
+    @inject(OutputViewerRegistry)
+    protected readonly outputViewerRegistry: OutputViewerRegistry;
+
     canHandle(uri: URI): number {
+        // Specialized OpenMC output viewers (tracks, collision tracks, weight
+        // windows, ...) registered with the OutputViewerRegistry win first.
+        const contribution = this.outputViewerRegistry.getHandlerFor(uri);
+        if (contribution) {
+            return contribution.canHandle(uri);
+        }
+
         const ext = uri.path.ext.toLowerCase();
         if (ext === '.h5m') {
             return 1000;
@@ -62,7 +73,13 @@ export class VisualizerOpenHandler implements OpenHandler {
         return 0;
     }
 
-    async open(uri: URI): Promise<VisualizerWidget> {
+    async open(uri: URI): Promise<VisualizerWidget | undefined> {
+        const contribution = this.outputViewerRegistry.getHandlerFor(uri);
+        if (contribution) {
+            await contribution.open(uri);
+            return undefined;
+        }
+
         const filePath = uri.path.toString();
 
         const widgets = this.app.shell.getWidgets('main');

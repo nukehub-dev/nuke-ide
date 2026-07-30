@@ -46,8 +46,13 @@ from plugins.base.lib.common import (
 )
 
 
-def create_app(file_path=None, port=None, theme="dark"):
-    """Create trame application with interactive control panel."""
+def create_app(file_path=None, port=None, theme="dark", color_by=None):
+    """Create trame application with interactive control panel.
+
+    ``color_by`` optionally sets the initial coloring, using the same value
+    format as the UI's Color By control ("Solid Color", "Point: <name>",
+    "Cell: <name>").
+    """
 
     # Import trame modules
     try:
@@ -533,6 +538,17 @@ def create_app(file_path=None, port=None, theme="dark"):
                 except Exception as e:
                     print(f"Warning: appearance update failed: {e}")
 
+    # Apply the requested initial coloring (validated against the arrays the
+    # source actually has). Assigning state.color_by fires the handler above.
+    if color_by:
+        if color_by in state.available_arrays:
+            state.color_by = color_by
+        else:
+            print(
+                f"Warning: --color-by '{color_by}' not in available arrays "
+                f"({state.available_arrays}), keeping default"
+            )
+
     return server, port
 
 
@@ -541,6 +557,12 @@ def create_app(file_path=None, port=None, theme="dark"):
 @arg("--file", type=str, help="File to load")
 @arg("--host", type=str, default="127.0.0.1", help="Host to report in URL")
 @arg("--theme", type=str, default="dark", choices=["dark", "light"], help="UI theme")
+@arg(
+    "--color-by",
+    type=str,
+    default=None,
+    help="Initial color-by selection ('Solid Color', 'Point: <name>', 'Cell: <name>')",
+)
 def cmd_serve(args):
     print("=" * 60)
     print("NukeIDE Visualizer Server")
@@ -564,7 +586,7 @@ def cmd_serve(args):
     print(f"ACTUAL_PORT: {port}")
 
     try:
-        server, actual_port = create_app(args.file, port, theme=args.theme)
+        server, actual_port = create_app(args.file, port, theme=args.theme, color_by=args.color_by)
     except Exception as e:
         print(f"Failed to create application: {e}")
         import traceback

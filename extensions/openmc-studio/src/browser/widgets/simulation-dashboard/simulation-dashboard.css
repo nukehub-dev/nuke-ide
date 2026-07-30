@@ -2170,6 +2170,16 @@
     border-radius: 4px;
 }
 
+.simulation-dashboard .auto-badge {
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: var(--theia-activityBarBadge-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
 .simulation-dashboard .tally-preview-details {
     display: flex;
     flex-direction: column;
@@ -3342,4 +3352,25 @@
     .simulation-dashboard .wwinp-actions {
         flex-direction: column;
     }
+}
+
+/* ============================================================================
+   Particle Restart Section (simulation tab)
+   ============================================================================ */
+
+.simulation-dashboard .particle-restart-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    align-items: flex-start;
+}
+
+.simulation-dashboard .particle-restart-info .form-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }

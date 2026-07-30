@@ -124,7 +124,12 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
-    async startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
+    async startServer(
+        filePath?: string,
+        config?: PythonConfig,
+        theme?: string,
+        colorBy?: string
+    ): Promise<{ port: number; url: string; warning?: string }> {
         const port = await this.findFreePort(8080);
         this.reservedPorts.add(port);
         // Capture process.env before local 'process' variable shadows it
@@ -147,6 +152,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
             if (theme) {
                 args.push('--theme', theme);
                 this.log(`Added --theme ${theme} to args`);
+            }
+            if (colorBy) {
+                args.push('--color-by', colorBy);
             }
 
             const processOptions: RawProcessOptions = {

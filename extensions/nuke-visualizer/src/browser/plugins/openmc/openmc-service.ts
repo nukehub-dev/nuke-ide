@@ -40,6 +40,7 @@ import {
     OpenMCHeatmapData,
     OpenMCHeatmapPlane,
     OpenMCSliceOptions,
+    OpenMCKineticsResult,
     OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
@@ -1328,6 +1329,21 @@ export class OpenMCService {
         } catch (error) {
             console.error('[OpenMC] Error getting k-generation data:', error);
             return null;
+        }
+    }
+
+    /**
+     * Get IFP kinetics parameters (β_eff, Λ_eff) from a statepoint.
+     * Returns `{ data }` on success, `{ error }` on failure — callers render
+     * the error inline (no messageService popup).
+     */
+    async getKineticsParameters(statepointUri: URI): Promise<{ data?: OpenMCKineticsResult; error?: string }> {
+        try {
+            const data = await this.openmcBackend.getKineticsParameters(statepointUri.path.toString());
+            return { data };
+        } catch (error) {
+            console.error('[OpenMC] Error getting kinetics parameters:', error);
+            return { error: error instanceof Error ? error.message : String(error) };
         }
     }
 

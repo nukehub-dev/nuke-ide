@@ -59,9 +59,12 @@ import {
     OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
     OpenMCSource,
+    OpenMCSourceConstraints,
     OpenMCEigenvalueSettings,
-    OpenMCFixedSourceSettings
+    OpenMCFixedSourceSettings,
+    OpenMCPlotConfig
 } from '../../common/openmc-state-schema';
+import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -584,6 +587,25 @@ export class OpenMCPythonExporter {
 
         lines.push(`${varName} = openmc.Material(name="${this.escapePythonString(material.name)}", material_id=${material.id})`);
 
+        if (material.macroscopic) {
+            // Macroscopic (multigroup) material: no nuclide decomposition (openmc/material.py:896 add_macroscopic)
+            lines.push(`${varName}.add_macroscopic("${this.escapePythonString(material.macroscopic.name)}")`);
+            if (material.densityUnit !== 'sum') {
+                lines.push(`${varName}.set_density("${material.densityUnit}", ${material.density})`);
+            }
+            if (material.isDepletable) {
+                lines.push(`${varName}.depletable = True`);
+            }
+            if (material.volume !== undefined) {
+                lines.push(`${varName}.volume = ${material.volume}`);
+            }
+            if (material.temperature !== undefined) {
+                lines.push(`${varName}.temperature = ${material.temperature}`);
+            }
+            lines.push('');
+            return lines;
+        }
+
         // Add nuclides and elements
         for (const nuclide of material.nuclides) {
             const percentType = nuclide.fractionType === 'wo' ? 'wo' : 'ao';
@@ -667,7 +689,15 @@ export class OpenMCPythonExporter {
             if (options.includeComments) {
                 lines.push('# DAGMC geometry - uses CAD-based mesh geometry');
             }
-            lines.push('dagmc_univ = openmc.DAGMCUniverse(filename="geometry.h5m")');
+            const dagmcAutoArgs: string[] = [];
+            if (state.settings.dagmcInfo?.autoGeomIds) {
+                dagmcAutoArgs.push('auto_geom_ids=True');
+            }
+            if (state.settings.dagmcInfo?.autoMatIds) {
+                dagmcAutoArgs.push('auto_mat_ids=True');
+            }
+            const dagmcArgsStr = dagmcAutoArgs.length > 0 ? `, ${dagmcAutoArgs.join(', ')}` : '';
+            lines.push(`dagmc_univ = openmc.DAGMCUniverse(filename="geometry.h5m"${dagmcArgsStr})`);
             lines.push('geometry = openmc.Geometry(dagmc_univ)');
         } else {
             // Ensure we have at least a root universe, even if empty
@@ -826,6 +856,55 @@ export class OpenMCPythonExporter {
             const fixedRun = settings.run as OpenMCFixedSourceSettings;
             lines.push(`settings.batches = ${fixedRun.batches}`);
             lines.push(`settings.particles = ${fixedRun.particles}`);
+            if (fixedRun.inactive !== undefined) {
+                lines.push(`settings.inactive = ${fixedRun.inactive}`);
+            }
+        }
+
+        // Energy mode and MGXS library (multi-group / random ray)
+        if (settings.energyMode) {
+            lines.push(`settings.energy_mode = '${settings.energyMode === 'multigroup' ? 'multi-group' : settings.energyMode}'`);
+        }
+        if (settings.mgxsLibrary && settings.energyMode === 'multigroup') {
+            lines.push(`openmc.config['mg_cross_sections'] = '${settings.mgxsLibrary}'`);
+        }
+
+        // Random ray solver settings
+        if (settings.randomRay) {
+            const rr = settings.randomRay;
+            const rrEntries: string[] = [];
+            if (rr.distanceInactive !== undefined) {
+                rrEntries.push(`'distance_inactive': ${rr.distanceInactive}`);
+            }
+            if (rr.distanceActive !== undefined) {
+                rrEntries.push(`'distance_active': ${rr.distanceActive}`);
+            }
+            if (rr.volumeEstimator) {
+                rrEntries.push(`'volume_estimator': '${rr.volumeEstimator}'`);
+            }
+            if (rr.sourceShape) {
+                rrEntries.push(`'source_shape': '${rr.sourceShape}'`);
+            }
+            if (rr.volumeNormalizedFluxTallies !== undefined) {
+                rrEntries.push(`'volume_normalized_flux_tallies': ${rr.volumeNormalizedFluxTallies ? 'True' : 'False'}`);
+            }
+            if (rr.sampleMethod) {
+                rrEntries.push(`'sample_method': '${rr.sampleMethod}'`);
+            }
+            if (rr.diagonalStabilizationRho !== undefined) {
+                rrEntries.push(`'diagonal_stabilization_rho': ${rr.diagonalStabilizationRho}`);
+            }
+            if (rr.adjoint !== undefined) {
+                rrEntries.push(`'adjoint': ${rr.adjoint ? 'True' : 'False'}`);
+            }
+            if (rr.raySource) {
+                lines.push(
+                    `ray_source_space = openmc.stats.Box([${rr.raySource.lowerLeft.join(', ')}], [${rr.raySource.upperRight.join(', ')}])`
+                );
+                lines.push('ray_source = openmc.IndependentSource(space=ray_source_space)');
+                rrEntries.push(`'ray_source': ray_source`);
+            }
+            lines.push(`settings.random_ray = {${rrEntries.join(', ')}}`);
         }
 
         // Sources
@@ -843,6 +922,11 @@ export class OpenMCPythonExporter {
             lines.push(`settings.seed = ${settings.seed}`);
         }
 
+        // IFP kinetics generations
+        if (settings.kinetics?.enabled && settings.kinetics.ifpNGenerations !== undefined) {
+            lines.push(`settings.ifp_n_generation = ${settings.kinetics.ifpNGenerations}`);
+        }
+
         // Threads
         if (settings.threads) {
             lines.push(`settings.threads = ${settings.threads}`);
@@ -851,6 +935,150 @@ export class OpenMCPythonExporter {
         // Photon transport
         if (settings.photonTransport) {
             lines.push('settings.photon_transport = True');
+        }
+
+        // Electron treatment & atomic relaxation (photon physics)
+        if (settings.electronTreatment) {
+            lines.push(`settings.electron_treatment = '${settings.electronTreatment}'`);
+        }
+        if (settings.atomicRelaxation !== undefined) {
+            lines.push(`settings.atomic_relaxation = ${settings.atomicRelaxation ? 'True' : 'False'}`);
+        }
+
+        // Output control (summary falls back to the legacy outputSummary field)
+        const outputEntries: string[] = [];
+        const outputSummary = settings.output?.summary ?? settings.outputSummary;
+        if (outputSummary !== undefined) {
+            outputEntries.push(`'summary': ${outputSummary ? 'True' : 'False'}`);
+        }
+        if (settings.output?.tallies !== undefined) {
+            outputEntries.push(`'tallies': ${settings.output.tallies ? 'True' : 'False'}`);
+        }
+        if (settings.output?.path) {
+            outputEntries.push(`'path': '${settings.output.path}'`);
+        }
+        if (outputEntries.length > 0) {
+            lines.push(`settings.output = {${outputEntries.join(', ')}}`);
+        }
+
+        // Statepoint batches
+        const statepointBatches = Array.isArray(settings.statepointBatches) ? settings.statepointBatches : settings.statepointBatches?.at;
+        if (statepointBatches && statepointBatches.length > 0) {
+            lines.push(`settings.statepoint = {'batches': [${statepointBatches.join(', ')}]}`);
+        }
+
+        // Sourcepoint options
+        if (settings.sourcePoint) {
+            const spEntries: string[] = [];
+            if (settings.sourcePoint.batches && settings.sourcePoint.batches.length > 0) {
+                spEntries.push(`'batches': [${settings.sourcePoint.batches.join(', ')}]`);
+            }
+            if (settings.sourcePoint.separate !== undefined) {
+                spEntries.push(`'separate': ${settings.sourcePoint.separate ? 'True' : 'False'}`);
+            }
+            if (settings.sourcePoint.write !== undefined) {
+                spEntries.push(`'write': ${settings.sourcePoint.write ? 'True' : 'False'}`);
+            }
+            if (settings.sourcePoint.overwrite !== undefined) {
+                spEntries.push(`'overwrite': ${settings.sourcePoint.overwrite ? 'True' : 'False'}`);
+            }
+            if (settings.sourcePoint.mcpl !== undefined) {
+                spEntries.push(`'mcpl': ${settings.sourcePoint.mcpl ? 'True' : 'False'}`);
+            }
+            if (spEntries.length > 0) {
+                lines.push(`settings.sourcepoint = {${spEntries.join(', ')}}`);
+            }
+        }
+
+        // Surface source writing
+        if (settings.surfaceSourceWrite) {
+            const ssw = settings.surfaceSourceWrite;
+            const sswEntries: string[] = [];
+            if (ssw.surfaceIds && ssw.surfaceIds.length > 0) {
+                sswEntries.push(`'surface_ids': [${ssw.surfaceIds.join(', ')}]`);
+            }
+            if (ssw.mcpl !== undefined) {
+                sswEntries.push(`'mcpl': ${ssw.mcpl ? 'True' : 'False'}`);
+            }
+            if (ssw.maxParticles !== undefined) {
+                sswEntries.push(`'max_particles': ${ssw.maxParticles}`);
+            }
+            if (ssw.maxSourceFiles !== undefined) {
+                sswEntries.push(`'max_source_files': ${ssw.maxSourceFiles}`);
+            }
+            if (ssw.cell !== undefined) {
+                sswEntries.push(`'cell': ${ssw.cell}`);
+            }
+            if (ssw.cellfrom !== undefined) {
+                sswEntries.push(`'cellfrom': ${ssw.cellfrom}`);
+            }
+            if (ssw.cellto !== undefined) {
+                sswEntries.push(`'cellto': ${ssw.cellto}`);
+            }
+            if (sswEntries.length > 0) {
+                lines.push(`settings.surf_source_write = {${sswEntries.join(', ')}}`);
+            }
+        }
+
+        // Surface source reading
+        if (settings.surfaceSourceRead?.path) {
+            lines.push(`settings.surf_source_read = {'path': '${settings.surfaceSourceRead.path}'}`);
+        }
+
+        // Particle tracks
+        if (settings.tracks && settings.tracks.length > 0) {
+            const triples = settings.tracks.map((t) => `(${t[0]}, ${t[1]}, ${t[2]})`).join(', ');
+            lines.push(`settings.track = [${triples}]`);
+        }
+        if (settings.maxTracks !== undefined) {
+            lines.push(`settings.max_tracks = ${settings.maxTracks}`);
+        }
+
+        // Collision track output
+        if (settings.collisionTrack) {
+            const ct = settings.collisionTrack;
+            const ctEntries: string[] = [];
+            if (ct.maxCollisions !== undefined) {
+                ctEntries.push(`'max_collisions': ${ct.maxCollisions}`);
+            }
+            if (ct.reactions && ct.reactions.length > 0) {
+                const reactions = ct.reactions.map((r) => (typeof r === 'number' ? String(r) : `'${r}'`)).join(', ');
+                ctEntries.push(`'reactions': [${reactions}]`);
+            }
+            if (ct.materialIds && ct.materialIds.length > 0) {
+                ctEntries.push(`'material_ids': [${ct.materialIds.join(', ')}]`);
+            }
+            if (ct.nuclides && ct.nuclides.length > 0) {
+                ctEntries.push(`'nuclides': [${ct.nuclides.map((n) => `'${n}'`).join(', ')}]`);
+            }
+            if (ct.cellIds && ct.cellIds.length > 0) {
+                ctEntries.push(`'cell_ids': [${ct.cellIds.join(', ')}]`);
+            }
+            if (ct.universeIds && ct.universeIds.length > 0) {
+                ctEntries.push(`'universe_ids': [${ct.universeIds.join(', ')}]`);
+            }
+            if (ct.depositedEnergyThreshold !== undefined) {
+                ctEntries.push(`'deposited_E_threshold': ${ct.depositedEnergyThreshold}`);
+            }
+            if (ct.maxCollisionTrackFiles !== undefined) {
+                ctEntries.push(`'max_collision_track_files': ${ct.maxCollisionTrackFiles}`);
+            }
+            if (ct.mcpl !== undefined) {
+                ctEntries.push(`'mcpl': ${ct.mcpl ? 'True' : 'False'}`);
+            }
+            if (ctEntries.length > 0) {
+                lines.push(`settings.collision_track = {${ctEntries.join(', ')}}`);
+            }
+        }
+
+        // Shannon entropy mesh
+        if (settings.entropyMesh) {
+            const em = settings.entropyMesh;
+            lines.push('entropy_mesh = openmc.RegularMesh()');
+            lines.push(`entropy_mesh.lower_left = [${em.lowerLeft.join(', ')}]`);
+            lines.push(`entropy_mesh.upper_right = [${em.upperRight.join(', ')}]`);
+            lines.push(`entropy_mesh.dimension = [${em.shape.join(', ')}]`);
+            lines.push('settings.entropy_mesh = entropy_mesh');
         }
 
         // Temperature
@@ -885,17 +1113,31 @@ export class OpenMCPythonExporter {
             }
 
             if (vr.weightWindowGenerator) {
-                const meshId = vr.weightWindows?.meshId || (vr.ufs?.enabled ? vr.ufs.meshId : undefined);
+                const wwg = vr.weightWindowGenerator;
+                const meshId = wwg.meshId ?? vr.weightWindows?.meshId ?? (vr.ufs?.enabled ? vr.ufs.meshId : undefined);
                 if (meshId !== undefined) {
-                    lines.push('wwg = openmc.WeightWindowGenerator(');
-                    lines.push(`    mesh=mesh_${meshId},`);
-                    if (vr.weightWindowGenerator.iterations) {
-                        lines.push(`    max_realizations=${vr.weightWindowGenerator.iterations},`);
+                    const wwgArgs = [`mesh=mesh_${meshId}`];
+                    const wwgEnergyBounds = wwg.energyBounds ?? vr.weightWindows?.energyBounds;
+                    if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
+                        wwgArgs.push(`energy_bounds=[${wwgEnergyBounds.join(', ')}]`);
                     }
-                    if (vr.weightWindowGenerator.particleType) {
-                        lines.push(`    particle_type="${vr.weightWindowGenerator.particleType}"`);
+                    wwgArgs.push(`particle_type="${wwg.particleType ?? 'neutron'}"`);
+                    wwgArgs.push(`method="${wwg.method ?? 'magic'}"`);
+                    const maxRealizations =
+                        wwg.maxRealizations ??
+                        wwg.iterations ??
+                        (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
+                    wwgArgs.push(`max_realizations=${maxRealizations}`);
+                    if (wwg.updateInterval !== undefined) {
+                        wwgArgs.push(`update_interval=${wwg.updateInterval}`);
                     }
-                    lines.push(')');
+                    if (wwg.onTheFly !== undefined) {
+                        wwgArgs.push(`on_the_fly=${wwg.onTheFly ? 'True' : 'False'}`);
+                    }
+                    if (wwg.method === 'fw_cadis' && wwg.targetTallyIds && wwg.targetTallyIds.length > 0) {
+                        wwgArgs.push(`targets=[${wwg.targetTallyIds.join(', ')}]`);
+                    }
+                    lines.push(`wwg = openmc.WeightWindowGenerator(${wwgArgs.join(', ')})`);
                     lines.push('settings.weight_window_generators = [wwg]');
                 } else {
                     lines.push('# Weight window generator enabled but no mesh specified (checked weightWindows and ufs)');
@@ -933,7 +1175,47 @@ export class OpenMCPythonExporter {
         }
 
         // Setup operator
-        lines.push('op = openmc.deplete.CoupledOperator(model, chain)');
+        if (depletion.operator === 'independent') {
+            if (depletion.generateFromModel) {
+                lines.push('# Independent operator: compute fluxes and MicroXS from the model (transport solve)');
+                lines.push('depletable_mats = [m for m in materials if m.depletable]');
+                lines.push('fluxes, micros = openmc.deplete.get_microxs_and_flux(model, depletable_mats, chain_file=chain)');
+            } else {
+                lines.push('# Independent operator: load pre-computed fluxes and MicroXS');
+                lines.push('depletable_mats = [m for m in materials if m.depletable]');
+                lines.push(`flux_files = [${(depletion.fluxFiles ?? []).map((f) => `"${f}"`).join(', ')}]`);
+                lines.push(`microxs_files = [${(depletion.microxsFiles ?? []).map((f) => `"${f}"`).join(', ')}]`);
+                lines.push('import numpy as np');
+                lines.push(
+                    'fluxes = [np.load(f) if f.endswith(".npy") else np.loadtxt(f, delimiter="," if f.endswith(".csv") else None) for f in flux_files]'
+                );
+                lines.push('micros = [openmc.deplete.MicroXS.from_csv(f) for f in microxs_files]');
+            }
+            const indepArgs = [
+                'depletable_mats',
+                'fluxes',
+                'micros',
+                'chain',
+                `normalization_mode="${depletion.normalizationMode ?? 'fission-q'}"`
+            ];
+            if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
+                indepArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
+            }
+            lines.push(`op = openmc.deplete.IndependentOperator(${indepArgs.join(', ')})`);
+        } else {
+            const coupledArgs = ['model', 'chain'];
+            if (depletion.diffBurnableMats) {
+                coupledArgs.push('diff_burnable_mats=True');
+                if (depletion.diffVolumeMethod) {
+                    coupledArgs.push(`diff_volume_method="${depletion.diffVolumeMethod}"`);
+                }
+            }
+            coupledArgs.push(`normalization_mode="${depletion.normalizationMode ?? 'fission-q'}"`);
+            if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
+                coupledArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
+            }
+            lines.push(`op = openmc.deplete.CoupledOperator(${coupledArgs.join(', ')})`);
+        }
 
         // Power/PowerDensity handling
         let powerVal = depletion.power;
@@ -989,6 +1271,14 @@ export class OpenMCPythonExporter {
         const solver = solverMap[depletion.solver || 'predictor'] || 'PredictorIntegrator';
         lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
 
+        // External transfer rates (Integrator.add_transfer_rate)
+        for (const tr of depletion.transferRates ?? []) {
+            const destArg = tr.destinationMaterial !== undefined ? `, destination_material=${tr.destinationMaterial}` : '';
+            lines.push(
+                `integrator.add_transfer_rate(${tr.material}, ["${tr.element}"], ${tr.rate}, transfer_rate_units="${tr.units ?? '1/s'}"${destArg})`
+            );
+        }
+
         // Run integration (commented out by default to allow XML export first)
         lines.push('# integrator.integrate()');
 
@@ -1005,62 +1295,69 @@ export class OpenMCPythonExporter {
     private generateSourceCode(source: OpenMCSource, index: number): string[] {
         const lines: string[] = [];
 
-        lines.push(`source_${index} = openmc.IndependentSource()`);
+        if (source.type === 'file') {
+            lines.push(`source_${index} = openmc.FileSource(path="${source.path}")`);
+        } else if (source.type === 'compiled') {
+            const paramsArg = source.parameters ? `, parameters="${source.parameters}"` : '';
+            lines.push(`source_${index} = openmc.CompiledSource(library="${source.library}"${paramsArg})`);
+        } else {
+            lines.push(`source_${index} = openmc.IndependentSource()`);
 
-        // Spatial distribution
-        const spatial = source.spatial;
-        switch (spatial.type) {
-            case 'point':
-                const point = spatial as any;
-                lines.push(`source_${index}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
-                break;
-            case 'box':
-                const box = spatial as any;
-                lines.push(`source_${index}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
-                break;
-            case 'sphere':
-                const sphere = spatial as any;
-                lines.push(`source_${index}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
-                break;
-            case 'cylinder':
-                const cyl = spatial as any;
-                lines.push(`source_${index}.space = openmc.stats.CylindricalIndependent(`);
-                lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
-                lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
-                lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
-                lines.push(`    origin=[${cyl.center.join(', ')}]`);
-                lines.push(')');
-                break;
-        }
-
-        // Energy distribution
-        const energy = source.energy;
-        if (energy) {
-            switch (energy.type) {
-                case 'discrete':
-                    const discrete = energy as any;
-                    const energies = discrete.energies || [1e6];
-                    const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                    lines.push(`source_${index}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
+            // Spatial distribution
+            const spatial = source.spatial;
+            switch (spatial.type) {
+                case 'point':
+                    const point = spatial as any;
+                    lines.push(`source_${index}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
                     break;
-                case 'uniform':
-                    const uniform = energy as any;
-                    lines.push(`source_${index}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
+                case 'box':
+                    const box = spatial as any;
+                    lines.push(`source_${index}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
                     break;
-                case 'maxwell':
-                    const maxwell = energy as any;
-                    lines.push(`source_${index}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
+                case 'sphere':
+                    const sphere = spatial as any;
+                    lines.push(`source_${index}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
                     break;
-                case 'watt':
-                    const watt = energy as any;
-                    lines.push(`source_${index}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
+                case 'cylinder':
+                    const cyl = spatial as any;
+                    lines.push(`source_${index}.space = openmc.stats.CylindricalIndependent(`);
+                    lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
+                    lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
+                    lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
+                    lines.push(`    origin=[${cyl.center.join(', ')}]`);
+                    lines.push(')');
                     break;
             }
-        }
 
-        // Particle type
-        if (source.particle) {
-            lines.push(`source_${index}.particle = "${source.particle}"`);
+            // Energy distribution
+            const energy = source.energy;
+            if (energy) {
+                switch (energy.type) {
+                    case 'discrete':
+                        const discrete = energy as any;
+                        const energies = discrete.energies || [1e6];
+                        const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
+                        lines.push(`source_${index}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
+                        break;
+                    case 'uniform':
+                        const uniform = energy as any;
+                        lines.push(`source_${index}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
+                        break;
+                    case 'maxwell':
+                        const maxwell = energy as any;
+                        lines.push(`source_${index}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
+                        break;
+                    case 'watt':
+                        const watt = energy as any;
+                        lines.push(`source_${index}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
+                        break;
+                }
+            }
+
+            // Particle type
+            if (source.particle) {
+                lines.push(`source_${index}.particle = "${source.particle}"`);
+            }
         }
 
         // Strength
@@ -1068,7 +1365,44 @@ export class OpenMCPythonExporter {
             lines.push(`source_${index}.strength = ${source.strength}`);
         }
 
+        // Constraints
+        if (source.constraints) {
+            lines.push(...this.generateSourceConstraintsCode(source.constraints, index));
+        }
+
         return lines;
+    }
+
+    /**
+     * Generate the constraints assignment for a source.
+     *
+     * @param constraints - The {@link OpenMCSourceConstraints} to convert.
+     * @param index - The source index used for the variable name.
+     * @returns An array of code lines.
+     */
+    private generateSourceConstraintsCode(constraints: OpenMCSourceConstraints, index: number): string[] {
+        const entries: string[] = [];
+        if (constraints.domainType && constraints.domainIds && constraints.domainIds.length > 0) {
+            const domainClass =
+                constraints.domainType === 'cell' ? 'Cell' : constraints.domainType === 'material' ? 'Material' : 'Universe';
+            entries.push(`'domains': [${constraints.domainIds.map((id) => `openmc.${domainClass}(${id})`).join(', ')}]`);
+        }
+        if (constraints.energyBounds) {
+            entries.push(`'energy_bounds': (${constraints.energyBounds[0]}, ${constraints.energyBounds[1]})`);
+        }
+        if (constraints.timeBounds) {
+            entries.push(`'time_bounds': (${constraints.timeBounds[0]}, ${constraints.timeBounds[1]})`);
+        }
+        if (constraints.fissionable !== undefined) {
+            entries.push(`'fissionable': ${constraints.fissionable ? 'True' : 'False'}`);
+        }
+        if (constraints.rejectionStrategy) {
+            entries.push(`'rejection_strategy': '${constraints.rejectionStrategy}'`);
+        }
+        if (entries.length === 0) {
+            return [];
+        }
+        return [`source_${index}.constraints = {${entries.join(', ')}}`];
     }
 
     /**
@@ -1098,22 +1432,25 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
-        // Tallies
-        if (state.tallies.length > 0) {
+        // Tallies (auto-append IFP kinetics tallies when enabled, like the XML layer)
+        const effectiveTallies = [...state.tallies];
+        if (state.settings.kinetics?.enabled) {
+            const maxTallyId = state.tallies.reduce((max, t) => Math.max(max, t.id), 0);
+            effectiveTallies.push(...getAutoIfpTallies(state.tallies, state.settings.kinetics, maxTallyId + 1));
+        }
+        if (effectiveTallies.length > 0) {
             if (options.includeComments) {
                 lines.push('# Tallies');
             }
-            for (const tally of state.tallies) {
+            for (const tally of effectiveTallies) {
                 lines.push(...this.generateTallyCode(tally, state));
             }
             lines.push('');
         }
 
-        const tallyVars = state.tallies.map((t) => `tally_${t.id}`).join(', ');
+        const tallyVars = effectiveTallies.map((t) => `tally_${t.id}`).join(', ');
 
-        if (state.meshes.length > 0 && state.tallies.length > 0) {
-            lines.push(`tallies = openmc.Tallies([${tallyVars}])`);
-        } else if (state.tallies.length > 0) {
+        if (effectiveTallies.length > 0) {
             lines.push(`tallies = openmc.Tallies([${tallyVars}])`);
         }
 
@@ -1227,8 +1564,58 @@ export class OpenMCPythonExporter {
                             `${filterVar} = openmc.ParticleFilter([${filter.bins.map((b) => (b === 1 ? '"neutron"' : '"photon"')).join(', ')}])`
                         );
                         break;
+                    case 'cellborn':
+                        lines.push(`${filterVar} = openmc.CellBornFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'cellfrom':
+                        lines.push(`${filterVar} = openmc.CellFromFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'distribcell':
+                        lines.push(`${filterVar} = openmc.DistribcellFilter(${filter.bins[0] ?? 0})`);
+                        break;
+                    case 'delayedgroup':
+                        lines.push(`${filterVar} = openmc.DelayedGroupFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'time':
+                        lines.push(`${filterVar} = openmc.TimeFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'legendre':
+                        lines.push(`${filterVar} = openmc.LegendreFilter(order=${filter.order ?? 5})`);
+                        break;
+                    case 'spatiallegendre':
+                        lines.push(
+                            `${filterVar} = openmc.SpatialLegendreFilter(order=${filter.order ?? 5}, axis='${filter.axis ?? 'z'}', minimum=${filter.min ?? 0}, maximum=${filter.max ?? 0})`
+                        );
+                        break;
+                    case 'sphericalharmonics':
+                        lines.push(`${filterVar} = openmc.SphericalHarmonicsFilter(order=${filter.order ?? 3})`);
+                        if (filter.cosine && filter.cosine !== 'particle') {
+                            lines.push(`${filterVar}.cosine = '${filter.cosine}'`);
+                        }
+                        break;
+                    case 'zernike':
+                        lines.push(
+                            `${filterVar} = openmc.ZernikeFilter(order=${filter.order ?? 5}, x=${filter.center?.x ?? 0}, y=${filter.center?.y ?? 0}, r=${filter.center?.r ?? 1})`
+                        );
+                        break;
+                    case 'zernikeradial':
+                        lines.push(
+                            `${filterVar} = openmc.ZernikeRadialFilter(order=${filter.order ?? 5}, x=${filter.center?.x ?? 0}, y=${filter.center?.y ?? 0}, r=${filter.center?.r ?? 1})`
+                        );
+                        break;
+                    case 'energyfunction':
+                        lines.push(
+                            `${filterVar} = openmc.EnergyFunctionFilter(energy=[${(filter.energyValues ?? []).join(', ')}], y=[${(filter.responseValues ?? []).join(', ')}], interpolation='${filter.interpolation ?? 'linear-linear'}')`
+                        );
+                        break;
+                    case 'meshsurface':
+                        if (filter.meshId) {
+                            lines.push(`${filterVar} = openmc.MeshSurfaceFilter(mesh_${filter.meshId})`);
+                        }
+                        break;
                     default:
-                        lines.push(`${filterVar} = openmc.Filter()  # ${filter.type} filter`);
+                        lines.push(`# Unsupported filter type '${filter.type}' skipped (filter index ${i} on tally ${tally.id})`);
+                        filterVars.pop();
                 }
             }
             lines.push(`tally_${tally.id}.filters = [${filterVars.join(', ')}]`);
@@ -1260,25 +1647,7 @@ export class OpenMCPythonExporter {
         }
 
         for (const plot of state.plots || []) {
-            lines.push(`plot_${plot.id} = openmc.Plot()`);
-            lines.push(`plot_${plot.id}.id = ${plot.id}`);
-            lines.push(`plot_${plot.id}.type = "${plot.type}"`);
-            lines.push(`plot_${plot.id}.basis = "${plot.basis}"`);
-            lines.push(`plot_${plot.id}.origin = [${plot.origin.join(', ')}]`);
-
-            if (plot.type === 'slice') {
-                if (plot.width) lines.push(`plot_${plot.id}.width = ${plot.width}`);
-                if (plot.height) lines.push(`plot_${plot.id}.height = ${plot.height}`);
-                if (plot.pixels) lines.push(`plot_${plot.id}.pixels = [${plot.pixels.join(', ')}]`);
-            }
-
-            lines.push(`plot_${plot.id}.color_by = "${plot.colorBy}"`);
-
-            if (plot.meshlines) {
-                lines.push(`plot_${plot.id}.meshlines = True`);
-            }
-
-            lines.push('');
+            lines.push(...this.generatePlotCode(plot));
         }
 
         if (state.plots && state.plots.length > 0) {
@@ -1286,6 +1655,84 @@ export class OpenMCPythonExporter {
             lines.push(`plots = openmc.Plots([${plotVars}])`);
         }
 
+        return lines;
+    }
+
+    /**
+     * Generate the construction code for a single plot configuration.
+     *
+     * @param plot - The {@link OpenMCPlotConfig} to convert.
+     * @returns An array of code lines.
+     */
+    private generatePlotCode(plot: OpenMCPlotConfig): string[] {
+        const lines: string[] = [];
+        const colorBy = plot.colorBy === 'material' ? 'material' : 'cell';
+
+        if (plot.type === 'slice') {
+            lines.push(`plot_${plot.id} = openmc.SlicePlot(plot_id=${plot.id}, name="${plot.name ?? ''}")`);
+            lines.push(`plot_${plot.id}.basis = "${plot.basis}"`);
+            lines.push(`plot_${plot.id}.origin = (${plot.origin.join(', ')})`);
+            lines.push(`plot_${plot.id}.width = (${plot.width ?? 10}, ${plot.height ?? 10})`);
+            lines.push(`plot_${plot.id}.pixels = (${(plot.pixels ?? [1000, 1000]).join(', ')})`);
+            lines.push(`plot_${plot.id}.color_by = "${colorBy}"`);
+        } else if (plot.type === 'voxel') {
+            lines.push(`plot_${plot.id} = openmc.VoxelPlot(plot_id=${plot.id}, name="${plot.name ?? ''}")`);
+            const lowerLeft = plot.lowerLeft ?? [-10, -10, -10];
+            const upperRight = plot.upperRight ?? [10, 10, 10];
+            const origin = lowerLeft.map((v, i) => (v + upperRight[i]) / 2);
+            const width = lowerLeft.map((v, i) => upperRight[i] - v);
+            lines.push(`plot_${plot.id}.origin = (${origin.join(', ')})`);
+            lines.push(`plot_${plot.id}.width = (${width.join(', ')})`);
+            lines.push(`plot_${plot.id}.pixels = (${(plot.voxels ?? [50, 50, 50]).join(', ')})`);
+            lines.push(`plot_${plot.id}.color_by = "${colorBy}"`);
+        } else if (plot.type === 'solid-raytrace') {
+            lines.push(`plot_${plot.id} = openmc.SolidRayTracePlot(plot_id=${plot.id}, name="${plot.name ?? ''}")`);
+            lines.push(...this.generateRayTraceCode(plot));
+            if (plot.lightPosition) {
+                lines.push(`plot_${plot.id}.light_position = (${plot.lightPosition.join(', ')})`);
+            }
+            if (plot.diffuseFraction !== undefined) {
+                lines.push(`plot_${plot.id}.diffuse_fraction = ${plot.diffuseFraction}`);
+            }
+            if (plot.opaqueIds && plot.opaqueIds.length > 0) {
+                lines.push(`plot_${plot.id}.opaque_domains = [${plot.opaqueIds.join(', ')}]`);
+            }
+        } else {
+            lines.push(`plot_${plot.id} = openmc.WireframeRayTracePlot(plot_id=${plot.id}, name="${plot.name ?? ''}")`);
+            lines.push(...this.generateRayTraceCode(plot));
+            lines.push(`plot_${plot.id}.wireframe_thickness = ${plot.wireframeThickness ?? 1}`);
+            if (plot.wireframeColor) {
+                lines.push(`plot_${plot.id}.wireframe_color = (${plot.wireframeColor.join(', ')})`);
+            }
+            if (plot.wireframeIds && plot.wireframeIds.length > 0) {
+                const domainClass = colorBy === 'material' ? 'openmc.Material' : 'openmc.Cell';
+                lines.push(`plot_${plot.id}.wireframe_domains = [${plot.wireframeIds.map((id) => `${domainClass}(${id})`).join(', ')}]`);
+            }
+        }
+
+        lines.push('');
+        return lines;
+    }
+
+    /**
+     * Generate the shared camera controls for ray-trace plots.
+     *
+     * @param plot - The ray-trace {@link OpenMCPlotConfig}.
+     * @returns An array of code lines.
+     */
+    private generateRayTraceCode(plot: OpenMCPlotConfig): string[] {
+        const lines: string[] = [];
+        lines.push(`plot_${plot.id}.camera_position = (${(plot.cameraPosition ?? [1, 0, 0]).join(', ')})`);
+        lines.push(`plot_${plot.id}.look_at = (${(plot.lookAt ?? [0, 0, 0]).join(', ')})`);
+        if (plot.up) {
+            lines.push(`plot_${plot.id}.up = (${plot.up.join(', ')})`);
+        }
+        lines.push(`plot_${plot.id}.horizontal_field_of_view = ${plot.horizontalFieldOfView ?? 70}`);
+        if (plot.orthographicWidth) {
+            lines.push(`plot_${plot.id}.orthographic_width = ${plot.orthographicWidth}`);
+        }
+        lines.push(`plot_${plot.id}.pixels = (${(plot.pixels ?? [1000, 1000]).join(', ')})`);
+        lines.push(`plot_${plot.id}.color_by = "${plot.colorBy === 'material' ? 'material' : 'cell'}"`);
         return lines;
     }
 

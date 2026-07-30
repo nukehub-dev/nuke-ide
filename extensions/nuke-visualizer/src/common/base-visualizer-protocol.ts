@@ -195,9 +195,10 @@ export interface VisualizerBackendService {
      * @param filePath Path to file to visualize (VTK, H5M, STL, etc.)
      * @param config Optional Python environment override
      * @param theme UI theme — 'dark' or 'light', propagated to the Trame app
+     * @param colorBy Optional initial color-by selection ('Solid Color', 'Point: <name>', 'Cell: <name>')
      * @returns Server info including allocated port and URL
      */
-    startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
+    startServer(filePath?: string, config?: PythonConfig, theme?: string, colorBy?: string): Promise<ServerInfo>;
 
     /**
      * Stop the visualizer server running on the given port.

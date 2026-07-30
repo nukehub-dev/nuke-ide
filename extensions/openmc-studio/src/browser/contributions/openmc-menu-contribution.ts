@@ -263,5 +263,20 @@ export class OpenMCMenuContribution implements MenuContribution {
             label: 'Optimization Study',
             order: 'e'
         });
+        menus.registerMenuAction(OpenMCMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCViewCommands.OPEN_VOLUME_CALC.id,
+            label: 'Volume Calculation',
+            order: 'f'
+        });
+        menus.registerMenuAction(OpenMCMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCViewCommands.OPEN_NATIVE_PLOTTING.id,
+            label: 'Native Plotting',
+            order: 'g'
+        });
+        menus.registerMenuAction(OpenMCMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCViewCommands.OPEN_MGXS_GENERATOR.id,
+            label: 'MGXS Generator',
+            order: 'h'
+        });
     }
 }

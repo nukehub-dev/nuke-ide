@@ -29,3 +29,4 @@ export * from './openmc-statepoint-service';
 export * from './openmc-geometry-service';
 export * from './openmc-xs-service';
 export * from './openmc-depletion-service';
+export * from './openmc-output-service';

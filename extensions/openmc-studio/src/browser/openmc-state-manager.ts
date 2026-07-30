@@ -57,6 +57,7 @@ import {
     OpenMCLattice,
     OpenMCParameterSweep,
     OpenMCOptimizationRun,
+    OpenMCPlotConfig,
     OptimizationResult,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
@@ -558,6 +559,22 @@ export class OpenMCStateManager {
             path: 'variance-reduction',
             type: 'update',
             value: this._state.varianceReduction
+        });
+    }
+
+    /**
+     * Replace the plots configuration.
+     *
+     * @param plots - The new plot configurations.
+     */
+    updatePlots(plots: OpenMCPlotConfig[]): void {
+        this._state.plots = plots;
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'plots',
+            type: 'update',
+            value: plots
         });
     }
 

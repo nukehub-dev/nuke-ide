@@ -27,7 +27,8 @@
 
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCTallyFilter, OpenMCMesh } from '../../../../common/openmc-state-schema';
+import { OpenMCTallyFilter, OpenMCTallyFilterType, OpenMCMesh } from '../../../../common/openmc-state-schema';
+import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter } from '../../../../common/filters-catalog';
 
 /**
  * Props for the {@link FilterBuilder} component.
@@ -41,35 +42,23 @@ interface FilterBuilderProps {
     onUpdate: (filters: OpenMCTallyFilter[]) => void;
 }
 
+/** Delayed neutron precursor groups (ENDF/B-VII.1 uses 6) */
+const DELAYED_GROUPS = [1, 2, 3, 4, 5, 6];
+
 /**
  * Interactive builder for OpenMC tally filters.
  *
- * Supports spatial, energy, angular, time, and cell-based filters.
+ * Renders a parameter editor per filter type driven by the filter catalog
+ * (see `src/common/filters-catalog.ts`): domain IDs, energy/angle/time bins,
+ * mesh selection, delayed-group checkboxes, expansion orders, and the
+ * energy-function response table.
  *
  * @see {@link TallyEditor}
  */
 export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, onUpdate }) => {
-    /** Add a new filter of the given type with sensible defaults. */
-    const addFilter = (type: string) => {
-        let newFilter: OpenMCTallyFilter;
-        if (type === 'mesh') {
-            newFilter = { type: 'mesh', bins: meshes.length > 0 ? [meshes[0].id] : [], meshId: meshes.length > 0 ? meshes[0].id : 0 };
-        } else if (type === 'energy') {
-            newFilter = { type: 'energy', bins: [0, 2e7] };
-        } else if (type === 'energyout') {
-            newFilter = { type: 'energyout', bins: [0, 2e7] };
-        } else if (type === 'mu') {
-            newFilter = { type: 'mu', bins: [-1, 1] };
-        } else if (type === 'polar') {
-            newFilter = { type: 'polar', bins: [0, 3.14159] };
-        } else if (type === 'azimuthal') {
-            newFilter = { type: 'azimuthal', bins: [0, 6.28318530718] };
-        } else if (type === 'delayedgroup') {
-            newFilter = { type: 'delayedgroup', bins: [1, 2, 3, 4, 5, 6] };
-        } else {
-            newFilter = { type: type as any, bins: [] };
-        }
-        onUpdate([...filters, newFilter]);
+    /** Add a new filter of the given type with catalog defaults. */
+    const addFilter = (type: OpenMCTallyFilterType) => {
+        onUpdate([...filters, createDefaultFilter(type, meshes.length > 0 ? meshes[0].id : undefined)]);
     };
 
     /** Remove the filter at the given index. */
@@ -84,88 +73,12 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         onUpdate(newFilters);
     };
 
-    /** Get placeholder / hint text for a filter type's bins input. */
-    const getBinHelp = (type: string): string => {
-        const helpMap: Record<string, string> = {
-            universe: 'e.g. 0 1 2',
-            material: 'e.g. 1 2 3',
-            cell: 'e.g. 1 2 3',
-            cellborn: 'e.g. 1 2 3',
-            surface: 'e.g. 10 20 30',
-            distribcell: 'e.g. 1',
-            delayedgroup: 'e.g. 1 2 3 (groups 1-6)',
-            energy: 'e.g. 0 1e-5 0.625 2e7',
-            energyout: 'e.g. 0 1e-5 0.625 2e7',
-            mu: 'e.g. -1 0 1 (-1 to 1)',
-            polar: 'e.g. 0 1.5708 3.14159 (0 to π)',
-            azimuthal: 'e.g. 0 3.14159 6.28318 (0 to 2π)',
-            time: 'e.g. 0 1e-3 1e-2 0.1 (seconds)'
-        };
-        return helpMap[type] || 'e.g. 1 2 3';
-    };
-
-    /** Render the editor controls for a specific filter. */
-    const renderFilterContent = (filter: OpenMCTallyFilter, index: number) => {
-        if (filter.type === 'mesh') {
-            return (
-                <div className="form-group">
-                    <label>Mesh</label>
-                    <select
-                        value={filter.meshId}
-                        onChange={(e) =>
-                            updateFilter(index, { meshId: parseInt(e.target.value, 10), bins: [parseInt(e.target.value, 10)] })
-                        }
-                    >
-                        <option value={0}>Select Mesh</option>
-                        {meshes.map((m) => (
-                            <option key={m.id} value={m.id}>
-                                {m.name || `Mesh ${m.id}`}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-            );
-        }
-
-        if (
-            filter.type === 'energy' ||
-            filter.type === 'energyout' ||
-            filter.type === 'mu' ||
-            filter.type === 'polar' ||
-            filter.type === 'azimuthal' ||
-            filter.type === 'time'
-        ) {
-            return (
-                <div className="form-group">
-                    <label>
-                        {filter.type === 'energy' && 'Energy Bins (eV)'}
-                        {filter.type === 'energyout' && 'Outgoing Energy Bins (eV)'}
-                        {filter.type === 'mu' && 'Cosine of Scattering Angle (-1 to 1)'}
-                        {filter.type === 'polar' && 'Polar Angle Bins (radians, 0 to π)'}
-                        {filter.type === 'azimuthal' && 'Azimuthal Angle Bins (radians, 0 to 2π)'}
-                        {filter.type === 'time' && 'Time Bins (seconds)'}
-                    </label>
-                    <input
-                        type="text"
-                        value={filter.bins.join(' ')}
-                        onChange={(e) =>
-                            updateFilter(index, {
-                                bins: e.target.value
-                                    .split(/\s+/)
-                                    .map((v) => parseFloat(v))
-                                    .filter((v) => !isNaN(v))
-                            })
-                        }
-                        placeholder={getBinHelp(filter.type)}
-                    />
-                    <p className="form-hint">{getBinHelp(filter.type)}</p>
-                </div>
-            );
-        }
-
+    /** Render a space-separated numeric bins text input (float). */
+    const renderBinsInput = (filter: OpenMCTallyFilter, index: number, label: string, integer: boolean): React.ReactNode => {
+        const help = getFilterDescriptor(filter.type)?.binHelp ?? 'e.g. 1 2 3';
         return (
             <div className="form-group">
-                <label>Bins (IDs, space-separated)</label>
+                <label>{label}</label>
                 <input
                     type="text"
                     value={filter.bins.join(' ')}
@@ -173,16 +86,311 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                         updateFilter(index, {
                             bins: e.target.value
                                 .split(/\s+/)
-                                .map((v) => parseInt(v, 10))
+                                .map((v) => (integer ? parseInt(v, 10) : parseFloat(v)))
                                 .filter((v) => !isNaN(v))
                         })
                     }
-                    placeholder={getBinHelp(filter.type)}
+                    placeholder={help}
                 />
-                <p className="form-hint">{getBinHelp(filter.type)}</p>
+                <p className="form-hint">{help}</p>
             </div>
         );
     };
+
+    /** Render the mesh selector for mesh-based filters. */
+    const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
+        <div className="form-group">
+            <label>Mesh</label>
+            <select
+                value={filter.meshId}
+                onChange={(e) => updateFilter(index, { meshId: parseInt(e.target.value, 10), bins: [parseInt(e.target.value, 10)] })}
+            >
+                <option value={0}>Select Mesh</option>
+                {meshes.map((m) => (
+                    <option key={m.id} value={m.id}>
+                        {m.name || `Mesh ${m.id}`}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+
+    /** Render the delayed-group checkbox list (groups 1-6). */
+    const renderDelayedGroups = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
+        <div className="form-group">
+            <label>Delayed Neutron Precursor Groups</label>
+            <div className="checkbox-row">
+                {DELAYED_GROUPS.map((group) => (
+                    <label key={group} className="score-checkbox-label">
+                        <input
+                            type="checkbox"
+                            checked={filter.bins.includes(group)}
+                            onChange={() =>
+                                updateFilter(index, {
+                                    bins: filter.bins.includes(group)
+                                        ? filter.bins.filter((g) => g !== group)
+                                        : [...filter.bins, group].sort((a, b) => a - b)
+                                })
+                            }
+                        />
+                        <span>Group {group}</span>
+                    </label>
+                ))}
+            </div>
+        </div>
+    );
+
+    /** Render the particle-type checkboxes (1=neutron, 2=photon). */
+    const renderParticleTypes = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
+        <div className="form-group">
+            <label>Particle Types</label>
+            <div className="checkbox-row">
+                {[
+                    { id: 1, label: 'Neutron' },
+                    { id: 2, label: 'Photon' }
+                ].map((p) => (
+                    <label key={p.id} className="score-checkbox-label">
+                        <input
+                            type="checkbox"
+                            checked={filter.bins.includes(p.id)}
+                            onChange={() =>
+                                updateFilter(index, {
+                                    bins: filter.bins.includes(p.id) ? filter.bins.filter((b) => b !== p.id) : [...filter.bins, p.id]
+                                })
+                            }
+                        />
+                        <span>{p.label}</span>
+                    </label>
+                ))}
+            </div>
+        </div>
+    );
+
+    /** Render an expansion-order number input. */
+    const renderOrderInput = (filter: OpenMCTallyFilter, index: number, label: string): React.ReactNode => (
+        <div className="form-group">
+            <label>{label}</label>
+            <input
+                type="number"
+                min={0}
+                value={filter.order ?? 0}
+                onChange={(e) => updateFilter(index, { order: parseInt(e.target.value, 10) || 0 })}
+            />
+        </div>
+    );
+
+    /** Render the energy-function editor: interpolation + energy/response pairs. */
+    const renderEnergyFunction = (filter: OpenMCTallyFilter, index: number): React.ReactNode => {
+        const energyValues = filter.energyValues ?? [];
+        const responseValues = filter.responseValues ?? [];
+        const rowCount = Math.max(energyValues.length, responseValues.length);
+
+        const updatePair = (row: number, energy: number, response: number) => {
+            const newEnergy = [...energyValues];
+            const newResponse = [...responseValues];
+            newEnergy[row] = energy;
+            newResponse[row] = response;
+            updateFilter(index, { energyValues: newEnergy, responseValues: newResponse });
+        };
+
+        const removeRow = (row: number) => {
+            updateFilter(index, {
+                energyValues: energyValues.filter((_, i) => i !== row),
+                responseValues: responseValues.filter((_, i) => i !== row)
+            });
+        };
+
+        const addRow = () => {
+            const lastEnergy = energyValues[energyValues.length - 1] ?? 1;
+            const lastResponse = responseValues[responseValues.length - 1] ?? 1;
+            updateFilter(index, { energyValues: [...energyValues, lastEnergy * 10], responseValues: [...responseValues, lastResponse] });
+        };
+
+        return (
+            <div className="energy-function-editor">
+                <div className="form-group">
+                    <label>Interpolation</label>
+                    <select
+                        value={filter.interpolation ?? 'linear-linear'}
+                        onChange={(e) => updateFilter(index, { interpolation: e.target.value as OpenMCTallyFilter['interpolation'] })}
+                    >
+                        <option value="histogram">Histogram</option>
+                        <option value="linear-linear">Linear-Linear</option>
+                        <option value="linear-log">Linear-Log</option>
+                        <option value="log-linear">Log-Linear</option>
+                        <option value="log-log">Log-Log</option>
+                    </select>
+                </div>
+                {Array.from({ length: rowCount }, (_, row) => (
+                    <div className="form-row" key={row}>
+                        <div className="form-group">
+                            <label>Energy (eV)</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={energyValues[row] ?? 0}
+                                onChange={(e) => updatePair(row, parseFloat(e.target.value) || 0, responseValues[row] ?? 0)}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Response</label>
+                            <input
+                                type="number"
+                                step="any"
+                                value={responseValues[row] ?? 0}
+                                onChange={(e) => updatePair(row, energyValues[row] ?? 0, parseFloat(e.target.value) || 0)}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>&nbsp;</label>
+                            <Tooltip content="Remove point" position="top">
+                                <button className="remove-filter-btn" onClick={() => removeRow(row)}>
+                                    <i className="codicon codicon-trash"></i>
+                                </button>
+                            </Tooltip>
+                        </div>
+                    </div>
+                ))}
+                <button className="add-button" onClick={addRow}>
+                    + Add Point
+                </button>
+            </div>
+        );
+    };
+
+    /** Render the editor controls for a specific filter. */
+    const renderFilterContent = (filter: OpenMCTallyFilter, index: number): React.ReactNode => {
+        const descriptor = getFilterDescriptor(filter.type);
+        switch (descriptor?.editor) {
+            case 'mesh':
+                return renderMeshSelect(filter, index);
+            case 'energy-bins':
+                return renderBinsInput(filter, index, filter.type === 'energy' ? 'Energy Bins (eV)' : 'Outgoing Energy Bins (eV)', false);
+            case 'mu-bins':
+                return renderBinsInput(filter, index, 'Cosine of Scattering Angle (-1 to 1)', false);
+            case 'polar-bins':
+                return renderBinsInput(filter, index, 'Polar Angle Bins (radians, 0 to π)', false);
+            case 'azimuthal-bins':
+                return renderBinsInput(filter, index, 'Azimuthal Angle Bins (radians, 0 to 2π)', false);
+            case 'time-bins':
+                return renderBinsInput(filter, index, 'Time Bins (seconds)', false);
+            case 'delayed-groups':
+                return renderDelayedGroups(filter, index);
+            case 'particle-types':
+                return renderParticleTypes(filter, index);
+            case 'legendre-order':
+                return renderOrderInput(filter, index, 'Expansion Order');
+            case 'spatial-legendre':
+                return (
+                    <>
+                        <div className="form-row">
+                            {renderOrderInput(filter, index, 'Expansion Order')}
+                            <div className="form-group">
+                                <label>Axis</label>
+                                <select
+                                    value={filter.axis ?? 'z'}
+                                    onChange={(e) => updateFilter(index, { axis: e.target.value as 'x' | 'y' | 'z' })}
+                                >
+                                    <option value="x">X</option>
+                                    <option value="y">Y</option>
+                                    <option value="z">Z</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Minimum</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={filter.min ?? 0}
+                                    onChange={(e) => updateFilter(index, { min: parseFloat(e.target.value) || 0 })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Maximum</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={filter.max ?? 0}
+                                    onChange={(e) => updateFilter(index, { max: parseFloat(e.target.value) || 0 })}
+                                />
+                            </div>
+                        </div>
+                    </>
+                );
+            case 'spherical-harmonics':
+                return (
+                    <div className="form-row">
+                        {renderOrderInput(filter, index, 'Expansion Order')}
+                        <div className="form-group">
+                            <label>Cosine Treatment</label>
+                            <select
+                                value={filter.cosine ?? 'particle'}
+                                onChange={(e) => updateFilter(index, { cosine: e.target.value as 'scatter' | 'particle' })}
+                            >
+                                <option value="particle">Particle (direction)</option>
+                                <option value="scatter">Scatter (scattering angle)</option>
+                            </select>
+                        </div>
+                    </div>
+                );
+            case 'zernike':
+                return (
+                    <>
+                        <div className="form-row">{renderOrderInput(filter, index, 'Expansion Order')}</div>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Center X</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={filter.center?.x ?? 0}
+                                    onChange={(e) =>
+                                        updateFilter(index, {
+                                            center: { ...(filter.center ?? { x: 0, y: 0, r: 1 }), x: parseFloat(e.target.value) || 0 }
+                                        })
+                                    }
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Center Y</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={filter.center?.y ?? 0}
+                                    onChange={(e) =>
+                                        updateFilter(index, {
+                                            center: { ...(filter.center ?? { x: 0, y: 0, r: 1 }), y: parseFloat(e.target.value) || 0 }
+                                        })
+                                    }
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Radius</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={filter.center?.r ?? 1}
+                                    onChange={(e) =>
+                                        updateFilter(index, {
+                                            center: { ...(filter.center ?? { x: 0, y: 0, r: 1 }), r: parseFloat(e.target.value) || 1 }
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </>
+                );
+            case 'energy-function':
+                return renderEnergyFunction(filter, index);
+            default:
+                return renderBinsInput(filter, index, 'Bins (IDs, space-separated)', true);
+        }
+    };
+
+    const midpoint = Math.ceil(OPENMC_FILTERS.length / 2);
 
     return (
         <div className="filter-builder">
@@ -201,80 +409,21 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                     </div>
                 ))}
             </div>
-            <div className="add-filter-controls">
-                <Tooltip content="Filter by spatial mesh cell" position="top">
-                    <button className="add-button" onClick={() => addFilter('mesh')} disabled={meshes.length === 0}>
-                        + Mesh Filter
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by energy bins (eV)" position="top">
-                    <button className="add-button" onClick={() => addFilter('energy')}>
-                        + Energy
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by outgoing energy bins (eV)" position="top">
-                    <button className="add-button" onClick={() => addFilter('energyout')}>
-                        + Energy Out
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by cell IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('cell')}>
-                        + Cell
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by material IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('material')}>
-                        + Material
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by universe IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('universe')}>
-                        + Universe
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by surface IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('surface')}>
-                        + Surface
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by birth cell IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('cellborn')}>
-                        + Cell Born
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by distributed cell IDs" position="top">
-                    <button className="add-button" onClick={() => addFilter('distribcell')}>
-                        + Distribcell
-                    </button>
-                </Tooltip>
-            </div>
-            <div className="add-filter-controls" style={{ marginTop: '8px' }}>
-                <Tooltip content="Filter by delayed neutron precursor groups (1-6)" position="top">
-                    <button className="add-button" onClick={() => addFilter('delayedgroup')}>
-                        + Delayed Group
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by cosine of scattering angle (-1 to 1)" position="top">
-                    <button className="add-button" onClick={() => addFilter('mu')}>
-                        + Mu (Angle)
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by polar angle (0 to π)" position="top">
-                    <button className="add-button" onClick={() => addFilter('polar')}>
-                        + Polar
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by azimuthal angle (0 to 2π)" position="top">
-                    <button className="add-button" onClick={() => addFilter('azimuthal')}>
-                        + Azimuthal
-                    </button>
-                </Tooltip>
-                <Tooltip content="Filter by time bins (seconds)" position="top">
-                    <button className="add-button" onClick={() => addFilter('time')}>
-                        + Time
-                    </button>
-                </Tooltip>
-            </div>
+            {[OPENMC_FILTERS.slice(0, midpoint), OPENMC_FILTERS.slice(midpoint)].map((group, groupIndex) => (
+                <div className="add-filter-controls" key={groupIndex} style={groupIndex > 0 ? { marginTop: '8px' } : undefined}>
+                    {group.map((descriptor) => (
+                        <Tooltip key={descriptor.type} content={descriptor.tooltip} position="top">
+                            <button
+                                className="add-button"
+                                onClick={() => addFilter(descriptor.type)}
+                                disabled={descriptor.requiresMesh && meshes.length === 0}
+                            >
+                                + {descriptor.label}
+                            </button>
+                        </Tooltip>
+                    ))}
+                </div>
+            ))}
         </div>
     );
 };

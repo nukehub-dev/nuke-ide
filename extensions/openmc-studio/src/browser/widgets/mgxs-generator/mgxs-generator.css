@@ -1,0 +1,20 @@
+/* MGXS Generator widget styles */
+
+.mgxs-generator-widget {
+    padding: 16px;
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.mgxs-generator-widget .mgxs-generate-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.mgxs-generator-widget .mgxs-status {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
