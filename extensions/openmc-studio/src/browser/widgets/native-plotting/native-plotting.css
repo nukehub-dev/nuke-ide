@@ -2,7 +2,14 @@
 
 .native-plotting-widget {
     display: flex;
+    flex-direction: column;
     height: 100%;
+    overflow: hidden;
+}
+
+.native-plotting-widget .native-plotting-body {
+    display: flex;
+    flex: 1;
     overflow: hidden;
 }
 
@@ -17,44 +24,76 @@
 
 .native-plotting-widget .plot-list-header h4 {
     margin: 0 0 8px 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--theia-descriptionForeground);
 }
 
 .native-plotting-widget .plot-add-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
     margin-bottom: 12px;
 }
 
 .native-plotting-widget .plot-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-}
-
-.native-plotting-widget .plot-list-item {
-    display: flex;
-    align-items: center;
     gap: 8px;
-    padding: 6px 8px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 4px;
-    cursor: pointer;
 }
 
-.native-plotting-widget .plot-list-item.selected {
-    border-color: var(--theia-focusBorder);
+.native-plotting-widget .plot-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid transparent;
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    cursor: pointer;
+    transition:
+        border-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.native-plotting-widget .plot-card:hover {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.native-plotting-widget .plot-card.selected {
+    border-left-color: var(--theia-focusBorder);
     background: var(--theia-list-activeSelectionBackground);
 }
 
-.native-plotting-widget .plot-list-item-label {
+.native-plotting-widget .plot-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.native-plotting-widget .plot-card-title {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.native-plotting-widget .plot-card-delete {
+    visibility: hidden;
+}
+
+.native-plotting-widget .plot-card:hover .plot-card-delete {
+    visibility: visible;
 }
 
 .native-plotting-widget .plot-type-badge {
+    align-self: flex-start;
     font-size: 10px;
     color: var(--theia-descriptionForeground);
     border: 1px solid var(--theia-panel-border);
@@ -69,11 +108,17 @@
     box-sizing: border-box;
 }
 
+.native-plotting-widget .plot-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .native-plotting-widget .plot-generate-actions {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin: 16px 0;
+    margin: 4px 0 16px 0;
 }
 
 .native-plotting-widget .plot-status {
@@ -90,10 +135,4 @@
 
 .native-plotting-widget .generated-files-list li {
     padding: 4px 0;
-}
-
-.native-plotting-widget .plot-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
 }

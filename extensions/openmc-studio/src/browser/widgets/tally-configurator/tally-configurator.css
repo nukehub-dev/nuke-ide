@@ -950,3 +950,63 @@
 .tally-configurator-container .validation-error i {
     margin-top: 1px;
 }
+
+/* Score selector: collapsible category headers + count badge + custom MT input */
+.tally-configurator-container .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 0.85em;
+    font-weight: bold;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+}
+
+.tally-configurator-container .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.tally-configurator-container .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+.tally-configurator-container .category-header .count-badge {
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+}
+
+.tally-configurator-container .custom-mt-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+
+.tally-configurator-container .custom-mt-input input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    outline: none;
+}
+
+.tally-configurator-container .custom-mt-input input:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .custom-mt-input input::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}

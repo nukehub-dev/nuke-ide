@@ -133,6 +133,7 @@
     display: flex;
     gap: 12px;
     flex-wrap: nowrap;
+    align-items: flex-start;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-row .form-group {
@@ -255,4 +256,119 @@
     gap: 8px;
     font-size: 0.9em;
     cursor: pointer;
+}
+
+/* ============================================================================
+   Widget Header (CSG-style chrome: icon + title + subtitle + actions + stats)
+   ============================================================================ */
+:is(.simulation-dashboard, .openmc-widget) .openmc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-info h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+    font-size: 20px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-description {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-stats {
+    display: flex;
+    gap: 24px;
+    margin-left: 24px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .stat-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ============================================================================
+   Category Header (collapsible group headers with count badge)
+   ============================================================================ */
+:is(.simulation-dashboard, .openmc-widget) .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .category-header .count-badge {
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Empty-state hint line */
+:is(.simulation-dashboard, .openmc-widget) .empty-state .empty-hint,
+:is(.simulation-dashboard, .openmc-widget) .empty-hint {
+    display: block;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-top: 4px;
 }

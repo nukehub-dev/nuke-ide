@@ -30,6 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
@@ -202,90 +203,108 @@ export class MgxsGeneratorWidget extends ReactWidget {
     protected render(): React.ReactNode {
         return (
             <div className="mgxs-generator-widget openmc-widget">
-                <div className="settings-section">
-                    <h3>
-                        <i className="codicon codicon-library"></i> Multi-Group Cross Section Library
-                    </h3>
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Generation Method</label>
-                            <select value={this.method} onChange={(e) => (this.method = e.target.value as typeof this.method)}>
-                                <option value="material_wise">Material Wise (highest fidelity)</option>
-                                <option value="stochastic_slab">Stochastic Slab</option>
-                                <option value="infinite_medium">Infinite Medium</option>
-                            </select>
-                            <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
-                        </div>
-                        <div className="form-group">
-                            <label>Energy Group Structure</label>
-                            <select value={this.groups} onChange={(e) => (this.groups = e.target.value)}>
-                                {GROUP_STRUCTURES.map((g) => (
-                                    <option key={g} value={g}>
-                                        {g}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                <div className="openmc-header">
+                    <div className="header-info">
+                        <h2>
+                            <i className="codicon codicon-library"></i>
+                            MGXS Generator
+                        </h2>
+                        <p className="header-description">Multi-group cross section library from continuous-energy solves</p>
                     </div>
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Particles</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={this.particles}
-                                onChange={(e) => (this.particles = parseInt(e.target.value) || 2000)}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Transport Correction</label>
-                            <select value={this.correction} onChange={(e) => (this.correction = e.target.value as 'none' | 'P0')}>
-                                <option value="none">None (default)</option>
-                                <option value="P0">P0</option>
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label>Temperatures (K, optional)</label>
-                            <input
-                                type="text"
-                                value={this.temperaturesText}
-                                placeholder="e.g. 300 600 900"
-                                onChange={(e) => (this.temperaturesText = e.target.value)}
-                            />
-                            <span className="form-hint">Space/comma-separated; one MGXS set per temperature point</span>
-                        </div>
-                    </div>
-                    <div className="form-group checkbox">
-                        <label>
-                            <input
-                                type="checkbox"
-                                checked={this.convertToRandomRay}
-                                onChange={(e) => (this.convertToRandomRay = e.target.checked)}
-                            />
-                            Also convert model to random ray (sets random_ray defaults in settings.xml)
-                        </label>
+                    <div className="header-actions">
+                        <Tooltip content={this.isRunning ? 'Generation in progress' : 'Generate the MGXS library'} position="bottom">
+                            <button className="theia-button primary large" onClick={() => this.generate()} disabled={this.isRunning}>
+                                <i className="codicon codicon-play"></i>
+                                {this.isRunning ? 'Generating...' : 'Generate MGXS Library'}
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
 
-                <div className="mgxs-generate-actions">
-                    <button className="theia-button primary large" onClick={() => this.generate()} disabled={this.isRunning}>
-                        <i className="codicon codicon-play"></i>
-                        {this.isRunning ? 'Generating...' : 'Generate MGXS Library'}
-                    </button>
-                    {this.statusMessage && <span className="mgxs-status">{this.statusMessage}</span>}
-                </div>
-
-                {this.generatedPath && (
+                <div className="mgxs-body">
                     <div className="settings-section">
                         <h3>
-                            <i className="codicon codicon-check"></i> Result
+                            <i className="codicon codicon-library"></i> Multi-Group Cross Section Library
                         </h3>
-                        <p>
-                            Library path saved to project settings: <code>{this.generatedPath}</code>
-                        </p>
-                        <p className="form-hint">Switch to multi-group energy mode in the Random Ray tab to use this library.</p>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Generation Method</label>
+                                <select value={this.method} onChange={(e) => (this.method = e.target.value as typeof this.method)}>
+                                    <option value="material_wise">Material Wise (highest fidelity)</option>
+                                    <option value="stochastic_slab">Stochastic Slab</option>
+                                    <option value="infinite_medium">Infinite Medium</option>
+                                </select>
+                                <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
+                            </div>
+                            <div className="form-group">
+                                <label>Energy Group Structure</label>
+                                <select value={this.groups} onChange={(e) => (this.groups = e.target.value)}>
+                                    {GROUP_STRUCTURES.map((g) => (
+                                        <option key={g} value={g}>
+                                            {g}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Particles</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    value={this.particles}
+                                    onChange={(e) => (this.particles = parseInt(e.target.value) || 2000)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Transport Correction</label>
+                                <select value={this.correction} onChange={(e) => (this.correction = e.target.value as 'none' | 'P0')}>
+                                    <option value="none">None (default)</option>
+                                    <option value="P0">P0</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Temperatures (K, optional)</label>
+                                <input
+                                    type="text"
+                                    value={this.temperaturesText}
+                                    placeholder="e.g. 300 600 900"
+                                    onChange={(e) => (this.temperaturesText = e.target.value)}
+                                />
+                                <span className="form-hint">Space/comma-separated; one MGXS set per temperature point</span>
+                            </div>
+                        </div>
+                        <div className="form-group checkbox">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={this.convertToRandomRay}
+                                    onChange={(e) => (this.convertToRandomRay = e.target.checked)}
+                                />
+                                Also convert model to random ray (sets random_ray defaults in settings.xml)
+                            </label>
+                        </div>
                     </div>
-                )}
+
+                    {this.statusMessage && (
+                        <div className="mgxs-generate-actions">
+                            <span className="mgxs-status">{this.statusMessage}</span>
+                        </div>
+                    )}
+
+                    {this.generatedPath && (
+                        <div className="settings-section">
+                            <h3>
+                                <i className="codicon codicon-check"></i> Result
+                            </h3>
+                            <p>
+                                Library path saved to project settings: <code>{this.generatedPath}</code>
+                            </p>
+                            <p className="form-hint">Switch to multi-group energy mode in the Random Ray tab to use this library.</p>
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }

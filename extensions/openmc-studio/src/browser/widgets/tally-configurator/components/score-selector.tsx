@@ -79,16 +79,21 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
         setCustomMt('');
     };
 
+    /** Count of selected scores within one category group. */
+    const selectedInCategory = (categoryScores: { name: string }[]): number => categoryScores.filter((s) => scores.includes(s.name)).length;
+
     return (
         <div className="score-selector">
             <div className="score-categories">
                 {getScoresByCategory().map((cat) => {
                     const isCollapsed = collapsed[cat.category] ?? cat.category !== 'basic';
+                    const selectedCount = selectedInCategory(cat.scores);
                     return (
                         <div key={cat.category} className="score-category">
-                            <div className="category-label" onClick={() => toggleCategory(cat.category)} style={{ cursor: 'pointer' }}>
+                            <div className="category-header" onClick={() => toggleCategory(cat.category)}>
                                 <i className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'}`}></i>
-                                {cat.label}
+                                <span>{cat.label}</span>
+                                {selectedCount > 0 && <span className="count-badge">{selectedCount}</span>}
                             </div>
                             {!isCollapsed && (
                                 <div className="score-grid">
@@ -105,7 +110,10 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
                 })}
                 {customScores.length > 0 && (
                     <div className="score-category">
-                        <div className="category-label">Custom / Legacy</div>
+                        <div className="category-header">
+                            <span>Custom / Legacy</span>
+                            <span className="count-badge">{customScores.length}</span>
+                        </div>
                         <div className="score-grid">
                             {customScores.map((s) => (
                                 <label key={s} className="score-checkbox-label">
@@ -117,7 +125,7 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
                     </div>
                 )}
             </div>
-            <div className="custom-mt-input" style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <div className="custom-mt-input">
                 <input
                     type="text"
                     value={customMt}

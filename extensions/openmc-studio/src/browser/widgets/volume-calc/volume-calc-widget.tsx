@@ -273,173 +273,204 @@ export class VolumeCalcWidget extends ReactWidget {
 
         return (
             <div className="volume-calc-widget openmc-widget">
-                <div className="settings-section">
-                    <h3>
-                        <i className="codicon codicon-symbol-ruler"></i> Domains
-                    </h3>
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Domain Type</label>
-                            <select
-                                value={this.domainType}
-                                onChange={(e) => {
-                                    this.domainType = e.target.value as 'cell' | 'material' | 'universe';
-                                    this.selectedIds.clear();
-                                    this.update();
-                                }}
+                <div className="openmc-header">
+                    <div className="header-info">
+                        <h2>
+                            <i className="codicon codicon-symbol-ruler"></i>
+                            Volume Calculation
+                        </h2>
+                        <p className="header-description">Stochastic volume estimation for cells, materials, and universes</p>
+                    </div>
+                    <div className="header-actions">
+                        <Tooltip
+                            content={this.selectedIds.size === 0 ? 'Select at least one domain' : 'Run the volume calculation'}
+                            position="bottom"
+                        >
+                            <button
+                                className="theia-button primary large"
+                                onClick={() => this.runCalculation()}
+                                disabled={this.isRunning || this.selectedIds.size === 0}
                             >
-                                <option value="cell">Cells</option>
-                                <option value="material">Materials</option>
-                                <option value="universe">Universes</option>
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label>Samples</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={this.samples}
-                                onChange={(e) => (this.samples = parseInt(e.target.value) || 1000000)}
-                            />
+                                <i className="codicon codicon-play"></i>
+                                {this.isRunning ? 'Running...' : 'Run Volume Calculation'}
+                            </button>
+                        </Tooltip>
+                    </div>
+                    <div className="header-stats">
+                        <div className="stat-item">
+                            <span className="stat-value">{this.selectedIds.size}</span>
+                            <span className="stat-label">Domains</span>
                         </div>
                     </div>
-                    {domains.length === 0 ? (
-                        <div className="empty-state">
-                            <i className="codicon codicon-info"></i>
-                            <p>No {this.domainType}s defined in the current model.</p>
-                        </div>
-                    ) : (
-                        <div className="domain-list">
-                            {domains.map((d) => (
-                                <label key={d.id} className="score-checkbox-label">
-                                    <input type="checkbox" checked={this.selectedIds.has(d.id)} onChange={() => this.toggleDomain(d.id)} />
-                                    <span>
-                                        #{d.id} {d.label}
-                                    </span>
-                                </label>
-                            ))}
-                        </div>
-                    )}
                 </div>
 
-                <div className="settings-section">
-                    <h3>
-                        <i className="codicon codicon-bounds"></i> Bounding Box
-                    </h3>
-                    <div className="form-row">
-                        <div className="form-group checkbox">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    checked={this.useAutoBounds}
+                <div className="volume-calc-body">
+                    <div className="settings-section">
+                        <h3>
+                            <i className="codicon codicon-symbol-ruler"></i> Domains
+                        </h3>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Domain Type</label>
+                                <select
+                                    value={this.domainType}
                                     onChange={(e) => {
-                                        this.useAutoBounds = e.target.checked;
+                                        this.domainType = e.target.value as 'cell' | 'material' | 'universe';
+                                        this.selectedIds.clear();
                                         this.update();
                                     }}
-                                />
-                                Let OpenMC auto-detect bounds
-                            </label>
-                        </div>
-                        <div className="form-group">
-                            <Tooltip content="Compute bounds from the current geometry" position="bottom">
-                                <button className="theia-button secondary small" onClick={() => this.autoDetectBounds()}>
-                                    <i className="codicon codicon-target"></i> Auto-detect from Geometry
-                                </button>
-                            </Tooltip>
-                        </div>
-                    </div>
-                    {!this.useAutoBounds && (
-                        <>
-                            {this.renderVectorInput('Lower Left', this.lowerLeft, (v) => (this.lowerLeft = v), this.isRunning)}
-                            {this.renderVectorInput('Upper Right', this.upperRight, (v) => (this.upperRight = v), this.isRunning)}
-                        </>
-                    )}
-                </div>
-
-                <div className="settings-section">
-                    <h3>
-                        <i className="codicon codicon-stopwatch"></i> Convergence Trigger
-                    </h3>
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Trigger Type</label>
-                            <select
-                                value={this.triggerType}
-                                onChange={(e) => (this.triggerType = e.target.value as 'none' | 'std_dev' | 'variance' | 'rel_err')}
-                            >
-                                <option value="none">None (fixed samples)</option>
-                                <option value="std_dev">Standard Deviation</option>
-                                <option value="variance">Variance</option>
-                                <option value="rel_err">Relative Error</option>
-                            </select>
-                        </div>
-                        {this.triggerType !== 'none' && (
+                                >
+                                    <option value="cell">Cells</option>
+                                    <option value="material">Materials</option>
+                                    <option value="universe">Universes</option>
+                                </select>
+                            </div>
                             <div className="form-group">
-                                <label>Threshold</label>
+                                <label>Samples</label>
                                 <input
                                     type="number"
-                                    min={0}
-                                    step="any"
-                                    value={this.triggerThreshold}
-                                    onChange={(e) => (this.triggerThreshold = parseFloat(e.target.value) || 0.01)}
+                                    min={1}
+                                    value={this.samples}
+                                    onChange={(e) => (this.samples = parseInt(e.target.value) || 1000000)}
                                 />
+                            </div>
+                        </div>
+                        {domains.length === 0 ? (
+                            <div className="empty-state">
+                                <i className="codicon codicon-info"></i>
+                                <p>No {this.domainType}s defined in the current model.</p>
+                            </div>
+                        ) : (
+                            <div className="domain-list">
+                                {domains.map((d) => (
+                                    <label key={d.id} className="score-checkbox-label">
+                                        <input
+                                            type="checkbox"
+                                            checked={this.selectedIds.has(d.id)}
+                                            onChange={() => this.toggleDomain(d.id)}
+                                        />
+                                        <span>
+                                            #{d.id} {d.label}
+                                        </span>
+                                    </label>
+                                ))}
                             </div>
                         )}
                     </div>
-                </div>
 
-                <div className="volume-calc-actions">
-                    <button
-                        className="theia-button primary large"
-                        onClick={() => this.runCalculation()}
-                        disabled={this.isRunning || this.selectedIds.size === 0}
-                    >
-                        <i className="codicon codicon-play"></i>
-                        {this.isRunning ? 'Running...' : 'Run Volume Calculation'}
-                    </button>
-                    {this.statusMessage && <span className="volume-calc-status">{this.statusMessage}</span>}
-                </div>
-
-                {this.results && (
                     <div className="settings-section">
                         <h3>
-                            <i className="codicon codicon-table"></i> Results
+                            <i className="codicon codicon-bounds"></i> Bounding Box
                         </h3>
-                        <table className="volume-results-table">
-                            <thead>
-                                <tr>
-                                    <th>Domain</th>
-                                    <th>Volume (cm³)</th>
-                                    <th>± σ</th>
-                                    <th>Atoms Estimate</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {this.results.map((r) => {
-                                    const totalAtoms = Object.values(r.atoms ?? {}).reduce((sum, a) => sum + a.value, 0);
-                                    return (
-                                        <tr key={r.id}>
-                                            <td>
-                                                {this.domainType} #{r.id}
-                                            </td>
-                                            <td>{r.volume.toExponential(6)}</td>
-                                            <td>{r.stdDev.toExponential(3)}</td>
-                                            <td>{totalAtoms > 0 ? totalAtoms.toExponential(4) : '—'}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                        {this.domainType === 'material' && (
-                            <button className="theia-button primary" onClick={() => this.adoptVolumes()}>
-                                <i className="codicon codicon-check"></i> Adopt Volumes into Materials
-                            </button>
-                        )}
-                        {this.domainType !== 'material' && (
-                            <span className="form-hint">Volume adoption is available for material-domain calculations.</span>
+                        <div className="form-row">
+                            <div className="form-group checkbox">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={this.useAutoBounds}
+                                        onChange={(e) => {
+                                            this.useAutoBounds = e.target.checked;
+                                            this.update();
+                                        }}
+                                    />
+                                    Let OpenMC auto-detect bounds
+                                </label>
+                            </div>
+                            <div className="form-group">
+                                <Tooltip content="Compute bounds from the current geometry" position="bottom">
+                                    <button className="theia-button secondary small" onClick={() => this.autoDetectBounds()}>
+                                        <i className="codicon codicon-target"></i> Auto-detect from Geometry
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        </div>
+                        {!this.useAutoBounds && (
+                            <>
+                                {this.renderVectorInput('Lower Left', this.lowerLeft, (v) => (this.lowerLeft = v), this.isRunning)}
+                                {this.renderVectorInput('Upper Right', this.upperRight, (v) => (this.upperRight = v), this.isRunning)}
+                            </>
                         )}
                     </div>
-                )}
+
+                    <div className="settings-section">
+                        <h3>
+                            <i className="codicon codicon-stopwatch"></i> Convergence Trigger
+                        </h3>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Trigger Type</label>
+                                <select
+                                    value={this.triggerType}
+                                    onChange={(e) => (this.triggerType = e.target.value as 'none' | 'std_dev' | 'variance' | 'rel_err')}
+                                >
+                                    <option value="none">None (fixed samples)</option>
+                                    <option value="std_dev">Standard Deviation</option>
+                                    <option value="variance">Variance</option>
+                                    <option value="rel_err">Relative Error</option>
+                                </select>
+                            </div>
+                            {this.triggerType !== 'none' && (
+                                <div className="form-group">
+                                    <label>Threshold</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step="any"
+                                        value={this.triggerThreshold}
+                                        onChange={(e) => (this.triggerThreshold = parseFloat(e.target.value) || 0.01)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {this.statusMessage && (
+                        <div className="volume-calc-actions">
+                            <span className="volume-calc-status">{this.statusMessage}</span>
+                        </div>
+                    )}
+
+                    {this.results && (
+                        <div className="settings-section">
+                            <h3>
+                                <i className="codicon codicon-table"></i> Results
+                            </h3>
+                            <table className="volume-results-table">
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Volume (cm³)</th>
+                                        <th>± σ</th>
+                                        <th>Atoms Estimate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {this.results.map((r) => {
+                                        const totalAtoms = Object.values(r.atoms ?? {}).reduce((sum, a) => sum + a.value, 0);
+                                        return (
+                                            <tr key={r.id}>
+                                                <td>
+                                                    {this.domainType} #{r.id}
+                                                </td>
+                                                <td>{r.volume.toExponential(6)}</td>
+                                                <td>{r.stdDev.toExponential(3)}</td>
+                                                <td>{totalAtoms > 0 ? totalAtoms.toExponential(4) : '—'}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                            {this.domainType === 'material' && (
+                                <button className="theia-button primary" onClick={() => this.adoptVolumes()}>
+                                    <i className="codicon codicon-check"></i> Adopt Volumes into Materials
+                                </button>
+                            )}
+                            {this.domainType !== 'material' && (
+                                <span className="form-hint">Volume adoption is available for material-domain calculations.</span>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }
