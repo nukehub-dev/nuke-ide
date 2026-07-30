@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import gmsh_utils
 from .core import SurfaceFitResult, is_axis_aligned
+from .ocp_compat import topods_face
 from .surface_fitter import classify_and_fit
 
 # Optional OCP/CadQuery import for exact parameter extraction
@@ -66,7 +67,7 @@ def _load_occ_params(file_path: str) -> list[SurfaceFitResult | None] | None:
         params: list[SurfaceFitResult | None] = [None]  # index 0 unused
 
         while explorer.More():
-            face = TopoDS.Face_s(explorer.Current())
+            face = topods_face(TopoDS, explorer.Current())
             surf = BRepAdaptor_Surface(face)
             stype = surf.GetType()
             result_param = _occ_surface_to_fit_result(surf, stype)

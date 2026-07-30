@@ -30,6 +30,12 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+from cad_conversion.ocp_compat import (
+    brep_tool_triangulation,
+    topods_face,
+    topods_solid,
+)
+
 
 def _read_faceting_tolerance(model) -> float:
     """Read the FACETING_TOL tag from a pydagmc Model.
@@ -617,13 +623,13 @@ def _step_to_dagmc_ocp(
     solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
     vol_id = 1
     while solid_exp.More():
-        solid = TopoDS.Solid_s(solid_exp.Current())
+        solid = topods_solid(TopoDS, solid_exp.Current())
         faces = []
         face_exp = TopExp_Explorer(solid, TopAbs_FACE)
         while face_exp.More():
-            face = TopoDS.Face_s(face_exp.Current())
+            face = topods_face(TopoDS, face_exp.Current())
             loc = face.Location()
-            tri = BRep_Tool.Triangulation_s(face, loc)
+            tri = brep_tool_triangulation(BRep_Tool, face, loc)
             if tri is None or tri.NbTriangles() == 0:
                 face_exp.Next()
                 continue
