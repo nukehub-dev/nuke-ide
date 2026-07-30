@@ -1097,7 +1097,7 @@ export class DAGMCEditorWidget extends ReactWidget {
         const projectMaterials = state.materials;
 
         return (
-            <div className="overrides-tab">
+            <div className="overrides-tab openmc-widget">
                 <div className="settings-section">
                     <h3>
                         <i className="codicon codicon-arrow-swap"></i> Replace Material by Name
@@ -1105,7 +1105,13 @@ export class DAGMCEditorWidget extends ReactWidget {
                     <div className="form-row">
                         <div className="form-group">
                             <label>From Material (in file)</label>
-                            <select value={this.overrideOldMaterial} onChange={(e) => (this.overrideOldMaterial = e.target.value)}>
+                            <select
+                                value={this.overrideOldMaterial}
+                                onChange={(e) => {
+                                    this.overrideOldMaterial = e.target.value;
+                                    this.update();
+                                }}
+                            >
                                 <option value="">Select...</option>
                                 {modelMaterialNames.map((name) => (
                                     <option key={name} value={name}>
@@ -1116,7 +1122,13 @@ export class DAGMCEditorWidget extends ReactWidget {
                         </div>
                         <div className="form-group">
                             <label>To Material (project)</label>
-                            <select value={this.overrideNewMaterial} onChange={(e) => (this.overrideNewMaterial = e.target.value)}>
+                            <select
+                                value={this.overrideNewMaterial}
+                                onChange={(e) => {
+                                    this.overrideNewMaterial = e.target.value;
+                                    this.update();
+                                }}
+                            >
                                 <option value="">Select...</option>
                                 {projectMaterials.map((mat) => (
                                     <option key={mat.id} value={mat.name}>

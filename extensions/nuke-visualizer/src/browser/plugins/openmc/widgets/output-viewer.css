@@ -44,7 +44,7 @@
     color: var(--theia-descriptionForeground);
 }
 
-.openmc-output-viewer-control select,
+/* Text/number inputs follow Theia's input theme keys */
 .openmc-output-viewer-control input {
     background: var(--theia-input-background);
     color: var(--theia-input-foreground);
@@ -52,6 +52,35 @@
     border-radius: 3px;
     padding: 3px 6px;
     font-size: 12px;
+    outline: none;
+}
+
+/* Selects follow Theia's dropdown theme keys (matches .theia-select) */
+.openmc-output-viewer-control select {
+    background: var(--theia-dropdown-background, var(--theia-input-background));
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+    border: 1px solid var(--theia-dropdown-border, var(--theia-input-border, var(--theia-panel-border)));
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+}
+
+.openmc-output-viewer-control select option {
+    background: var(--theia-dropdown-listBackground, var(--theia-dropdown-background, var(--theia-input-background)));
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+}
+
+.openmc-output-viewer-control input:focus,
+.openmc-output-viewer-control select:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.openmc-output-viewer-control input:disabled,
+.openmc-output-viewer-control select:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 .openmc-output-viewer-control input[type='number'] {

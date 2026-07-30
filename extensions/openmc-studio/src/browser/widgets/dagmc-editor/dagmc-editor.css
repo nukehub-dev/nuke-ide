@@ -2277,3 +2277,29 @@
     color: var(--theia-descriptionForeground);
     font-weight: 600;
 }
+
+/* Overrides tab: themed selects in the per-cell override table
+   (mirrors the shared design-system select style for non-form-group cells) */
+.dagmc-editor .overrides-tab .override-table select {
+    width: 100%;
+    min-width: 160px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+}
+
+.dagmc-editor .overrides-tab .override-table select:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+/* Overrides tab: breathing room for the settings-section cards */
+.dagmc-editor .overrides-tab {
+    padding: 16px;
+    overflow-y: auto;
+}

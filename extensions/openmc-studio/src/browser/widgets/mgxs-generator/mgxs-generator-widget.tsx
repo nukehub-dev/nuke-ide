@@ -229,7 +229,13 @@ export class MgxsGeneratorWidget extends ReactWidget {
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Generation Method</label>
-                                <select value={this.method} onChange={(e) => (this.method = e.target.value as typeof this.method)}>
+                                <select
+                                    value={this.method}
+                                    onChange={(e) => {
+                                        this.method = e.target.value as typeof this.method;
+                                        this.update();
+                                    }}
+                                >
                                     <option value="material_wise">Material Wise (highest fidelity)</option>
                                     <option value="stochastic_slab">Stochastic Slab</option>
                                     <option value="infinite_medium">Infinite Medium</option>
@@ -238,7 +244,13 @@ export class MgxsGeneratorWidget extends ReactWidget {
                             </div>
                             <div className="form-group">
                                 <label>Energy Group Structure</label>
-                                <select value={this.groups} onChange={(e) => (this.groups = e.target.value)}>
+                                <select
+                                    value={this.groups}
+                                    onChange={(e) => {
+                                        this.groups = e.target.value;
+                                        this.update();
+                                    }}
+                                >
                                     {GROUP_STRUCTURES.map((g) => (
                                         <option key={g} value={g}>
                                             {g}
@@ -254,12 +266,21 @@ export class MgxsGeneratorWidget extends ReactWidget {
                                     type="number"
                                     min={1}
                                     value={this.particles}
-                                    onChange={(e) => (this.particles = parseInt(e.target.value) || 2000)}
+                                    onChange={(e) => {
+                                        this.particles = parseInt(e.target.value) || 2000;
+                                        this.update();
+                                    }}
                                 />
                             </div>
                             <div className="form-group">
                                 <label>Transport Correction</label>
-                                <select value={this.correction} onChange={(e) => (this.correction = e.target.value as 'none' | 'P0')}>
+                                <select
+                                    value={this.correction}
+                                    onChange={(e) => {
+                                        this.correction = e.target.value as 'none' | 'P0';
+                                        this.update();
+                                    }}
+                                >
                                     <option value="none">None (default)</option>
                                     <option value="P0">P0</option>
                                 </select>
@@ -270,7 +291,10 @@ export class MgxsGeneratorWidget extends ReactWidget {
                                     type="text"
                                     value={this.temperaturesText}
                                     placeholder="e.g. 300 600 900"
-                                    onChange={(e) => (this.temperaturesText = e.target.value)}
+                                    onChange={(e) => {
+                                        this.temperaturesText = e.target.value;
+                                        this.update();
+                                    }}
                                 />
                                 <span className="form-hint">Space/comma-separated; one MGXS set per temperature point</span>
                             </div>
@@ -280,7 +304,10 @@ export class MgxsGeneratorWidget extends ReactWidget {
                                 <input
                                     type="checkbox"
                                     checked={this.convertToRandomRay}
-                                    onChange={(e) => (this.convertToRandomRay = e.target.checked)}
+                                    onChange={(e) => {
+                                        this.convertToRandomRay = e.target.checked;
+                                        this.update();
+                                    }}
                                 />
                                 Also convert model to random ray (sets random_ray defaults in settings.xml)
                             </label>

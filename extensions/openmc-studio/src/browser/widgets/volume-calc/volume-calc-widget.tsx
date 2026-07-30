@@ -331,7 +331,10 @@ export class VolumeCalcWidget extends ReactWidget {
                                     type="number"
                                     min={1}
                                     value={this.samples}
-                                    onChange={(e) => (this.samples = parseInt(e.target.value) || 1000000)}
+                                    onChange={(e) => {
+                                        this.samples = parseInt(e.target.value) || 1000000;
+                                        this.update();
+                                    }}
                                 />
                             </div>
                         </div>
@@ -401,7 +404,10 @@ export class VolumeCalcWidget extends ReactWidget {
                                 <label>Trigger Type</label>
                                 <select
                                     value={this.triggerType}
-                                    onChange={(e) => (this.triggerType = e.target.value as 'none' | 'std_dev' | 'variance' | 'rel_err')}
+                                    onChange={(e) => {
+                                        this.triggerType = e.target.value as 'none' | 'std_dev' | 'variance' | 'rel_err';
+                                        this.update();
+                                    }}
                                 >
                                     <option value="none">None (fixed samples)</option>
                                     <option value="std_dev">Standard Deviation</option>
@@ -417,7 +423,10 @@ export class VolumeCalcWidget extends ReactWidget {
                                         min={0}
                                         step="any"
                                         value={this.triggerThreshold}
-                                        onChange={(e) => (this.triggerThreshold = parseFloat(e.target.value) || 0.01)}
+                                        onChange={(e) => {
+                                            this.triggerThreshold = parseFloat(e.target.value) || 0.01;
+                                            this.update();
+                                        }}
                                     />
                                 </div>
                             )}
