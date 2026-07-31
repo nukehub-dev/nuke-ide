@@ -289,8 +289,9 @@ export class OpenMCPythonExporter {
         lines.push(...this.generateGeometryCode(state, options));
         lines.push('');
 
-        // Tallies & Meshes (needed before settings for VR)
-        if (state.tallies.length > 0 || state.meshes.length > 0) {
+        // Tallies & Meshes (needed before settings for VR; also when kinetics
+        // auto-generates IFP tallies — matches the XML generator's gate)
+        if (state.tallies.length > 0 || state.meshes.length > 0 || state.settings.kinetics?.enabled) {
             lines.push(...this.generateTallyMeshCode(state, options));
             lines.push('');
         }
@@ -319,7 +320,8 @@ export class OpenMCPythonExporter {
         }
 
         const materialsArg = state.materials.length > 0 ? 'materials=materials' : '';
-        const talliesArg = state.tallies.length > 0 ? ', tallies=tallies' : '';
+        // Kinetics auto-generates IFP tallies even with no user tallies
+        const talliesArg = state.tallies.length > 0 || state.settings.kinetics?.enabled ? ', tallies=tallies' : '';
         const plotsArg = state.plots && state.plots.length > 0 ? ', plots=plots' : '';
 
         lines.push(`model = openmc.Model(geometry=geometry, ${materialsArg}${talliesArg}${plotsArg}, settings=settings)`);
@@ -776,9 +778,28 @@ export class OpenMCPythonExporter {
             case 'z-torus':
                 constructor = `openmc.ZTorus(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}`;
                 break;
-            case 'cylinder':
-                constructor = `openmc.Cylinder(surface_id=${surface.id}, x0=${coeffs.x0}, y0=${coeffs.y0}, z0=${coeffs.z0}, r=${coeffs.r}, vx=${coeffs.vx}, vy=${coeffs.vy}, vz=${coeffs.vz}`;
+            case 'cylinder': {
+                // Generic cylinder: map to the axis-aligned variant (same
+                // reduction as the XML generator's mapSurfaceTypeToOpenMC);
+                // openmc.Cylinder does not exist in the Python API
+                const x0 = coeffs.x0 ?? 0;
+                const y0 = coeffs.y0 ?? 0;
+                const z0 = coeffs.z0 ?? 0;
+                const vx = coeffs.vx ?? 0;
+                const vy = coeffs.vy ?? 0;
+                const vz = coeffs.vz ?? 1;
+                const absVx = Math.abs(vx);
+                const absVy = Math.abs(vy);
+                const absVz = Math.abs(vz);
+                if (absVx >= absVy && absVx >= absVz) {
+                    constructor = `openmc.XCylinder(surface_id=${surface.id}, y0=${y0}, z0=${z0}, r=${coeffs.r}`;
+                } else if (absVy >= absVx && absVy >= absVz) {
+                    constructor = `openmc.YCylinder(surface_id=${surface.id}, x0=${x0}, z0=${z0}, r=${coeffs.r}`;
+                } else {
+                    constructor = `openmc.ZCylinder(surface_id=${surface.id}, x0=${x0}, y0=${y0}, r=${coeffs.r}`;
+                }
                 break;
+            }
             case 'quadric':
                 constructor = `openmc.Quadric(surface_id=${surface.id}, a=${coeffs.a}, b=${coeffs.b}, c=${coeffs.c}, d=${coeffs.d}, e=${coeffs.e}, f=${coeffs.f}, g=${coeffs.g}, h=${coeffs.h}, j=${coeffs.j}, k=${coeffs.k}`;
                 break;
