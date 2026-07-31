@@ -31,6 +31,7 @@ import { OpenMCTally, OpenMCMesh, OpenMCTallyScore } from '../../../../common/op
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
+import { TriggerEditor } from './trigger-editor';
 
 /**
  * Props for the {@link TallyEditor} component.
@@ -40,6 +41,8 @@ interface TallyEditorProps {
     tally: OpenMCTally;
     /** Available meshes for mesh filter selection */
     meshes: OpenMCMesh[];
+    /** Run-level trigger evaluation interval in batches (settings.triggers.batchInterval) */
+    triggerBatchInterval?: number;
     /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
@@ -55,7 +58,7 @@ interface TallyEditorProps {
  * @see {@link FilterBuilder}
  * @see {@link NuclideSelector}
  */
-export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, onUpdate }) => {
+export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, triggerBatchInterval, onUpdate }) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
@@ -151,6 +154,22 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, onUpdat
                         Specify which nuclides (isotopes) to tally. Use "total" for all neutrons, or individual nuclides like U235.
                     </p>
                     <NuclideSelector nuclides={tally.nuclides} onUpdate={(nuclides) => onUpdate({ nuclides })} />
+                </div>
+
+                <div className="editor-section">
+                    <h4>
+                        <i className="codicon codicon-debug-stop"></i>
+                        Triggers
+                    </h4>
+                    <p className="section-description">
+                        Stop the simulation early when this tally's uncertainties meet a criterion (e.g. relative error below a threshold).
+                    </p>
+                    <TriggerEditor
+                        triggers={tally.triggers ?? []}
+                        tallyScores={tally.scores}
+                        batchInterval={triggerBatchInterval}
+                        onUpdate={(triggers) => onUpdate({ triggers: triggers.length > 0 ? triggers : undefined })}
+                    />
                 </div>
             </div>
         </div>

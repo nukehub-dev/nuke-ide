@@ -81,6 +81,7 @@ import {
 } from '../common/openmc-state-schema';
 
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
+import { getMeshElementCount } from '../common/mesh-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
@@ -231,10 +232,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
 
             // Import settings.xml
+            let settingsMeshes: OpenMCMesh[] = [];
             if (fs.existsSync(settingsPath)) {
                 try {
                     const settingsData = await this.parseSettingsXML(settingsPath);
                     state.settings = settingsData.settings;
+                    settingsMeshes = settingsData.meshes;
                     warnings.push(...settingsData.warnings);
                     // Weight window generator lives on OpenMCState.varianceReduction, not settings
                     if (settingsData.weightWindowGenerator) {
@@ -264,6 +267,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
                     errors.push(`Failed to parse tallies.xml: ${msg}`);
+                }
+            }
+
+            // Merge meshes carried by settings.xml (MeshSource meshes are
+            // written there per settings.py _create_source_subelement) that
+            // tallies.xml did not provide
+            for (const mesh of settingsMeshes) {
+                if (!state.meshes.some((m) => m.id === mesh.id)) {
+                    state.meshes.push(mesh);
                 }
             }
 
@@ -631,7 +643,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return values;
     }
 
-    private async parseSettingsXML(filePath: string): Promise<{ settings: any; weightWindowGenerator?: any; warnings: string[] }> {
+    private async parseSettingsXML(
+        filePath: string
+    ): Promise<{ settings: any; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -652,7 +666,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         if (!result.settings) {
             warnings.push('No settings element found in settings.xml');
-            return { settings, warnings };
+            return { settings, meshes: [], warnings };
         }
 
         const s = result.settings;
@@ -944,7 +958,98 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        return { settings, weightWindowGenerator: parsedWeightWindowGenerator, warnings };
+        // Advanced scalar settings (element names match settings.py _create_*_subelement)
+        if (s.event_based !== undefined) {
+            settings.eventBased = this.parseXmlBool(s.event_based);
+        }
+        if (s.ptables !== undefined) {
+            settings.probabilityTables = this.parseXmlBool(s.ptables);
+        }
+        if (s.max_lost_particles !== undefined) {
+            settings.maxLostParticles = parseInt(s.max_lost_particles);
+        }
+        if (s.rel_max_lost_particles !== undefined) {
+            settings.relLostParticleRate = parseFloat(s.rel_max_lost_particles);
+        }
+        if (s.create_fission_neutrons !== undefined) {
+            settings.createFissionNeutrons = this.parseXmlBool(s.create_fission_neutrons);
+        }
+        if (s.create_delayed_neutrons !== undefined) {
+            settings.createDelayedNeutrons = this.parseXmlBool(s.create_delayed_neutrons);
+        }
+        if (s.delayed_photon_scaling !== undefined) {
+            settings.delayedPhotonScaling = this.parseXmlBool(s.delayed_photon_scaling);
+        }
+        if (s.use_decay_photons !== undefined) {
+            settings.useDecayPhotons = this.parseXmlBool(s.use_decay_photons);
+        }
+        if (s.log_grid_bins !== undefined) {
+            settings.logGridBins = parseInt(s.log_grid_bins);
+        }
+        if (s.survival_biasing !== undefined) {
+            settings.survivalBiasing = this.parseXmlBool(s.survival_biasing);
+        }
+        if (s.generations_per_batch !== undefined) {
+            settings.generationsPerBatch = parseInt(s.generations_per_batch);
+        }
+        if (s.max_order !== undefined) {
+            settings.maxOrder = parseInt(s.max_order);
+        }
+        if (s.write_initial_source !== undefined) {
+            settings.writeInitialSource = this.parseXmlBool(s.write_initial_source);
+        }
+        if (s.uniform_source_sampling !== undefined) {
+            settings.uniformSourceSampling = this.parseXmlBool(s.uniform_source_sampling);
+        }
+        if (s.tabular_legendre) {
+            const tabularLegendre: { enable?: boolean; numPoints?: number } = {};
+            if (s.tabular_legendre.enable !== undefined) {
+                tabularLegendre.enable = this.parseXmlBool(s.tabular_legendre.enable);
+            }
+            if (s.tabular_legendre.num_points !== undefined) {
+                tabularLegendre.numPoints = parseInt(s.tabular_legendre.num_points);
+            }
+            if (tabularLegendre.enable !== undefined || tabularLegendre.numPoints !== undefined) {
+                settings.tabularLegendre = tabularLegendre;
+            }
+        }
+
+        // Run-level tally trigger settings (settings.py _trigger_from_xml_element)
+        if (s.trigger) {
+            const triggerBlock: { maxBatches?: number; batchInterval?: number } = {};
+            if (s.trigger.max_batches !== undefined) {
+                triggerBlock.maxBatches = parseInt(s.trigger.max_batches);
+            }
+            if (s.trigger.batch_interval !== undefined) {
+                triggerBlock.batchInterval = parseInt(s.trigger.batch_interval);
+            }
+            if (triggerBlock.maxBatches !== undefined || triggerBlock.batchInterval !== undefined) {
+                settings.triggers = triggerBlock;
+            }
+        }
+
+        // Meshes referenced by mesh sources live at the settings root
+        // (settings.py _create_source_subelement); parse them so the caller
+        // can merge them into state.meshes
+        const sourceMeshes: OpenMCMesh[] = [];
+        const referencedMeshIds = new Set(
+            settings.sources.filter((src: any) => src.type === 'mesh' && src.meshId !== undefined).map((src: any) => src.meshId)
+        );
+        if (referencedMeshIds.size > 0) {
+            const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
+            for (const meshElem of meshElems) {
+                if (referencedMeshIds.has(parseInt(meshElem.$?.id))) {
+                    sourceMeshes.push(this.parseMeshElement(meshElem));
+                }
+            }
+            for (const id of referencedMeshIds) {
+                if (!sourceMeshes.some((m) => m.id === id)) {
+                    warnings.push(`Mesh source references mesh ${id} but no <mesh> element with that ID was found in settings.xml`);
+                }
+            }
+        }
+
+        return { settings, weightWindowGenerator: parsedWeightWindowGenerator, meshes: sourceMeshes, warnings };
     }
 
     /**
@@ -989,6 +1094,51 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             if (attrs.parameters !== undefined) {
                 source.parameters = attrs.parameters;
             }
+        } else if (sourceType === 'mesh') {
+            // Mesh source (openmc/source.py MeshSource.from_xml_element): mesh
+            // attribute references a settings-root <mesh> element; children
+            // are per-element sub-sources. Strength is computed (sum of
+            // sub-source strengths), so the parsed attribute is dropped.
+            source.type = 'mesh';
+            delete source.strength;
+            if (attrs.mesh !== undefined) {
+                source.meshId = parseInt(attrs.mesh);
+            }
+            source.sources = [];
+            const subElems = Array.isArray(src.source) ? src.source : src.source ? [src.source] : [];
+            for (const subElem of subElems) {
+                const sub = this.parseSourceElement(subElem);
+                if (sub) {
+                    source.sources.push(sub);
+                }
+            }
+        } else if (sourceType === 'tokamak') {
+            // Tokamak source (openmc/source.py TokamakSource.from_xml_element):
+            // geometry/profile values are text sub-elements; the emission
+            // profile is two parallel space-separated arrays. Only a single
+            // energy distribution is modeled (per-radius lists are not).
+            source.type = 'tokamak';
+            source.majorRadius = parseFloat(src.major_radius ?? '0');
+            source.minorRadius = parseFloat(src.minor_radius ?? '0');
+            source.elongation = parseFloat(src.elongation ?? '1');
+            source.triangularity = parseFloat(src.triangularity ?? '0');
+            source.shafranovShift = parseFloat(src.shafranov_shift ?? '0');
+            if (src.phi_start !== undefined) {
+                source.phiStart = parseFloat(src.phi_start);
+            }
+            if (src.phi_extent !== undefined) {
+                source.phiExtent = parseFloat(src.phi_extent);
+            }
+            if (src.n_alpha !== undefined) {
+                source.nAlpha = parseInt(src.n_alpha);
+            }
+            if (src.vertical_shift !== undefined) {
+                source.verticalShift = parseFloat(src.vertical_shift);
+            }
+            const rOverA = src.r_over_a ? this.parseNumberList(src.r_over_a) : [];
+            const emission = src.emission_density ? this.parseNumberList(src.emission_density) : [];
+            source.profile = rOverA.map((r, i) => ({ r, s: emission[i] ?? 0 }));
+            source.energy = this.parseSourceEnergy(src.energy);
         } else {
             // Independent source (type attribute absent means 'independent')
             if (attrs.particle) {
@@ -1033,31 +1183,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
 
             // Parse energy distribution
-            source.energy = { type: 'discrete', energies: [1e6] };
-            if (src.energy) {
-                const energyType = src.energy.$.type || 'discrete';
-                const params = src.energy.parameters ? this.parseNumberList(src.energy.parameters) : [];
-
-                if (energyType === 'discrete') {
-                    // Our generator writes interleaved energy/probability pairs
-                    const energies: number[] = [];
-                    const probabilities: number[] = [];
-                    for (let i = 0; i + 1 < params.length; i += 2) {
-                        energies.push(params[i]);
-                        probabilities.push(params[i + 1]);
-                    }
-                    source.energy =
-                        energies.length > 0
-                            ? { type: 'discrete', energies, probabilities }
-                            : { type: 'discrete', energies: params.length > 0 ? params : [1e6] };
-                } else if (energyType === 'uniform' && params.length >= 2) {
-                    source.energy = { type: 'uniform', min: params[0], max: params[1] };
-                } else if (energyType === 'maxwell' && params.length >= 1) {
-                    source.energy = { type: 'maxwell', temperature: params[0] };
-                } else if (energyType === 'watt' && params.length >= 2) {
-                    source.energy = { type: 'watt', a: params[0], b: params[1] };
-                }
-            }
+            source.energy = this.parseSourceEnergy(src.energy);
 
             // Parse angle distribution
             if (src.angle) {
@@ -1095,6 +1221,45 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         }
 
         return source;
+    }
+
+    /**
+     * Parse an <energy> element into schema form (discrete/uniform/maxwell/watt).
+     * When several elements are present (e.g. per-radius tokamak energy lists),
+     * the first one is used. Defaults to a 1 MeV discrete line when absent.
+     * @param energyElem - The parsed XML energy element (or array of them).
+     * @returns The energy distribution in schema form.
+     */
+    private parseSourceEnergy(energyElem: any): any {
+        const elem = Array.isArray(energyElem) ? energyElem[0] : energyElem;
+        if (!elem) {
+            return { type: 'discrete', energies: [1e6] };
+        }
+        const energyType = elem.$?.type || 'discrete';
+        const params = elem.parameters ? this.parseNumberList(elem.parameters) : [];
+
+        if (energyType === 'discrete') {
+            // Our generator writes interleaved energy/probability pairs
+            const energies: number[] = [];
+            const probabilities: number[] = [];
+            for (let i = 0; i + 1 < params.length; i += 2) {
+                energies.push(params[i]);
+                probabilities.push(params[i + 1]);
+            }
+            return energies.length > 0
+                ? { type: 'discrete', energies, probabilities }
+                : { type: 'discrete', energies: params.length > 0 ? params : [1e6] };
+        }
+        if (energyType === 'uniform' && params.length >= 2) {
+            return { type: 'uniform', min: params[0], max: params[1] };
+        }
+        if (energyType === 'maxwell' && params.length >= 1) {
+            return { type: 'maxwell', temperature: params[0] };
+        }
+        if (energyType === 'watt' && params.length >= 2) {
+            return { type: 'watt', a: params[0], b: params[1] };
+        }
+        return { type: 'discrete', energies: [1e6] };
     }
 
     /**
@@ -1180,6 +1345,21 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             // Estimator
             if (tallyElem.estimator) {
                 tally.estimator = tallyElem.estimator.toString() as OpenMCTally['estimator'];
+            }
+
+            // Per-tally triggers (openmc/trigger.py: scores is a space-separated attribute)
+            const triggerElems = Array.isArray(tallyElem.trigger) ? tallyElem.trigger : tallyElem.trigger ? [tallyElem.trigger] : [];
+            if (triggerElems.length > 0) {
+                tally.triggers = triggerElems.map((triggerElem: any) => {
+                    const trigger: NonNullable<OpenMCTally['triggers']>[number] = {
+                        type: (triggerElem.$?.type ?? 'rel_err') as NonNullable<OpenMCTally['triggers']>[number]['type'],
+                        threshold: parseFloat(triggerElem.$?.threshold ?? '0')
+                    };
+                    if (triggerElem.$?.scores) {
+                        trigger.scores = triggerElem.$.scores.toString().trim().split(/\s+/);
+                    }
+                    return trigger;
+                });
             }
 
             tallies.push(tally);
@@ -1538,11 +1718,70 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * @param request - Validation request with state and level
      * @returns Validation result with issues and summary
      */
+    /**
+     * Validate a tokamak source against openmc.TokamakSource's own rules
+     * (source.py setters + _validate, versionadded 0.15.4).
+     * @param source - The tokamak source to validate.
+     * @param issues - Issue list to append to.
+     */
+    private validateTokamakSource(source: any, issues: ValidationResult['issues']): void {
+        const error = (message: string, suggestion: string): void => {
+            issues.push({ severity: 'error', category: 'settings', message, suggestion });
+        };
+
+        if (!(source.majorRadius > 0)) {
+            error('Tokamak source major radius must be positive', 'Set a major radius R0 > 0 cm');
+        }
+        if (!(source.minorRadius > 0)) {
+            error('Tokamak source minor radius must be positive', 'Set a minor radius a > 0 cm');
+        } else if (source.minorRadius >= source.majorRadius) {
+            error(
+                `Tokamak source minor radius (${source.minorRadius}) must be smaller than the major radius (${source.majorRadius})`,
+                'Reduce the minor radius or increase the major radius'
+            );
+        }
+        if (!(source.elongation > 0)) {
+            error('Tokamak source elongation must be positive', 'Set elongation κ > 0 (1.0 is circular)');
+        }
+        if (source.triangularity < -1 || source.triangularity > 1) {
+            error('Tokamak source triangularity must be in [-1, 1]', 'Set triangularity δ within [-1, 1]');
+        }
+        if (source.shafranovShift < 0 || source.shafranovShift >= 0.5 * source.minorRadius) {
+            error(
+                `Tokamak source Shafranov shift must be >= 0 and < half the minor radius (${0.5 * source.minorRadius} cm)`,
+                'Reduce the Shafranov shift below a/2'
+            );
+        }
+        if (source.phiExtent !== undefined && (source.phiExtent <= 0 || source.phiExtent > 2 * Math.PI)) {
+            error('Tokamak source φ extent must be in (0, 2π]', 'Set the toroidal angle extent within (0, 2π]');
+        }
+        if (source.nAlpha !== undefined && source.nAlpha <= 2) {
+            error('Tokamak source poloidal grid points must be > 2', 'Use the default (101) or a value above 50');
+        }
+
+        const profile: { r: number; s: number }[] = source.profile ?? [];
+        if (profile.length < 2) {
+            error('Tokamak source emission profile needs at least 2 points', 'Add (r/a, S) points from 0 to 1');
+        } else {
+            if (profile[0].r !== 0 || profile[profile.length - 1].r !== 1) {
+                error('Tokamak source emission profile r/a grid must start at 0 and end at 1', 'Fix the first/last r/a values');
+            }
+            if (profile.some((p, i) => i > 0 && p.r <= profile[i - 1].r)) {
+                error('Tokamak source emission profile r/a values must strictly increase', 'Sort or remove duplicate r/a points');
+            }
+            if (profile.some((p) => p.s < 0)) {
+                error('Tokamak source emission density values cannot be negative', 'Set all S values >= 0');
+            } else if (!profile.some((p) => p.s > 0)) {
+                error('Tokamak source emission density must contain a positive value', 'Set at least one S value above 0');
+            }
+        }
+    }
+
     async validateState(request: ValidationRequest): Promise<ValidationResult> {
         this.log('Validating simulation state');
 
         const issues: ValidationResult['issues'] = [];
-        const { geometry, materials, settings } = request.state;
+        const { geometry, materials, settings, meshes } = request.state;
 
         // Basic validation - skip materials check for DAGMC (materials are in the file)
         const dagmcMaterials = settings.dagmcInfo?.materials;
@@ -1681,6 +1920,56 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // Mesh sources: valid mesh reference and exactly one sub-source per
+        // mesh element (openmc/source.py MeshSource sources setter)
+        for (const source of settings.sources ?? []) {
+            if (source.type === 'tokamak') {
+                this.validateTokamakSource(source, issues);
+                continue;
+            }
+            if (source.type !== 'mesh') {
+                continue;
+            }
+            if (source.meshId === undefined) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'Mesh source has no mesh selected',
+                    suggestion: 'Select a mesh for the mesh source (create one in the Tally Configurator if none exist)'
+                });
+                continue;
+            }
+            const mesh = meshes.find((m) => m.id === source.meshId);
+            if (!mesh) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: `Mesh source references mesh ${source.meshId} which does not exist`,
+                    suggestion: 'Select an existing mesh or create one in the Tally Configurator'
+                });
+                continue;
+            }
+            const subCount = source.sources?.length ?? 0;
+            if (subCount === 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'Mesh source requires at least one sub-source',
+                    suggestion: 'Add sub-sources in the source editor (one per mesh element)'
+                });
+                continue;
+            }
+            const elementCount = getMeshElementCount(mesh);
+            if (elementCount !== undefined && subCount !== elementCount) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: `Mesh source requires exactly ${elementCount} sub-sources (one per mesh element), got ${subCount}`,
+                    suggestion: 'Use the Fill button in the source editor to replicate a sub-source across all elements'
+                });
+            }
+        }
+
         // IFP kinetics: requires eigenvalue mode; ifp_n_generation must not exceed inactive batches
         if (settings.kinetics?.enabled) {
             const eigenRun = settings.run.mode === 'eigenvalue' ? settings.run : undefined;
@@ -1709,6 +1998,56 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 message: 'Multi-group energy mode requires an MGXS library',
                 suggestion: 'Set the MGXS library path in the Random Ray tab (generate one with the MGXS Generator window)'
             });
+        }
+
+        // CMFD acceleration: eigenvalue-only, valid mesh required
+        if (settings.cmfd?.enabled) {
+            if (settings.run.mode !== 'eigenvalue') {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: 'CMFD acceleration requires eigenvalue (criticality) run mode',
+                    suggestion: 'CMFD accelerates fission source convergence during inactive batches — switch to eigenvalue or disable CMFD'
+                });
+            }
+
+            const cmfdMesh = settings.cmfd.mesh;
+            if (settings.cmfd.meshRef === undefined && !cmfdMesh) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'CMFD is enabled but no mesh is defined',
+                    suggestion: 'Select a state mesh or define inline mesh bounds in the Convergence section'
+                });
+            }
+            if (settings.cmfd.meshRef === undefined && cmfdMesh) {
+                const ll = cmfdMesh.lowerLeft;
+                const ur = cmfdMesh.upperRight;
+                if (!ll || !ur || ll.some((v, i) => v >= (ur[i] ?? Infinity))) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: 'CMFD inline mesh bounds are invalid (lower-left must be below upper-right on every axis)',
+                        suggestion: 'Fix the mesh bounds or use Auto-detect from Geometry'
+                    });
+                }
+                if (cmfdMesh.dimension && cmfdMesh.dimension.some((d) => d < 1)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: 'CMFD mesh dimensions must be positive (>= 1 cell per axis)',
+                        suggestion: 'Increase the mesh dimension values'
+                    });
+                }
+                if (cmfdMesh.albedo && cmfdMesh.albedo.some((a) => a < 0 || a > 1)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: 'CMFD albedo values must be between 0 and 1',
+                        suggestion: 'Set each face albedo within [0, 1]'
+                    });
+                }
+            }
         }
 
         // Random ray requires inactive batches in both run modes (random_ray.rst:108)
@@ -2896,5 +3235,16 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         error?: string;
     }> {
         return this.optimizationService.getIterationLog(runId, iteration);
+    }
+
+    /**
+     * Run a criticality (k-eff) search.
+     * @param request - Search configuration
+     * @returns Search result with per-iteration history
+     */
+    async runKeffSearch(
+        request: import('../common/openmc-studio-protocol').StartKeffSearchRequest
+    ): Promise<import('../common/openmc-studio-protocol').KeffSearchResult> {
+        return this.optimizationService.runKeffSearch(request);
     }
 }

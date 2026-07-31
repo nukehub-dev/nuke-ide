@@ -71,6 +71,18 @@ function updateCollisionTrack(host: SimulationDashboardWidget, updates: Partial<
 }
 
 /**
+ * Update the run-level tally trigger settings, normalizing an empty object to undefined.
+ * @param host - Simulation dashboard widget host.
+ * @param updates - Partial trigger settings.
+ */
+function updateTriggerSettings(host: SimulationDashboardWidget, updates: Partial<NonNullable<OpenMCState['settings']['triggers']>>): void {
+    const settings = host.stateManager.getState().settings;
+    const merged = { ...(settings.triggers ?? {}), ...updates };
+    const hasContent = Object.values(merged).some((v) => v !== undefined);
+    host.stateManager.updateSettings({ triggers: hasContent ? merged : undefined });
+}
+
+/**
  * Render the Output section: summary/tallies output control, statepoint and
  * sourcepoint options, particle tracks, and collision track output.
  * @param host - Simulation dashboard widget host.
@@ -417,6 +429,39 @@ export function renderOutputSection(host: SimulationDashboardWidget, state: Open
                     </div>
                 </>
             )}
+            <h4>
+                <i className="codicon codicon-debug-stop"></i> Tally Triggers
+            </h4>
+            <div className="form-row">
+                <div className="form-group">
+                    <label>Batch Interval</label>
+                    <input
+                        type="number"
+                        min={1}
+                        value={settings.triggers?.batchInterval ?? ''}
+                        placeholder="Default (1)"
+                        onChange={(e) =>
+                            updateTriggerSettings(host, { batchInterval: e.target.value ? parseInt(e.target.value) : undefined })
+                        }
+                    />
+                    <span className="form-hint">Evaluate per-tally triggers every N batches</span>
+                </div>
+                <div className="form-group">
+                    <label>Max Batches</label>
+                    <input
+                        type="number"
+                        min={1}
+                        value={settings.triggers?.maxBatches ?? ''}
+                        placeholder="No limit"
+                        onChange={(e) => updateTriggerSettings(host, { maxBatches: e.target.value ? parseInt(e.target.value) : undefined })}
+                    />
+                    <span className="form-hint">Stop even if no trigger has fired</span>
+                </div>
+            </div>
+            <span className="form-hint">
+                Triggers are configured per tally in the Tally Configurator (Triggers section); trigger activation is emitted automatically
+                when any tally has triggers.
+            </span>
         </div>
     );
 }

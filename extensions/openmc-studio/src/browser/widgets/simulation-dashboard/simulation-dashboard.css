@@ -3368,3 +3368,25 @@
 .simulation-dashboard .form-group.max-tracks input {
     max-width: 200px;
 }
+
+/* Convergence section: collapsible CMFD run-control group */
+.simulation-dashboard .cmfd-run-control {
+    margin-top: 8px;
+}
+
+.simulation-dashboard .cmfd-run-control summary.category-header {
+    list-style: none;
+}
+
+.simulation-dashboard .cmfd-run-control summary.category-header::-webkit-details-marker {
+    display: none;
+}
+
+.simulation-dashboard .cmfd-run-control[open] summary.category-header {
+    margin-bottom: 12px;
+}
+
+/* Settings tab: Advanced section spacing */
+.simulation-dashboard .advanced-section h4 {
+    margin-top: 16px;
+}

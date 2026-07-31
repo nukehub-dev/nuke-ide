@@ -38,7 +38,8 @@ import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
 import { OpenMCParameterSweep, OpenMCOptimizationRun } from '../../../common/openmc-state-schema';
-import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+import { OpenMCStudioBackendService, KeffSearchMethod, KeffSearchResult } from '../../../common/openmc-studio-protocol';
+import { applyParameterByPath } from '../../../common/parameter-paths';
 import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
@@ -116,6 +117,20 @@ export class OptimizationWidget extends ReactWidget {
     // Elapsed time timer for running simulations - stores the run ID being timed
     private elapsedTimeTimer?: number;
     private timedRunId?: string;
+
+    // Criticality search state
+    private workspaceMode: 'sweep' | 'search' = 'sweep';
+    private searchParameter = '';
+    private searchTarget = 1.0;
+    private searchUseBracket = false;
+    private searchInitialGuess = 1.0;
+    private searchBracketLow = 0.5;
+    private searchBracketHigh = 1.5;
+    private searchMethod: KeffSearchMethod = 'bisect';
+    private searchTolerance = 1e-8;
+    private searchRunning = false;
+    private searchResult?: KeffSearchResult;
+    private searchApplied = false;
 
     /**
      * Initialize widget id, title, event listeners, and state.
@@ -277,13 +292,20 @@ export class OptimizationWidget extends ReactWidget {
             return (
                 <div className="optimization-widget">
                     {this.renderHeader()}
-                    {this.renderTabs()}
-                    <div className="optimization-widget-content">
-                        {this.activeTab === 'sweeps' && this.renderSweepsTab()}
-                        {this.activeTab === 'runner' && this.renderRunnerTab()}
-                        {this.activeTab === 'results' && this.renderResultsTab()}
-                        {this.activeTab === 'analysis' && this.renderAnalysisTab()}
-                    </div>
+                    {this.renderModeSelector()}
+                    {this.workspaceMode === 'search' ? (
+                        <div className="optimization-widget-content">{this.renderSearchMode()}</div>
+                    ) : (
+                        <>
+                            {this.renderTabs()}
+                            <div className="optimization-widget-content">
+                                {this.activeTab === 'sweeps' && this.renderSweepsTab()}
+                                {this.activeTab === 'runner' && this.renderRunnerTab()}
+                                {this.activeTab === 'results' && this.renderResultsTab()}
+                                {this.activeTab === 'analysis' && this.renderAnalysisTab()}
+                            </div>
+                        </>
+                    )}
                 </div>
             );
         } catch (error) {
@@ -396,6 +418,344 @@ export class OptimizationWidget extends ReactWidget {
                 ))}
             </div>
         );
+    }
+
+    /**
+     * Render the workspace mode selector: parameter sweeps vs criticality search.
+     * @returns Mode selector React node.
+     */
+    protected renderModeSelector(): React.ReactNode {
+        const modes = [
+            { id: 'sweep', label: 'Parameter Sweep', icon: 'codicon-list-selection' },
+            { id: 'search', label: 'Criticality Search', icon: 'codicon-target' }
+        ] as const;
+
+        return (
+            <div className="optimization-tabs mode-selector">
+                {modes.map((mode) => (
+                    <button
+                        key={mode.id}
+                        className={`tab-button ${this.workspaceMode === mode.id ? 'active' : ''}`}
+                        onClick={() => {
+                            this.workspaceMode = mode.id;
+                            this.update();
+                        }}
+                    >
+                        <i className={`codicon ${mode.icon}`}></i>
+                        {mode.label}
+                    </button>
+                ))}
+            </div>
+        );
+    }
+
+    /**
+     * Build the searchable-parameter options (same vocabulary as the sweep
+     * parameter picker: material density/temperature/nuclide fraction).
+     * @returns Option elements grouped per material.
+     */
+    private renderSearchParameterOptions(): React.ReactNode {
+        const state = this.stateManager.getState();
+        return state.materials.map((mat) => (
+            <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
+                <option value={`${mat.name}.density`}>{mat.name}.density</option>
+                <option value={`${mat.name}.temperature`}>{mat.name}.temperature</option>
+                {mat.nuclides.map((nuc) => (
+                    <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
+                        {mat.name}.{nuc.name} (fraction)
+                    </option>
+                ))}
+            </optgroup>
+        ));
+    }
+
+    /**
+     * Render the Criticality Search workspace: search form and results.
+     * @returns Search workspace React node.
+     */
+    protected renderSearchMode(): React.ReactNode {
+        const bracketValid = this.searchBracketLow < this.searchBracketHigh;
+        const canRun = !this.searchRunning && this.searchParameter !== '' && (!this.searchUseBracket || bracketValid);
+        const result = this.searchResult;
+
+        return (
+            <div className="search-workspace">
+                <div className="sweep-card editing">
+                    <div className="sweep-editor">
+                        <h4>
+                            <i className="codicon codicon-target"></i> Criticality Search
+                        </h4>
+                        <p className="section-description">
+                            Find the parameter value that produces the target k-effective (openmc.search_for_keff). Each iteration is a full
+                            simulation; bracketed methods converge reliably when k-eff is monotonic in the parameter.
+                        </p>
+                        <div className="editor-row">
+                            <label>Parameter:</label>
+                            <select
+                                value={this.searchParameter}
+                                onChange={(e) => {
+                                    this.searchParameter = e.target.value;
+                                    this.update();
+                                }}
+                                className={`theia-select ${!this.searchParameter ? 'invalid' : ''}`}
+                            >
+                                <option value="">-- Select parameter --</option>
+                                {this.renderSearchParameterOptions()}
+                            </select>
+                        </div>
+                        <div className="editor-row">
+                            <label>Target k-eff:</label>
+                            <input
+                                type="number"
+                                step="any"
+                                value={this.searchTarget}
+                                onChange={(e) => {
+                                    this.searchTarget = parseFloat(e.target.value) || 1.0;
+                                    this.update();
+                                }}
+                                className="theia-input"
+                            />
+                        </div>
+                        <div className="editor-row">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={this.searchUseBracket}
+                                    onChange={(e) => {
+                                        this.searchUseBracket = e.target.checked;
+                                        this.update();
+                                    }}
+                                />{' '}
+                                Use bracketing interval
+                            </label>
+                        </div>
+                        {this.searchUseBracket ? (
+                            <>
+                                <div className="editor-row">
+                                    <label>Bracket Low:</label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        value={this.searchBracketLow}
+                                        onChange={(e) => {
+                                            this.searchBracketLow = parseFloat(e.target.value) || 0;
+                                            this.update();
+                                        }}
+                                        className={`theia-input ${!bracketValid ? 'invalid' : ''}`}
+                                    />
+                                </div>
+                                <div className="editor-row">
+                                    <label>Bracket High:</label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        value={this.searchBracketHigh}
+                                        onChange={(e) => {
+                                            this.searchBracketHigh = parseFloat(e.target.value) || 0;
+                                            this.update();
+                                        }}
+                                        className={`theia-input ${!bracketValid ? 'invalid' : ''}`}
+                                    />
+                                </div>
+                                {!bracketValid && <p className="validation-warning">Bracket low must be below bracket high.</p>}
+                                <div className="editor-row">
+                                    <label>Method:</label>
+                                    <select
+                                        value={this.searchMethod}
+                                        onChange={(e) => {
+                                            this.searchMethod = e.target.value as KeffSearchMethod;
+                                            this.update();
+                                        }}
+                                        className="theia-select"
+                                    >
+                                        <option value="bisect">Bisect (robust)</option>
+                                        <option value="brentq">Brent-Q (fast)</option>
+                                        <option value="brenth">Brent-H</option>
+                                        <option value="ridder">Ridder</option>
+                                    </select>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="editor-row">
+                                <label>Initial Guess:</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={this.searchInitialGuess}
+                                    onChange={(e) => {
+                                        this.searchInitialGuess = parseFloat(e.target.value) || 0;
+                                        this.update();
+                                    }}
+                                    className="theia-input"
+                                />
+                                <span className="form-hint">Secant method — no sign guarantee; prefer a bracket when unsure</span>
+                            </div>
+                        )}
+                        <div className="editor-row">
+                            <label>Tolerance:</label>
+                            <input
+                                type="number"
+                                step="any"
+                                min={0}
+                                value={this.searchTolerance}
+                                onChange={(e) => {
+                                    this.searchTolerance = parseFloat(e.target.value) || 1e-8;
+                                    this.update();
+                                }}
+                                className="theia-input"
+                            />
+                        </div>
+                        <div className="editor-row">
+                            <button className="theia-button primary" disabled={!canRun} onClick={() => this.runKeffSearch()}>
+                                <i className="codicon codicon-play"></i> {this.searchRunning ? 'Searching…' : 'Run Search'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {result && (
+                    <div className="sweep-card editing">
+                        <div className="sweep-editor">
+                            <h4>
+                                <i className={`codicon ${result.success ? 'codicon-check' : 'codicon-error'}`}></i> Search Result
+                            </h4>
+                            {result.success ? (
+                                <>
+                                    <p className="section-description">
+                                        Converged ({result.method}): <code>{result.parameter}</code> ={' '}
+                                        <strong>{result.convergedValue}</strong>
+                                        {result.finalKeff !== undefined && (
+                                            <>
+                                                {' '}
+                                                → k-eff {result.finalKeff?.toFixed(5)} ± {(result.finalKeffStd ?? 0).toFixed(5)}
+                                            </>
+                                        )}
+                                    </p>
+                                    <div className="editor-row">
+                                        <button
+                                            className="theia-button primary"
+                                            disabled={this.searchApplied}
+                                            onClick={() => this.applySearchResult()}
+                                        >
+                                            <i className="codicon codicon-check"></i> {this.searchApplied ? 'Applied' : 'Apply to Model'}
+                                        </button>
+                                    </div>
+                                    {result.iterations.length > 0 && (
+                                        <table className="results-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Guess</th>
+                                                    <th>k-eff</th>
+                                                    <th>|k-eff − target|</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {result.iterations.map((iter) => (
+                                                    <tr key={iter.iteration}>
+                                                        <td>{iter.iteration}</td>
+                                                        <td>{iter.guess}</td>
+                                                        <td>
+                                                            {iter.keff.toFixed(5)} ± {(iter.keffStd ?? 0).toFixed(5)}
+                                                        </td>
+                                                        <td>{Math.abs(iter.keff - result.target).toFixed(5)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </>
+                            ) : (
+                                <p className="validation-warning">
+                                    <i className="codicon codicon-warning"></i> Search failed: {result.error}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    /**
+     * Run the criticality search via the backend driver.
+     */
+    private async runKeffSearch(): Promise<void> {
+        if (!this.stateManager.projectPath) {
+            this.messageService.warn('Save the project before running a criticality search.');
+            return;
+        }
+
+        // Pre-flight: detect OpenMC (with fallback) so warning shows immediately
+        const openmcCheck = await this.nukeCoreService.detectPythonWithRequirements({
+            requiredPackages: STUDIO_CORE_PACKAGES,
+            searchWorkspaceVenvs: true
+        });
+        if (!openmcCheck.success || !openmcCheck.command) {
+            this.messageService.error(openmcCheck.error || 'OpenMC is not available');
+            return;
+        }
+
+        const runId = `keff-search-${Date.now()}`;
+        const projectPath = this.stateManager.projectPath;
+        const projectDir = projectPath.includes('/')
+            ? projectPath.substring(0, projectPath.lastIndexOf('/'))
+            : projectPath.includes('\\')
+              ? projectPath.substring(0, projectPath.lastIndexOf('\\'))
+              : '.';
+        const outputDir = `${projectDir}/optimization/${runId}`;
+
+        this.searchRunning = true;
+        this.searchResult = undefined;
+        this.searchApplied = false;
+        this.update();
+
+        try {
+            const result = await this.backendService.runKeffSearch({
+                runId,
+                baseState: this.stateManager.getState(),
+                parameter: this.searchParameter,
+                target: this.searchTarget,
+                initialGuess: this.searchUseBracket ? undefined : this.searchInitialGuess,
+                bracket: this.searchUseBracket ? [this.searchBracketLow, this.searchBracketHigh] : undefined,
+                method: this.searchUseBracket ? this.searchMethod : undefined,
+                tolerance: this.searchTolerance,
+                outputDirectory: outputDir,
+                crossSectionsPath: this.nukeCoreService.getCrossSectionsPath(),
+                chainFilePath: this.nukeCoreService.getChainFilePath()
+            });
+
+            this.searchResult = result;
+            if (!result.success) {
+                this.messageService.error(`Criticality search failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.messageService.error(`Criticality search failed: ${String(error)}`);
+        } finally {
+            this.searchRunning = false;
+            this.update();
+        }
+    }
+
+    /**
+     * Write the converged parameter value back into the model state (same
+     * parameter-path application the sweeps use).
+     */
+    private applySearchResult(): void {
+        const result = this.searchResult;
+        if (!result?.success || result.convergedValue === undefined) {
+            return;
+        }
+
+        const state = JSON.parse(JSON.stringify(this.stateManager.getState()));
+        if (applyParameterByPath(state, result.parameter, result.convergedValue)) {
+            this.stateManager.setState(state);
+            this.searchApplied = true;
+            this.messageService.info(`Applied ${result.parameter} = ${result.convergedValue} to the model`);
+        } else {
+            this.messageService.error(`Could not apply ${result.parameter} — parameter path did not resolve`);
+        }
+        this.update();
     }
 
     /**

@@ -405,6 +405,417 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.tallies).toEqual(state.tallies);
     });
 
+    it('round-trips a MeshSource with per-element sub-sources (mesh lives in settings.xml)', async () => {
+        // Fresh directory: this suite shares tempDir and tallies.xml is only
+        // written when tallies exist — avoid stale files from earlier tests
+        const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-meshsource-'));
+        const now = new Date().toISOString();
+        const state: OpenMCState = {
+            metadata: { version: '1.1.0', name: 'Mesh Source Test', created: now, modified: now },
+            geometry: {
+                surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
+                cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
+                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                lattices: [],
+                rootUniverseId: 0
+            },
+            materials: [
+                {
+                    id: 1,
+                    name: 'Water',
+                    density: 1.0,
+                    densityUnit: 'g/cm3',
+                    nuclides: [{ name: 'H1', fraction: 2.0, fractionType: 'ao' }],
+                    thermalScattering: []
+                }
+            ],
+            settings: {
+                run: { mode: 'fixed source', particles: 1000, batches: 10 },
+                sources: [
+                    {
+                        type: 'mesh',
+                        meshId: 7,
+                        constraints: { rejectionStrategy: 'kill' },
+                        sources: [
+                            {
+                                spatial: { type: 'point', origin: [0, 0, 0] },
+                                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                                particle: 'neutron',
+                                strength: 1.0
+                            },
+                            {
+                                spatial: { type: 'point', origin: [0, 0, 0] },
+                                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                                particle: 'neutron',
+                                strength: 1.5
+                            },
+                            {
+                                spatial: { type: 'point', origin: [0, 0, 0] },
+                                energy: { type: 'maxwell', temperature: 293.6 },
+                                particle: 'photon',
+                                strength: 2.0
+                            },
+                            {
+                                spatial: { type: 'point', origin: [0, 0, 0] },
+                                energy: { type: 'watt', a: 0.988e6, b: 2.249e-6 },
+                                particle: 'neutron',
+                                strength: 1.0
+                            }
+                        ]
+                    }
+                ]
+            },
+            tallies: [{ id: 1, name: 'mesh-flux', scores: ['flux'], nuclides: [], filters: [{ type: 'mesh', bins: [7], meshId: 7 }] }],
+            meshes: [{ type: 'regular', id: 7, lowerLeft: [-2, -2, -1], upperRight: [2, 2, 1], dimension: [2, 2, 1] }]
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: meshDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(meshDir, 'settings.xml'), 'utf-8');
+        // Mesh source element with computed total strength (1.0 + 1.5 + 2.0 + 1.0)
+        expect(settingsXml).toContain('<source type="mesh" mesh="7" strength="5.5">');
+        expect(settingsXml).toContain('<rejection_strategy>kill</rejection_strategy>');
+        // Referenced mesh is emitted into settings.xml (settings.py _create_source_subelement)
+        expect(settingsXml).toContain('<mesh id="7" type="regular">');
+        // ... and NOT repeated in tallies.xml (mesh_memo pattern), even though a tally references it
+        const talliesXml = fs.readFileSync(path.join(meshDir, 'tallies.xml'), 'utf-8');
+        expect(talliesXml).not.toContain('<mesh id="7"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: meshDir });
+
+        expect(imported.success).toBe(true);
+        // Mesh source and its sub-sources survive the round trip
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+        // Mesh is recovered from settings.xml even though tallies.xml lacks it
+        expect(imported.state!.meshes).toEqual(state.meshes);
+
+        fs.rmSync(meshDir, { recursive: true, force: true });
+    });
+
+    it('round-trips per-tally triggers and run-level trigger settings', async () => {
+        const triggerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-triggers-'));
+        const now = new Date().toISOString();
+        const state: OpenMCState = {
+            metadata: { version: '1.1.0', name: 'Trigger Test', created: now, modified: now },
+            geometry: {
+                surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
+                cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
+                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                lattices: [],
+                rootUniverseId: 0
+            },
+            materials: [
+                {
+                    id: 1,
+                    name: 'Water',
+                    density: 1.0,
+                    densityUnit: 'g/cm3',
+                    nuclides: [{ name: 'H1', fraction: 2.0, fractionType: 'ao' }],
+                    thermalScattering: []
+                }
+            ],
+            settings: {
+                run: { mode: 'eigenvalue', particles: 1000, inactive: 10, batches: 100 },
+                sources: [],
+                triggers: { maxBatches: 500, batchInterval: 10 }
+            },
+            tallies: [
+                {
+                    id: 1,
+                    name: 'triggered',
+                    scores: ['flux', 'fission'],
+                    nuclides: [],
+                    filters: [],
+                    triggers: [
+                        { type: 'rel_err', threshold: 0.01, scores: ['flux'] },
+                        { type: 'std_dev', threshold: 100 }
+                    ]
+                }
+            ],
+            meshes: []
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: triggerDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+
+        // Per-tally triggers (trigger.py: scores is a space-separated attribute)
+        const talliesXml = fs.readFileSync(path.join(triggerDir, 'tallies.xml'), 'utf-8');
+        expect(talliesXml).toContain('<trigger type="rel_err" threshold="0.01" scores="flux"/>');
+        expect(talliesXml).toContain('<trigger type="std_dev" threshold="100"/>');
+
+        // Run-level trigger block (settings.py _create_trigger_subelement)
+        const settingsXml = fs.readFileSync(path.join(triggerDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<trigger>');
+        expect(settingsXml).toContain('<active>true</active>');
+        expect(settingsXml).toContain('<max_batches>500</max_batches>');
+        expect(settingsXml).toContain('<batch_interval>10</batch_interval>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: triggerDir });
+
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.triggers).toEqual(state.settings.triggers);
+        expect(imported.state!.tallies[0].triggers).toEqual(state.tallies[0].triggers);
+
+        fs.rmSync(triggerDir, { recursive: true, force: true });
+    });
+
+    it('emits trigger activation automatically when a tally has triggers', async () => {
+        const autoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-triggers-auto-'));
+        const state = buildTalliesTestState();
+        state.tallies[0] = {
+            ...state.tallies[0],
+            triggers: [{ type: 'variance', threshold: 1e-4 }]
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: autoDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+
+        // No run-level fields set: activation still emitted so the per-tally
+        // trigger is actually evaluated; no max_batches/batch_interval elements
+        const settingsXml = fs.readFileSync(path.join(autoDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<active>true</active>');
+        expect(settingsXml).not.toContain('<max_batches>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: autoDir });
+        expect(imported.state!.tallies[0].triggers).toEqual([{ type: 'variance', threshold: 1e-4 }]);
+
+        fs.rmSync(autoDir, { recursive: true, force: true });
+    });
+
+    it('round-trips a TokamakSource (geometry, profile, energy, constraints)', async () => {
+        const tokamakDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-tokamak-'));
+        const now = new Date().toISOString();
+        const tokamakSource = {
+            type: 'tokamak' as const,
+            majorRadius: 600,
+            minorRadius: 200,
+            elongation: 1.7,
+            triangularity: 0.33,
+            shafranovShift: 30,
+            verticalShift: 25,
+            phiStart: 0,
+            phiExtent: 2 * Math.PI,
+            nAlpha: 101,
+            strength: 2.0,
+            constraints: { rejectionStrategy: 'kill' as const },
+            profile: [
+                { r: 0, s: 1 },
+                { r: 0.5, s: 0.8 },
+                { r: 1, s: 0 }
+            ],
+            energy: { type: 'uniform' as const, min: 13e6, max: 15e6 }
+        };
+        const state: OpenMCState = {
+            metadata: { version: '1.1.0', name: 'Tokamak Source Test', created: now, modified: now },
+            geometry: {
+                surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 1000 }, boundary: 'vacuum' }],
+                cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
+                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                lattices: [],
+                rootUniverseId: 0
+            },
+            materials: [
+                {
+                    id: 1,
+                    name: 'DT',
+                    density: 1.0,
+                    densityUnit: 'g/cm3',
+                    nuclides: [{ name: 'H3', fraction: 1.0, fractionType: 'ao' }],
+                    thermalScattering: []
+                }
+            ],
+            settings: {
+                run: { mode: 'fixed source', particles: 1000, batches: 10 },
+                sources: [tokamakSource]
+            },
+            tallies: [],
+            meshes: []
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tokamakDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
+        // Verified format (source.py TokamakSource.populate_xml_element)
+        expect(settingsXml).toContain('<source type="tokamak" strength="2">');
+        expect(settingsXml).toContain('<major_radius>600</major_radius>');
+        expect(settingsXml).toContain('<minor_radius>200</minor_radius>');
+        expect(settingsXml).toContain('<elongation>1.7</elongation>');
+        expect(settingsXml).toContain('<triangularity>0.33</triangularity>');
+        expect(settingsXml).toContain('<shafranov_shift>30</shafranov_shift>');
+        expect(settingsXml).toContain('<vertical_shift>25</vertical_shift>');
+        expect(settingsXml).toContain('<r_over_a>0 0.5 1</r_over_a>');
+        expect(settingsXml).toContain('<emission_density>1 0.8 0</emission_density>');
+        expect(settingsXml).toContain('<n_alpha>101</n_alpha>');
+        expect(settingsXml).toContain('<rejection_strategy>kill</rejection_strategy>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tokamakDir });
+
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.sources).toEqual([tokamakSource]);
+
+        fs.rmSync(tokamakDir, { recursive: true, force: true });
+    });
+
+    it('omits vertical_shift for tokamak sources when zero (matches OpenMC export)', async () => {
+        const tokamakDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-tokamak-zero-'));
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'tokamak',
+                majorRadius: 600,
+                minorRadius: 200,
+                elongation: 1.7,
+                triangularity: 0.33,
+                shafranovShift: 30,
+                profile: [
+                    { r: 0, s: 1 },
+                    { r: 1, s: 0 }
+                ],
+                energy: { type: 'discrete', energies: [14.1e6], probabilities: [1] }
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tokamakDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<source type="tokamak">');
+        expect(settingsXml).not.toContain('<vertical_shift>');
+
+        fs.rmSync(tokamakDir, { recursive: true, force: true });
+    });
+
+    it('round-trips the advanced scalar settings sweep (P6F)', async () => {
+        const advancedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-advanced-'));
+        const state = buildTestState();
+        state.settings.eventBased = true;
+        state.settings.probabilityTables = false;
+        state.settings.maxLostParticles = 500;
+        state.settings.relLostParticleRate = 1e-4;
+        state.settings.createFissionNeutrons = false;
+        state.settings.createDelayedNeutrons = true;
+        state.settings.delayedPhotonScaling = false;
+        state.settings.useDecayPhotons = true;
+        state.settings.logGridBins = 4000;
+        state.settings.survivalBiasing = false;
+        state.settings.generationsPerBatch = 5;
+        state.settings.maxOrder = 10;
+        state.settings.writeInitialSource = true;
+        state.settings.uniformSourceSampling = true;
+        state.settings.tabularLegendre = { enable: true, numPoints: 64 };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: advancedDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(advancedDir, 'settings.xml'), 'utf-8');
+        // Verified element names (settings.py _create_*_subelement)
+        expect(settingsXml).toContain('<event_based>true</event_based>');
+        expect(settingsXml).toContain('<ptables>false</ptables>');
+        expect(settingsXml).toContain('<max_lost_particles>500</max_lost_particles>');
+        expect(settingsXml).toContain('<rel_max_lost_particles>0.0001</rel_max_lost_particles>');
+        expect(settingsXml).toContain('<create_fission_neutrons>false</create_fission_neutrons>');
+        expect(settingsXml).toContain('<create_delayed_neutrons>true</create_delayed_neutrons>');
+        expect(settingsXml).toContain('<delayed_photon_scaling>false</delayed_photon_scaling>');
+        expect(settingsXml).toContain('<use_decay_photons>true</use_decay_photons>');
+        expect(settingsXml).toContain('<log_grid_bins>4000</log_grid_bins>');
+        expect(settingsXml).toContain('<survival_biasing>false</survival_biasing>');
+        expect(settingsXml).toContain('<generations_per_batch>5</generations_per_batch>');
+        expect(settingsXml).toContain('<max_order>10</max_order>');
+        expect(settingsXml).toContain('<write_initial_source>true</write_initial_source>');
+        expect(settingsXml).toContain('<uniform_source_sampling>true</uniform_source_sampling>');
+        expect(settingsXml).toContain('<tabular_legendre>');
+        expect(settingsXml).toContain('<enable>true</enable>');
+        expect(settingsXml).toContain('<num_points>64</num_points>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: advancedDir });
+
+        expect(imported.success).toBe(true);
+        const imported2 = imported.state!.settings;
+        expect(imported2.eventBased).toBe(true);
+        expect(imported2.probabilityTables).toBe(false);
+        expect(imported2.maxLostParticles).toBe(500);
+        expect(imported2.relLostParticleRate).toBeCloseTo(1e-4);
+        expect(imported2.createFissionNeutrons).toBe(false);
+        expect(imported2.createDelayedNeutrons).toBe(true);
+        expect(imported2.delayedPhotonScaling).toBe(false);
+        expect(imported2.useDecayPhotons).toBe(true);
+        expect(imported2.logGridBins).toBe(4000);
+        expect(imported2.survivalBiasing).toBe(false);
+        expect(imported2.generationsPerBatch).toBe(5);
+        expect(imported2.maxOrder).toBe(10);
+        expect(imported2.writeInitialSource).toBe(true);
+        expect(imported2.uniformSourceSampling).toBe(true);
+        expect(imported2.tabularLegendre).toEqual({ enable: true, numPoints: 64 });
+
+        fs.rmSync(advancedDir, { recursive: true, force: true });
+    });
+
+    it('omits advanced scalar settings when unset (backward compatible output)', async () => {
+        const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-advanced-off-'));
+        const state = buildTestState();
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: plainDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(plainDir, 'settings.xml'), 'utf-8');
+        for (const element of [
+            'event_based',
+            'ptables',
+            'max_lost_particles',
+            'rel_max_lost_particles',
+            'create_fission_neutrons',
+            'create_delayed_neutrons',
+            'delayed_photon_scaling',
+            'use_decay_photons',
+            'log_grid_bins',
+            'survival_biasing',
+            'generations_per_batch',
+            'max_order',
+            'write_initial_source',
+            'uniform_source_sampling',
+            'tabular_legendre'
+        ]) {
+            expect(settingsXml).not.toContain(`<${element}>`);
+        }
+
+        fs.rmSync(plainDir, { recursive: true, force: true });
+    });
+
     it('round-trips all plot types through plots.xml', async () => {
         const state = buildPlotsTestState();
         const generator = new XMLGenerationService();

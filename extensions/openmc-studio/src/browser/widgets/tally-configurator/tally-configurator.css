@@ -1010,3 +1010,8 @@
 .tally-configurator-container .custom-mt-input input::placeholder {
     color: var(--theia-input-placeholderForeground);
 }
+
+/* Trigger editor: score subset checkboxes wrap tightly */
+.tally-configurator-container .trigger-editor .checkbox-row {
+    margin-top: 4px;
+}

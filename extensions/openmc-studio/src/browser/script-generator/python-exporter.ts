@@ -60,11 +60,13 @@ import {
     OpenMCSphericalMesh,
     OpenMCSource,
     OpenMCSourceConstraints,
+    OpenMCSourceEnergy,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings,
     OpenMCPlotConfig
 } from '../../common/openmc-state-schema';
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
+import { generateCmfdCodeLines } from '../../common/cmfd';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -297,6 +299,12 @@ export class OpenMCPythonExporter {
         lines.push(...this.generateSettingsCode(state, options));
         lines.push('');
 
+        // CMFD acceleration (C-API; no settings.xml representation in this OpenMC version)
+        if (state.settings.cmfd?.enabled) {
+            lines.push(...this.generateCmfdCode(state, options));
+            lines.push('');
+        }
+
         // Plots
         if (state.plots && state.plots.length > 0) {
             lines.push(...this.generatePlotsCode(state, options));
@@ -425,6 +433,12 @@ export class OpenMCPythonExporter {
         lines.push('');
 
         lines.push(...this.generateSettingsCode(state, options));
+
+        // CMFD acceleration (C-API; no settings.xml representation in this OpenMC version)
+        if (state.settings.cmfd?.enabled) {
+            lines.push('');
+            lines.push(...this.generateCmfdCode(state, options));
+        }
 
         return lines.join('\n');
     }
@@ -927,9 +941,79 @@ export class OpenMCPythonExporter {
             lines.push(`settings.ifp_n_generation = ${settings.kinetics.ifpNGenerations}`);
         }
 
+        // Tally trigger activation: required for per-tally triggers to be
+        // evaluated (settings.py _create_trigger_subelement)
+        const anyTallyTriggers = state.tallies.some((tally) => (tally.triggers?.length ?? 0) > 0);
+        if (anyTallyTriggers || settings.triggers?.maxBatches !== undefined || settings.triggers?.batchInterval !== undefined) {
+            lines.push('settings.trigger_active = True');
+            if (settings.triggers?.maxBatches !== undefined) {
+                lines.push(`settings.trigger_max_batches = ${settings.triggers.maxBatches}`);
+            }
+            if (settings.triggers?.batchInterval !== undefined) {
+                lines.push(`settings.trigger_batch_interval = ${settings.triggers.batchInterval}`);
+            }
+        }
+
         // Threads
         if (settings.threads) {
             lines.push(`settings.threads = ${settings.threads}`);
+        }
+
+        // Advanced scalar settings (attribute names match settings.py)
+        const boolSetting = (value: boolean): string => (value ? 'True' : 'False');
+        if (settings.eventBased !== undefined) {
+            lines.push(`settings.event_based = ${boolSetting(settings.eventBased)}`);
+        }
+        if (settings.probabilityTables !== undefined) {
+            lines.push(`settings.ptables = ${boolSetting(settings.probabilityTables)}`);
+        }
+        if (settings.maxLostParticles !== undefined) {
+            lines.push(`settings.max_lost_particles = ${settings.maxLostParticles}`);
+        }
+        if (settings.relLostParticleRate !== undefined) {
+            lines.push(`settings.rel_max_lost_particles = ${settings.relLostParticleRate}`);
+        }
+        if (settings.createFissionNeutrons !== undefined) {
+            lines.push(`settings.create_fission_neutrons = ${boolSetting(settings.createFissionNeutrons)}`);
+        }
+        if (settings.createDelayedNeutrons !== undefined) {
+            lines.push(`settings.create_delayed_neutrons = ${boolSetting(settings.createDelayedNeutrons)}`);
+        }
+        if (settings.delayedPhotonScaling !== undefined) {
+            lines.push(`settings.delayed_photon_scaling = ${boolSetting(settings.delayedPhotonScaling)}`);
+        }
+        if (settings.useDecayPhotons !== undefined) {
+            lines.push(`settings.use_decay_photons = ${boolSetting(settings.useDecayPhotons)}`);
+        }
+        if (settings.logGridBins !== undefined) {
+            lines.push(`settings.log_grid_bins = ${settings.logGridBins}`);
+        }
+        if (settings.survivalBiasing !== undefined) {
+            lines.push(`settings.survival_biasing = ${boolSetting(settings.survivalBiasing)}`);
+        }
+        if (settings.generationsPerBatch !== undefined) {
+            lines.push(`settings.generations_per_batch = ${settings.generationsPerBatch}`);
+        }
+        if (settings.maxOrder !== undefined) {
+            lines.push(`settings.max_order = ${settings.maxOrder}`);
+        }
+        if (settings.writeInitialSource !== undefined) {
+            lines.push(`settings.write_initial_source = ${boolSetting(settings.writeInitialSource)}`);
+        }
+        if (settings.uniformSourceSampling !== undefined) {
+            lines.push(`settings.uniform_source_sampling = ${boolSetting(settings.uniformSourceSampling)}`);
+        }
+        if (settings.tabularLegendre) {
+            const entries: string[] = [];
+            if (settings.tabularLegendre.enable !== undefined) {
+                entries.push(`'enable': ${boolSetting(settings.tabularLegendre.enable)}`);
+            }
+            if (settings.tabularLegendre.numPoints !== undefined) {
+                entries.push(`'num_points': ${settings.tabularLegendre.numPoints}`);
+            }
+            if (entries.length > 0) {
+                lines.push(`settings.tabular_legendre = {${entries.join(', ')}}`);
+            }
         }
 
         // Photon transport
@@ -1290,37 +1374,88 @@ export class OpenMCPythonExporter {
      *
      * @param source - The {@link OpenMCSource} to convert.
      * @param index - The zero-based source index for variable naming.
+     * @param varName - Optional variable name override (used for mesh sub-sources).
      * @returns An array of code lines.
      */
-    private generateSourceCode(source: OpenMCSource, index: number): string[] {
+    private generateSourceCode(source: OpenMCSource, index: number, varName?: string): string[] {
+        const name = varName ?? `source_${index}`;
         const lines: string[] = [];
 
         if (source.type === 'file') {
-            lines.push(`source_${index} = openmc.FileSource(path="${source.path}")`);
+            lines.push(`${name} = openmc.FileSource(path="${source.path}")`);
         } else if (source.type === 'compiled') {
             const paramsArg = source.parameters ? `, parameters="${source.parameters}"` : '';
-            lines.push(`source_${index} = openmc.CompiledSource(library="${source.library}"${paramsArg})`);
+            lines.push(`${name} = openmc.CompiledSource(library="${source.library}"${paramsArg})`);
+        } else if (source.type === 'mesh') {
+            // Mesh source (openmc/source.py:484): one sub-source per mesh
+            // element; sub-source spatial distributions are ignored at runtime.
+            // Strength is the computed sum of sub-source strengths.
+            const subNames: string[] = [];
+            (source.sources ?? []).forEach((sub, j) => {
+                const subName = `${name}_elem_${j}`;
+                lines.push(...this.generateSourceCode(sub, index, subName));
+                subNames.push(subName);
+            });
+            const meshArg = source.meshId !== undefined ? `mesh_${source.meshId}` : 'None';
+            lines.push(`${name} = openmc.MeshSource(${meshArg}, sources=[${subNames.join(', ')}])`);
+            if (source.constraints) {
+                lines.push(...this.generateSourceConstraintsCode(source.constraints, index, name));
+            }
+            return lines;
+        } else if (source.type === 'tokamak') {
+            // Tokamak source (openmc/source.py:901): Miller flux-surface
+            // geometry + emission profile S(r/a) + single energy distribution
+            const args: string[] = [
+                `major_radius=${source.majorRadius}`,
+                `minor_radius=${source.minorRadius}`,
+                `elongation=${source.elongation}`,
+                `triangularity=${source.triangularity}`,
+                `shafranov_shift=${source.shafranovShift}`,
+                `r_over_a=[${source.profile.map((p) => p.r).join(', ')}]`,
+                `emission_density=[${source.profile.map((p) => p.s).join(', ')}]`,
+                `energy=${this.generateEnergyExpression(source.energy)}`
+            ];
+            if (source.phiStart !== undefined) {
+                args.push(`phi_start=${source.phiStart}`);
+            }
+            if (source.phiExtent !== undefined) {
+                args.push(`phi_extent=${source.phiExtent}`);
+            }
+            if (source.nAlpha !== undefined) {
+                args.push(`n_alpha=${source.nAlpha}`);
+            }
+            if (source.verticalShift !== undefined) {
+                args.push(`vertical_shift=${source.verticalShift}`);
+            }
+            if (source.strength !== undefined && source.strength !== 1) {
+                args.push(`strength=${source.strength}`);
+            }
+            lines.push(`${name} = openmc.TokamakSource(${args.join(', ')})`);
+            if (source.constraints) {
+                lines.push(...this.generateSourceConstraintsCode(source.constraints, index, name));
+            }
+            return lines;
         } else {
-            lines.push(`source_${index} = openmc.IndependentSource()`);
+            lines.push(`${name} = openmc.IndependentSource()`);
 
             // Spatial distribution
             const spatial = source.spatial;
             switch (spatial.type) {
                 case 'point':
                     const point = spatial as any;
-                    lines.push(`source_${index}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
+                    lines.push(`${name}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
                     break;
                 case 'box':
                     const box = spatial as any;
-                    lines.push(`source_${index}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
+                    lines.push(`${name}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
                     break;
                 case 'sphere':
                     const sphere = spatial as any;
-                    lines.push(`source_${index}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
+                    lines.push(`${name}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
                     break;
                 case 'cylinder':
                     const cyl = spatial as any;
-                    lines.push(`source_${index}.space = openmc.stats.CylindricalIndependent(`);
+                    lines.push(`${name}.space = openmc.stats.CylindricalIndependent(`);
                     lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
                     lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
                     lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
@@ -1337,37 +1472,37 @@ export class OpenMCPythonExporter {
                         const discrete = energy as any;
                         const energies = discrete.energies || [1e6];
                         const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                        lines.push(`source_${index}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
+                        lines.push(`${name}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
                         break;
                     case 'uniform':
                         const uniform = energy as any;
-                        lines.push(`source_${index}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
+                        lines.push(`${name}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
                         break;
                     case 'maxwell':
                         const maxwell = energy as any;
-                        lines.push(`source_${index}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
+                        lines.push(`${name}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
                         break;
                     case 'watt':
                         const watt = energy as any;
-                        lines.push(`source_${index}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
+                        lines.push(`${name}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
                         break;
                 }
             }
 
             // Particle type
             if (source.particle) {
-                lines.push(`source_${index}.particle = "${source.particle}"`);
+                lines.push(`${name}.particle = "${source.particle}"`);
             }
         }
 
         // Strength
         if (source.strength !== undefined && source.strength !== 1) {
-            lines.push(`source_${index}.strength = ${source.strength}`);
+            lines.push(`${name}.strength = ${source.strength}`);
         }
 
         // Constraints
         if (source.constraints) {
-            lines.push(...this.generateSourceConstraintsCode(source.constraints, index));
+            lines.push(...this.generateSourceConstraintsCode(source.constraints, index, name));
         }
 
         return lines;
@@ -1378,9 +1513,11 @@ export class OpenMCPythonExporter {
      *
      * @param constraints - The {@link OpenMCSourceConstraints} to convert.
      * @param index - The source index used for the variable name.
+     * @param varName - Optional variable name override (used for mesh sub-sources).
      * @returns An array of code lines.
      */
-    private generateSourceConstraintsCode(constraints: OpenMCSourceConstraints, index: number): string[] {
+    private generateSourceConstraintsCode(constraints: OpenMCSourceConstraints, index: number, varName?: string): string[] {
+        const name = varName ?? `source_${index}`;
         const entries: string[] = [];
         if (constraints.domainType && constraints.domainIds && constraints.domainIds.length > 0) {
             const domainClass =
@@ -1402,7 +1539,35 @@ export class OpenMCPythonExporter {
         if (entries.length === 0) {
             return [];
         }
-        return [`source_${index}.constraints = {${entries.join(', ')}}`];
+        return [`${name}.constraints = {${entries.join(', ')}}`];
+    }
+
+    /**
+     * Generate a Python expression for an energy distribution (used where a
+     * distribution is passed as a constructor argument, e.g. TokamakSource).
+     *
+     * @param energy - The {@link OpenMCSourceEnergy} to convert.
+     * @returns A Python expression string for the distribution.
+     */
+    private generateEnergyExpression(energy: OpenMCSourceEnergy): string {
+        switch (energy.type) {
+            case 'uniform':
+                return `openmc.stats.Uniform(${energy.min}, ${energy.max})`;
+            case 'maxwell':
+                return `openmc.stats.Maxwell(${energy.temperature})`;
+            case 'watt':
+                return `openmc.stats.WattFission(${energy.a}, ${energy.b})`;
+            case 'muir':
+                return `openmc.stats.Muir(${energy.e0}, ${energy.m_rat}, ${energy.kt})`;
+            case 'tabular':
+                return `openmc.stats.Tabular([${energy.energies.join(', ')}], [${energy.probabilities.join(', ')}])`;
+            default: {
+                const discrete = energy as { energies?: number[]; probabilities?: number[] };
+                const energies = discrete.energies || [1e6];
+                const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
+                return `openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`;
+            }
+        }
     }
 
     /**
@@ -1626,8 +1791,39 @@ export class OpenMCPythonExporter {
             lines.push(`tally_${tally.id}.estimator = "${tally.estimator}"`);
         }
 
+        // Per-tally triggers (openmc/trigger.py: Trigger(trigger_type, threshold);
+        // scores assigned as a list attribute). Requires run-level activation:
+        // settings.trigger_active = True (emitted below with the trigger settings).
+        if (tally.triggers && tally.triggers.length > 0) {
+            const triggerVars: string[] = [];
+            tally.triggers.forEach((trigger, i) => {
+                const varName = `trigger_${tally.id}_${i}`;
+                lines.push(`${varName} = openmc.Trigger('${trigger.type}', ${trigger.threshold})`);
+                if (trigger.scores && trigger.scores.length > 0) {
+                    lines.push(`${varName}.scores = [${trigger.scores.map((s) => `"${s}"`).join(', ')}]`);
+                }
+                triggerVars.push(varName);
+            });
+            lines.push(`tally_${tally.id}.triggers = [${triggerVars.join(', ')}]`);
+        }
+
         lines.push('');
         return lines;
+    }
+
+    /**
+     * Generate the Python code block for CMFD acceleration (openmc.cmfd).
+     * CMFD is a C-API feature in this OpenMC version: configuration happens
+     * via CMFDMesh/CMFDRun property assignments, not settings.xml.
+     * Thin wrapper over {@link generateCmfdCodeLines} (kept in `common/` so it
+     * stays testable without the Theia browser stack).
+     *
+     * @param state - The current {@link OpenMCState}.
+     * @param options - Export options.
+     * @returns An array of code lines.
+     */
+    private generateCmfdCode(state: OpenMCState, options: PythonExportOptions): string[] {
+        return generateCmfdCodeLines(state, !!options.includeComments);
     }
 
     /**

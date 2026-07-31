@@ -36,6 +36,8 @@ import {
     OpenMCIndependentSource,
     OpenMCFileSource,
     OpenMCCompiledSource,
+    OpenMCMeshSource,
+    OpenMCTokamakSource,
     OpenMCSourceSpatial,
     OpenMCSourceEnergy
 } from '../../../../common/openmc-state-schema';
@@ -46,11 +48,14 @@ import {
     changeSourceType,
     renderFileSourceEditor,
     renderCompiledSourceEditor,
+    renderMeshSourceEditor,
+    renderTokamakSourceEditor,
     ConstraintsEditor,
     renderSurfaceSourceSection
 } from './settings/source-details';
 import { renderOutputSection } from './settings/output-section';
 import { renderPhysicsSection } from './settings/physics-section';
+import { renderAdvancedSection } from './settings/advanced-section';
 import { renderConvergenceSection } from './settings/convergence-section';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
 
@@ -340,13 +345,21 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                         <span className="source-card-title">Source {index + 1}</span>
                                         <span className="strength-chip">×{source.strength ?? 1.0}</span>
                                         <div className="segmented-control">
-                                            {(['independent', 'file', 'compiled'] as const).map((type) => (
+                                            {(['independent', 'file', 'compiled', 'mesh', 'tokamak'] as const).map((type) => (
                                                 <button
                                                     key={type}
                                                     className={`segment${sourceType === type ? ' active' : ''}`}
                                                     onClick={() => changeSourceType(host, index, type as OpenMCSourceType)}
                                                 >
-                                                    {type === 'independent' ? 'Independent' : type === 'file' ? 'File' : 'Compiled'}
+                                                    {type === 'independent'
+                                                        ? 'Independent'
+                                                        : type === 'file'
+                                                          ? 'File'
+                                                          : type === 'compiled'
+                                                            ? 'Compiled'
+                                                            : type === 'mesh'
+                                                              ? 'Mesh'
+                                                              : 'Tokamak'}
                                                 </button>
                                             ))}
                                         </div>
@@ -363,6 +376,10 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                             {sourceType === 'file' && renderFileSourceEditor(host, source as OpenMCFileSource, index)}
                                             {sourceType === 'compiled' &&
                                                 renderCompiledSourceEditor(host, source as OpenMCCompiledSource, index)}
+                                            {sourceType === 'mesh' &&
+                                                renderMeshSourceEditor(host, source as OpenMCMeshSource, index, state)}
+                                            {sourceType === 'tokamak' &&
+                                                renderTokamakSourceEditor(host, source as OpenMCTokamakSource, index)}
                                             <ConstraintsEditor host={host} source={source} index={index} />
                                         </div>
                                     )}
@@ -380,6 +397,10 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
                 <CollapsibleSection title="Physics" icon="symbol-misc" defaultOpen={false}>
                     {renderPhysicsSection(host, state)}
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Advanced" icon="settings-gear" defaultOpen={false}>
+                    {renderAdvancedSection(host, state)}
                 </CollapsibleSection>
 
                 <CollapsibleSection title="Convergence" icon="graph" defaultOpen={false}>

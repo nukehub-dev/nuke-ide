@@ -48,11 +48,14 @@ import {
     StartOptimizationResult,
     StopOptimizationRequest,
     StopOptimizationResult,
+    StartKeffSearchRequest,
+    KeffSearchResult,
     OptimizationProgressEvent,
     OptimizationIterationResult,
     OpenMCStudioClient
 } from '../common/openmc-studio-protocol';
 import { OpenMCParameterSweep, OpenMCState } from '../common/openmc-state-schema';
+import { applyParameterByPath } from '../common/parameter-paths';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { XMLGenerationService } from './xml-generation-service';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
@@ -369,6 +372,126 @@ export class OptimizationBackendService {
     }
 
     /**
+     * Run a criticality (k-eff) search via the run_keff_search.py driver.
+     *
+     * Generates the base model XML from the IDE state into the output
+     * directory (same flow as sweep iterations), then spawns the driver,
+     * which rebuilds the model per iteration with the searched parameter
+     * applied (same parameter-path vocabulary as sweeps) and lets
+     * openmc.search_for_keff drive the root finding. Driver output streams
+     * to client logs; the final result is read from keff_search_result.json.
+     */
+    async runKeffSearch(request: StartKeffSearchRequest): Promise<KeffSearchResult> {
+        const fail = (error: string): KeffSearchResult => ({
+            success: false,
+            error,
+            iterations: [],
+            method: request.method ?? 'bisect',
+            target: request.target ?? 1.0,
+            parameter: request.parameter
+        });
+
+        try {
+            this.logger.info(`[OptimizationBackend] Starting k-eff search: ${request.runId} (${request.parameter})`);
+
+            // Create output directory
+            let outputDir = request.outputDirectory;
+            if (!path.isAbsolute(outputDir)) {
+                outputDir = path.resolve(outputDir);
+            }
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+            }
+
+            // Generate base model XML from the IDE state
+            const xmlResult = await this.xmlService.generateXML({
+                state: request.baseState,
+                outputDirectory: outputDir,
+                files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+            });
+            if (!xmlResult.success) {
+                return fail(`XML generation failed: ${xmlResult.error}`);
+            }
+
+            // Detect Python with OpenMC
+            const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
+                requiredPackages: STUDIO_CORE_PACKAGES,
+                autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer']
+            });
+            if (!detectionResult.success || !detectionResult.command) {
+                return fail(detectionResult.error || 'No Python environment with OpenMC found');
+            }
+            const pythonCommand = detectionResult.command;
+
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'run_keff_search.py' });
+            if (!scriptPath) {
+                return fail('Python script not found: run_keff_search.py');
+            }
+
+            // Build driver arguments
+            const args = [scriptPath, outputDir, '--parameter', request.parameter];
+            args.push('--target', String(request.target ?? 1.0));
+            if (request.bracket) {
+                args.push('--bracket', request.bracket.join(','));
+                args.push('--method', request.method ?? 'bisect');
+            } else if (request.initialGuess !== undefined) {
+                args.push('--initial-guess', String(request.initialGuess));
+            } else {
+                return fail('Either an initial guess or a bracket must be provided');
+            }
+            if (request.tolerance !== undefined) {
+                args.push('--tol', String(request.tolerance));
+            }
+
+            // Environment (cross-sections + chain file, like sweep iterations)
+            const pythonBinDir = path.dirname(pythonCommand);
+            const currentPath = process.env.PATH || '';
+            const env: NodeJS.ProcessEnv = {
+                ...process.env,
+                PATH: currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`
+            };
+            if (request.crossSectionsPath) {
+                env.OPENMC_CROSS_SECTIONS = request.crossSectionsPath;
+            }
+            if (request.chainFilePath) {
+                env.OPENMC_CHAIN_FILE = request.chainFilePath;
+            }
+
+            this.notifyLog(`\n=== Criticality Search: ${request.parameter} → k-eff ${request.target ?? 1.0} ===\n`);
+
+            const exitCode = await new Promise<number>((resolve) => {
+                const childProcess = spawn(pythonCommand, args, {
+                    cwd: outputDir,
+                    env,
+                    stdio: ['ignore', 'pipe', 'pipe']
+                });
+
+                childProcess.stdout?.on('data', (data: Buffer) => this.notifyLog(data.toString()));
+                childProcess.stderr?.on('data', (data: Buffer) => this.notifyLog(data.toString()));
+                childProcess.on('close', (code) => resolve(code ?? -1));
+                childProcess.on('error', () => resolve(-1));
+            });
+
+            // Read the result file written by the driver
+            const resultPath = path.join(outputDir, 'keff_search_result.json');
+            if (fs.existsSync(resultPath)) {
+                const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as KeffSearchResult;
+                this.notifyLog(
+                    parsed.success
+                        ? `\nSearch converged: ${parsed.parameter} = ${parsed.convergedValue}\n`
+                        : `\nSearch failed: ${parsed.error}\n`
+                );
+                return parsed;
+            }
+
+            return fail(`Search driver exited with code ${exitCode} without writing a result`);
+        } catch (error) {
+            this.logger.error('[OptimizationBackend] K-eff search failed:', error);
+            return fail(String(error));
+        }
+    }
+
+    /**
      * Execute the optimization run
      */
     private async executeOptimizationRun(runState: OptimizationRunState, request: StartOptimizationRequest): Promise<void> {
@@ -544,164 +667,12 @@ export class OptimizationBackendService {
         const modifiedState: OpenMCState = JSON.parse(JSON.stringify(state));
 
         for (const [paramPath, value] of Object.entries(parameters)) {
-            this.applyParameterByPath(modifiedState, paramPath, value);
-        }
-
-        return modifiedState;
-    }
-
-    /**
-     * Apply a parameter using a path like "materialName.nuclideName" or "materialName.property"
-     */
-    private applyParameterByPath(state: OpenMCState, paramPath: string, value: number): void {
-        const parts = paramPath.split('.');
-
-        if (parts.length < 2) {
-            this.logger.warn(`[OptimizationBackend] Invalid parameter path: ${paramPath}`);
-            return;
-        }
-
-        const typePrefix = parts[0];
-
-        if (typePrefix === 'settings') {
-            this.applySettingsParameter(state, parts.slice(1).join('.'), value);
-            return;
-        }
-
-        if (typePrefix === 'geometry') {
-            this.applyGeometryParameter(state, parts.slice(1).join('.'), value);
-            return;
-        }
-
-        const [materialName, ...rest] = parts;
-        const targetField = rest.join('.');
-
-        const material = state.materials.find((m) => m.name.toLowerCase() === materialName.toLowerCase());
-
-        if (!material) {
-            this.logger.warn(`[OptimizationBackend] Material ${materialName} not found`);
-            return;
-        }
-
-        const nuclide = material.nuclides.find((n) => n.name.toLowerCase() === targetField.toLowerCase());
-
-        if (nuclide) {
-            this.setNuclideFraction(material, targetField, value);
-            return;
-        }
-
-        const prop = targetField.toLowerCase();
-        if (prop === 'density') {
-            material.density = value;
-            this.logger.info(`[OptimizationBackend] Set ${material.name}.density = ${value}`);
-        } else if (prop === 'temperature') {
-            material.temperature = value;
-            this.logger.info(`[OptimizationBackend] Set ${material.name}.temperature = ${value}`);
-        } else {
-            // Unknown target
-        }
-    }
-
-    private applySettingsParameter(state: OpenMCState, settingKey: string, value: number): void {
-        if (!state.settings || !state.settings.run) {
-            // Settings not initialized
-            return;
-        }
-
-        const runSettings = state.settings.run as any;
-
-        switch (settingKey) {
-            case 'particles':
-                if ('particles' in runSettings) {
-                    const roundedValue = Math.max(1, Math.round(value));
-                    runSettings.particles = roundedValue;
-                    // Particles set
-                }
-                break;
-            case 'inactive':
-                if ('inactive' in runSettings) {
-                    const roundedValue = Math.max(0, Math.round(value));
-                    runSettings.inactive = roundedValue;
-                    // Inactive set
-                }
-                break;
-            case 'batches':
-                if ('batches' in runSettings) {
-                    const roundedValue = Math.max(1, Math.round(value));
-                    runSettings.batches = roundedValue;
-                    // Batches set
-                }
-                break;
-            case 'seed':
-                state.settings.seed = Math.max(1, Math.round(value));
-                // Seed set
-                break;
-            default:
-            // Unknown settings parameter
-        }
-    }
-
-    private applyGeometryParameter(state: OpenMCState, paramKey: string, value: number): void {
-        const parts = paramKey.split('.');
-        if (parts.length < 2) {
-            // Invalid geometry parameter path
-            return;
-        }
-
-        const [cellName, prop] = parts;
-
-        if (!state.geometry || !state.geometry.cells) {
-            // Geometry not initialized
-            return;
-        }
-
-        const cell = state.geometry.cells.find((c) => c.name?.toLowerCase() === cellName.toLowerCase());
-
-        if (!cell) {
-            // Cell not found
-            return;
-        }
-
-        if (prop === 'temperature') {
-            cell.temperature = value;
-            // Temperature set
-        } else {
-            // Unknown geometry parameter
-        }
-    }
-
-    /**
-     * Set a specific nuclide's fraction in a material and normalize all others to sum to 1
-     */
-    private setNuclideFraction(material: any, nuclideName: string, fraction: number): void {
-        const targetNuclide = material.nuclides.find((n: any) => n.name.toLowerCase() === nuclideName.toLowerCase());
-
-        if (!targetNuclide) {
-            // Nuclide not found
-            return;
-        }
-
-        const otherNuclides = material.nuclides.filter((n: any) => n.name.toLowerCase() !== nuclideName.toLowerCase());
-
-        const otherTotalBefore = otherNuclides.reduce((sum: number, n: any) => sum + n.fraction, 0);
-
-        targetNuclide.fraction = fraction;
-        const remainingFraction = 1.0 - fraction;
-
-        if (otherNuclides.length > 0) {
-            if (otherTotalBefore > 0) {
-                for (const n of otherNuclides) {
-                    n.fraction = (n.fraction / otherTotalBefore) * remainingFraction;
-                }
-            } else {
-                const equalFraction = remainingFraction / otherNuclides.length;
-                for (const n of otherNuclides) {
-                    n.fraction = equalFraction;
-                }
+            if (!applyParameterByPath(modifiedState, paramPath, value)) {
+                this.logger.warn(`[OptimizationBackend] Parameter path did not resolve: ${paramPath}`);
             }
         }
 
-        // Nuclide fraction set
+        return modifiedState;
     }
 
     /**

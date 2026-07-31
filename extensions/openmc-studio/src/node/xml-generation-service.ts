@@ -538,6 +538,22 @@ export class XMLGenerationService {
                 lines.push('    </space>');
                 lines.push('  </source>');
             }
+
+            // Meshes referenced by mesh sources are emitted into settings.xml
+            // (settings.py _create_source_subelement), NOT tallies.xml — the
+            // tallies generator skips these ids (OpenMC mesh_memo pattern).
+            const emittedMeshIds = new Set<number>();
+            for (const source of settings.sources) {
+                if (source.type === 'mesh' && source.meshId !== undefined && !emittedMeshIds.has(source.meshId)) {
+                    const mesh = state.meshes.find((m) => m.id === source.meshId);
+                    if (mesh) {
+                        lines.push(this.generateMeshElement(mesh));
+                        emittedMeshIds.add(source.meshId);
+                    } else {
+                        this.log(`Warning: Mesh source references mesh ${source.meshId} which is not in state.meshes`);
+                    }
+                }
+            }
         } else if (run.mode !== 'volume') {
             // No sources defined - add a default for non-volume modes
             this.log('Warning: No sources defined, adding default point source at origin');
@@ -1014,6 +1030,77 @@ export class XMLGenerationService {
             }
         }
 
+        // Advanced scalar settings (element names verified against
+        // openmc/settings.py _create_*_subelement methods)
+        if (settings.eventBased !== undefined) {
+            lines.push(`  <event_based>${settings.eventBased}</event_based>`);
+        }
+        if (settings.probabilityTables !== undefined) {
+            lines.push(`  <ptables>${settings.probabilityTables}</ptables>`);
+        }
+        if (settings.maxLostParticles !== undefined) {
+            lines.push(`  <max_lost_particles>${settings.maxLostParticles}</max_lost_particles>`);
+        }
+        if (settings.relLostParticleRate !== undefined) {
+            lines.push(`  <rel_max_lost_particles>${settings.relLostParticleRate}</rel_max_lost_particles>`);
+        }
+        if (settings.createFissionNeutrons !== undefined) {
+            lines.push(`  <create_fission_neutrons>${settings.createFissionNeutrons}</create_fission_neutrons>`);
+        }
+        if (settings.createDelayedNeutrons !== undefined) {
+            lines.push(`  <create_delayed_neutrons>${settings.createDelayedNeutrons}</create_delayed_neutrons>`);
+        }
+        if (settings.delayedPhotonScaling !== undefined) {
+            lines.push(`  <delayed_photon_scaling>${settings.delayedPhotonScaling}</delayed_photon_scaling>`);
+        }
+        if (settings.useDecayPhotons !== undefined) {
+            lines.push(`  <use_decay_photons>${settings.useDecayPhotons}</use_decay_photons>`);
+        }
+        if (settings.logGridBins !== undefined) {
+            lines.push(`  <log_grid_bins>${settings.logGridBins}</log_grid_bins>`);
+        }
+        if (settings.survivalBiasing !== undefined) {
+            lines.push(`  <survival_biasing>${settings.survivalBiasing}</survival_biasing>`);
+        }
+        if (settings.generationsPerBatch !== undefined) {
+            lines.push(`  <generations_per_batch>${settings.generationsPerBatch}</generations_per_batch>`);
+        }
+        if (settings.maxOrder !== undefined) {
+            lines.push(`  <max_order>${settings.maxOrder}</max_order>`);
+        }
+        if (settings.writeInitialSource !== undefined) {
+            lines.push(`  <write_initial_source>${settings.writeInitialSource}</write_initial_source>`);
+        }
+        if (settings.uniformSourceSampling !== undefined) {
+            lines.push(`  <uniform_source_sampling>${settings.uniformSourceSampling}</uniform_source_sampling>`);
+        }
+        if (settings.tabularLegendre?.enable !== undefined) {
+            lines.push('  <tabular_legendre>');
+            lines.push(`    <enable>${settings.tabularLegendre.enable}</enable>`);
+            if (settings.tabularLegendre.numPoints !== undefined) {
+                lines.push(`    <num_points>${settings.tabularLegendre.numPoints}</num_points>`);
+            }
+            lines.push('  </tabular_legendre>');
+        }
+
+        // Run-level tally trigger activation (settings.py _create_trigger_subelement):
+        // OpenMC requires <active>true</active> for per-tally triggers to be
+        // evaluated, so the block is emitted whenever any tally has triggers
+        // or run-level trigger fields are set.
+        const anyTallyTriggers = state.tallies.some((tally) => (tally.triggers?.length ?? 0) > 0);
+        const triggerSettings = settings.triggers;
+        if (anyTallyTriggers || triggerSettings?.maxBatches !== undefined || triggerSettings?.batchInterval !== undefined) {
+            lines.push('  <trigger>');
+            lines.push('    <active>true</active>');
+            if (triggerSettings?.maxBatches !== undefined) {
+                lines.push(`    <max_batches>${triggerSettings.maxBatches}</max_batches>`);
+            }
+            if (triggerSettings?.batchInterval !== undefined) {
+                lines.push(`    <batch_interval>${triggerSettings.batchInterval}</batch_interval>`);
+            }
+            lines.push('  </trigger>');
+        }
+
         lines.push('</settings>');
 
         return lines.join('\n');
@@ -1051,6 +1138,78 @@ export class XMLGenerationService {
             const compiledConstraints = this.generateSourceConstraintsElement(source.constraints);
             if (compiledConstraints) {
                 lines.push(compiledConstraints);
+            }
+            lines.push('  </source>');
+            return lines.join('\n');
+        }
+
+        // Mesh source: <source type="mesh" mesh="<id>"> with nested per-element
+        // sub-source elements (openmc/source.py MeshSource.populate_xml_element).
+        // The referenced mesh is emitted at settings root by the caller
+        // (settings.py _create_source_subelement). Strength is the computed
+        // sum of sub-source strengths.
+        if (sourceType === 'mesh') {
+            if (source.meshId === undefined) {
+                this.log(`Warning: Skipping mesh source with no mesh selected`);
+                return '';
+            }
+            const subSources: any[] = source.sources ?? [];
+            if (subSources.length === 0) {
+                this.log(`Warning: Skipping mesh source with no sub-sources`);
+                return '';
+            }
+            const totalStrength = subSources.reduce((sum, sub) => sum + (sub.strength ?? 1.0), 0);
+            lines.push(`  <source type="mesh" mesh="${source.meshId}" strength="${totalStrength}">`);
+            for (const sub of subSources) {
+                const subXml = this.generateSourceElement(sub);
+                if (subXml) {
+                    lines.push(
+                        subXml
+                            .split('\n')
+                            .map((line) => `  ${line}`)
+                            .join('\n')
+                    );
+                }
+            }
+            const meshConstraints = this.generateSourceConstraintsElement(source.constraints);
+            if (meshConstraints) {
+                lines.push(meshConstraints);
+            }
+            lines.push('  </source>');
+            return lines.join('\n');
+        }
+
+        // Tokamak source: <source type="tokamak"> with geometry/profile/energy
+        // sub-elements (openmc/source.py TokamakSource.populate_xml_element)
+        if (sourceType === 'tokamak') {
+            if (!source.profile || source.profile.length < 2) {
+                this.log(`Warning: Skipping tokamak source with incomplete emission profile`);
+                return '';
+            }
+            const strengthAttr = source.strength !== undefined ? ` strength="${source.strength}"` : '';
+            lines.push(`  <source type="tokamak"${strengthAttr}>`);
+            lines.push(`    <major_radius>${source.majorRadius}</major_radius>`);
+            lines.push(`    <minor_radius>${source.minorRadius}</minor_radius>`);
+            lines.push(`    <elongation>${source.elongation}</elongation>`);
+            lines.push(`    <triangularity>${source.triangularity}</triangularity>`);
+            lines.push(`    <shafranov_shift>${source.shafranovShift}</shafranov_shift>`);
+            lines.push(`    <phi_start>${source.phiStart ?? 0}</phi_start>`);
+            lines.push(`    <phi_extent>${source.phiExtent ?? 2 * Math.PI}</phi_extent>`);
+            lines.push(`    <n_alpha>${source.nAlpha ?? 101}</n_alpha>`);
+            if (source.verticalShift !== undefined && source.verticalShift !== 0) {
+                lines.push(`    <vertical_shift>${source.verticalShift}</vertical_shift>`);
+            }
+            lines.push(`    <r_over_a>${source.profile.map((p: { r: number }) => p.r).join(' ')}</r_over_a>`);
+            lines.push(`    <emission_density>${source.profile.map((p: { s: number }) => p.s).join(' ')}</emission_density>`);
+            if (source.energy) {
+                const energyLines = this.generateEnergyElement(source.energy);
+                if (energyLines) {
+                    lines.push(energyLines);
+                }
+            }
+            const tokamakConstraints = this.generateSourceConstraintsElement(source.constraints);
+            if (tokamakConstraints) {
+                lines.push(tokamakConstraints);
             }
             lines.push('  </source>');
             return lines.join('\n');
@@ -1234,9 +1393,19 @@ export class XMLGenerationService {
     private generateTalliesXML(state: OpenMCState): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
 
-        // Add meshes first
+        // Add meshes first. Meshes referenced by a MeshSource live in
+        // settings.xml instead (OpenMC mesh_memo pattern: settings is written
+        // first and tallies.xml must not repeat those ids, model.py:714/749).
+        const settingsMeshIds = new Set<number>();
+        for (const source of state.settings.sources ?? []) {
+            if (source.type === 'mesh' && source.meshId !== undefined) {
+                settingsMeshIds.add(source.meshId);
+            }
+        }
         for (const mesh of state.meshes) {
-            lines.push(this.generateMeshElement(mesh));
+            if (!settingsMeshIds.has(mesh.id)) {
+                lines.push(this.generateMeshElement(mesh));
+            }
         }
 
         // Auto-append IFP kinetics tallies when enabled (skips scores already defined by the user)
@@ -1369,6 +1538,13 @@ export class XMLGenerationService {
         // Estimator
         if (tally.estimator) {
             lines.push(`    <estimator>${tally.estimator}</estimator>`);
+        }
+
+        // Per-tally triggers (openmc/trigger.py Trigger.to_xml_element:
+        // scores is a space-separated ATTRIBUTE, not a sub-element)
+        for (const trigger of tally.triggers ?? []) {
+            const scoresAttr = trigger.scores && trigger.scores.length > 0 ? ` scores="${trigger.scores.join(' ')}"` : '';
+            lines.push(`    <trigger type="${trigger.type}" threshold="${trigger.threshold}"${scoresAttr}/>`);
         }
 
         lines.push('  </tally>');

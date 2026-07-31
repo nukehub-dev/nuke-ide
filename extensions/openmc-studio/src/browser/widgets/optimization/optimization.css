@@ -2352,3 +2352,14 @@
     padding-top: 16px;
     border-top: 1px solid var(--theia-panel-border);
 }
+
+/* Criticality search workspace */
+.optimization-widget .search-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.optimization-widget .search-workspace .results-table {
+    margin-top: 12px;
+}

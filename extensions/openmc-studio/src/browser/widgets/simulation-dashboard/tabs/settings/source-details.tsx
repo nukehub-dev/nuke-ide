@@ -34,8 +34,13 @@ import {
     OpenMCSourceType,
     OpenMCFileSource,
     OpenMCCompiledSource,
+    OpenMCMeshSource,
+    OpenMCTokamakSource,
+    OpenMCIndependentSource,
+    OpenMCSourceEnergy,
     OpenMCSurfaceSourceWrite
 } from '../../../../../common/openmc-state-schema';
+import { getMeshElementCount } from '../../../../../common/mesh-utils';
 import type { SimulationDashboardWidget } from '../../simulation-dashboard-widget';
 import { CollapsibleSection } from './collapsible-section';
 import { parseNumberList, arraysEqual } from './section-utils';
@@ -69,6 +74,25 @@ export function changeSourceType(host: SimulationDashboardWidget, index: number,
         next = { ...base, type: 'file', path: '' };
     } else if (type === 'compiled') {
         next = { ...base, type: 'compiled', library: '' };
+    } else if (type === 'mesh') {
+        next = { ...base, type: 'mesh', sources: [] };
+    } else if (type === 'tokamak') {
+        // ITER-like defaults (values in cm; profile must run 0 → 1)
+        next = {
+            ...base,
+            type: 'tokamak',
+            majorRadius: 600,
+            minorRadius: 200,
+            elongation: 1.7,
+            triangularity: 0.33,
+            shafranovShift: 30,
+            profile: [
+                { r: 0, s: 1 },
+                { r: 0.5, s: 0.8 },
+                { r: 1, s: 0 }
+            ],
+            energy: { type: 'discrete', energies: [14.1e6] }
+        };
     } else {
         next = {
             ...base,
@@ -225,12 +249,483 @@ export function renderCompiledSourceEditor(host: SimulationDashboardWidget, sour
 }
 
 /**
- * Render the constraints editor for a source (domain/fissionable/energy/time/rejection).
- * @param host - Simulation dashboard widget host.
- * @param source - Source whose constraints to edit.
- * @param index - Source index in the sources array.
- * @returns Constraints editor React node.
+ * Build a default per-element sub-source for a mesh source.
+ * Spatial is a placeholder only — MeshSource ignores sub-source spatial
+ * distributions at runtime (openmc/source.py MeshSource sources setter).
+ * @returns Default independent sub-source.
  */
+function defaultMeshSubSource(): OpenMCIndependentSource {
+    return {
+        type: 'independent',
+        spatial: { type: 'point', origin: [0, 0, 0] },
+        energy: { type: 'discrete', energies: [1e6] },
+        particle: 'neutron',
+        strength: 1.0
+    };
+}
+
+/**
+ * Build a fresh energy distribution of the given type with sane defaults.
+ * @param type - Energy distribution type.
+ * @returns Default energy distribution.
+ */
+function defaultEnergyOfType(type: OpenMCSourceEnergy['type']): OpenMCSourceEnergy {
+    switch (type) {
+        case 'uniform':
+            return { type: 'uniform', min: 0, max: 20e6 };
+        case 'maxwell':
+            return { type: 'maxwell', temperature: 293.6 };
+        case 'watt':
+            return { type: 'watt', a: 0.988e6, b: 2.249e-6 };
+        default:
+            return { type: 'discrete', energies: [1e6] };
+    }
+}
+
+/**
+ * Render the type-specific parameter fields for an energy distribution.
+ * @param energy - Energy distribution to edit.
+ * @param apply - Callback replacing the energy distribution.
+ * @returns Parameter fields React node.
+ */
+function renderEnergyParamFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSourceEnergy) => void): React.ReactNode {
+    if (energy.type === 'uniform') {
+        return (
+            <>
+                <div className="form-group">
+                    <label>Min Energy (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.min}
+                        onChange={(e) => apply({ ...energy, min: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Max Energy (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.max}
+                        onChange={(e) => apply({ ...energy, max: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </>
+        );
+    }
+    if (energy.type === 'maxwell') {
+        return (
+            <div className="form-group">
+                <label>Temperature (K)</label>
+                <input
+                    type="number"
+                    step="any"
+                    value={energy.temperature}
+                    onChange={(e) => apply({ ...energy, temperature: parseFloat(e.target.value) || 0 })}
+                />
+            </div>
+        );
+    }
+    if (energy.type === 'watt') {
+        return (
+            <>
+                <div className="form-group">
+                    <label>Watt a (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.a}
+                        onChange={(e) => apply({ ...energy, a: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Watt b (1/eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.b}
+                        onChange={(e) => apply({ ...energy, b: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </>
+        );
+    }
+    // discrete: single energy value
+    const discrete = energy as { energies?: number[] };
+    return (
+        <div className="form-group">
+            <label>Energy (eV)</label>
+            <input
+                type="number"
+                step="any"
+                value={discrete.energies?.[0] ?? 1e6}
+                onChange={(e) => apply({ type: 'discrete', energies: [parseFloat(e.target.value) || 1e6] })}
+            />
+        </div>
+    );
+}
+
+/**
+ * Render the energy type select plus type-specific parameter fields.
+ * Shared by the mesh sub-source editor and the tokamak source editor.
+ * @param energy - Energy distribution to edit.
+ * @param apply - Callback replacing the energy distribution.
+ * @returns Energy editor React node.
+ */
+function renderEnergyFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSourceEnergy) => void): React.ReactNode {
+    return (
+        <>
+            <div className="form-group">
+                <label>Energy</label>
+                <select value={energy.type} onChange={(e) => apply(defaultEnergyOfType(e.target.value as OpenMCSourceEnergy['type']))}>
+                    <option value="discrete">Discrete</option>
+                    <option value="uniform">Uniform</option>
+                    <option value="maxwell">Maxwell</option>
+                    <option value="watt">Watt</option>
+                </select>
+            </div>
+            {renderEnergyParamFields(energy, apply)}
+        </>
+    );
+}
+
+/**
+ * Render the editor for a mesh source (openmc.MeshSource): a mesh selector
+ * plus one independent sub-source per mesh element. This OpenMC version
+ * requires exactly mesh.n_elements sub-sources; the total strength is the
+ * computed sum of sub-source strengths.
+ * @param host - Simulation dashboard widget host.
+ * @param source - Mesh source to edit.
+ * @param index - Source index in the sources array.
+ * @param state - Current OpenMC simulation state (for the mesh list).
+ * @returns Mesh source editor React node.
+ */
+export function renderMeshSourceEditor(
+    host: SimulationDashboardWidget,
+    source: OpenMCMeshSource,
+    index: number,
+    state: OpenMCState
+): React.ReactNode {
+    const meshes = state.meshes;
+    const selectedMesh = source.meshId !== undefined ? meshes.find((m) => m.id === source.meshId) : undefined;
+    const elementCount = selectedMesh ? getMeshElementCount(selectedMesh) : undefined;
+    const subs = source.sources ?? [];
+    const totalStrength = subs.reduce((sum, s) => sum + (s.strength ?? 1.0), 0);
+
+    const updateSubs = (next: OpenMCIndependentSource[]): void => updateSourceAt(host, index, { sources: next });
+    const updateSub = (j: number, updates: Partial<OpenMCIndependentSource>): void =>
+        updateSubs(subs.map((s, i) => (i === j ? ({ ...s, ...updates } as OpenMCIndependentSource) : s)));
+
+    return (
+        <div className="source-editor">
+            <div className="form-row">
+                <div className="form-group">
+                    <label>Mesh</label>
+                    <select
+                        value={source.meshId ?? ''}
+                        onChange={(e) => updateSourceAt(host, index, { meshId: e.target.value ? parseInt(e.target.value) : undefined })}
+                    >
+                        <option value="">Select mesh…</option>
+                        {meshes.map((mesh) => (
+                            <option key={mesh.id} value={mesh.id}>
+                                {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
+                            </option>
+                        ))}
+                    </select>
+                    <span className="form-hint">
+                        {meshes.length === 0
+                            ? 'No meshes defined — create one in the Tally Configurator (Meshes section)'
+                            : 'Source sites are generated uniformly within mesh elements'}
+                    </span>
+                </div>
+                <div className="form-group">
+                    <label>Total Strength</label>
+                    <div>
+                        <span className="strength-chip">×{totalStrength}</span>
+                    </div>
+                    <span className="form-hint">Computed: sum of sub-source strengths</span>
+                </div>
+            </div>
+            {selectedMesh && elementCount !== undefined && subs.length !== elementCount && (
+                <span className="form-hint">
+                    Selected mesh has {elementCount} elements — exactly {elementCount} sub-sources required (one per element), currently{' '}
+                    {subs.length}
+                </span>
+            )}
+
+            {subs.map((sub, j) => (
+                <div key={j} className="form-row">
+                    <div className="form-group">
+                        <label>Element {j + 1} · Strength</label>
+                        <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={sub.strength ?? 1.0}
+                            onChange={(e) => updateSub(j, { strength: parseFloat(e.target.value) || 1.0 })}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label>Particle</label>
+                        <select
+                            value={sub.particle ?? 'neutron'}
+                            onChange={(e) => updateSub(j, { particle: e.target.value as 'neutron' | 'photon' })}
+                        >
+                            <option value="neutron">Neutron</option>
+                            <option value="photon">Photon</option>
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Energy</label>
+                        <select
+                            value={sub.energy.type}
+                            onChange={(e) => updateSub(j, { energy: defaultEnergyOfType(e.target.value as OpenMCSourceEnergy['type']) })}
+                        >
+                            <option value="discrete">Discrete</option>
+                            <option value="uniform">Uniform</option>
+                            <option value="maxwell">Maxwell</option>
+                            <option value="watt">Watt</option>
+                        </select>
+                    </div>
+                    {renderEnergyParamFields(sub.energy, (energy) => updateSub(j, { energy }))}
+                    <div className="form-group">
+                        <label aria-hidden="true">&nbsp;</label>
+                        <Tooltip content="Remove Sub-source" position="top">
+                            <button className="theia-button secondary small" onClick={() => updateSubs(subs.filter((_, i) => i !== j))}>
+                                <i className="codicon codicon-trash"></i>
+                            </button>
+                        </Tooltip>
+                    </div>
+                </div>
+            ))}
+
+            <div className="form-row">
+                <div className="form-group">
+                    <button className="theia-button secondary small" onClick={() => updateSubs([...subs, defaultMeshSubSource()])}>
+                        <i className="codicon codicon-add"></i> Add Sub-source
+                    </button>
+                </div>
+                {selectedMesh && elementCount !== undefined && subs.length > 0 && subs.length < elementCount && (
+                    <div className="form-group">
+                        <Tooltip content="Append copies of the first sub-source until every mesh element has one" position="top">
+                            <button
+                                className="theia-button secondary small"
+                                onClick={() => {
+                                    const filled = [...subs];
+                                    while (filled.length < elementCount) {
+                                        filled.push({ ...subs[0], energy: { ...subs[0].energy } });
+                                    }
+                                    updateSubs(filled);
+                                }}
+                            >
+                                <i className="codicon codicon-copy"></i> Fill to {elementCount}
+                            </button>
+                        </Tooltip>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Render the editor for a tokamak source (openmc.TokamakSource): Miller
+ * flux-surface geometry, emission profile S(r/a) as an editable (r, s) pair
+ * table, and a single neutron energy distribution.
+ * @param host - Simulation dashboard widget host.
+ * @param source - Tokamak source to edit.
+ * @param index - Source index in the sources array.
+ * @returns Tokamak source editor React node.
+ */
+export function renderTokamakSourceEditor(host: SimulationDashboardWidget, source: OpenMCTokamakSource, index: number): React.ReactNode {
+    const update = (updates: Partial<OpenMCTokamakSource>): void => updateSourceAt(host, index, updates);
+    const profile = source.profile ?? [];
+
+    const updateProfilePoint = (i: number, updates: Partial<{ r: number; s: number }>): void =>
+        update({ profile: profile.map((p, j) => (j === i ? { ...p, ...updates } : p)) });
+
+    return (
+        <div className="source-editor">
+            <h4>
+                <i className="codicon codicon-globe"></i> Plasma Geometry
+            </h4>
+            <div className="form-row">
+                <div className="form-group">
+                    <label>Major Radius R₀ (cm)</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.majorRadius}
+                        onChange={(e) => update({ majorRadius: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Minor Radius a (cm)</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.minorRadius}
+                        onChange={(e) => update({ minorRadius: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Elongation κ</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.elongation}
+                        onChange={(e) => update({ elongation: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </div>
+            <div className="form-row">
+                <div className="form-group">
+                    <label>Triangularity δ</label>
+                    <input
+                        type="number"
+                        min={-1}
+                        max={1}
+                        step="any"
+                        value={source.triangularity}
+                        onChange={(e) => update({ triangularity: parseFloat(e.target.value) || 0 })}
+                    />
+                    <span className="form-hint">In [-1, 1]</span>
+                </div>
+                <div className="form-group">
+                    <label>Shafranov Shift Δ (cm)</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.shafranovShift}
+                        onChange={(e) => update({ shafranovShift: parseFloat(e.target.value) || 0 })}
+                    />
+                    <span className="form-hint">Must be &lt; a/2</span>
+                </div>
+                <div className="form-group">
+                    <label>Vertical Shift (cm)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={source.verticalShift ?? 0}
+                        onChange={(e) => update({ verticalShift: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </div>
+
+            <h4>
+                <i className="codicon codicon-graph-line"></i> Emission Profile S(r/a)
+            </h4>
+            {profile.map((point, i) => (
+                <div className="form-row" key={i}>
+                    <div className="form-group">
+                        <label>r/a</label>
+                        <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            step="any"
+                            value={point.r}
+                            onChange={(e) => updateProfilePoint(i, { r: parseFloat(e.target.value) || 0 })}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label>S</label>
+                        <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={point.s}
+                            onChange={(e) => updateProfilePoint(i, { s: parseFloat(e.target.value) || 0 })}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label aria-hidden="true">&nbsp;</label>
+                        <Tooltip content="Remove Point" position="top">
+                            <button
+                                className="theia-button secondary small"
+                                onClick={() => update({ profile: profile.filter((_, j) => j !== i) })}
+                            >
+                                <i className="codicon codicon-trash"></i>
+                            </button>
+                        </Tooltip>
+                    </div>
+                </div>
+            ))}
+            <div className="form-row">
+                <div className="form-group">
+                    <button
+                        className="theia-button secondary small"
+                        onClick={() => {
+                            const lastR = profile.length > 0 ? profile[profile.length - 1].r : 0;
+                            const nextR = Math.min(1, lastR + (profile.length > 1 ? lastR - profile[profile.length - 2].r : 0.5));
+                            update({ profile: [...profile, { r: nextR, s: 0 }] });
+                        }}
+                    >
+                        <i className="codicon codicon-add"></i> Add Point
+                    </button>
+                </div>
+            </div>
+            <span className="form-hint">
+                r/a must start at 0, end at 1, and strictly increase; S ≥ 0 with at least one positive value (arbitrary units, linearly
+                interpolated between points)
+            </span>
+
+            <h4>
+                <i className="codicon codicon-pulse"></i> Energy &amp; Sampling
+            </h4>
+            <div className="form-row">
+                {renderEnergyFields(source.energy, (energy) => update({ energy }))}
+                <div className="form-group">
+                    <label>Strength</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.strength ?? 1.0}
+                        onChange={(e) => update({ strength: parseFloat(e.target.value) || 1.0 })}
+                    />
+                </div>
+            </div>
+            <div className="form-row">
+                <div className="form-group">
+                    <label>φ Start (rad)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={source.phiStart ?? 0}
+                        onChange={(e) => update({ phiStart: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>φ Extent (rad)</label>
+                    <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={source.phiExtent ?? 2 * Math.PI}
+                        onChange={(e) => update({ phiExtent: parseFloat(e.target.value) || 2 * Math.PI })}
+                    />
+                    <span className="form-hint">Toroidal coverage, up to 2π</span>
+                </div>
+                <div className="form-group">
+                    <label>Poloidal Grid Points</label>
+                    <input
+                        type="number"
+                        min={3}
+                        value={source.nAlpha ?? 101}
+                        onChange={(e) => update({ nAlpha: parseInt(e.target.value) || 101 })}
+                    />
+                    <span className="form-hint">CDF sampling resolution (default 101)</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /**
  * Build a one-line summary of the active constraints for the collapsed header.
  * @param constraints - Source constraints to summarize.

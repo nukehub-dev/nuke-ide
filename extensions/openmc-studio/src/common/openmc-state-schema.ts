@@ -497,7 +497,7 @@ export interface OpenMCSourceAngle {
 }
 
 /** Source type discriminator */
-export type OpenMCSourceType = 'independent' | 'file' | 'compiled';
+export type OpenMCSourceType = 'independent' | 'file' | 'compiled' | 'mesh' | 'tokamak';
 
 /**
  * Constraints on sampled source particles.
@@ -565,8 +565,64 @@ export interface OpenMCCompiledSource extends OpenMCSourceBase {
     parameters?: string;
 }
 
+/**
+ * Mesh source: spatial sampling over mesh elements (openmc.MeshSource,
+ * source.py:484 — versionadded 0.15.0). Sites are sampled uniformly within
+ * mesh elements; the element is chosen by relative sub-source strengths.
+ * The source strength is the SUM of sub-source strengths (computed, not
+ * stored). NOTE: this OpenMC version requires exactly one sub-source per
+ * mesh element (source.py sources setter: len(sources) == mesh.n_elements);
+ * spatial distributions on sub-sources are ignored at runtime.
+ */
+export interface OpenMCMeshSource extends OpenMCSourceBase {
+    type: 'mesh';
+    /** Reference to a mesh in state.meshes (emitted into settings.xml, not tallies.xml) */
+    meshId?: number;
+    /** Per-element sub-sources; count must equal the mesh's element count */
+    sources: OpenMCIndependentSource[];
+}
+
+/**
+ * Tokamak neutron source (openmc.TokamakSource, source.py:901 — versionadded
+ * 0.15.4). Samples positions from a Miller-style flux-surface parameterization
+ * with a user-provided emission profile S(r/a). NOTE: this class has no
+ * ion-temperature or fuel-composition model — the neutron energy comes from
+ * an explicit energy distribution (single distribution applied at all radii;
+ * per-radius distribution lists and the optional time distribution are not
+ * modeled by the IDE).
+ */
+export interface OpenMCTokamakSource extends OpenMCSourceBase {
+    type: 'tokamak';
+    /** Major radius R0 [cm] (> 0) */
+    majorRadius: number;
+    /** Minor radius a [cm] (> 0, must be < majorRadius) */
+    minorRadius: number;
+    /** Plasma elongation κ (> 0) */
+    elongation: number;
+    /** Plasma triangularity δ ∈ [-1, 1] */
+    triangularity: number;
+    /** Shafranov shift Δ [cm] (>= 0, must be < minorRadius / 2) */
+    shafranovShift: number;
+    /**
+     * Emission profile S(r/a) as (r, s) pairs. r values must start at 0, end
+     * at 1, and strictly increase; s values must be >= 0 with at least one
+     * positive (arbitrary units — not normalized).
+     */
+    profile: { r: number; s: number }[];
+    /** Neutron energy distribution (single distribution, applied at all radii) */
+    energy: OpenMCSourceEnergy;
+    /** Starting toroidal angle [rad] (default 0) */
+    phiStart?: number;
+    /** Toroidal angle extent [rad] (default 2π; must be in (0, 2π]) */
+    phiExtent?: number;
+    /** Poloidal angle grid points for CDF sampling (default 101, must be > 2) */
+    nAlpha?: number;
+    /** Vertical shift of the plasma center [cm] (default 0) */
+    verticalShift?: number;
+}
+
 /** External source definition (discriminated union over source types) */
-export type OpenMCSource = OpenMCIndependentSource | OpenMCFileSource | OpenMCCompiledSource;
+export type OpenMCSource = OpenMCIndependentSource | OpenMCFileSource | OpenMCCompiledSource | OpenMCMeshSource | OpenMCTokamakSource;
 
 // ============================================================================
 // Settings - Run Configuration
@@ -710,6 +766,59 @@ export interface OpenMCRandomRaySettings {
     };
 }
 
+/** Inline CMFD mesh specification (openmc.cmfd.CMFDMesh properties) */
+export interface OpenMCCmfdMesh {
+    /** Lower-left corner of the mesh bounds */
+    lowerLeft?: [number, number, number];
+    /** Upper-right corner of the mesh bounds */
+    upperRight?: [number, number, number];
+    /** Number of mesh cells in each dimension */
+    dimension?: [number, number, number];
+    /** Albedo boundary condition per face [-x, +x, -y, +y, -z, +z], 0-1 (default all 1) */
+    albedo?: [number, number, number, number, number, number];
+}
+
+/**
+ * CMFD (Coarse Mesh Finite Difference) acceleration settings.
+ * Maps to openmc.cmfd.CMFDMesh/CMFDRun in the Python API. NOTE: this OpenMC
+ * version has no settings.xml representation for CMFD — the config persists
+ * in the project file and in generated Python only.
+ */
+export interface OpenMCCmfdSettings {
+    /** Whether CMFD acceleration is enabled */
+    enabled?: boolean;
+    /** Reference to a regular mesh in state.meshes (takes precedence over inline spec) */
+    meshRef?: number;
+    /** Inline mesh specification (used when meshRef is not set) */
+    mesh?: OpenMCCmfdMesh;
+    /** Feedback: adjust fission source weights from the CMFD diffusion result each batch */
+    feedback?: boolean;
+    /** Batch at which CMFD tallies begin accumulating */
+    tallyBegin?: number;
+    /** Batch at which the CMFD solver starts executing */
+    solverBegin?: number;
+    /** Eigenvalue tolerance for CMFD power iteration (cmfd_ktol) */
+    cmfdKtol?: number;
+    /** Fission source tolerance for CMFD power iteration (stol) */
+    stol?: number;
+    /** Normalization factor for the CMFD fission source distribution */
+    norm?: number;
+    /** Gauss-Seidel inner tolerances [absolute, relative] */
+    gaussSeidelTolerance?: [number, number];
+    /** Use effective downscatter cross section for 2-group CMFD */
+    downscatter?: boolean;
+    /** Show power iteration convergence during the run */
+    powerMonitor?: boolean;
+    /** Tally window scheme for accumulating CMFD tallies */
+    windowType?: 'expanding' | 'rolling' | 'none';
+    /** Window size (only for 'rolling') */
+    windowSize?: number;
+    /** Run an adjoint calculation on the last batch */
+    runAdjoint?: boolean;
+    /** Adjoint matrix construction type */
+    adjointType?: 'physical' | 'math';
+}
+
 /** Main settings structure */
 export interface OpenMCSettings {
     /** Run mode and parameters */
@@ -720,6 +829,8 @@ export interface OpenMCSettings {
     seed?: number;
     /** Shannon entropy mesh for convergence monitoring */
     entropyMesh?: OpenMCEntropyMesh;
+    /** CMFD acceleration settings (C-API feature; not written to settings.xml) */
+    cmfd?: OpenMCCmfdSettings;
     /** Number of OpenMP threads */
     threads?: number;
     /** Verbosity level (1-10) */
@@ -812,15 +923,48 @@ export interface OpenMCSettings {
         energyMin?: number;
         energyMax?: number;
     };
-    /** Probability tables for unresolved resonances */
+    /** Probability tables for unresolved resonances (`<ptables>`) */
     probabilityTables?: boolean;
     /** Event-based simulation toggle */
     eventBased?: boolean;
     /** Maximum number of lost particles */
     maxLostParticles?: number;
-    /** Relative error for lost particle warning */
+    /** Relative error for lost particle warning (`<rel_max_lost_particles>`) */
     relLostParticleRate?: number;
-    /** Trigger settings for automatic shutdown */
+    /** Create fission neutrons (default true; false suppresses fission sites) */
+    createFissionNeutrons?: boolean;
+    /** Create delayed neutrons in fission (default true) */
+    createDelayedNeutrons?: boolean;
+    /** Scale the fission photon yield to account for delayed photon energy (default true) */
+    delayedPhotonScaling?: boolean;
+    /** Produce decay photons from neutron reactions instead of prompt (default false) */
+    useDecayPhotons?: boolean;
+    /** Number of bins for the logarithmic energy grid search */
+    logGridBins?: number;
+    /** Legendre→tabular conversion of multi-group scattering moment kernels */
+    tabularLegendre?: {
+        /** Whether the conversion is performed */
+        enable?: boolean;
+        /** Number of tabular points (must be > 0) */
+        numPoints?: number;
+    };
+    /** Survival biasing (default true) */
+    survivalBiasing?: boolean;
+    /** Number of generations per batch (eigenvalue) */
+    generationsPerBatch?: number;
+    /** Maximum scattering order applied globally in multi-group mode */
+    maxOrder?: number;
+    /** Write the initial source distribution to file */
+    writeInitialSource?: boolean;
+    /** Sample among multiple sources uniformly, applying strengths as weights */
+    uniformSourceSampling?: boolean;
+    /**
+     * Run-level tally trigger settings (settings.xml `<trigger>` block:
+     * `<max_batches>` / `<batch_interval>`). `<active>true</active>` is
+     * emitted automatically whenever any tally has triggers or these fields
+     * are set — OpenMC requires trigger activation for per-tally triggers
+     * to be evaluated.
+     */
     triggers?: {
         maxBatches?: number;
         batchInterval?: number;
@@ -926,6 +1070,27 @@ export type OpenMCTallyScore =
 /** Tally estimator types */
 export type OpenMCTallyEstimator = 'analog' | 'tracklength' | 'collision';
 
+/** Per-tally trigger criterion (openmc.Trigger trigger_type, trigger.py) */
+export type OpenMCTallyTriggerType = 'variance' | 'std_dev' | 'rel_err';
+
+/**
+ * Per-tally trigger: finish the simulation when the tally's uncertainties
+ * meet a criterion (openmc.Trigger). Serializes as a `<trigger>` sub-element
+ * of `<tally>` with type/threshold attributes and an optional space-separated
+ * scores attribute. Requires run-level trigger activation (`<trigger>` block
+ * in settings.xml with `<active>true</active>`, emitted automatically when
+ * any tally has triggers; evaluation interval comes from
+ * `OpenMCSettings.triggers.batchInterval`).
+ */
+export interface OpenMCTallyTrigger {
+    /** Trigger criterion */
+    type: OpenMCTallyTriggerType;
+    /** Threshold for the trigger type */
+    threshold: number;
+    /** Scores the trigger applies to (subset of the tally's scores; absent = all scores) */
+    scores?: string[];
+}
+
 /** Tally definition */
 export interface OpenMCTally {
     /** Unique tally ID */
@@ -942,6 +1107,8 @@ export interface OpenMCTally {
     estimator?: OpenMCTallyEstimator;
     /** Whether to multiply by atom density (for some scores) */
     multiplyDensity?: boolean;
+    /** Per-tally triggers (openmc.Trigger list) */
+    triggers?: OpenMCTallyTrigger[];
 }
 
 // ============================================================================

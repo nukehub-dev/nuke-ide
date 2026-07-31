@@ -7,7 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Phase 5: comprehensive OpenMC feature completeness (`.crush/PHASE5_PLAN_V2.md`).
+Phase 5: comprehensive OpenMC feature completeness.
+Phase 6: remaining OpenMC surface.
+
+### Added
+
+- openmc-studio: CMFD acceleration — Convergence-section UI, validation, codegen,
+  and a `run_cmfd.py` driver so CMFD-enabled runs execute through the IDE (CMFD is
+  C-API-only in this OpenMC version; there is no settings.xml form).
+- openmc-studio: mesh sources (`MeshSource`) with exact `n_elements` sub-source
+  enforcement and a fill helper; tokamak sources (`TokamakSource`, 0.15.4+) with
+  Miller geometry and emission-profile editing. Both join the source type selector.
+- openmc-studio: per-tally precision triggers (variance/std_dev/rel_err, per-score
+  subsets) with automatic `trigger_active` emission, plus run-level trigger
+  settings in Settings → Output.
+- openmc-studio: criticality search (`search_for_keff`) as a mode of the
+  optimization widget — guess or bracket with method selection, live iteration
+  table, and apply-to-model for the converged parameter. Parameter paths
+  (`material.density|temperature|<nuclide>`, `settings.*`, `geometry.<cell>.temperature`)
+  are now one shared vocabulary used by sweeps, search, and the Python drivers.
+- openmc-studio: Advanced settings section — event-based transport, tabular
+  Legendre conversion, delayed neutron/photon creation, decay photons, survival
+  biasing, generations per batch, probability tables, lost-particle limits,
+  initial-source writing, uniform source sampling, log-grid bins, and multi-group
+  max order.
+
+### Fixed
+
+- openmc-studio: run-level tally trigger settings, `eventBased`,
+  `probabilityTables`, `maxLostParticles`, and `relLostParticleRate` existed in
+  the project schema but never round-tripped to XML or appeared in the UI.
+- openmc-studio: React controlled selects/checkboxes that mutated widget fields
+  without scheduling a re-render were reverted by React (DAGMC overrides, MGXS
+  generator, volume calculator) — selections now stick immediately.
+- nuke-essentials: tooltips anchored to a stretched wrapper span could appear far
+  from their control, and lingered at stale coordinates after scroll/resize.
+- nuke-visualizer: output viewers' selects/inputs lacked focus/disabled styling
+  and themed dropdown option lists.
 
 ### Added
 

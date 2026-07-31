@@ -42,6 +42,7 @@ import {
     OpenMCCell,
     OpenMCPlotConfig,
     OpenMCTransferRate,
+    OpenMCCmfdSettings,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
@@ -334,6 +335,13 @@ export interface SimulationRunRequest {
     args?: string[];
     /** Statepoint file to restart the simulation from (passed as CLI `-r`) */
     restartFile?: string;
+    /**
+     * CMFD acceleration config (C-API feature, not in settings.xml). When
+     * `enabled`, the backend routes the run through `python/run_cmfd.py`
+     * instead of the `openmc` binary; `meshRef` must already be resolved to
+     * an inline mesh spec by the caller.
+     */
+    cmfd?: OpenMCCmfdSettings;
     /** Environment variables */
     env?: { [key: string]: string };
 }
@@ -964,6 +972,14 @@ export interface OpenMCStudioBackendService {
         logContent?: string;
         error?: string;
     }>;
+
+    /**
+     * Run a criticality (k-eff) search: find the value of one model parameter
+     * that produces the target k-effective (openmc.search_for_keff).
+     * Blocking: resolves with the full result when the search finishes;
+     * per-iteration output streams to client logs meanwhile.
+     */
+    runKeffSearch(request: StartKeffSearchRequest): Promise<KeffSearchResult>;
 }
 
 // ============================================================================
@@ -1413,6 +1429,73 @@ export interface StopOptimizationRequest {
 export interface StopOptimizationResult {
     /** Whether stop was successful */
     success: boolean;
+    /** Error message if failed */
+    error?: string;
+}
+
+/** Bracketed root-finding methods for the criticality search (openmc/search.py) */
+export type KeffSearchMethod = 'brentq' | 'brenth' | 'ridder' | 'bisect';
+
+/** Request to run a criticality (k-eff) search */
+export interface StartKeffSearchRequest {
+    /** Unique run ID */
+    runId: string;
+    /** Base simulation state (XML is generated from it into outputDirectory) */
+    baseState: OpenMCState;
+    /**
+     * Searchable parameter in the optimization parameter-path vocabulary
+     * (e.g. `water.density`, `fuel.U235`, `water.temperature`) — same
+     * descriptor the parameter sweeps use.
+     */
+    parameter: string;
+    /** Target k-effective (default 1.0) */
+    target?: number;
+    /** Initial guess (secant method; ignored when bracket is set) */
+    initialGuess?: number;
+    /** Bracketing interval [low, high] (enables bracketed methods) */
+    bracket?: [number, number];
+    /** Bracketed root-finding method (default 'bisect') */
+    method?: KeffSearchMethod;
+    /** Solver tolerance (search_for_keff requires an explicit tol in this OpenMC version) */
+    tolerance?: number;
+    /** Working/output directory for the search */
+    outputDirectory: string;
+    /** OpenMC cross-sections path */
+    crossSectionsPath?: string;
+    /** OpenMC chain file path */
+    chainFilePath?: string;
+}
+
+/** One iteration of a criticality search */
+export interface KeffSearchIteration {
+    /** Iteration number (1-based) */
+    iteration: number;
+    /** Parameter value tried */
+    guess: number;
+    /** Resulting k-effective */
+    keff: number;
+    /** k-effective standard deviation */
+    keffStd?: number;
+}
+
+/** Result of a criticality search */
+export interface KeffSearchResult {
+    /** Whether the search converged */
+    success: boolean;
+    /** Parameter value producing the target k-effective */
+    convergedValue?: number;
+    /** k-effective at the last evaluated guess */
+    finalKeff?: number;
+    /** Its standard deviation */
+    finalKeffStd?: number;
+    /** Per-iteration history */
+    iterations: KeffSearchIteration[];
+    /** Method used ('secant' when no bracket was given) */
+    method: string;
+    /** Target k-effective */
+    target: number;
+    /** Searched parameter path */
+    parameter: string;
     /** Error message if failed */
     error?: string;
 }
