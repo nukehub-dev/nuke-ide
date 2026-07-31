@@ -23,6 +23,7 @@
     "build:electron": "yarn generate:preload && yarn --cwd applications/electron bundle",
     "bump-version": "node scripts/bump-version.js",
     "test:python": "python -m pytest",
+    "test:python:full": "${NUKE_TEST_PYTHON:-python} -m pytest",
     "test:python:cov": "python -m pytest --cov --cov-report=term-missing --cov-report=xml",
     "test:ts": "vitest run",
     "docker:build": "docker compose -f applications/docker/compose.yml build",

@@ -131,6 +131,7 @@ Tiered policy; the project does not chase one uniform percentage.
 - **Logic layer** (Python parsers/converters/services/command handlers, TS pure helpers): measured and ratcheted. `.coveragerc` holds `fail_under` — it may only go UP; bump it whenever the baseline improves.
 - **Rendering layer** (trame/ParaView/VTK server modules, plugin glue): excluded in `.coveragerc`; covered by error-path contract tests and the docker smoke test instead.
 - Run `yarn test:python:cov` for the Python report (writes `coverage.xml`) and `yarn test:ts` for vitest.
+- `yarn test:python:full` runs the suite against a full-dependency Python (integration tests execute instead of skipping). Point it at an env with openmc/h5py/vtk via `NUKE_TEST_PYTHON`, e.g. `NUKE_TEST_PYTHON=$HOME/.conda/envs/nuke/bin/python yarn test:python:full` (set `OPENMC_CROSS_SECTIONS` for tests that run models). The docker image test step exercises the same profile in CI.
 - New Python tests must pass with only `pytest` + `numpy` installed (use `pytest.importorskip`/guarded imports for heavy deps); the full-dependency profile is exercised by the docker image test step. Tests for dependency-absence guards must force the absence (monkeypatch `sys.modules` entries to `None` or module-level `HAS_*` flags to `False`) rather than assume the ambient environment lacks the dependency, so they pass in both profiles.
 
 ## Architecture pointer

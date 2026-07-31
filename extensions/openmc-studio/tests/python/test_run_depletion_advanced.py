@@ -204,10 +204,14 @@ class TestMainArgparseAdvanced:
 class TestOpenMCIntegration:
     def test_operator_signatures_accept_new_kwargs(self):
         """The real operator constructors accept the kwargs the script passes."""
-        openmc = pytest.importorskip("openmc")
+        # importorskip on the submodule: plain `import openmc` does not expose openmc.deplete
+        deplete = pytest.importorskip("openmc.deplete")
+        # Integrator is exported at package level only in newer OpenMC; abc is stable across versions
         import inspect
 
-        coupled_params = inspect.signature(openmc.deplete.CoupledOperator.__init__).parameters
+        from openmc.deplete.abc import Integrator
+
+        coupled_params = inspect.signature(deplete.CoupledOperator.__init__).parameters
         for expected in (
             "diff_burnable_mats",
             "diff_volume_method",
@@ -216,9 +220,7 @@ class TestOpenMCIntegration:
         ):
             assert expected in coupled_params
 
-        independent_params = inspect.signature(
-            openmc.deplete.IndependentOperator.__init__
-        ).parameters
+        independent_params = inspect.signature(deplete.IndependentOperator.__init__).parameters
         for expected in (
             "materials",
             "fluxes",
@@ -229,7 +231,7 @@ class TestOpenMCIntegration:
         ):
             assert expected in independent_params
 
-        transfer_params = inspect.signature(openmc.deplete.Integrator.add_transfer_rate).parameters
+        transfer_params = inspect.signature(Integrator.add_transfer_rate).parameters
         for expected in (
             "material",
             "components",
