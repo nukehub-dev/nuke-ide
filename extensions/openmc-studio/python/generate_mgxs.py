@@ -111,7 +111,7 @@ def run_generate_mgxs(args):
         "temperatures": temperatures,
     }
     if args.particles:
-        convert_kwargs["particles"] = args.particles
+        convert_kwargs["nparticles"] = args.particles
 
     log_progress(
         f"Generating MGXS library: method={args.method}, groups={args.groups}, output={args.output}"

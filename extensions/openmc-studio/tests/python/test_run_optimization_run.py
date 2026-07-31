@@ -70,18 +70,18 @@ class FakeStatePoint:
 
 
 class FakeModel:
-    """Fake base model that clones itself and records export/run calls."""
+    """Fake base model copied via copy.deepcopy, recording export/run calls."""
 
-    fail_on_clone = False
+    fail_on_copy = False
 
     def __init__(self):
         self.settings = SimpleNamespace(batches=100)
         self.exported_to = None
         self.ran_in = None
 
-    def clone(self):
-        if FakeModel.fail_on_clone:
-            raise RuntimeError("clone boom")
+    def __deepcopy__(self, memo):
+        if FakeModel.fail_on_copy:
+            raise RuntimeError("deepcopy boom")
         return FakeModel()
 
     def export_to_xml(self, path=None):
@@ -139,38 +139,38 @@ class TestRunSingleIteration:
 
         assert "tallies" not in result
 
-    def test_parameter_changes_applied_to_clone(self, ro, monkeypatch, tmp_path):
-        """set_parameter_by_path runs against the cloned model."""
+    def test_parameter_changes_applied_to_model_copy(self, ro, monkeypatch, tmp_path):
+        """set_parameter_by_path runs against the deep-copied model."""
         monkeypatch.setattr(ro.openmc, "StatePoint", FakeStatePoint, raising=False)
         seen = {}
 
-        original_clone = FakeModel.clone
+        original_deepcopy = FakeModel.__deepcopy__
 
-        def spy_clone(self):
-            model = original_clone(self)
+        def spy_deepcopy(self, memo):
+            model = original_deepcopy(self, memo)
             seen["model"] = model
             return model
 
-        monkeypatch.setattr(FakeModel, "clone", spy_clone)
+        monkeypatch.setattr(FakeModel, "__deepcopy__", spy_deepcopy)
 
         ro.run_single_iteration(FakeModel(), {"settings.batches": 250}, str(tmp_path), 1)
 
         assert seen["model"].settings.batches == 250
 
     def test_failure_returns_error_result(self, ro, monkeypatch, tmp_path):
-        """A clone failure yields a failure result with the error message."""
-        FakeModel.fail_on_clone = True
+        """A copy failure yields a failure result with the error message."""
+        FakeModel.fail_on_copy = True
         try:
             result = ro.run_single_iteration(FakeModel(), {"a": 1}, str(tmp_path), 2)
         finally:
-            FakeModel.fail_on_clone = False
+            FakeModel.fail_on_copy = False
 
         assert result["success"] is False
         assert result["iteration"] == 2
         assert result["parameterValues"] == {"a": 1}
         assert result["keff"] is None
         assert result["keffStd"] is None
-        assert result["errorMessage"] == "clone boom"
+        assert result["errorMessage"] == "deepcopy boom"
         assert result["statepointPath"] is None
 
 

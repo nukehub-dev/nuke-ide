@@ -32,6 +32,7 @@ Options:
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -115,7 +116,7 @@ def apply_search_parameter(model, param_path, value):
 
     prop = target_field.lower()
     if prop == "density":
-        material.density = value
+        material.set_density(material.density_units, value)
         return
     if prop == "temperature":
         material.temperature = value
@@ -195,8 +196,8 @@ def run_search(args):
     parameter = args.parameter
 
     def model_builder(guess):
-        """Build a model clone with the searched parameter set to `guess`."""
-        model = base_model.clone()
+        """Build a model copy with the searched parameter set to `guess`."""
+        model = copy.deepcopy(base_model)
         apply_search_parameter(model, parameter, float(guess))
         return model
 

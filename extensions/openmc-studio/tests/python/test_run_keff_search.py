@@ -32,11 +32,21 @@ def _restore_cwd():
 # ---------------------------------------------------------------------------
 
 
+class FakeMaterial(SimpleNamespace):
+    """SimpleNamespace with a set_density method (mirroring the driver's
+    density path). Deepcopy-safe: the method sets the attribute on the
+    copied instance, not the original."""
+
+    def set_density(self, units, value):
+        self.density = value
+
+
 def _make_model():
     """A fake openmc.Model with one material (2 nuclides), settings, geometry."""
-    material = SimpleNamespace(
+    material = FakeMaterial(
         name="Water",
         density=1.0,
+        density_units="g/cm3",
         temperature=293.6,
         nuclides=[
             SimpleNamespace(name="H1", percent=2.0 / 3.0, percent_type="ao"),

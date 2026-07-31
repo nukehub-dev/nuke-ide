@@ -360,7 +360,7 @@ export interface OpenMCMaterial {
     /** Density value */
     density: number;
     /** Density unit: 'g/cm3', 'kg/m3', 'atom/b-cm', 'sum' */
-    densityUnit: 'g/cm3' | 'kg/m3' | 'atom/b-cm' | 'sum';
+    densityUnit: 'g/cm3' | 'kg/m3' | 'atom/b-cm' | 'sum' | 'macro';
     /** List of nuclides in the material */
     nuclides: OpenMCNuclide[];
     /** List of S(α,β) thermal scattering data */

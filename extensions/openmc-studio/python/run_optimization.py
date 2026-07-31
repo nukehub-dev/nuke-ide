@@ -13,6 +13,7 @@ Arguments:
     output_dir: Directory for output files
 """
 
+import copy
 import json
 import os
 import sys
@@ -99,7 +100,7 @@ def run_single_iteration(
 
     try:
         # Create a copy of the model for this iteration
-        model = base_model.clone()
+        model = copy.deepcopy(base_model)
 
         # Apply parameter modifications
         for path, value in params.items():

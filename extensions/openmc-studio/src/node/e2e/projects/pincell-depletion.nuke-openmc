@@ -1,0 +1,226 @@
+{
+  "version": "1.1.0",
+  "state": {
+    "metadata": {
+      "version": "1.1.0",
+      "name": "e2e-pincell-depletion",
+      "created": "2026-07-31T00:00:00.000Z",
+      "modified": "2026-07-31T00:00:00.000Z"
+    },
+    "geometry": {
+      "surfaces": [
+        {
+          "id": 1,
+          "type": "cylinder",
+          "coefficients": {
+            "x0": 0,
+            "y0": 0,
+            "z0": 0,
+            "r": 0.4,
+            "vz": 1
+          }
+        },
+        {
+          "id": 2,
+          "type": "cylinder",
+          "coefficients": {
+            "x0": 0,
+            "y0": 0,
+            "z0": 0,
+            "r": 0.5,
+            "vz": 1
+          }
+        },
+        {
+          "id": 3,
+          "type": "x-plane",
+          "coefficients": {
+            "x0": -0.63
+          },
+          "boundary": "reflective"
+        },
+        {
+          "id": 4,
+          "type": "x-plane",
+          "coefficients": {
+            "x0": 0.63
+          },
+          "boundary": "reflective"
+        },
+        {
+          "id": 5,
+          "type": "y-plane",
+          "coefficients": {
+            "y0": -0.63
+          },
+          "boundary": "reflective"
+        },
+        {
+          "id": 6,
+          "type": "y-plane",
+          "coefficients": {
+            "y0": 0.63
+          },
+          "boundary": "reflective"
+        },
+        {
+          "id": 7,
+          "type": "z-plane",
+          "coefficients": {
+            "z0": -0.5
+          },
+          "boundary": "reflective"
+        },
+        {
+          "id": 8,
+          "type": "z-plane",
+          "coefficients": {
+            "z0": 0.5
+          },
+          "boundary": "reflective"
+        }
+      ],
+      "cells": [
+        {
+          "id": 1,
+          "name": "fuel",
+          "fillType": "material",
+          "fillId": 1,
+          "regionString": "-1 3 -4 5 -6 7 -8"
+        },
+        {
+          "id": 2,
+          "name": "clad",
+          "fillType": "material",
+          "fillId": 2,
+          "regionString": "1 -2 3 -4 5 -6 7 -8"
+        },
+        {
+          "id": 3,
+          "name": "moderator",
+          "fillType": "material",
+          "fillId": 3,
+          "regionString": "2 3 -4 5 -6 7 -8"
+        }
+      ],
+      "universes": [
+        {
+          "id": 0,
+          "name": "root",
+          "cellIds": [
+            1,
+            2,
+            3
+          ],
+          "isRoot": true
+        }
+      ],
+      "lattices": [],
+      "rootUniverseId": 0
+    },
+    "materials": [
+      {
+        "id": 1,
+        "name": "fuel",
+        "density": 10.4,
+        "densityUnit": "g/cm3",
+        "volume": 0.5026548,
+        "isDepletable": true,
+        "nuclides": [
+          {
+            "name": "U235",
+            "fraction": 0.03,
+            "fractionType": "ao"
+          },
+          {
+            "name": "U238",
+            "fraction": 0.97,
+            "fractionType": "ao"
+          },
+          {
+            "name": "O16",
+            "fraction": 2.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      },
+      {
+        "id": 2,
+        "name": "clad",
+        "density": 2.7,
+        "densityUnit": "g/cm3",
+        "nuclides": [
+          {
+            "name": "Al27",
+            "fraction": 1.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      },
+      {
+        "id": 3,
+        "name": "moderator",
+        "density": 1.0,
+        "densityUnit": "g/cm3",
+        "nuclides": [
+          {
+            "name": "H1",
+            "fraction": 2.0,
+            "fractionType": "ao"
+          },
+          {
+            "name": "O16",
+            "fraction": 1.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      }
+    ],
+    "settings": {
+      "run": {
+        "mode": "eigenvalue",
+        "particles": 300,
+        "inactive": 4,
+        "batches": 12
+      },
+      "sources": [
+        {
+          "spatial": {
+            "type": "point",
+            "origin": [
+              0,
+              0,
+              0
+            ]
+          },
+          "energy": {
+            "type": "discrete",
+            "energies": [
+              1000000.0
+            ],
+            "probabilities": [
+              1
+            ]
+          },
+          "particle": "neutron"
+        }
+      ]
+    },
+    "tallies": [],
+    "meshes": [],
+    "depletion": {
+      "enabled": true,
+      "chainFile": "",
+      "timeSteps": [
+        86400,
+        86400
+      ],
+      "power": 1.0,
+      "solver": "predictor",
+      "operator": "coupled"
+    }
+  }
+}

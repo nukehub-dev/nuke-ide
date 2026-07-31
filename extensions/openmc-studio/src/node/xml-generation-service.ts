@@ -329,11 +329,11 @@ export class XMLGenerationService {
     }
 
     private generateSurfaceElement(surface: OpenMCSurface): string {
-        // Always use 'vacuum' for boundaries to allow particles to escape
-        // 'transmission' causes particles to get lost when crossing surfaces
-        // This is a workaround until proper boundary detection is implemented
-        const boundary = surface.boundary === 'reflective' ? 'reflective' : 'vacuum';
-        const boundaryAttr = ` boundary="${boundary}"`;
+        // Emit a boundary condition only when the model sets one. OpenMC
+        // defaults to transmission when no boundary attribute is present;
+        // stamping vacuum on every surface kills particles at interior
+        // surfaces and silently breaks any multi-region model.
+        const boundaryAttr = surface.boundary ? ` boundary="${surface.boundary}"` : '';
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
 
         // Map internal surface type to OpenMC-compatible type

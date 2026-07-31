@@ -1527,10 +1527,12 @@ export class OpenMCRunnerService {
             String(request.samples)
         ];
         if (request.lowerLeft) {
-            args.push('--lower-left', request.lowerLeft.join(','));
+            // Equals form: values start with '-', which argparse would
+            // otherwise misread as an option flag
+            args.push(`--lower-left=${request.lowerLeft.join(',')}`);
         }
         if (request.upperRight) {
-            args.push('--upper-right', request.upperRight.join(','));
+            args.push(`--upper-right=${request.upperRight.join(',')}`);
         }
         if (request.triggerType) {
             args.push('--trigger-type', request.triggerType);

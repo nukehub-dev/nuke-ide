@@ -1,0 +1,112 @@
+{
+  "version": "1.1.0",
+  "state": {
+    "metadata": {
+      "version": "1.1.0",
+      "name": "e2e-dagmc-pincell",
+      "created": "2026-07-31T00:00:00.000Z",
+      "modified": "2026-07-31T00:00:00.000Z"
+    },
+    "geometry": {
+      "surfaces": [],
+      "cells": [],
+      "universes": [
+        {
+          "id": 0,
+          "name": "root",
+          "cellIds": [],
+          "isRoot": true
+        }
+      ],
+      "lattices": [],
+      "rootUniverseId": 0
+    },
+    "materials": [
+      {
+        "id": 1,
+        "name": "fuel",
+        "density": 10.0,
+        "densityUnit": "g/cm3",
+        "nuclides": [
+          {
+            "name": "U235",
+            "fraction": 0.03,
+            "fractionType": "ao"
+          },
+          {
+            "name": "U238",
+            "fraction": 0.97,
+            "fractionType": "ao"
+          },
+          {
+            "name": "O16",
+            "fraction": 2.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      },
+      {
+        "id": 2,
+        "name": "41",
+        "density": 8.0,
+        "densityUnit": "g/cm3",
+        "nuclides": [
+          {
+            "name": "Zr90",
+            "fraction": 1.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      },
+      {
+        "id": 3,
+        "name": "Graveyard",
+        "density": 0.001,
+        "densityUnit": "g/cm3",
+        "nuclides": [
+          {
+            "name": "H1",
+            "fraction": 1.0,
+            "fractionType": "ao"
+          }
+        ],
+        "thermalScattering": []
+      }
+    ],
+    "settings": {
+      "run": {
+        "mode": "eigenvalue",
+        "particles": 300,
+        "inactive": 4,
+        "batches": 12
+      },
+      "sources": [
+        {
+          "spatial": {
+            "type": "point",
+            "origin": [
+              0,
+              0,
+              0
+            ]
+          },
+          "energy": {
+            "type": "discrete",
+            "energies": [
+              1000000.0
+            ],
+            "probabilities": [
+              1
+            ]
+          },
+          "particle": "neutron"
+        }
+      ],
+      "dagmcFile": "tests/e2e/assets/fuel_pin.h5m"
+    },
+    "tallies": [],
+    "meshes": []
+  }
+}
