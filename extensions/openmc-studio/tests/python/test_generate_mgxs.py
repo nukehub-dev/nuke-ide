@@ -79,6 +79,80 @@ class TestLogProgress:
         assert captured.out == ""
 
 
+class TestReadModelCompatibility:
+    def test_missing_files_are_compatible(self, tmp_path):
+        """No XML files → nothing to object to (the load step reports it)."""
+        assert generate_mgxs.read_model_compatibility(tmp_path) is None
+
+    def test_ce_microscopic_model_is_compatible(self, tmp_path):
+        """Continuous-energy + nuclide-decomposed materials pass."""
+        _write_model_xml(tmp_path)
+        (tmp_path / "settings.xml").write_text(
+            "<settings><energy_mode>continuous-energy</energy_mode></settings>"
+        )
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel"><nuclide name="U235" ao="1.0"/></material></materials>'
+        )
+        assert generate_mgxs.read_model_compatibility(tmp_path) is None
+
+    def test_multigroup_settings_is_incompatible(self, tmp_path):
+        """Multi-group settings.xml is rejected with the CE guidance."""
+        _write_model_xml(tmp_path)
+        (tmp_path / "settings.xml").write_text(
+            "<settings><energy_mode>multi-group</energy_mode></settings>"
+        )
+        error = generate_mgxs.read_model_compatibility(tmp_path)
+        assert error is not None
+        assert "continuous-energy" in error
+        assert "multigroup" in error
+
+    def test_macroscopic_material_is_incompatible(self, tmp_path):
+        """Macroscopic materials are rejected and named."""
+        _write_model_xml(tmp_path)
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel"><macroscopic name="fuel"/></material></materials>'
+        )
+        error = generate_mgxs.read_model_compatibility(tmp_path)
+        assert error is not None
+        assert "macroscopic" in error
+        assert "fuel" in error
+
+
+class TestMainCompatibilityGuard:
+    def test_multigroup_model_exits_1_with_clean_json(self, tmp_path, monkeypatch, capsys):
+        """The guard fires before any openmc import: exit 1 + error JSON."""
+        _write_model_xml(tmp_path)
+        (tmp_path / "settings.xml").write_text(
+            "<settings><energy_mode>multi-group</energy_mode></settings>"
+        )
+        monkeypatch.setattr(sys, "argv", ["generate_mgxs.py", str(tmp_path)])
+
+        with pytest.raises(SystemExit) as exc:
+            generate_mgxs.main()
+
+        assert exc.value.code == 1
+        result = json.loads(capsys.readouterr().out)
+        assert result["success"] is False
+        assert "continuous-energy" in result["error"]
+        assert "multigroup" in result["error"]
+
+    def test_macroscopic_model_exits_1_with_clean_json(self, tmp_path, monkeypatch, capsys):
+        """Macroscopic materials are rejected even in continuous-energy mode."""
+        _write_model_xml(tmp_path)
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel"><macroscopic name="fuel"/></material></materials>'
+        )
+        monkeypatch.setattr(sys, "argv", ["generate_mgxs.py", str(tmp_path)])
+
+        with pytest.raises(SystemExit) as exc:
+            generate_mgxs.main()
+
+        assert exc.value.code == 1
+        result = json.loads(capsys.readouterr().out)
+        assert result["success"] is False
+        assert "macroscopic" in result["error"]
+
+
 class TestRunGenerateMgxs:
     def test_convert_kwargs(self, fake_openmc_module, tmp_path):
         """convert_to_multigroup receives method/groups/correction/temperatures/particles/output."""

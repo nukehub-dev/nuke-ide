@@ -1753,22 +1753,36 @@ export class OpenMCRunnerService {
             });
 
             childProcess.on('close', (code) => {
-                const lastLine = stdout.trim().split('\n').pop() || '';
-                try {
-                    const result = JSON.parse(lastLine) as T;
-                    result.output = result.output ?? stderr;
-                    if (code !== 0 && result.success !== false) {
-                        result.success = false;
-                        result.error = result.error || `Process exited with code ${code}`;
+                // Scan stdout BACKWARDS for the last line that parses as a JSON
+                // object — the model run inside scripts (e.g. generate_mgxs)
+                // inherits stdout, so openmc's own log lines can follow the JSON
+                const lines = stdout.trim().split('\n');
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    const candidate = lines[i].trim();
+                    if (!candidate.startsWith('{')) {
+                        continue;
                     }
-                    resolve(result);
-                } catch (error) {
-                    resolve({
-                        success: false,
-                        error: `Failed to parse script output: ${lastLine || stderr || `exit code ${code}`}`,
-                        output: stderr
-                    } as T);
+                    try {
+                        const result = JSON.parse(candidate) as T;
+                        result.output = result.output ?? stderr;
+                        if (code !== 0 && result.success !== false) {
+                            result.success = false;
+                            result.error = result.error || `Process exited with code ${code}`;
+                        }
+                        resolve(result);
+                        return;
+                    } catch {
+                        // Not a JSON line — keep scanning backwards
+                    }
                 }
+                // No JSON anywhere: surface the real cause (traceback / openmc
+                // error) instead of a random log line
+                const detail = stderr.trim() || stdout.trim();
+                resolve({
+                    success: false,
+                    error: `Script exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,
+                    output: stderr
+                } as T);
             });
         });
     }

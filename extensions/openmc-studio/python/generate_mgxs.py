@@ -37,6 +37,44 @@ def log_progress(message: str):
     print(f"{message}", file=sys.stderr, flush=True)
 
 
+def read_model_compatibility(working_dir: Path):
+    """Check the model is continuous-energy with nuclide-decomposed materials.
+
+    MGXS generation runs continuous-energy transport solves with per-nuclide
+    reaction tallies. A multi-group settings.xml or macroscopic materials
+    cannot work — and in DAGMC/C-API runs libopenmc fatals with a C-level
+    exit that bypasses Python exceptions entirely, so this must be guarded
+    BEFORE the openmc import (standard library only).
+
+    Args:
+        working_dir: Directory containing settings.xml and materials.xml.
+
+    Returns:
+        Error message string when incompatible, else None.
+    """
+    settings_path = working_dir / "settings.xml"
+    if settings_path.exists():
+        elem = ET.parse(settings_path).getroot().find("energy_mode")
+        if elem is not None and elem.text and elem.text.strip() == "multi-group":
+            return (
+                "MGXS generation requires a continuous-energy model with "
+                "nuclide-decomposed materials (this model is multigroup)."
+            )
+    materials_path = working_dir / "materials.xml"
+    if materials_path.exists():
+        names = [
+            m.get("name") or m.get("id") or "?"
+            for m in ET.parse(materials_path).getroot().findall("material")
+            if m.find("macroscopic") is not None
+        ]
+        if names:
+            return (
+                "MGXS generation requires a continuous-energy model with "
+                f"nuclide-decomposed materials (this model has macroscopic materials: {', '.join(names)})."
+            )
+    return None
+
+
 def load_model(working_dir: Path):
     """Load materials, geometry, and settings from XML files in the working directory.
 
@@ -172,6 +210,14 @@ def main():
             )
         )
         sys.exit(0)
+
+    # Semantic guard, before any openmc import: MGXS generation is a
+    # continuous-energy, per-nuclide workflow
+    incompatible = read_model_compatibility(Path(args.working_directory))
+    if incompatible:
+        log_progress(f"FAILED: {incompatible}")
+        print(json.dumps({"success": False, "error": incompatible}))
+        sys.exit(1)
 
     try:
         result = run_generate_mgxs(args)

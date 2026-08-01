@@ -138,11 +138,18 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             </div>
                             <div className="form-group">
                                 <label>&nbsp;</label>
-                                <Tooltip content="Select an MGXS library file" position="bottom">
-                                    <button className="theia-button secondary" onClick={() => this.browseMgxsLibrary(host)}>
-                                        <i className="codicon codicon-folder-opened"></i> Browse
-                                    </button>
-                                </Tooltip>
+                                <div className="rr-actions-row">
+                                    <Tooltip content="Select an MGXS library file" position="bottom">
+                                        <button className="theia-button secondary" onClick={() => this.browseMgxsLibrary(host)}>
+                                            <i className="codicon codicon-folder-opened"></i> Browse
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content="Generate an MGXS library from the current model" position="bottom">
+                                        <button className="theia-button secondary" onClick={() => host.openMgxsGeneratorWindow()}>
+                                            <i className="codicon codicon-library"></i> Generate…
+                                        </button>
+                                    </Tooltip>
+                                </div>
                             </div>
                         </div>
                     )}

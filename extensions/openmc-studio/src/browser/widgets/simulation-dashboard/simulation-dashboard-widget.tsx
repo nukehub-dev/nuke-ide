@@ -634,6 +634,14 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     /**
+     * Open the MGXS Generator window (quick access from the Random Ray tab).
+     * @see {@link MgxsGeneratorWidget}
+     */
+    public async openMgxsGeneratorWindow(): Promise<void> {
+        await this.commands.executeCommand('openmc.openMgxsGenerator');
+    }
+
+    /**
      * Create a new blank OpenMC project.
      */
     private async newProject(): Promise<void> {

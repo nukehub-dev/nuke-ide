@@ -551,6 +551,17 @@ export class MgxsGeneratorWidget extends ReactWidget {
      * @returns The React element tree for the widget.
      */
     protected render(): React.ReactNode {
+        // MGXS generation is a continuous-energy, per-nuclide workflow —
+        // flag incompatible projects up front (the driver also guards this)
+        const state = this.stateManager.getState();
+        const isMultiGroup = state.settings.energyMode === 'multigroup';
+        const macroscopicNames = state.materials.filter((m) => m.macroscopic).map((m) => m.name);
+        const incompatibleReason = isMultiGroup
+            ? 'this project is multi-group'
+            : macroscopicNames.length > 0
+              ? `macroscopic materials: ${macroscopicNames.join(', ')}`
+              : undefined;
+
         return (
             <div className="mgxs-generator-widget openmc-widget">
                 <div className="openmc-header">
@@ -562,14 +573,35 @@ export class MgxsGeneratorWidget extends ReactWidget {
                         <p className="header-description">Multi-group cross section library from continuous-energy solves</p>
                     </div>
                     <div className="header-actions">
-                        <Tooltip content={this.isRunning ? 'Generation in progress' : 'Generate the MGXS library'} position="bottom">
-                            <button className="theia-button primary large" onClick={() => this.generate()} disabled={this.isRunning}>
+                        <Tooltip
+                            content={incompatibleReason ?? (this.isRunning ? 'Generation in progress' : 'Generate the MGXS library')}
+                            position="bottom"
+                        >
+                            <button
+                                className="theia-button primary large"
+                                onClick={() => this.generate()}
+                                disabled={this.isRunning || incompatibleReason !== undefined}
+                            >
                                 <i className="codicon codicon-play"></i>
                                 {this.isRunning ? 'Generating...' : 'Generate MGXS Library'}
                             </button>
                         </Tooltip>
                     </div>
                 </div>
+
+                {incompatibleReason && (
+                    <div className="depletion-warning-box">
+                        <i className="codicon codicon-warning"></i>
+                        <div className="warning-content">
+                            <strong>MGXS generation requires a continuous-energy model with nuclide-decomposed materials</strong>
+                            <p>
+                                Incompatible: {incompatibleReason}. Generation runs continuous-energy transport solves with per-nuclide
+                                tallies — switch the model to continuous-energy with nuclide-decomposed materials (or generate the library
+                                from a separate CE project).
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 <div className="mgxs-body">
                     <div className="mgxs-mode-row">
