@@ -40,6 +40,7 @@ import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service'
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { OpenMCState, OpenMCSettings } from '../common/openmc-state-schema';
 import { OPENMC_SCORES } from '../common/scores-catalog';
+import { resolveDepletionSolver } from '../common/depletion-solvers';
 
 /**
  * Build a state exercising every settings.xml field added in Phase 5 W1.
@@ -1004,6 +1005,59 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.settings.mgxsLibrary).toBe('/data/from-settings.h5');
     });
 
+    it('skips auto-generated IFP tallies with a warning in multi-group mode', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/data/mgxs.h5';
+        state.settings.kinetics = { enabled: true, ifpNGenerations: 4 };
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: true, plots: false }
+        });
+
+        const talliesXml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(talliesXml).not.toContain('ifp-');
+        expect(result.warnings?.some((w) => w.includes('IFP kinetics is not supported in random ray mode'))).toBe(true);
+
+        // Continuous-energy control: IFP tallies ARE emitted
+        state.settings.energyMode = undefined;
+        const ceResult = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: false, tallies: true, plots: false }
+        });
+        const ceTalliesXml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(ceTalliesXml).toContain('ifp-denominator');
+        expect(ceResult.warnings?.some((w) => w.includes('IFP kinetics'))).toBeFalsy();
+    });
+
+    it('emits a mesh shared by settings-level features and tallies exactly once (settings.xml wins)', async () => {
+        const state = buildTestState();
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
+        state.varianceReduction = {
+            weightWindows: { meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: 'neutron', energyBounds: [0, 1e4, 2e7] }
+        };
+        state.tallies = [{ id: 1, name: 'mesh-flux', scores: ['flux'], nuclides: [], filters: [{ type: 'mesh', bins: [5], meshId: 5 }] }];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        const talliesXml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(settingsXml).toContain('<mesh id="5" type="regular">');
+        // tallies.xml must not repeat the id ('Mesh with ID=5 appears in multiple files')
+        expect(talliesXml).not.toContain('<mesh id="5"');
+        // The tally still references the mesh via its filter
+        expect(talliesXml).toContain('type="mesh"');
+    });
+
     it('round-trips the advanced scalar settings sweep (P6F)', async () => {
         const advancedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-advanced-'));
         const state = buildTestState();
@@ -1284,6 +1338,46 @@ describe('settings.xml round-trip', () => {
             { material: 2, element: 'Gd155', rate: -2e-6 }
         ]);
         expect(depletionCheck.settings.fissionQ).toEqual({ U235: 2.02e8, Pu239: 2.1e8 });
+    });
+
+    it('maps legacy depletion solver names to canonical integrator ids', async () => {
+        // Emission: legacy stored value writes the canonical id
+        const state = buildTestState();
+        state.depletion = {
+            enabled: true,
+            chainFile: '/chains/chain_endfb71.xml',
+            timeSteps: [86400],
+            power: 1e6,
+            solver: 'leapfrog' as any
+        };
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<solver>leqi</solver>');
+        expect(xml).not.toContain('leapfrog');
+
+        // Import: the runner's depletion-block parse maps aliases too
+        const runner = new OpenMCRunnerService();
+        const depletionCheck = await (runner as any).checkDepletionEnabled(tempDir);
+        expect(depletionCheck.settings.solver).toBe('leqi');
+    });
+
+    it('maps every legacy solver alias through resolveDepletionSolver', async () => {
+        expect(resolveDepletionSolver('leapfrog')).toBe('leqi');
+        expect(resolveDepletionSolver('predictor-corrector')).toBe('predictor');
+        expect(resolveDepletionSolver('si-rk4')).toBe('si_celi');
+        expect(resolveDepletionSolver('epc')).toBe('epc_rk4');
+        expect(resolveDepletionSolver('cecmr')).toBe('cecm');
+        expect(resolveDepletionSolver('epcr')).toBe('epc_rk4');
+        expect(resolveDepletionSolver('si-cesc')).toBe('si_celi');
+        // Canonical ids and unknown values
+        expect(resolveDepletionSolver('si_leqi')).toBe('si_leqi');
+        expect(resolveDepletionSolver(undefined)).toBe('cecm');
+        expect(resolveDepletionSolver('bogus')).toBe('cecm');
     });
 
     it('round-trips macroscopic (multigroup) materials through materials.xml', async () => {

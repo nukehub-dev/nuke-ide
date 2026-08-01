@@ -1924,7 +1924,39 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         this.log('Validating simulation state');
 
         const issues: ValidationResult['issues'] = [];
-        const { geometry, materials, settings, meshes } = request.state;
+        const { geometry, materials, settings, meshes, tallies } = request.state;
+
+        // Random ray (multi-group) restrictions — random ray only exists as
+        // multi-group in this OpenMC generation. Ground truth: the C++ error
+        // 'Invalid score specified. Only flux, total, fission, nu-fission,
+        // kappa-fission, and event scores are supported in random ray mode.'
+        if (settings.energyMode === 'multigroup') {
+            if (settings.kinetics?.enabled) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'IFP kinetics is not supported in random ray mode — disable kinetics in the Simulation tab',
+                    suggestion:
+                        'IFP scores are continuous-energy Monte Carlo only; disable kinetics or switch back to continuous-energy mode'
+                });
+            }
+            const RANDOM_RAY_SCORES = new Set(['flux', 'total', 'fission', 'nu-fission', 'kappa-fission', 'events']);
+            const invalidScores: string[] = [];
+            for (const tally of tallies ?? []) {
+                const bad = (tally.scores ?? []).filter((score) => !RANDOM_RAY_SCORES.has(score));
+                if (bad.length > 0) {
+                    invalidScores.push(`tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}: ${bad.join(', ')}`);
+                }
+            }
+            if (invalidScores.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'tallies',
+                    message: `Scores not supported in random ray mode: ${invalidScores.join('; ')}`,
+                    suggestion: 'Random ray supports only flux, total, fission, nu-fission, kappa-fission, and event scores'
+                });
+            }
+        }
 
         // Basic validation - skip materials check for DAGMC (materials are in the file)
         const dagmcMaterials = settings.dagmcInfo?.materials;

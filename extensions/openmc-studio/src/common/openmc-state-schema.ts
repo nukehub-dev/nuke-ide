@@ -1349,8 +1349,12 @@ export interface OpenMCDepletion {
     powerDensity?: number;
     /** Time steps in seconds (or with units like '1 d', '30 d') */
     timeSteps: string[] | number[];
-    /** Solver method: 'cecm', 'epc', 'predictor', 'cecmr', 'epcr', 'si-cesc', 'leqi' */
-    solver?: 'cecm' | 'epc' | 'predictor' | 'cecmr' | 'epcr' | 'si-cesc' | 'leqi';
+    /**
+     * Solver (integrator) id — canonical OpenMC short names
+     * (`integrator_by_name`, see `src/common/depletion-solvers.ts`). Legacy
+     * stored values are mapped via `resolveDepletionSolver` on read.
+     */
+    solver?: 'cecm' | 'predictor' | 'cf4' | 'celi' | 'epc_rk4' | 'leqi' | 'si_celi' | 'si_leqi';
     /** Number of substeps per timestep */
     substeps?: number;
     /** Transport normalization mode: 'source-rate', 'fission-q', 'energy-deposition' */

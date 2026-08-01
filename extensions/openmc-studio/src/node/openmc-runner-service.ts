@@ -60,6 +60,7 @@ import {
     MgxsLibraryGenerationResult
 } from '../common/openmc-studio-protocol';
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
+import { resolveDepletionSolver } from '../common/depletion-solvers';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
@@ -162,7 +163,9 @@ export class OpenMCRunnerService {
             }
             const solver = extractTag(depletionXml, 'solver');
             if (solver) {
-                settings.solver = solver;
+                // Legacy stored values (leapfrog, predictor-corrector, …) map
+                // to canonical OpenMC integrator ids
+                settings.solver = resolveDepletionSolver(solver);
             }
             const normalization = extractTag(depletionXml, 'normalization');
             if (normalization) {
@@ -899,7 +902,7 @@ export class OpenMCRunnerService {
         }
 
         // Solver and operator
-        args.push('--solver', depletionSettings.solver ?? 'cecm');
+        args.push('--solver', resolveDepletionSolver(depletionSettings.solver));
         args.push('--operator', depletionSettings.operator ?? 'coupled');
 
         // Advanced options

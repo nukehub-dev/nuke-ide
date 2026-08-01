@@ -136,11 +136,11 @@ Configure burnup and depletion calculations.
 
 ### Physics Configuration
 
-| Parameter              | Description                                                          |
-| ---------------------- | -------------------------------------------------------------------- |
-| **Chain File**         | Path to the depletion chain XML (decay constants and fission yields) |
-| **Integration Method** | `Predictor-Corrector` (standard), `CE-CM`, `Leapfrog`, or `SI-RK4`   |
-| **Power Level**        | Total power (W) or power density (W/g)                               |
+| Parameter              | Description                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Chain File**         | Path to the depletion chain XML (decay constants and fission yields)                                             |
+| **Integration Method** | OpenMC integrator: `CE/CM` (default), `Predictor`, `CF4`, `CE/LI`, `EPC-RK4`, `LE/QI`, `SI-CE/LI`, or `SI-LE/QI` |
+| **Power Level**        | Total power (W) or power density (W/g)                                                                           |
 
 ### Custom Chain Builder
 

@@ -60,6 +60,38 @@ class TestMainArgparse:
             run_depletion.main()
         assert exc.value.code == 2
 
+    @pytest.mark.parametrize(
+        "solver",
+        [
+            # Canonical OpenMC integrator short names (integrator_by_name)
+            "cecm",
+            "predictor",
+            "cf4",
+            "celi",
+            "epc_rk4",
+            "leqi",
+            "si_celi",
+            "si_leqi",
+            # Legacy aliases accepted (deprecation warning, not error)
+            "leapfrog",
+            "predictor-corrector",
+            "si-rk4",
+            "epc",
+            "cecmr",
+            "epcr",
+            "si-cesc",
+        ],
+    )
+    def test_all_solver_choices_accepted(self, monkeypatch, solver):
+        """Every canonical and legacy --solver value passes argparse."""
+        monkeypatch.setattr(run_depletion, "run_depletion", lambda args: {"success": True})
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_depletion.py", "/tmp/model", "--time-steps", "1", "--solver", solver],
+        )
+        assert run_depletion.main() == 0
+
     def test_help_exits_with_code_0(self, monkeypatch):
         """--help prints usage and exits 0."""
         monkeypatch.setattr(sys, "argv", ["run_depletion.py", "--help"])

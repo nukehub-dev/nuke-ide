@@ -235,6 +235,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
                             meshes={meshes}
                             materials={state.materials}
                             triggerBatchInterval={this.stateManager.getState().settings.triggers?.batchInterval}
+                            multiGroup={state.settings.energyMode === 'multigroup'}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />
                     ) : (

@@ -46,6 +46,8 @@ interface TallyEditorProps {
     materials: OpenMCMaterial[];
     /** Run-level trigger evaluation interval in batches (settings.triggers.batchInterval) */
     triggerBatchInterval?: number;
+    /** Multi-group (random ray) mode — forwarded to the score selector hint */
+    multiGroup?: boolean;
     /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
@@ -61,7 +63,7 @@ interface TallyEditorProps {
  * @see {@link FilterBuilder}
  * @see {@link NuclideSelector}
  */
-export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materials, triggerBatchInterval, onUpdate }) => {
+export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materials, triggerBatchInterval, multiGroup, onUpdate }) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
@@ -136,7 +138,7 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                     <p className="section-description">
                         Select physical quantities to measure: flux (particle flow), fission rates, heating, etc.
                     </p>
-                    <ScoreSelector scores={tally.scores} onUpdate={(scores) => onUpdate({ scores })} />
+                    <ScoreSelector scores={tally.scores} onUpdate={(scores) => onUpdate({ scores })} multiGroup={multiGroup} />
                 </div>
 
                 <div className="editor-section">

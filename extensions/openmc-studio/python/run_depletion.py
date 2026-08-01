@@ -13,7 +13,7 @@ Options:
     --time-steps STEPS      Comma-separated time steps in seconds
     --power POWER           Power level in Watts
     --power-density DENSITY Power density in W/g (alternative to --power)
-    --solver SOLVER         Depletion solver (cecm, epc, predictor, cecmr, epcr, si-cesc, leqi)
+    --solver SOLVER         Depletion solver (cecm, predictor, cf4, celi, epc_rk4, leqi, si_celi, si_leqi)
     --operator TYPE         Operator type (coupled, independent, openmc)
     --substeps N            Number of substeps per timestep
     --normalization MODE    Transport normalization mode (source-rate, fission-q, energy-deposition)
@@ -26,6 +26,46 @@ import os
 import sys
 import traceback
 from pathlib import Path
+
+# Canonical solver ids are the OpenMC short names from
+# openmc/deplete/integrators.py `integrator_by_name` (identical in 0.15.3 and
+# the dev clone). Mirrored by src/common/depletion-solvers.ts.
+SOLVER_CLASS_MAP = {
+    "cecm": "CECMIntegrator",
+    "predictor": "PredictorIntegrator",
+    "cf4": "CF4Integrator",
+    "celi": "CELIIntegrator",
+    "epc_rk4": "EPCRK4Integrator",
+    "leqi": "LEQIIntegrator",
+    "si_celi": "SICELIIntegrator",
+    "si_leqi": "SILEQIIntegrator",
+}
+
+# Legacy names accepted with a deprecation warning (pre-fix UI values and
+# pre-fix driver ids); never emitted.
+SOLVER_ALIASES = {
+    "leapfrog": "leqi",
+    "predictor-corrector": "predictor",
+    "si-rk4": "si_celi",
+    "ce-cm": "cecm",
+    "epc": "epc_rk4",
+    "cecmr": "cecm",
+    "epcr": "epc_rk4",
+    "si-cesc": "si_celi",
+}
+
+
+def resolve_solver(value):
+    """Map a --solver value to a canonical solver id (aliases → warning)."""
+    solver = (value or "cecm").lower()
+    if solver in SOLVER_CLASS_MAP:
+        return solver
+    if solver in SOLVER_ALIASES:
+        canonical = SOLVER_ALIASES[solver]
+        log_progress(f"Warning: solver '{solver}' is deprecated, use '{canonical}' instead")
+        return canonical
+    available = ", ".join(SOLVER_CLASS_MAP)
+    raise ValueError(f"Unknown solver: {solver}. Available: {available}")
 
 
 def log_progress(message: str):
@@ -195,24 +235,10 @@ def run_depletion(args):
             coupled_kwargs["fission_q"] = fission_q
         operator = openmc.deplete.CoupledOperator(model, chain, **coupled_kwargs)
 
-    # Create the integrator (solver)
-    # Map solver names to OpenMC integrator class names
-    solver_name_map = {
-        "cecm": "CECMIntegrator",
-        "epc": "EPCRK4Integrator",
-        "predictor": "PredictorIntegrator",
-        "cecmr": "CECMIntegrator",
-        "epcr": "EPCRK4Integrator",
-        "si-cesc": "SICELIIntegrator",
-        "leqi": "LEQIIntegrator",
-    }
-
-    solver = args.solver or "cecm"
-    class_name = solver_name_map.get(solver.lower())
-
-    if class_name is None:
-        available_solvers = list(solver_name_map.keys())
-        raise ValueError(f"Unknown solver: {solver}. Available: {available_solvers}")
+    # Create the integrator (solver) — canonical ids from
+    # integrator_by_name; legacy aliases resolve with a deprecation warning
+    solver = resolve_solver(args.solver)
+    class_name = SOLVER_CLASS_MAP[solver]
 
     integrator_class = getattr(openmc.deplete, class_name, None)
 
@@ -405,8 +431,8 @@ Examples:
     parser.add_argument(
         "--solver",
         default="cecm",
-        choices=["cecm", "epc", "predictor", "cecmr", "epcr", "si-cesc", "leqi"],
-        help="Depletion solver method",
+        choices=list(SOLVER_CLASS_MAP) + list(SOLVER_ALIASES),
+        help="Depletion solver method (OpenMC integrator short name; legacy names map with a warning)",
     )
     parser.add_argument(
         "--operator",

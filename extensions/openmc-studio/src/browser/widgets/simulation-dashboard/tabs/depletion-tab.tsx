@@ -30,6 +30,7 @@ import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCTransferRate } from '../../../../common/openmc-state-schema';
+import { DEPLETION_SOLVERS, resolveDepletionSolver } from '../../../../common/depletion-solvers';
 import { ChainBuildResult } from '../../../../common/openmc-studio-protocol';
 import { DepletionTimeline } from '../depletion-timeline';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
@@ -141,13 +142,14 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                         Integration Method
                                     </label>
                                     <select
-                                        value={(depletion as any).solver || 'predictor-corrector'}
+                                        value={resolveDepletionSolver((depletion as any).solver)}
                                         onChange={(e) => host.stateManager.updateDepletion({ solver: e.target.value as any })}
                                     >
-                                        <option value="predictor-corrector">Predictor-Corrector (Standard)</option>
-                                        <option value="ce-cm">CE-CM (High Accuracy)</option>
-                                        <option value="leapfrog">Leapfrog</option>
-                                        <option value="si-rk4">SI-RK4 (Stochastic Implicit)</option>
+                                        {DEPLETION_SOLVERS.map((s) => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.label}
+                                            </option>
+                                        ))}
                                     </select>
                                     <span className="config-hint">Algorithm for solving depletion equations</span>
                                 </div>

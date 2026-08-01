@@ -76,10 +76,13 @@ def _install_fake_openmc(
     geometry=None,
     integrator_names=(
         "CECMIntegrator",
-        "EPCRK4Integrator",
         "PredictorIntegrator",
-        "SICELIIntegrator",
+        "CF4Integrator",
+        "CELIIntegrator",
+        "EPCRK4Integrator",
         "LEQIIntegrator",
+        "SICELIIntegrator",
+        "SILEQIIntegrator",
     ),
 ):
     """Insert stub openmc/openmc.deplete modules; returns the fake openmc."""
@@ -112,7 +115,8 @@ def _install_fake_openmc(
     fake_deplete.Chain = SimpleNamespace(from_xml=lambda path: ("chain", path))
     fake_deplete.CoupledOperator = RecordingOperator
     for name in integrator_names:
-        setattr(fake_deplete, name, RecordingIntegrator)
+        # Distinct subclass per integrator so tests can tell which class was used
+        setattr(fake_deplete, name, type(name, (RecordingIntegrator,), {}))
     fake_openmc.deplete = fake_deplete
 
     RecordingOperator.instances = []
@@ -286,19 +290,20 @@ class TestRunDepletionSuccess:
         "solver,expected_class",
         [
             ("cecm", "CECMIntegrator"),
-            ("epc", "EPCRK4Integrator"),
             ("predictor", "PredictorIntegrator"),
-            ("cecmr", "CECMIntegrator"),
-            ("epcr", "EPCRK4Integrator"),
-            ("si-cesc", "SICELIIntegrator"),
+            ("cf4", "CF4Integrator"),
+            ("celi", "CELIIntegrator"),
+            ("epc_rk4", "EPCRK4Integrator"),
             ("leqi", "LEQIIntegrator"),
+            ("si_celi", "SICELIIntegrator"),
+            ("si_leqi", "SILEQIIntegrator"),
         ],
     )
     def test_solver_name_mapping(
         self, monkeypatch, tmp_path, chain_file, solver, expected_class, capsys
     ):
-        """Every documented solver maps to its integrator class."""
-        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        """Every canonical solver maps to its integrator class."""
+        fake = _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
         workdir = _workdir(tmp_path)
 
         result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file, solver=solver))
@@ -306,6 +311,35 @@ class TestRunDepletionSuccess:
         assert result["success"] is True
         assert result["solver"] == solver
         assert f"Creating {solver.upper()} integrator" in capsys.readouterr().err
+        (integrator,) = RecordingIntegrator.instances
+        assert isinstance(integrator, getattr(fake.deplete, expected_class))
+
+    @pytest.mark.parametrize(
+        "alias,canonical",
+        [
+            ("leapfrog", "leqi"),
+            ("predictor-corrector", "predictor"),
+            ("si-rk4", "si_celi"),
+            ("epc", "epc_rk4"),
+            ("cecmr", "cecm"),
+            ("epcr", "epc_rk4"),
+            ("si-cesc", "si_celi"),
+        ],
+    )
+    def test_solver_legacy_aliases(
+        self, monkeypatch, tmp_path, chain_file, alias, canonical, capsys
+    ):
+        """Legacy solver names map to canonical ids with a deprecation warning."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file, solver=alias))
+
+        assert result["success"] is True
+        assert result["solver"] == canonical
+        err = capsys.readouterr().err
+        assert f"solver '{alias}' is deprecated, use '{canonical}' instead" in err
+        assert f"Creating {canonical.upper()} integrator" in err
 
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ import * as fs from 'fs';
 
 import { XMLGenerationRequest, XMLGenerationResult, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { resolveMgxsLibrary } from '../common/mgxs-library';
+import { resolveDepletionSolver } from '../common/depletion-solvers';
 
 import {
     OpenMCState,
@@ -161,7 +162,7 @@ export class XMLGenerationService {
             // Generate tallies.xml (also when only auto-generated IFP kinetics tallies would be present)
             if (request.files.tallies && (request.state.tallies.length > 0 || request.state.settings.kinetics?.enabled)) {
                 const talliesPath = path.join(request.outputDirectory, 'tallies.xml');
-                const talliesXml = this.generateTalliesXML(request.state);
+                const talliesXml = this.generateTalliesXML(request.state, warnings);
                 fs.writeFileSync(talliesPath, talliesXml);
                 generatedFiles.push(talliesPath);
                 this.log(`Generated tallies.xml`);
@@ -970,7 +971,7 @@ export class XMLGenerationService {
                 lines.push(`    <operator>${state.depletion.operator}</operator>`);
             }
             if (state.depletion.solver) {
-                lines.push(`    <solver>${state.depletion.solver}</solver>`);
+                lines.push(`    <solver>${resolveDepletionSolver(state.depletion.solver)}</solver>`);
             }
             if (state.depletion.normalizationMode) {
                 lines.push(`    <normalization>${state.depletion.normalizationMode}</normalization>`);
@@ -1529,29 +1530,79 @@ export class XMLGenerationService {
      * @returns tallies.xml content
      */
 
-    private generateTalliesXML(state: OpenMCState): string {
-        const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
-
-        // Add meshes first. Meshes referenced by a MeshSource live in
-        // settings.xml instead (OpenMC mesh_memo pattern: settings is written
-        // first and tallies.xml must not repeat those ids, model.py:714/749).
-        const settingsMeshIds = new Set<number>();
+    /**
+     * IDs of meshes emitted into settings.xml by settings-level features:
+     * mesh sources, the Shannon entropy mesh, the random ray source-region
+     * mesh, and variance-reduction meshes (weight windows, WW generator,
+     * UFS). tallies.xml must skip these (OpenMC mesh_memo pattern,
+     * model.py:714/749) — duplicates trigger 'Mesh with ID=N appears in
+     * multiple files'.
+     * @param state - Simulation state.
+     * @returns Set of mesh IDs that live in settings.xml.
+     */
+    private getSettingsMeshIds(state: OpenMCState): Set<number> {
+        const ids = new Set<number>();
         for (const source of state.settings.sources ?? []) {
             if (source.type === 'mesh' && source.meshId !== undefined) {
-                settingsMeshIds.add(source.meshId);
+                ids.add(source.meshId);
             }
         }
+        if (state.settings.entropyMesh) {
+            ids.add(state.settings.entropyMesh.id ?? 10000);
+        }
+        // The random ray and variance-reduction emitters only write regular
+        // meshes that exist in state.meshes — mirror that here so tallies.xml
+        // never skips a mesh settings.xml did not actually emit
+        const emittedRegularMesh = (id: number | undefined): boolean =>
+            id !== undefined && state.meshes.some((m) => m.id === id && m.type === 'regular');
+        if (emittedRegularMesh(state.settings.randomRay?.sourceRegionMeshId)) {
+            ids.add(state.settings.randomRay!.sourceRegionMeshId!);
+        }
+        const vr = state.varianceReduction;
+        if (vr) {
+            if (vr.weightWindowGenerator) {
+                const wwgMeshId = vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1;
+                if (emittedRegularMesh(wwgMeshId)) {
+                    ids.add(wwgMeshId);
+                }
+            }
+            if (emittedRegularMesh(vr.weightWindows?.meshId)) {
+                ids.add(vr.weightWindows!.meshId!);
+            }
+            if (vr.ufs?.enabled && emittedRegularMesh(vr.ufs.meshId)) {
+                ids.add(vr.ufs.meshId!);
+            }
+        }
+        return ids;
+    }
+
+    private generateTalliesXML(state: OpenMCState, warnings?: string[]): string {
+        const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
+
+        // Add meshes first. Meshes referenced by settings-level features live
+        // in settings.xml instead (OpenMC mesh_memo pattern: settings is
+        // written first and tallies.xml must not repeat those ids,
+        // model.py:714/749 — duplicates trigger 'Mesh with ID=N appears in
+        // multiple files').
+        const settingsMeshIds = this.getSettingsMeshIds(state);
         for (const mesh of state.meshes) {
             if (!settingsMeshIds.has(mesh.id)) {
                 lines.push(this.generateMeshElement(mesh));
             }
         }
 
-        // Auto-append IFP kinetics tallies when enabled (skips scores already defined by the user)
+        // Auto-append IFP kinetics tallies when enabled (skips scores already defined by the user).
+        // IFP scores are continuous-energy only — random ray (multi-group) rejects them.
         const effectiveTallies = [...state.tallies];
         if (state.settings.kinetics?.enabled) {
-            const maxTallyId = state.tallies.reduce((max, t) => Math.max(max, t.id), 0);
-            effectiveTallies.push(...getAutoIfpTallies(state.tallies, state.settings.kinetics, maxTallyId + 1));
+            if (state.settings.energyMode === 'multigroup') {
+                warnings?.push(
+                    'IFP kinetics is not supported in random ray mode — the auto-generated IFP tallies were not written to tallies.xml (disable kinetics in the Simulation tab)'
+                );
+            } else {
+                const maxTallyId = state.tallies.reduce((max, t) => Math.max(max, t.id), 0);
+                effectiveTallies.push(...getAutoIfpTallies(state.tallies, state.settings.kinetics, maxTallyId + 1));
+            }
         }
 
         // Collect all unique filters and assign them IDs

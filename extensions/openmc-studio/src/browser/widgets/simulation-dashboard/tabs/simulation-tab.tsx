@@ -31,6 +31,7 @@ import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
 import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
+import { resolveDepletionSolver } from '../../../../common/depletion-solvers';
 import { deriveTrackCaptureSettings, isParticleRestartFile, parseParticleRestartFileName } from '../../../../common/particle-restart';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -308,7 +309,7 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             </div>
                             <div className="info-item">
                                 <label>Solver:</label>
-                                <span style={{ textTransform: 'uppercase' }}>{state.depletion.solver}</span>
+                                <span style={{ textTransform: 'uppercase' }}>{resolveDepletionSolver(state.depletion.solver)}</span>
                             </div>
                         </div>
                     </div>
@@ -600,6 +601,7 @@ export class SimulationTabContribution implements DashboardTabContribution {
     private renderKineticsSection(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
         const kinetics = state.settings.kinetics;
         const isEigenvalue = state.settings.run.mode === 'eigenvalue';
+        const isMultiGroup = state.settings.energyMode === 'multigroup';
 
         const updateKinetics = (updates: Partial<NonNullable<OpenMCState['settings']['kinetics']>>): void => {
             const merged = { ...(kinetics ?? {}), ...updates };
@@ -617,7 +619,7 @@ export class SimulationTabContribution implements DashboardTabContribution {
                         <input
                             type="checkbox"
                             checked={kinetics?.enabled ?? false}
-                            disabled={host.isRunning}
+                            disabled={host.isRunning || (isMultiGroup && !kinetics?.enabled)}
                             onChange={(e) =>
                                 updateKinetics(
                                     e.target.checked
@@ -629,6 +631,11 @@ export class SimulationTabContribution implements DashboardTabContribution {
                         Enable kinetics parameters (Iterated Fission Probability)
                     </label>
                     {!isEigenvalue && <span className="form-hint">IFP kinetics requires eigenvalue (criticality) run mode.</span>}
+                    {isMultiGroup && (
+                        <span className="form-hint">
+                            IFP kinetics requires continuous-energy mode (random ray does not support IFP scores).
+                        </span>
+                    )}
                 </div>
 
                 {kinetics?.enabled && (

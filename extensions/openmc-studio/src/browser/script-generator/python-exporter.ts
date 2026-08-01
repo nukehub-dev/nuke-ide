@@ -67,6 +67,7 @@ import {
 } from '../../common/openmc-state-schema';
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
+import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -1363,17 +1364,9 @@ export class OpenMCPythonExporter {
         });
         lines.push(`timesteps = [${timesteps.join(', ')}]  # Timesteps in seconds`);
 
-        // Setup Integrator
-        const solverMap: Record<string, string> = {
-            cecm: 'CECMIntegrator',
-            epc: 'EPCRK4Integrator',
-            predictor: 'PredictorIntegrator',
-            cecmr: 'CECMIntegrator',
-            epcr: 'EPCRK4Integrator',
-            'si-cesc': 'SICESCIntegrator',
-            leqi: 'LEQIIntegrator'
-        };
-        const solver = solverMap[depletion.solver || 'predictor'] || 'PredictorIntegrator';
+        // Setup Integrator — canonical OpenMC integrator class (legacy solver
+        // names resolve via the shared alias map)
+        const solver = getDepletionSolver(resolveDepletionSolver(depletion.solver)).className;
         lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
 
         // External transfer rates (Integrator.add_transfer_rate)

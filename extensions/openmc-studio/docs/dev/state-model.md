@@ -248,17 +248,17 @@ Time-dependent material evolution (burnup) settings:
 
 ```typescript
 interface OpenMCDepletion {
-    enabled?: boolean;
-    chainFile?: string;
-    operator?: 'coupled' | 'independent' | 'openmc';
-    power?: number;            // Watts
-    powerDensity?: number;     // W/g
-    timeSteps: string[] | number[];   // e.g., ['1 d', '30 d', '1 y']
-    solver?: 'cecm' | 'epc' | 'predictor' | ...;
-    substeps?: number;
-    normalizationMode?: 'source-rate' | 'fission-q' | 'energy-deposition';
-    decayOnlySteps?: number[]; // Indices of timesteps with no transport
-    reduceOutput?: boolean;
+  enabled?: boolean;
+  chainFile?: string;
+  operator?: 'coupled' | 'independent' | 'openmc';
+  power?: number; // Watts
+  powerDensity?: number; // W/g
+  timeSteps: string[] | number[]; // e.g., ['1 d', '30 d', '1 y']
+  solver?: 'cecm' | 'predictor' | 'cf4' | 'celi' | 'epc_rk4' | 'leqi' | 'si_celi' | 'si_leqi'; // integrator_by_name ids; legacy names map via resolveDepletionSolver
+  substeps?: number;
+  normalizationMode?: 'source-rate' | 'fission-q' | 'energy-deposition';
+  decayOnlySteps?: number[]; // Indices of timesteps with no transport
+  reduceOutput?: boolean;
 }
 ```
 

@@ -37,6 +37,8 @@ interface ScoreSelectorProps {
     scores: OpenMCTallyScore[];
     /** Callback when the score selection changes */
     onUpdate: (scores: OpenMCTallyScore[]) => void;
+    /** Multi-group (random ray) mode — shows the restricted-score hint */
+    multiGroup?: boolean;
 }
 
 /**
@@ -49,7 +51,7 @@ interface ScoreSelectorProps {
  *
  * @see {@link TallyEditor}
  */
-export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }) => {
+export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate, multiGroup }) => {
     const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({ basic: false });
     const [customMt, setCustomMt] = React.useState('');
 
@@ -84,6 +86,12 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate }
 
     return (
         <div className="score-selector">
+            {multiGroup && (
+                <p className="form-hint">
+                    Multi-group (random ray) mode supports only the flux, total, fission, nu-fission, kappa-fission, and events scores —
+                    other scores are rejected at run time.
+                </p>
+            )}
             <div className="score-categories">
                 {getScoresByCategory().map((cat) => {
                     const isCollapsed = collapsed[cat.category] ?? cat.category !== 'basic';
