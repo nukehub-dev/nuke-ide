@@ -318,3 +318,175 @@
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
 }
+
+/* ============================================================================
+   Tab bar (Library | NCrystal | ENDF) + NCrystal tab
+   ============================================================================ */
+
+.nuclear-data-widget .nuclear-data-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+}
+
+.nuclear-data-widget .nuclear-data-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.nuclear-data-widget .nuclear-data-tab:hover:not(:disabled) {
+    color: var(--theia-foreground);
+}
+
+.nuclear-data-widget .nuclear-data-tab.active {
+    color: var(--theia-foreground);
+    border-bottom-color: var(--theia-focusBorder);
+}
+
+.nuclear-data-widget .nuclear-data-tab:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* NCrystal tab layout: reuses nuclide-list-panel / nuclide-detail-panel */
+
+.nuclear-data-widget .ncrystal-tab {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.nuclear-data-widget .ncrystal-tab .nuclide-list-panel {
+    max-width: 340px;
+}
+
+.nuclear-data-widget .ncrystal-toolbar-actions {
+    display: flex;
+    gap: 6px;
+    padding: 0 8px 8px;
+}
+
+/* Config-string builder */
+
+.nuclear-data-widget .cfg-builder {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.nuclear-data-widget .cfg-builder-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.nuclear-data-widget .cfg-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.nuclear-data-widget .cfg-field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.nuclear-data-widget .cfg-field input {
+    padding: 4px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 12px;
+    outline: none;
+}
+
+.nuclear-data-widget .cfg-field input:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuclear-data-widget .cfg-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nuclear-data-widget .cfg-preview {
+    flex: 1;
+    font-size: 12px;
+    font-family: var(--theia-monospace-font-family, monospace);
+    background: var(--theia-textCodeBlock-background, var(--theia-editorWidget-background));
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuclear-data-widget .cfg-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin-top: 8px;
+}
+
+.nuclear-data-widget .cfg-hint {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.nuclear-data-widget .ncrystal-info {
+    margin-bottom: 8px;
+}
+
+.nuclear-data-widget .ncrystal-plot {
+    margin-top: 12px;
+    height: 380px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* ============================================================================
+   ENDF tab
+   ============================================================================ */
+
+.nuclear-data-widget .endf-sublib-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 8px 8px;
+}
+
+.nuclear-data-widget .endf-sublib-row .theia-button {
+    min-width: 0;
+    margin-left: 0;
+    padding: 3px 8px;
+    font-size: 11px;
+}
+
+.nuclear-data-widget .endf-detail-table {
+    display: table;
+    max-height: none;
+    overflow: visible;
+}
+
+.nuclear-data-widget .endf-detail-table th.numeric,
+.nuclear-data-widget .endf-detail-table td.numeric {
+    text-align: right;
+}

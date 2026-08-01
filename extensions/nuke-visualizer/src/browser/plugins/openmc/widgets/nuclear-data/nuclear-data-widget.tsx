@@ -43,13 +43,16 @@ import {
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { startSplitDrag } from '../drag-split';
 import { XSPlotWidget } from '../plotting/xs-plot-widget';
+import { NCrystalTab } from './ncrystal-tab';
+import { EndfTab } from './endf-tab';
 import './nuclear-data.css';
 
 /**
- * Nuclear Data window: read-only inspection of the configured cross_sections
- * data library. Shows the library path, a searchable nuclide table (name,
- * temperature count, reaction count), and a per-nuclide detail panel (reaction
- * MT list, temperatures, fission flag) with a direct link into the XS plot.
+ * Nuclear Data window: read-only inspection of nuclear data — tabbed:
+ * **Library** (cross_sections.xml HDF5 library: searchable nuclide table +
+ * reaction detail), **NCrystal** (.ncmat materials: cfg-string builder,
+ * material detail, S(a,b) XS plot), **ENDF** (evaluations browser: decay,
+ * fission yields, reaction sections).
  */
 @injectable()
 export class NuclearDataWidget extends ReactWidget {
@@ -86,6 +89,7 @@ export class NuclearDataWidget extends ReactWidget {
     private selectedNuclide?: string;
     private detail?: NuclideDetailResult;
     private detailLoading = false;
+    private activeTab: 'library' | 'ncrystal' | 'endf' = 'library';
 
     /** Initialize widget id, title, and load the default library. */
     @postConstruct()
@@ -105,6 +109,10 @@ export class NuclearDataWidget extends ReactWidget {
                     this.detail = undefined;
                     void this.loadLibrary();
                 }
+                if (event.preferenceName === 'nuke.endfLibrary') {
+                    this.endfLibraryDir = this.preferenceService.get('nuke.endfLibrary', '');
+                    this.update();
+                }
             })
         );
 
@@ -115,9 +123,19 @@ export class NuclearDataWidget extends ReactWidget {
             if (!this.libraryPath) {
                 this.libraryPath = this.nukeCoreService.getCrossSectionsPath() || undefined;
             }
+            this.endfLibraryDir = this.preferenceService.get('nuke.endfLibrary', '');
             void this.loadLibrary();
         });
         this.update();
+    }
+
+    /** ENDF library directory from the `nuke.endfLibrary` preference. */
+    private endfLibraryDir = '';
+
+    /** Persist the ENDF library directory chosen in the ENDF tab. */
+    private setEndfLibraryDir(dir: string): void {
+        this.endfLibraryDir = dir;
+        void this.preferenceService.set('nuke.endfLibrary', dir);
     }
 
     /** Load (or reload) the library summary from the backend. */
@@ -221,8 +239,6 @@ export class NuclearDataWidget extends ReactWidget {
 
     /** Render the widget. */
     protected render(): React.ReactNode {
-        const nuclides = (this.library?.nuclides ?? []).filter((n) => n.name.toLowerCase().includes(this.filter.toLowerCase()));
-
         return (
             <div className="nuclear-data-widget">
                 <div className="openmc-header">
@@ -233,25 +249,74 @@ export class NuclearDataWidget extends ReactWidget {
                         </h2>
                         <p className="header-description">Inspect the configured cross-section data library (read-only)</p>
                     </div>
-                    <div className="header-actions">
-                        <Tooltip content="Load a different cross_sections.xml" position="bottom">
-                            <button className="theia-button secondary" onClick={() => this.browseLibrary()}>
-                                <i className="codicon codicon-folder-opened"></i> Change Library…
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="Reload the library" position="bottom">
-                            <button className="theia-button secondary" disabled={this.loading} onClick={() => this.loadLibrary()}>
-                                <i className="codicon codicon-refresh"></i>
-                            </button>
-                        </Tooltip>
-                    </div>
                 </div>
 
+                <div className="nuclear-data-tabs">
+                    <button
+                        className={`nuclear-data-tab ${this.activeTab === 'library' ? 'active' : ''}`}
+                        onClick={() => {
+                            this.activeTab = 'library';
+                            this.update();
+                        }}
+                    >
+                        <i className="codicon codicon-library"></i> Library
+                    </button>
+                    <button
+                        className={`nuclear-data-tab ${this.activeTab === 'ncrystal' ? 'active' : ''}`}
+                        onClick={() => {
+                            this.activeTab = 'ncrystal';
+                            this.update();
+                        }}
+                    >
+                        <i className="codicon codicon-symbol-atom"></i> NCrystal
+                    </button>
+                    <button
+                        className={`nuclear-data-tab ${this.activeTab === 'endf' ? 'active' : ''}`}
+                        onClick={() => {
+                            this.activeTab = 'endf';
+                            this.update();
+                        }}
+                    >
+                        <i className="codicon codicon-file-code"></i> ENDF
+                    </button>
+                </div>
+
+                {this.activeTab === 'library' && this.renderLibraryTab()}
+                {this.activeTab === 'ncrystal' && (
+                    <NCrystalTab backendService={this.backendService} fileDialogService={this.fileDialogService} />
+                )}
+                {this.activeTab === 'endf' && (
+                    <EndfTab
+                        backendService={this.backendService}
+                        fileDialogService={this.fileDialogService}
+                        initialDir={this.endfLibraryDir}
+                        onDirChange={(dir) => this.setEndfLibraryDir(dir)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    private renderLibraryTab(): React.ReactNode {
+        const nuclides = (this.library?.nuclides ?? []).filter((n) => n.name.toLowerCase().includes(this.filter.toLowerCase()));
+
+        return (
+            <>
                 <div className="library-path-row">
                     <span className="library-path-label">Library:</span>
                     <code className="library-path-value" title={this.libraryPath}>
                         {this.libraryPath ?? '(unresolved — set nuke.openmcCrossSections or Change Library…)'}
                     </code>
+                    <Tooltip content="Load a different cross_sections.xml" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.browseLibrary()}>
+                            <i className="codicon codicon-folder-opened"></i> Change Library…
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Reload the library" position="bottom">
+                        <button className="theia-button secondary" disabled={this.loading} onClick={() => this.loadLibrary()}>
+                            <i className="codicon codicon-refresh"></i>
+                        </button>
+                    </Tooltip>
                 </div>
 
                 {this.loading && (
@@ -387,7 +452,7 @@ export class NuclearDataWidget extends ReactWidget {
                         </div>
                     </div>
                 )}
-            </div>
+            </>
         );
     }
 }

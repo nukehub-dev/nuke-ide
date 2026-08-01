@@ -10,8 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Phase 5: comprehensive OpenMC feature completeness.
 Phase 6: remaining OpenMC surface.
 Phase 7: deferred surface + end-to-end testing layer.
+Phase 8: nuclear data hub (NCrystal + ENDF).
 
 ### Added
+
+- nuke-visualizer: NCrystal tab in the Nuclear Data window — browse the installed
+  `.ncmat` material library (or custom files/dirs), inspect phases/structure,
+  build config strings with a guided editor (temp, dcutoff, mosaicity, …) for
+  pasting into openmc-studio's NCrystal import, and plot S(α,β) scatter +
+  absorption cross sections (validated against known thermal values).
+- nuke-visualizer: ENDF tab in the Nuclear Data window — browse an ENDF-6
+  library directory (decay/nfy/sfy/neutrons sub-libraries), with per-evaluation
+  detail: decay modes and half-lives, per-energy fission-product yield tables,
+  and fast reaction-section scans of neutron files.
+- nuke-visualizer: voxel plot HDF5 (`*voxel*.h5`, `plot_*.h5`) and `summary.h5`
+  now open on double-click (voxel → results viewer; summary → geometry 3D via
+  on-the-fly XML conversion). Output viewers have a draggable viewer/table
+  split, and missing-dependency errors show an actionable install/env panel.
+- nuke-visualizer: the visualizer proxy retries refused connections on startup
+  (trame bind race), eliminating false 'Visualizer server unreachable' errors.
 
 - openmc-studio: tally derivatives (`TallyDerivative`) — sensitivity tallies in
   the tally editor with density/nuclide-density/temperature perturbation

@@ -43,7 +43,17 @@ import {
     NuclearDataLibraryRequest,
     NuclearDataLibraryResult,
     NuclideDetailRequest,
-    NuclideDetailResult
+    NuclideDetailResult,
+    NCrystalMaterialsRequest,
+    NCrystalMaterialsResult,
+    NCrystalInfoRequest,
+    NCrystalInfoResult,
+    NCrystalXSRequest,
+    NCrystalXSResult,
+    EndfEvaluationsRequest,
+    EndfEvaluationsResult,
+    EndfDetailRequest,
+    EndfDetailResult
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -175,6 +185,45 @@ export class OpenMCOutputService {
 
     async getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult> {
         return this.executeCommandJson<NuclideDetailResult>(['openmc.nuclear-data-nuclide', request.path], 120000);
+    }
+
+    async getNCrystalMaterials(request: NCrystalMaterialsRequest): Promise<NCrystalMaterialsResult> {
+        const args = ['openmc.ncrystal-materials'];
+        if (request.directory) {
+            args.push('--dir', request.directory);
+        }
+        return this.executeCommandJson<NCrystalMaterialsResult>(args, 120000);
+    }
+
+    async getNCrystalInfo(request: NCrystalInfoRequest): Promise<NCrystalInfoResult> {
+        return this.executeCommandJson<NCrystalInfoResult>(['openmc.ncrystal-info', request.cfg], 120000);
+    }
+
+    async getNCrystalXS(request: NCrystalXSRequest): Promise<NCrystalXSResult> {
+        const args = ['openmc.ncrystal-xs', request.cfg];
+        if (request.emin !== undefined) {
+            args.push('--emin', String(request.emin));
+        }
+        if (request.emax !== undefined) {
+            args.push('--emax', String(request.emax));
+        }
+        if (request.points !== undefined) {
+            args.push('--points', String(request.points));
+        }
+        return this.executeCommandJson<NCrystalXSResult>(args, 120000);
+    }
+
+    async getEndfEvaluations(request: EndfEvaluationsRequest): Promise<EndfEvaluationsResult> {
+        // Large libraries hold thousands of small files — allow a long timeout
+        return this.executeCommandJson<EndfEvaluationsResult>(['openmc.endf-evaluations', request.directory], 300000);
+    }
+
+    async getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult> {
+        const args = ['openmc.endf-detail', request.file];
+        if (request.top !== undefined) {
+            args.push('--top', String(request.top));
+        }
+        return this.executeCommandJson<EndfDetailResult>(args, 120000);
     }
 
     /**

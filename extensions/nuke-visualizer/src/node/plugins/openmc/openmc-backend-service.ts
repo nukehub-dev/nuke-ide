@@ -57,7 +57,17 @@ import {
     NuclearDataLibraryRequest,
     NuclearDataLibraryResult,
     NuclideDetailRequest,
-    NuclideDetailResult
+    NuclideDetailResult,
+    NCrystalMaterialsRequest,
+    NCrystalMaterialsResult,
+    NCrystalInfoRequest,
+    NCrystalInfoResult,
+    NCrystalXSRequest,
+    NCrystalXSResult,
+    EndfEvaluationsRequest,
+    EndfEvaluationsResult,
+    EndfDetailRequest,
+    EndfDetailResult
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -966,6 +976,26 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult> {
         return this.outputService.getNuclideDetail(request);
+    }
+
+    async getNCrystalMaterials(request: NCrystalMaterialsRequest): Promise<NCrystalMaterialsResult> {
+        return this.outputService.getNCrystalMaterials(request);
+    }
+
+    async getNCrystalInfo(request: NCrystalInfoRequest): Promise<NCrystalInfoResult> {
+        return this.outputService.getNCrystalInfo(request);
+    }
+
+    async getNCrystalXS(request: NCrystalXSRequest): Promise<NCrystalXSResult> {
+        return this.outputService.getNCrystalXS(request);
+    }
+
+    async getEndfEvaluations(request: EndfEvaluationsRequest): Promise<EndfEvaluationsResult> {
+        return this.outputService.getEndfEvaluations(request);
+    }
+
+    async getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult> {
+        return this.outputService.getEndfDetail(request);
     }
 
     private async findFreePort(startPort: number): Promise<number> {

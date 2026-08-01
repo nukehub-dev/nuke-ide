@@ -419,6 +419,21 @@ export interface OpenMCBackendService {
 
     /** Get detail for a single nuclide HDF5 data file */
     getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult>;
+
+    /** List installed NCrystal .ncmat materials (data library or a user dir) */
+    getNCrystalMaterials(request: NCrystalMaterialsRequest): Promise<NCrystalMaterialsResult>;
+
+    /** Detail for one NCrystal material (cfg string or .ncmat path) */
+    getNCrystalInfo(request: NCrystalInfoRequest): Promise<NCrystalInfoResult>;
+
+    /** Sample scatter + absorption cross sections for an NCrystal cfg string */
+    getNCrystalXS(request: NCrystalXSRequest): Promise<NCrystalXSResult>;
+
+    /** Scan an ENDF library directory (sub-libraries + nuclides) */
+    getEndfEvaluations(request: EndfEvaluationsRequest): Promise<EndfEvaluationsResult>;
+
+    /** Detail for one ENDF evaluation file (decay / yields / reactions) */
+    getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -1850,5 +1865,188 @@ export interface NuclideDetailResult {
     reactions?: { mt: number; label: string }[];
     /** Whether the nuclide has fission channels/data */
     fission?: boolean;
+    error?: string;
+}
+
+// ============================================================================
+// NCrystal Inspection Types
+// ============================================================================
+
+/** One NCrystal material entry */
+export interface NCrystalMaterialEntry {
+    /** Material name (e.g. 'Al_sg225.ncmat') */
+    name: string;
+    /** cfg string to use for info/XS queries */
+    cfg: string;
+    /** Data source label when listed from the library (e.g. 'stdlib') */
+    source?: string;
+}
+
+/** NCrystal materials request (`openmc.ncrystal-materials`) */
+export interface NCrystalMaterialsRequest {
+    /** Scan this directory for .ncmat files instead of the NCrystal data library */
+    directory?: string;
+}
+
+/** NCrystal materials result */
+export interface NCrystalMaterialsResult {
+    success: boolean;
+    /** Where the listing came from */
+    source?: string;
+    materialCount?: number;
+    materials?: NCrystalMaterialEntry[];
+    error?: string;
+}
+
+/** NCrystal composition entry */
+export interface NCrystalCompositionEntry {
+    element: string;
+    fraction: number;
+    /** Descriptive label (e.g. 'Al=Al(cohSL=3.449fm ...)') */
+    label: string;
+}
+
+/** NCrystal info request (`openmc.ncrystal-info`) */
+export interface NCrystalInfoRequest {
+    /** NCrystal cfg string or path to a .ncmat file */
+    cfg: string;
+}
+
+/** NCrystal info result */
+export interface NCrystalInfoResult {
+    success: boolean;
+    cfg?: string;
+    temperature?: number;
+    /** Mass density [g/cm³] */
+    density?: number;
+    composition?: NCrystalCompositionEntry[];
+    phases?: { fraction: number; composition: NCrystalCompositionEntry[] }[];
+    /** Crystal structure info when the material is crystalline */
+    structure?: Record<string, number> | null;
+    error?: string;
+}
+
+/** NCrystal XS sampling request (`openmc.ncrystal-xs`) */
+export interface NCrystalXSRequest {
+    /** NCrystal cfg string (temp etc. included, e.g. 'Al_sg225.ncmat;temp=300K') */
+    cfg: string;
+    /** Minimum energy [eV] (default 1e-5) */
+    emin?: number;
+    /** Maximum energy [eV] (default 1e7) */
+    emax?: number;
+    /** Number of log-spaced points (default 200) */
+    points?: number;
+}
+
+/** NCrystal XS sampling result */
+export interface NCrystalXSResult {
+    success: boolean;
+    cfg?: string;
+    /** Sampled energies [eV], log-spaced */
+    energies?: number[];
+    /** Scatter cross section [barn] per energy */
+    scatter?: number[];
+    /** Absorption cross section [barn] per energy */
+    absorption?: number[];
+    error?: string;
+}
+
+// ============================================================================
+// ENDF Inspector Types
+// ============================================================================
+
+/** One nuclide file inside an ENDF sub-library */
+export interface EndfNuclideEntry {
+    /** Absolute path of the .endf file */
+    file: string;
+    z: number;
+    /** Mass number (0 = natural element) */
+    a: number;
+    /** Element symbol from the filename (e.g. 'U') */
+    element: string;
+    /** Display name (e.g. 'U235') */
+    name: string;
+}
+
+/** One sub-library of an ENDF library directory */
+export interface EndfSublibrary {
+    /** Directory name (e.g. 'neutrons', 'decay', 'nfy', 'sfy') */
+    name: string;
+    /** Parser kind: 'neutron' | 'decay' | 'nfy' | 'sfy' | 'photoatomic' | 'electroatomic' */
+    kind: string;
+    nuclideCount: number;
+    nuclides: EndfNuclideEntry[];
+}
+
+/** ENDF evaluations request (`openmc.endf-evaluations`) */
+export interface EndfEvaluationsRequest {
+    /** ENDF library root directory */
+    directory: string;
+}
+
+/** ENDF evaluations result */
+export interface EndfEvaluationsResult {
+    success: boolean;
+    libraryPath?: string;
+    sublibraries?: EndfSublibrary[];
+    error?: string;
+}
+
+/** ENDF detail request (`openmc.endf-detail`) */
+export interface EndfDetailRequest {
+    /** Path to the .endf evaluation file */
+    file: string;
+    /** Top N fission products per energy (default 25) */
+    top?: number;
+}
+
+/** Reaction/section entry of a neutron evaluation */
+export interface EndfReactionEntry {
+    mf: number;
+    mt: number;
+    label: string;
+}
+
+/** Decay mode entry */
+export interface EndfDecayMode {
+    modes: string[];
+    daughter: string;
+    branchingRatio: number;
+    branchingStdDev: number;
+}
+
+/** Top fission product entry */
+export interface EndfYieldProduct {
+    nuclide: string;
+    yield: number;
+    yieldStdDev: number;
+}
+
+/** Per-energy fission yield table */
+export interface EndfYieldEnergy {
+    energy: number;
+    productCount: number;
+    totalYield: number;
+    topProducts: EndfYieldProduct[];
+}
+
+/** ENDF detail result (fields depend on `kind`) */
+export interface EndfDetailResult {
+    success: boolean;
+    file?: string;
+    /** 'neutron' | 'decay' | 'nfy' | 'sfy' */
+    kind?: string;
+    // neutron evaluations
+    za?: number | null;
+    sectionCount?: number;
+    reactions?: EndfReactionEntry[];
+    // decay evaluations
+    nuclide?: string;
+    stable?: boolean;
+    halfLife?: { seconds: number; secondsStdDev: number; years: number } | null;
+    modes?: EndfDecayMode[];
+    // fission yield evaluations
+    energyCount?: number;
+    energies?: EndfYieldEnergy[];
     error?: string;
 }

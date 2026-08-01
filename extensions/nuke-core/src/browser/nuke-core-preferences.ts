@@ -82,6 +82,12 @@ export const NukeCoreConfigSchema: PreferenceSchema = {
             description: 'Default path to OpenMC depletion chain XML file',
             default: ''
         },
+        /** Path to an ENDF-6 library directory (decay/, nfy/, neutrons/ sub-libraries). */
+        'nuke.endfLibrary': {
+            type: 'string',
+            description: 'Path to ENDF-6 library directory (with decay/, nfy/, neutrons/ sub-libraries)',
+            default: ''
+        },
         /** Controls visibility of the Python environment status bar item. */
         'nuke.showStatusBar': {
             type: 'string',
@@ -116,6 +122,7 @@ export interface NukeCoreConfiguration {
     'nuke.condaEnv': string;
     'nuke.openmcCrossSections': string;
     'nuke.openmcChainFile': string;
+    'nuke.endfLibrary': string;
     'nuke.showStatusBar': 'auto' | 'always' | 'never';
     'nuke.pipExtraIndexUrl': string;
     'nuke.condaChannels': string;

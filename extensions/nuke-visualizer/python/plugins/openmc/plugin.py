@@ -20,6 +20,8 @@ _COMMAND_MODULES = [
     "kinetics",
     "particle_restart",
     "nuclear_data",
+    "ncrystal_data",
+    "endf_data",
     "output_vtk",
 ]
 
