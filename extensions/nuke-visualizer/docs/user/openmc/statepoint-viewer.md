@@ -23,7 +23,7 @@ Press `Ctrl+Shift+P`, type **"View Statepoint"**, and select a file.
 
 ## Viewer Layout
 
-The Statepoint Viewer tab is divided into sections:
+The Statepoint Viewer is organized into tabs: **Overview** (run configuration), **K-Effective** (convergence), **Kinetics (IFP)** (only for statepoints with IFP tallies), **Tallies**, and **Performance** (runtime breakdown).
 
 ### Simulation Metadata
 
@@ -127,6 +127,18 @@ The Tally Tree shows:
 ## Global Tallies
 
 Some statepoints contain global tallies (e.g., leakage, absorption rates). These are shown in a summary table near the top of the viewer.
+
+---
+
+## Kinetics (IFP) Tab
+
+For statepoints containing iterated fission probability tallies (generated when kinetics/IFP is enabled in the run settings), the **Kinetics (IFP)** tab shows point-kinetics parameters computed with `StatePoint.get_kinetics_parameters()`:
+
+- **β_eff** — effective delayed neutron fraction (mean ± σ), plus a per-delayed-group breakdown when multiple precursor groups were scored.
+- **Λ_eff** — effective neutron generation time (seconds).
+- **k_eff reference** — the k-effective the parameters were normalized against.
+
+Click **Export CSV** to save the parameters table alongside the statepoint (`<file>.kinetics.csv`).
 
 ---
 

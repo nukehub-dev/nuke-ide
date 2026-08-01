@@ -1,6 +1,9 @@
 # Optimization Framework
 
-The Optimization Framework runs parameter sweep studies across your OpenMC model. It varies input parameters — such as enrichment, moderator density, or geometry dimensions — over specified ranges, executes batch simulations, and collates results for analysis.
+The Optimization Framework automates model-driven studies across your OpenMC model in two modes:
+
+- **Parameter Sweep** — vary input parameters (enrichment, density, geometry dimensions, …) over specified ranges, execute batch simulations, and collate results for analysis.
+- **Criticality Search** — wrap OpenMC's `search_for_keff` to find the parameter value that produces a target k-effective.
 
 ---
 
@@ -8,11 +11,11 @@ The Optimization Framework runs parameter sweep studies across your OpenMC model
 
 ### Method 1: Dashboard
 
-In the Simulation Dashboard, click **"Optimization"** in the toolbar or sidebar.
+In the Simulation Dashboard, go to the **Simulation** tab and click **"Optimization"**.
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open Optimization Framework"`
+`Ctrl+Shift+P` → **"OpenMC Studio: Optimization Study"**
 
 ### Method 3: Menu
 
@@ -22,13 +25,7 @@ In the Simulation Dashboard, click **"Optimization"** in the toolbar or sidebar.
 
 ## Sweep Study Layout
 
-The Optimization Framework has three panels:
-
-| Panel                       | Description                                                  |
-| --------------------------- | ------------------------------------------------------------ |
-| **Sweep Variables** (left)  | Define which parameters vary and their ranges                |
-| **Run Control** (top-right) | Configure execution settings and start/stop the sweep        |
-| **Results** (bottom-right)  | View k-effective trends, compare iterations, and export data |
+Select **Parameter Sweep** in the mode selector at the top. Sweep mode has four sub-tabs: **Parameter Sweeps** (define variables), **Batch Runner** (execute and monitor), **Results** (k-effective trends), and **Analysis** (comparisons and statistics).
 
 ---
 
@@ -233,6 +230,24 @@ Click **"Generate Python Script"** to create a reproducible script that:
 - Collects results into a DataFrame
 
 This is useful for running large sweeps on an HPC cluster outside NukeIDE.
+
+---
+
+## Criticality Search
+
+Select **Criticality Search** in the mode selector to find the parameter value that yields a target k-effective (wraps `openmc.search_for_keff`).
+
+| Setting                 | Description                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| **Parameter**           | Searchable parameter path to vary (e.g. a material density or temperature)                   |
+| **Target k-eff**        | The k-effective to solve for (e.g. `1.0` for criticality)                                    |
+| **Bracketing interval** | Optional low/high bracket with a bracketed method (`Bisect`, `Brent-Q`, `Brent-H`, `Ridder`) |
+| **Initial Guess**       | Un-bracketed starting point (secant method) when no bracket is given                         |
+| **Tolerance**           | Convergence tolerance on the parameter value                                                 |
+
+Click **Run Search** to start; a **Stop** button cancels the search mid-iteration. The result card shows the converged parameter value and the final k-eff ± σ.
+
+Nuclide-fraction parameters are renormalized within their element: changing one isotope's fraction scales its same-element siblings so the element total is preserved.
 
 ---
 

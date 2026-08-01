@@ -77,6 +77,28 @@ Important groups:
 
 ---
 
+### Overrides
+
+Map DAGMC volume materials onto your project's material library and resolve ID conflicts.
+
+#### Replace Material by Name
+
+Reassign every volume that carries a given material tag in the `.h5m` file: pick the **From Material** (as tagged in the file) and the **To Material** (a project material), then click **Replace**.
+
+#### Per-Cell Overrides
+
+A table of all volumes with their current material and an **Override With** select per volume — assign any project material, or choose `(remove assignment)` to clear a volume's tag.
+
+#### ID Conflict Resolution
+
+When DAGMC cell/material IDs would collide with CSG IDs in `geometry.xml`, enable **Auto-resolve geometry ID conflicts** (`auto_geom_ids`) and/or **Auto-resolve material ID conflicts** (`auto_mat_ids`). These are written as attributes on the `dagmc_universe` element.
+
+#### Sync for Depletion
+
+Click **Sync for Depletion** to run OpenMC's `sync_dagmc_universes` pass over the model: every DAGMC cell gets an explicit material assignment in `geometry.xml`, which per-cell burnup tracking requires. The tool asks for a working directory and rewrites `geometry.xml` there — the `.h5m` file is not modified.
+
+---
+
 ### Properties
 
 A model overview with:
@@ -129,7 +151,7 @@ Click **3D View** in the header to open the full model in the 3D viewer:
 
 - Volumes are rendered as watertight triangular meshes
 - Colors are assigned by material tag or volume ID
-- Use the [Base Visualizer controls](../nuke-visualizer/docs/user/base-visualizer.md) for opacity, clipping, and screenshots
+- Use the [Base Visualizer controls](/nuke-visualizer/user/base-visualizer) for opacity, clipping, and screenshots
 
 For large models, use **"View in 3D"** from a volume modal to load only the selected volumes and reduce memory usage.
 

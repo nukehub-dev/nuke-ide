@@ -25,7 +25,7 @@ Advanced 3D and 2D visualization for nuclear engineering data.
 **Plugins:**
 
 - **Base Visualizer** — VTK, DAGMC (.h5m), STL, PLY, OBJ meshes
-- **OpenMC Plugin** — Statepoints, tallies, cross-sections, depletion results, geometry, materials
+- **OpenMC Plugin** — Statepoints (incl. IFP kinetics), tallies, cross-sections, depletion results, geometry, materials, nuclear data browsing, and output viewers for particle tracks, collision tracks, weight windows, and random ray results
 
 [User Guide](/nuke-visualizer/user/getting-started) · [Developer Guide](/nuke-visualizer/dev/index)
 
@@ -35,10 +35,11 @@ Advanced 3D and 2D visualization for nuclear engineering data.
 
 No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations.
 
-- Simulation dashboard with live metrics and k-eff plots
-- CSG builder and DAGMC editor
-- Tally configurator with mesh editors and filter builders
-- Optimization framework for parameter sweeps
+- Simulation dashboard: settings, sources, materials, depletion (with custom chain builder), variance reduction, random ray, and a readiness-checked run tab with kinetics (IFP)
+- CSG builder and DAGMC editor (material overrides, depletion sync)
+- Tally configurator with score catalog, filter builders, triggers, and derivatives
+- Optimization framework: parameter sweeps and criticality (k-eff) search
+- Volume calculation, native plotting (slice/voxel/ray-trace), and MGXS generator
 - Simulation comparison and project management
 - CAD import (STEP/IGES to DAGMC or CSG)
 

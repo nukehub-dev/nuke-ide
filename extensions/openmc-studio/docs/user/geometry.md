@@ -12,7 +12,7 @@ The CSG Builder lets you create OpenMC geometry from primitive surfaces, combine
 
 ### Method 1: Dashboard
 
-In the Simulation Dashboard, click the **Geometry** tab, then **"Open CSG Builder"**.
+In the Simulation Dashboard, go to the **Simulation** tab and click **"Edit in CSG Builder"** in the geometry summary (or use the menu below).
 
 ### Method 2: Command Palette
 
@@ -256,7 +256,7 @@ Click **"3D View"** in the header to open the full model in the 3D viewer:
 
 - Volumes are rendered as watertight triangular meshes.
 - Colors are assigned by material tag or volume ID.
-- Use the [Base Visualizer controls](../nuke-visualizer/docs/user/base-visualizer.md) for opacity, clipping, and screenshots.
+- Use the [Base Visualizer controls](/nuke-visualizer/user/base-visualizer) for opacity, clipping, and screenshots.
 
 For large models, use **"Preview Selected"** in the volume modal to load only the selected volumes and reduce memory usage.
 

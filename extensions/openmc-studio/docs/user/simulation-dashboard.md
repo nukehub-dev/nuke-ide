@@ -16,7 +16,7 @@ Click any `.nuke-openmc` file in the Explorer.
 
 ### Method 3: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open Dashboard"**
+`Ctrl+Shift+P` → **"OpenMC Studio: Open Simulation Dashboard"**
 
 ---
 
@@ -26,94 +26,107 @@ The dashboard is a single tab with a toolbar at the top and a tabbed panel below
 
 ### Toolbar Actions
 
-| Button              | Action                                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Generate XML**    | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
-| **Run**             | Execute the simulation in the active terminal                                                          |
-| **Stop**            | Terminate the running simulation                                                                       |
-| **Open Statepoint** | Load the latest `statepoint*.h5` into the Statepoint Viewer                                            |
-| **Health Check**    | Re-run the environment health check                                                                    |
+| Button           | Action                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| **New Project**  | Scaffold a new OpenMC project                                                                          |
+| **Open Project** | Open an existing `.nuke-openmc` project                                                                |
+| **Save Project** | Save the current project (the dashboard also auto-saves on every change)                               |
+| **Generate XML** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
+
+Click the project name in the header to rename it.
+
+### Tabs
+
+| Tab                    | What It Covers                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| **Settings**           | Run mode, particles/batches, sources, output control, physics, convergence (CMFD) |
+| **Materials**          | Material library, templates, compositions, macroscopic materials, NCrystal import |
+| **Tallies**            | Quick view of all tallies; opens the Tally Configurator                           |
+| **Depletion**          | Burnup configuration, chain builder, transfer rates, timeline                     |
+| **Variance Reduction** | Survival biasing, UFS, weight cutoffs, weight window generator and editor         |
+| **Random Ray**         | Multi-group energy mode and the random ray solver                                 |
+| **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console              |
 
 ---
 
 ## Settings Tab
 
-Configure global simulation parameters.
+Global simulation parameters, organized into collapsible sections.
 
-| Parameter                 | Description                                 | Common Values                                  |
-| ------------------------- | ------------------------------------------- | ---------------------------------------------- |
-| **Run Mode**              | Type of simulation                          | `eigenvalue`, `fixed source`, `plot`, `volume` |
-| **Particles**             | Number of particles per batch               | `1000` – `1,000,000`                           |
-| **Batches**               | Total batches to run                        | `50` – `500`                                   |
-| **Inactive Batches**      | Batches discarded before tally accumulation | `10` – `100`                                   |
-| **Generations per Batch** | For super-history eigenvalue tracking       | `1` (default)                                  |
-| **Random Seed**           | Optional fixed seed for reproducibility     | Any integer                                    |
-| **Temperature Method**    | How to handle material temperatures         | `interpolation`, `nearest`                     |
+### General
 
-### Source Configuration
+| Setting                       | Description                                                                                                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Run Mode**                  | `Eigenvalue (Criticality)`, `Fixed Source`, or `Volume Calculation`                                                    |
+| **Particles / Batches**       | Eigenvalue: particles per generation, inactive and active batches. Fixed source: particles per batch and total batches |
+| **Random Seed**               | Optional fixed seed for reproducibility (Advanced Settings sub-block)                                                  |
+| **Threads**                   | OpenMP thread count                                                                                                    |
+| **Source Rejection Fraction** | Fraction of source sites rejected during initial source sampling                                                       |
 
-Click **"Configure Source"** to define particle sources:
+### Sources
 
-| Source Property          | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| **Spatial Distribution** | Point, box, sphere, or Cartesian independent distributions   |
-| **Energy Distribution**  | Watt fission spectrum, Maxwellian, tabular, or monoenergetic |
-| **Angle Distribution**   | Isotropic, monodirectional, or tabular                       |
-| **Strength**             | Source intensity (particles per second for fixed source)     |
+Click **Add Source** to append a collapsible source card. Each source has a type (segmented control) and a strength chip:
 
-> **Tip:** For eigenvalue problems, OpenMC automatically initializes a fission source from the defined `Source`. You only need to specify its spatial and energy distribution.
+| Type            | What You Configure                                                                                                                                                               |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Independent** | Spatial distribution (Point / Box / Sphere / Cylinder, with Snap-to-Geometry helpers), energy distribution (Discrete / Uniform / Maxwell / Watt / Muir), particle type, strength |
+| **File**        | Source file path (e.g. `surface_source.h5`), strength                                                                                                                            |
+| **Compiled**    | Library path (`libsource.so`), parameter string, strength                                                                                                                        |
+| **Mesh**        | A state mesh, one sub-source per mesh element (Fill button), per-element strength, particle, energy                                                                              |
+| **Tokamak**     | Miller flux-surface geometry (R₀, a, elongation, triangularity, Shafranov shift), emission profile S(r/a), energy distribution, optional time distribution                       |
+
+Every source can carry **Source Constraints** (domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`) and a nested **Surface Source** section for writing surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
+
+### Output
+
+| Group               | Settings                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Output Files**    | `summary.h5`, `tallies.out` toggles                                                                                                               |
+| **Statepoint**      | Statepoint batch list                                                                                                                             |
+| **Sourcepoint**     | Write source points, separate `source.h5`, overwrite latest, MCPL format, sourcepoint batches                                                     |
+| **Particle Tracks** | (Batch, Generation, Particle) track rows + max tracks — produces `tracks.h5` for the Tracks Viewer                                                |
+| **Collision Track** | Collision filtering (reactions, nuclides, cells, energy threshold) — produces `collision_track.h5`                                                |
+| **Tally Triggers**  | Run-level trigger evaluation: **Batch Interval** and **Max Batches** (per-tally triggers live in the [Tally Configurator](tally-configurator.md)) |
+
+### Physics
+
+Photon transport toggle; when enabled: electron treatment (`LED` / `TTB`) and atomic relaxation.
+
+### Convergence
+
+- **Shannon entropy mesh** — enable plus bounds/dimensions, with Auto-detect from Geometry.
+- **CMFD acceleration** — mesh selection (inline or a regular tally mesh), albedo boundary faces, feedback, and a collapsible Run Control block (solver tolerances, window type, effective downscatter, power monitor, adjoint run). CMFD requires a regular mesh.
+
+### Advanced
+
+Particle creation & physics toggles (fission neutrons, delayed neutrons/photons, survival biasing, probability tables) and run behavior knobs (event-based parallelism, generations per batch, lost-particle limits, log grid bins, max scattering order, tabular Legendre conversion).
 
 ---
 
 ## Materials Tab
 
-Define and manage materials. The Materials tab shows a list of all materials in the project with inline editing.
-
-### Built-In Templates
-
-Click **"Add from Template"** to quickly create common nuclear materials:
-
-| Template                | Composition                     | Default Density |
-| ----------------------- | ------------------------------- | --------------- |
-| **UO2 Fuel**            | UO₂ with enrichable U-235       | 10.3 g/cm³      |
-| **Water (H₂O)**         | Light water with optional boron | 1.0 g/cm³       |
-| **Heavy Water (D₂O)**   | Deuterated water                | 1.1 g/cm³       |
-| **Graphite**            | Natural carbon                  | 1.7 g/cm³       |
-| **Zircaloy-4**          | Zr-Sn-Fe-Cr alloy               | 6.55 g/cm³      |
-| **Boron Carbide (B₄C)** | Control poison material         | 2.52 g/cm³      |
-| **Stainless Steel 304** | Fe-Cr-Ni alloy                  | 8.0 g/cm³       |
-| **Helium**              | Pure He-4 gas                   | 0.000178 g/cm³  |
+Define and manage materials. The tab shows all materials in the project with inline editing, plus a template gallery (UO₂, water, heavy water, graphite, Zircaloy-4, B₄C, stainless steel, helium) for one-click creation.
 
 ### Editing a Material
 
 1. Click a material card to expand it.
-2. Edit fields directly:
-   - **Name** and **ID**
-   - **Density** and **units** (`g/cm³`, `kg/m³`, `atom/b-cm`, `sum`)
-   - **Temperature** (optional, in Kelvin)
-   - **S(α,β)** thermal scattering assignments
-3. Add or remove nuclides in the composition table:
-   - **Nuclide** name (e.g., `U235`, `O16`)
-   - **Fraction** and **type** (`wo` for weight %, `ao` for atomic %)
+2. Edit **Name**, **ID**, **Density** and units, **Temperature**, and **S(α,β)** thermal scattering assignments.
+3. Add or remove nuclides in the composition table (name, fraction, `wo`/`ao`).
 4. Toggle **Depletable** to include the material in burnup calculations.
+
+### Macroscopic (Multigroup) Materials
+
+The creation dialog offers a **Material Type** choice: `Nuclides` or `Macroscopic (Multigroup)`. A macroscopic material has no nuclide decomposition — it references a named macroscopic cross-section set (**XS Data Name**) from an MGXS library (see the [MGXS Generator](mgxs-generator.md)). Use these for multi-group / random ray runs.
+
+### NCrystal Import
+
+The material form includes an optional **Import from NCrystal** section: paste an NCrystal cfg-string (e.g. an `.ncmat` specification), click **Import**, and the form is filled with the parsed composition for review. The section is disabled when NCrystal is not installed in the active Python environment.
 
 ---
 
 ## Tallies Tab
 
-A quick-access view of all tallies defined in the project. For full tally configuration, see the [Tally Configurator](tally-configurator.md).
-
-The Tallies tab shows:
-
-| Column       | Description                                    |
-| ------------ | ---------------------------------------------- |
-| **ID**       | Tally identifier                               |
-| **Name**     | User-defined name                              |
-| **Scores**   | What is being scored (e.g., `flux`, `fission`) |
-| **Filters**  | Applied filters (e.g., `energy`, `cell`)       |
-| **Nuclides** | Which nuclides (e.g., `U235`, `total`)         |
-
-Click **"Open Tally Configurator"** to add or edit tallies.
+A quick-access view of all tallies defined in the project (ID, name, scores, filters, nuclides). Tallies auto-generated for kinetics (IFP) runs show an **auto** badge. Click **"Open Tally Configurator"** to add or edit tallies — see the [Tally Configurator](tally-configurator.md) guide.
 
 ---
 
@@ -121,52 +134,72 @@ Click **"Open Tally Configurator"** to add or edit tallies.
 
 Configure burnup and depletion calculations.
 
-| Parameter              | Description                                                     |
-| ---------------------- | --------------------------------------------------------------- |
-| **Enable Depletion**   | Toggle burnup calculation on/off                                |
-| **Depletion Operator** | `cecm` (constant extrapolation, constant midpoint) or `epc_rk4` |
-| **Chain File**         | Path to depletion chain XML (e.g., `chain_casmo71.xml`)         |
-| **Burnable Materials** | Select which materials participate in burnup                    |
+### Physics Configuration
+
+| Parameter              | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| **Chain File**         | Path to the depletion chain XML (decay constants and fission yields) |
+| **Integration Method** | `Predictor-Corrector` (standard), `CE-CM`, `Leapfrog`, or `SI-RK4`   |
+| **Power Level**        | Total power (W) or power density (W/g)                               |
+
+### Custom Chain Builder
+
+Build a problem-sized depletion chain without leaving the IDE:
+
+- **Subset an existing chain** — filter a full chain to a nuclide list (FPY borrow parents are included automatically). Set expectations: subsets containing fissile nuclides stay large because fission-product yields pull in hundreds of daughters.
+- **Build from ENDF directory** — construct a chain from ENDF text sub-libraries (`decay/`, `nfy/`, `neutron(s)/`). HDF5 incident data cannot build chains.
+
+A successful build reports the nuclide count and offers **Use as Depletion Chain** to wire the output into the project.
+
+### Advanced
+
+| Setting                     | Description                                                                                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Operator Type**           | `Coupled` (transport solve each step) or `Independent` (pre-computed flux & MicroXS files per material, or generated from the model via `get_microxs_and_flux`) |
+| **Normalization Mode**      | `Fission Q` (default), `Energy Deposition`, or `Source Rate`                                                                                                    |
+| **Transfer Rates**          | Per-material element/nuclide transfer rates (from material, element, rate, units, optional destination) for moving species between materials                    |
+| **Custom Fission Q Values** | Per-nuclide fission Q overrides (eV) for fission-q normalization                                                                                                |
+| **diff_burnable_mats**      | Distinguish burnable materials with identical compositions (higher memory/runtime cost; optional volume assignment method)                                      |
 
 ### Burnup Timeline
 
-Define irradiation steps as a table:
-
-| Step | Power (W) or Flux (n/cm²/s) | Duration (days) |
-| ---- | --------------------------- | --------------- |
-| 1    | 40e6                        | 30              |
-| 2    | 40e6                        | 30              |
-| 3    | 0                           | 365             |
-
-> **Tip:** Use a zero-power step for decay-only periods (e.g., post-shutdown cooling).
-
-Click **"Add Step"** to append rows and **"Remove Step"** to delete the selected row.
+Define irradiation steps as a table of power/duration rows. Use a zero-power step for decay-only periods (e.g. post-shutdown cooling), or mark a step as decay-only directly.
 
 ---
 
 ## Variance Reduction Tab
 
-Apply variance reduction techniques to improve statistics in deep-penetration or localized problems.
+| Section                     | What It Does                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Survival Biasing**        | Enable implicit capture (survival biasing)                                                          |
+| **Uniform Fission Site**    | UFS mesh (optional — falls back to the weight window mesh), method, max realizations, particle type |
+| **Weight Cutoffs**          | Cell-based average weight threshold; terminate particles below the cutoff                           |
+| **Weight Window Generator** | Magic-style weight window generation: particle type, update interval, target tallies (local VR)     |
+| **Weight Windows**          | Edit weight window sets and their meshes; import MCNP `wwinp` files                                 |
 
-### Weight Windows
+> **Tip:** Variance reduction requires an initial simulation to generate mesh-based importance maps. Run a short simulation first, then enable weight windows for the production run. For FW-CADIS workflows, pair weight windows with the adjoint options in the Random Ray tab.
 
-| Setting                   | Description                                  |
-| ------------------------- | -------------------------------------------- |
-| **Enable Weight Windows** | Toggle weight window generation              |
-| **Particle Type**         | Neutron, photon, or both                     |
-| **Energy Bounds**         | Group structure for energy-dependent windows |
-| **Lower Bound Ratio**     | Ratio of lower weight bound to average       |
-| **Update Interval**       | Batches between weight window updates        |
+---
 
-### Source Biasing
+## Random Ray Tab
 
-| Setting                   | Description                                       |
-| ------------------------- | ------------------------------------------------- |
-| **Enable Source Biasing** | Toggle spatial or energy biasing                  |
-| **Spatial Bias**          | Importance map for source sampling                |
-| **Energy Bias**           | Preferential sampling of high-importance energies |
+Configure multi-group energy mode and the random ray solver.
 
-> **Tip:** Variance reduction requires an initial simulation to generate mesh-based importance maps. Run a short simulation first, then enable weight windows for the production run.
+### Energy Mode
+
+Switch the **Energy Treatment** between `Continuous Energy` and `Multi-Group`. Multi-group mode requires an **MGXS Library** (`mgxs.h5`) — generate one with the [MGXS Generator](mgxs-generator.md) or point at an existing file (used as `OPENMC_MG_CROSS_SECTIONS`).
+
+### Random Ray Solver
+
+Inactive/active ray distances, source shape (`Flat` / `Linear` / `Linear XY`), sample method (`PRNG` / `Halton` / `S2`), volume estimator, diagonal stabilization, volume-normalized flux tallies, and **Adjoint flux mode** (forward then adjoint solve, for FW-CADIS weight window generation).
+
+### Ray Source and Adjoint Source
+
+The ray source is a uniform box (Auto-detect from Geometry, or explicit lower-left/upper-right corners). An optional **Adjoint Source** box localizes the adjoint source for detector-response (FW-CADIS) calculations; use Auto-detect or Clear to manage it.
+
+### Source Region
+
+Restrict the random ray source to a mesh-defined region: pick a regular mesh from the Tally Configurator and a domain type (cells, materials, or universes) with IDs.
 
 ---
 
@@ -174,60 +207,48 @@ Apply variance reduction techniques to improve statistics in deep-penetration or
 
 Execute OpenMC and monitor progress in real time.
 
+### Setup Checklist
+
+A readiness checklist (with an `N / M configured` badge) verifies the model before running: Materials, Geometry, Source, Tallies (optional), Depletion (when enabled), Variance Reduction (optional), Kinetics (when IFP is enabled), and MGXS Library (in multi-group mode). The readiness pill shows **Ready to run** or what is missing; geometry items offer inline **Open CSG Builder** / **Edit** shortcuts.
+
 ### Run Controls
 
-| Button           | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| **Run**          | Start the simulation with the current XML files   |
-| **Run with MPI** | Start with `mpirun -n <N> openmc` (prompts for N) |
-| **Stop**         | Send SIGTERM to the running process               |
-| **Restart**      | Resume from the latest statepoint                 |
+| Button             | Description                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| **Run Simulation** | Generate XML and start the run; a progress bar shows batch x/y, live k-eff ± σ, and elapsed time |
+| **Stop**           | Terminate the running simulation                                                                 |
+| **Validate**       | Run the model validator without executing                                                        |
+| **Optimization**   | Open the [Optimization](optimization.md) widget                                                  |
+| **Restart…**       | Resume from a selected statepoint (sets `settings.restartFile`, shown as a dismissible chip)     |
 
-### Live Console
+### Particle Restart
 
-The console streams OpenMC stdout/stderr:
+When the restart file is a particle restart file (`particle_restart.h5` or `particle_<batch>_<id>.h5`), the tab explains that OpenMC re-runs a single lost particle (the dashboard passes `-t` automatically) and offers:
 
-- **Batch progress** — current batch / total batches
-- **k-effective** — per-generation and cumulative mean
-- **Tally accumulation** — active batch tally updates
-- **Warnings and errors** — highlighted in yellow/red
+- **Capture Track for Restarted Particle** — enables a one-particle track for the restarted particle.
+- **Preview Restart File** — opens the particle restart viewer.
+- **Open Tracks** — appears when the last run produced a tracks file.
 
-### Console Filters
+### Kinetics (IFP)
 
-Use the filter buttons to show/hide:
+Enable iterated fission probability kinetics (eigenvalue mode only): IFP generations (must not exceed inactive batches), precursor group count for β_eff, and toggles for β_eff and Λ_eff (generation time). The required IFP tallies are auto-generated on export and badged **auto** in the Tallies tab; results appear in the Statepoint Viewer's Kinetics (IFP) tab.
 
-| Filter         | Shows                               |
-| -------------- | ----------------------------------- |
-| **All**        | Complete output                     |
-| **k-eff Only** | Lines containing k-effective values |
-| **Errors**     | Warnings and errors only            |
-| **Tallies**    | Tally result summaries              |
+### Console and Summaries
 
-### Post-Run Actions
-
-When the simulation completes:
-
-| Action              | Result                                     |
-| ------------------- | ------------------------------------------ |
-| **Open Statepoint** | Launch the Statepoint Viewer               |
-| **Open Summary**    | Open `summary.h5` in the Material Explorer |
-| **View Geometry**   | Open `geometry.xml` in the Geometry Viewer |
-| **Compare Results** | Open the Simulation Comparison tool        |
+The console streams OpenMC stdout/stderr with filtering and a maximize toggle. Summary cards recap the run configuration, depletion, variance reduction, and geometry (with **Edit in CSG Builder** / DAGMC details shortcuts), plus validation results.
 
 ---
 
 ## Workflow Summary
 
-The typical workflow through the dashboard tabs is:
-
-1. **Settings** — Define run mode, particles, batches, and source.
-2. **Materials** — Add materials from templates or create custom compositions.
-3. **Geometry** — Build CSG or import DAGMC (see [Geometry Guide](geometry.md)).
+1. **Settings** — Define run mode, particles, batches, and sources.
+2. **Materials** — Add materials from templates, custom compositions, macroscopic sets, or NCrystal.
+3. **Geometry** — Build CSG or import DAGMC (see [Geometry Workflows](geometry.md)).
 4. **Tallies** — Configure scores and filters (see [Tally Configurator](tally-configurator.md)).
 5. **Depletion** _(optional)_ — Set burnup timeline and chain file.
-6. **Variance Reduction** _(optional)_ — Enable weight windows or source biasing.
+6. **Variance Reduction / Random Ray** _(optional)_ — Weight windows, multi-group mode.
 7. **Generate XML** — Export all configuration files.
-8. **Simulation** — Run, monitor, and view results.
+8. **Simulation** — Check readiness, run, monitor, and view results.
 
 ---
 
@@ -235,5 +256,4 @@ The typical workflow through the dashboard tabs is:
 
 - **Auto-save:** The dashboard auto-saves the `.nuke-openmc` project file on every change.
 - **XML diff:** After generating XML, use the Explorer's file comparison to diff against a previous version.
-- **Template projects:** Save a configured project as a template with `File → Save As Template` for reuse across studies.
-- **MPI runs:** If `mpirun` is not found, ensure your MPI bin directory is on the system `PATH` or specify the full path in settings.
+- **Restart runs:** Use **Restart…** on the Simulation tab to continue long runs from the latest statepoint instead of starting over.

@@ -44,31 +44,20 @@ The left panel shows all tallies in the project. Click a tally to edit it, or cl
 
 ### Step 2: Add Scores
 
-Scores define the physical quantity to compute.
+Scores define the physical quantity to compute. Click **"Add Score"** and pick from the score catalog, which is organized into categories:
 
-Click **"Add Score"** and select from the list:
+| Category                | Contents                                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Basic**               | `flux`, `total`, `absorption`, `fission`, `nu-fission`                                                                                                           |
+| **Neutron Reactions**   | MT-numbered reaction rates: `elastic` (MT 2), `(n,2n)` (MT 16), `(n,γ)` (MT 102), `(n,Xn)` (MT 201), …                                                           |
+| **Photon Physics**      | Photon interaction scores (coherent/incoherent scatter, photoelectric, pair production) — require photon transport                                               |
+| **Particle Production** | Secondary particle production (`H1`–`H3`, `He3`, `He4`)                                                                                                          |
+| **Kinetics (IFP)**      | Iterated fission probability scores (`ifp-time-numerator`, `ifp-beta-numerator`, `ifp-denominator`) plus `prompt-nu-fission`, `delayed-nu-fission`, `decay-rate` |
+| **Advanced**            | `scatter`, `nu-scatter`, `kappa-fission`, `current`, `events`, `pulse-height`, `inverse-velocity`, `heating`, `heating-local`, `damage-energy`                   |
 
-| Score               | Description                                | Units              |
-| ------------------- | ------------------------------------------ | ------------------ |
-| `flux`              | Neutron or photon flux                     | particles/cm²      |
-| `absorption`        | Absorption rate                            | reactions          |
-| `elastic`           | Elastic scattering rate                    | reactions          |
-| `fission`           | Fission rate                               | reactions          |
-| `scatter`           | Total scattering rate                      | reactions          |
-| `total`             | Total reaction rate                        | reactions          |
-| `heating`           | Heating (energy deposition)                | eV/source particle |
-| `heating-local`     | Local heating (excluding neutrinos)        | eV/source particle |
-| `kappa-fission`     | Fission energy production                  | eV/source particle |
-| `inverse-velocity`  | 1/velocity for reactor kinetics            | s/cm               |
-| `nu-fission`        | Neutron production from fission            | neutrons           |
-| `nu-scatter`        | Neutron production from scattering         | neutrons           |
-| `delay-nu-fission`  | Delayed neutron production                 | neutrons           |
-| `prompt-nu-fission` | Prompt neutron production                  | neutrons           |
-| `decay-rate`        | Delayed neutron precursor decay rate       | reactions          |
-| `damage-energy`     | Damage energy deposition                   | eV/source particle |
-| `micro`             | Any reaction from cross-section MT numbers | reactions          |
+Custom integer MT scores are also accepted — enter any MT number ≥ 1 directly.
 
-> **Tip:** Multiple scores can be added to a single tally. They are computed simultaneously, which is more efficient than creating separate tallies.
+> **Tip:** Multiple scores can be added to a single tally. They are computed simultaneously, which is more efficient than creating separate tallies. Deprecated upstream moment scores (`scatter-N`) are intentionally excluded from the catalog.
 
 ### Step 3: Add Filters
 
@@ -96,7 +85,11 @@ Click **"Add Filter"** and choose a filter type:
 | `legendre`           | Legendre scattering moments      | Order (P0, P1, P2, ...)     |
 | `spatiallegendre`    | Spatial Legendre expansion       | Axis, order                 |
 | `sphericalharmonics` | Spherical harmonics moments      | Order                       |
+| `zernike`            | Zernike polynomial moments       | Order, radial basis         |
+| `zernikeradial`      | Radial-only Zernike moments      | Order                       |
 | `particle`           | Particle type                    | `neutron`, `photon`         |
+| `time`               | Time bins                        | Lower/upper bounds (s)      |
+| `meshsurface`        | Current crossing a mesh surface  | Mesh definition             |
 
 **Filter Examples:**
 
@@ -195,7 +188,33 @@ Tally triggers automatically stop the simulation when a convergence criterion is
 | **Variance**           | Stop when variance falls below threshold                    | `1e-4`            |
 | **Standard Deviation** | Stop when standard deviation falls below threshold          | `0.01`            |
 
+Each trigger also supports:
+
+- **Ignore zeros** — skip zero-valued tally bins when evaluating convergence (useful for sparse mesh tallies).
+- **Score subset** — restrict the trigger to specific scores (none checked = all of the tally's scores).
+
+Run-level trigger evaluation is configured in **Settings → Output → Tally Triggers**: the **Batch Interval** (how often triggers are evaluated, default 1) and **Max Batches** (safety cap). Trigger activation in `settings.xml` is emitted automatically whenever any tally has triggers.
+
 > **Tip:** Triggers are evaluated at the end of each batch. Only active batches count toward trigger statistics.
+
+---
+
+## Tally Derivatives
+
+A tally derivative perturbs a **material** and scores the sensitivity of the tally to that perturbation (one `openmc.TallyDerivative` per tally).
+
+1. In the tally detail panel, expand **Derivative**.
+2. Choose the perturbed **Variable**:
+
+| Variable            | Description                        | Extra Field                                      |
+| ------------------- | ---------------------------------- | ------------------------------------------------ |
+| **Density**         | Perturb the material's density     | —                                                |
+| **Nuclide Density** | Perturb one nuclide's density      | Perturbed Nuclide (from the material's nuclides) |
+| **Temperature**     | Perturb the material's temperature | —                                                |
+
+3. Select the **Perturbed Material** (requires at least one material in the project).
+
+Derivatives are exported as top-level `<derivative>` elements in `tallies.xml`, referenced by the owning tally.
 
 ---
 

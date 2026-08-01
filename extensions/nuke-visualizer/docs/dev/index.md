@@ -4,15 +4,16 @@ This section is for developers who want to understand, modify, or extend `nuke-v
 
 ## Getting Started
 
-| Doc                                       | What You'll Learn                                              |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| [**Architecture**](architecture.md)       | How frontend, backend, and Python layers fit together          |
-| [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle |
-| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract |
-| [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns             |
-| [**Widget Patterns**](widget-patterns.md) | When to use iframe widgets vs React widgets                    |
-| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin      |
-| [**Python Backends**](python-backends.md) | Conventions for Python server scripts                          |
+| Doc                                       | What You'll Learn                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------ |
+| [**Architecture**](architecture.md)       | How frontend, backend, and Python layers fit together              |
+| [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle     |
+| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract     |
+| [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns                 |
+| [**Widget Patterns**](widget-patterns.md) | When to use iframe widgets vs React widgets                        |
+| [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → serve → iframe pipeline |
+| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin          |
+| [**Python Backends**](python-backends.md) | Conventions for Python server scripts                              |
 
 ## Code Organization
 
@@ -23,13 +24,14 @@ src/
 │   └── openmc-protocol.ts
 ├── browser/                   # Frontend code
 │   ├── visualizer-frontend-module.ts   # DI bindings
-│   ├── visualizer-contribution.ts      # Commands, menus, OpenHandler
 │   ├── visualizer-widget.tsx           # Base iframe widget
+│   ├── contributions/         # Menus, open handlers, view contributions
+│   ├── output-viewer/         # OutputViewerRegistry + file patterns
 │   ├── plotly/                # Plotly integration
 │   ├── services/              # Shared frontend services
 │   └── plugins/openmc/        # OpenMC plugin frontend
 │       ├── commands/          # Command contributions
-│       ├── widgets/           # React widgets
+│       ├── widgets/           # React widgets (statepoint, output viewers, XS plot, nuclear data, …)
 │       ├── services/          # OpenMC-specific services
 │       └── openmc-contribution.ts
 └── node/                      # Backend code
@@ -49,7 +51,7 @@ python/                        # Python scripts
 │   ├── openmc/                # OpenMC plugin
 │   │   ├── plugin.py          # Imports commands, triggers registration
 │   │   ├── commands/          # @command-decorated handlers
-│   │   └── lib/               # Helper modules (reader, geometry, etc.)
+│   │   └── lib/               # Helper modules (readers, output_vtk, geometry, …)
 │   └── base/                  # Base visualizer plugin
 │       ├── plugin.py
 │       ├── commands/

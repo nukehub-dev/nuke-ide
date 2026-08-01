@@ -6,14 +6,21 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 
 ## Supported Files
 
-| File              | Extension              | What You Can Do                                             |
-| ----------------- | ---------------------- | ----------------------------------------------------------- |
-| Statepoint        | `statepoint*.h5`       | View metadata, tallies, k-eff, runtime, source distribution |
-| Source            | `source.h5`            | Visualize source particle distribution in 3D                |
-| Depletion results | `depletion_results.h5` | Plot nuclide evolution, mass changes, activity, decay heat  |
-| Geometry          | `geometry.xml`         | Browse CSG hierarchy, view cells/surfaces/lattices in 3D    |
-| Materials         | `materials.xml`        | Inspect compositions, mix materials, trace cell usage       |
-| DAGMC geometry    | `.h5m`                 | Visualize geometry with optional tally overlay              |
+| File              | Extension                              | What You Can Do                                                             |
+| ----------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| Statepoint        | `statepoint*.h5`                       | View metadata, tallies, k-eff, kinetics (IFP), runtime, source distribution |
+| Source            | `source.h5`                            | Visualize source particle distribution in 3D                                |
+| Depletion results | `depletion_results.h5`                 | Plot nuclide evolution, mass changes, activity, decay heat                  |
+| Particle tracks   | `tracks.h5`, `tracks_p<N>.h5`          | 3D polyline view of recorded particle tracks                                |
+| Collision tracks  | `collision_track*.h5`                  | 3D point cloud + table of recorded collision sites                          |
+| Weight windows    | `weight_windows.h5`                    | 3D mesh view of weight window bounds (multi-mesh selector)                  |
+| Particle restart  | `particle_restart.h5`, `particle_*.h5` | Inspect a lost particle's recorded state                                    |
+| Random ray        | `.vtk`, `.vti`, `.vtr`, voxel `.h5`    | 3D view of random ray results (via "Open as Random Ray Results...")         |
+| Geometry          | `geometry.xml`                         | Browse CSG hierarchy, view cells/surfaces/lattices in 3D                    |
+| Materials         | `materials.xml`                        | Inspect compositions, mix materials, trace cell usage                       |
+| DAGMC geometry    | `.h5m`                                 | Visualize geometry with optional tally overlay                              |
+
+The [Nuclear Data](nuclear-data.md) window additionally browses the configured `cross_sections.xml` library itself.
 
 ---
 
@@ -30,11 +37,14 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
    - [2D heatmap](tally-visualization.md#2d-heatmap-slices) — slice through mesh tally
 4. **Analyze burnup** (if depletion was run):
    - Open `depletion_results.h5` → [Depletion Viewer](depletion.md)
-5. **Inspect geometry and materials**:
+5. **Inspect output files** — tracks, collision tracks, weight windows, particle restarts, random ray results:
+   - Click the file in the Explorer → [Output Viewers](output-viewers.md)
+6. **Inspect geometry and materials**:
    - Open `geometry.xml` → [Geometry Hierarchy](geometry.md)
    - Open `materials.xml` → [Material Explorer](materials.md)
-6. **Plot cross-sections**:
+7. **Plot cross-sections**:
    - Use the [XS Plot](cross-sections.md) sidebar view for on-the-fly nuclear data lookup.
+   - Browse the library in the [Nuclear Data](nuclear-data.md) window, then **Plot in XS Viewer**.
 
 ---
 
@@ -48,8 +58,10 @@ All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 | **Tally**      | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Overlay Tally on Geometry with Source, Show Tally Info |
 | **Depletion**  | View Depletion Results..., Compare Depletion Results...                                                              |
 | **Geometry**   | View Geometry Hierarchy..., Check Geometry Overlaps...                                                               |
-| **Materials**  | View Materials                                                                                                       |
+| **Materials**  | View Materials..., Nuclear Data                                                                                      |
 | **Plotting**   | Plot Cross-Sections                                                                                                  |
+
+Output viewers (tracks, collision tracks, weight windows, particle restart) open by clicking their files in the Explorer; random ray results open via the command palette (**"Open as Random Ray Results..."**).
 
 ---
 
@@ -57,6 +69,8 @@ All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 
 - [Statepoint Viewer](statepoint-viewer.md)
 - [Tally Visualization](tally-visualization.md)
+- [Output Viewers](output-viewers.md)
+- [Nuclear Data](nuclear-data.md)
 - [Cross-Section Plotting](cross-sections.md)
 - [Depletion / Burnup](depletion.md)
 - [Geometry Viewer](geometry.md)

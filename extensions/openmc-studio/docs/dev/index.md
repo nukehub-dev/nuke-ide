@@ -4,15 +4,17 @@ This section is for developers who want to understand, modify, or extend `openmc
 
 ## Getting Started
 
-| Doc                                         | What You'll Learn                                                                                   |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [**Architecture**](architecture.md)         | How the frontend React widgets, Theia backend services, and Python scripts fit together             |
-| [**Frontend Module**](frontend-module.md)   | DI bindings, command/menu contributions, OpenHandler registration, and state management             |
-| [**Backend Services**](backend-services.md) | Runner, validation, CAD import, DAGMC editing, optimization, and XML generation services            |
-| [**Widget Patterns**](widget-patterns.md)   | When to use React widgets vs iframe widgets, state propagation, and CSS theming                     |
-| [**RPC Protocols**](rpc-protocols.md)       | How TypeScript interfaces define the frontend/backend contract and state schema                     |
-| [**Python Backends**](python-backends.md)   | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
-| [**Adding a Feature**](adding-a-feature.md) | Step-by-step guide to adding a new simulation feature or UI panel                                   |
+| Doc                                       | What You'll Learn                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [**Architecture**](architecture.md)       | How the frontend React widgets, Theia backend services, and Python scripts fit together             |
+| [**DI Wiring**](di-wiring.md)             | DI bindings, command/menu contributions, OpenHandler registration, and state management             |
+| [**State Model**](state-model.md)         | The shared `.nuke-openmc` state schema and how widgets read/update it                               |
+| [**Widget Patterns**](widget-patterns.md) | When to use React widgets vs iframe widgets, state propagation, and CSS theming                     |
+| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract and state schema                     |
+| [**Python Backends**](python-backends.md) | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
+| [**XML Generation**](xml-generation.md)   | How the state model becomes OpenMC XML (and back via import)                                        |
+| [**Adding a Widget**](adding-a-widget.md) | Step-by-step guide to adding a new widget or dashboard tab                                          |
+| [**Testing**](testing.md)                 | Python/TypeScript unit tests and the e2e layer (env vars, profiles, conventions)                    |
 
 ## Architecture Summary
 
@@ -74,13 +76,15 @@ src/
 │   ├── widgets/                     # React widgets
 │   │   ├── csg-builder/
 │   │   ├── dagmc-editor/
+│   │   ├── mgxs-generator/
+│   │   ├── native-plotting/
 │   │   ├── optimization/
 │   │   ├── simulation-comparison/
 │   │   ├── simulation-dashboard/
-│   │   │   ├── vr/                  # Variance reduction editors
-│   │   │   └── simulation-runner.ts
-│   │   └── tally-configurator/
-│   │       └── components/          # Mesh, filter, score editors
+│   │   │   └── tabs/                # DashboardTabContribution per tab
+│   │   ├── tally-configurator/
+│   │   │   └── components/          # Mesh, filter, score, trigger editors
+│   │   └── volume-calc/
 │   ├── script-generator/            # Python script export
 │   │   └── python-exporter.ts
 │   └── xml-generator/               # XML generation & import
@@ -94,6 +98,7 @@ src/
     ├── cad-import-service.ts
     ├── dagmc-editor-service.ts
     ├── xml-generation-service.ts
+    ├── e2e/                         # Vitest e2e (project-level, real runs)
     └── rpc-buffer-config.ts
 
 python/                              # Python service scripts
@@ -101,8 +106,22 @@ python/                              # Python service scripts
 ├── dagmc_info.py                    # DAGMC metadata reader
 ├── statepoint_reader.py             # Statepoint extraction
 ├── run_depletion.py                 # Depletion execution
-├── run_optimization.py              # Optimization driver
+├── run_optimization.py              # Sweep driver
+├── run_keff_search.py               # Criticality search driver
+├── run_cmfd.py                      # CMFD acceleration driver
+├── run_volume_calc.py               # Stochastic volume estimation
+├── generate_mgxs.py                 # convert_to_multigroup driver
+├── generate_mgxs_library.py         # openmc.mgxs.Library driver
+├── generate_plots.py                # Native plot mode driver
+├── build_chain.py                   # Depletion chain subset/ENDF builds
+├── ncrystal_import.py               # NCrystal cfg-string import
+├── sync_dagmc_depletion.py          # DAGMC depletion sync
+├── cad_conversion/                  # CAD conversion helpers
 └── cad_importer.py                  # CAD → DAGMC conversion
+
+tests/
+├── python/                          # Pytest unit suites (minimal profile)
+└── e2e/                             # Pytest e2e (driver-level, real runs)
 ```
 
 ## API Reference

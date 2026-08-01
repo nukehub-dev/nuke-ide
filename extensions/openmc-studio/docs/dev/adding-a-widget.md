@@ -351,6 +351,52 @@ if __name__ == '__main__':
 
 ---
 
+## Adding a Dashboard Tab
+
+Dashboard tabs are contribution-based: the Simulation Dashboard does not import tab components directly, it collects `DashboardTabContribution` instances from the DI container (see `src/browser/widgets/simulation-dashboard/tabs/tab-registry.ts`).
+
+### 1. Implement the Contribution
+
+```typescript
+import * as React from '@theia/core/shared/react';
+import { injectable } from '@theia/core/shared/inversify';
+import { OpenMCState } from '../../../../common/openmc-state-schema';
+import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
+import { DashboardTabContribution } from './tab-registry';
+
+@injectable()
+export class MyTabContribution implements DashboardTabContribution {
+    readonly id = 'my-tab';
+    readonly label = 'My Tab';
+    readonly icon = 'symbol-misc'; // codicon name without the 'codicon-' prefix
+    readonly order = 10; // tabs render sorted by order
+
+    // Optional: hide the tab for states where it does not apply
+    // readonly isVisible = (state: OpenMCState) => state.depletion?.enabled ?? false;
+
+    render(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
+        return <div className='settings-section'>{/* tab content */}</div>;
+    }
+}
+```
+
+### 2. Bind It
+
+In `src/browser/openmc-studio-frontend-module.ts`:
+
+```typescript
+bind(DashboardTabContribution).to(MyTabContribution).inSingletonScope();
+```
+
+`DashboardTabRegistry` collects all bound contributions via `@inject(ContributionProvider) @named(DashboardTabContribution)`, filters by `isVisible(state)`, and sorts by `order`. A single `bindContributionProvider(bind, DashboardTabContribution)` call already exists in the module — a vitest guard (`contribution-provider-wiring.test.ts`) fails the build if a new `@named` provider is added without one.
+
+### 3. Conventions
+
+- Tabs receive the dashboard `host` (state manager, services, `setActiveTab`) and the current `state` — never inject your own copy of the state.
+- Reuse the shared `.settings-section` / `.config-grid` / `.form-group` CSS classes so the tab matches the others.
+
+---
+
 ## File Checklist
 
 After adding a widget, these files should be modified or created:

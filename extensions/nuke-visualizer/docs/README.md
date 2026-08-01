@@ -26,10 +26,10 @@ Covers architecture, shared services, RPC protocols, DI wiring, and how to add n
 
 **Nuke Visualizer** is a plugin-based visualization framework with two built-in plugins:
 
-| Plugin              | What It Visualizes                                      | File Types                                                                |
-| ------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                     | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                                    |
-| **OpenMC**          | Monte Carlo results, tallies, cross-sections, depletion | `statepoint*.h5`, `geometry.xml`, `materials.xml`, `depletion_results.h5` |
+| Plugin              | What It Visualizes                                                    | File Types                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                                   | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                                                                                             |
+| **OpenMC**          | Monte Carlo results, tallies, cross-sections, depletion, output files | `statepoint*.h5`, `geometry.xml`, `materials.xml`, `depletion_results.h5`, `tracks.h5`, `collision_track*.h5`, `weight_windows.h5` |
 
 ---
 
@@ -46,6 +46,8 @@ docs/
 │   │   ├── index.md
 │   │   ├── statepoint-viewer.md
 │   │   ├── tally-visualization.md
+│   │   ├── output-viewers.md
+│   │   ├── nuclear-data.md
 │   │   ├── cross-sections.md
 │   │   ├── depletion.md
 │   │   ├── geometry.md
@@ -58,6 +60,7 @@ docs/
     ├── rpc-protocols.md
     ├── di-wiring.md
     ├── widget-patterns.md
+    ├── output-viewers.md
     ├── adding-a-plugin.md
     └── python-backends.md
 ```

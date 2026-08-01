@@ -24,20 +24,21 @@ Covers architecture, frontend/backend services, widget patterns, RPC protocols, 
 
 ## Quick Overview
 
-**OpenMC Studio** is a no-code simulation builder with ten major feature areas:
+**OpenMC Studio** is a no-code simulation builder with these major feature areas:
 
-| Feature                     | What It Does                                                          | Typical Output                      |
-| --------------------------- | --------------------------------------------------------------------- | ----------------------------------- |
-| **Simulation Dashboard**    | Monitor live runs, view batch metrics, and control execution          | Runtime logs, k-eff plots           |
-| **CSG Builder**             | Construct cells, surfaces, and universes graphically                  | `geometry.xml`                      |
-| **DAGMC Editor**            | Edit faceted geometry, assign groups, and preview meshes              | `.h5m`, `geometry.xml`              |
-| **Tally Configurator**      | Build tallies with filters, scores, meshes, and nuclides              | `tallies.xml`                       |
-| **Optimization Framework**  | Run parameter sweeps and surrogate-driven optimization                | Optimized inputs, convergence plots |
-| **Simulation Comparison**   | Compare multiple statepoints side-by-side                             | Delta tables, overlay plots         |
-| **XML Generation / Import** | Generate OpenMC XML from the UI or import existing XML into the model | `*.xml`                             |
-| **Project Management**      | Scaffold projects and track run history                               | Project folders, run metadata       |
-| **CAD Import**              | Convert STEP/IGES to DAGMC or CSG                                     | `.h5m`, `geometry.xml`              |
-| **Simulation Runner**       | Execute OpenMC with live log streaming and cancellation               | `statepoint*.h5`, `summary.h5`      |
+| Feature                       | What It Does                                                                           | Typical Output                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Simulation Dashboard**      | Configure settings, sources, materials, depletion, VR, and random ray; run and monitor | Runtime logs, k-eff plots                |
+| **Geometry**                  | CSG builder and DAGMC editor (incl. material overrides and depletion sync)             | `geometry.xml`, `.h5m`                   |
+| **Tally Configurator**        | Build tallies with filters, scores, meshes, triggers, and derivatives                  | `tallies.xml`                            |
+| **Depletion & Chain Builder** | Burnup timelines, transfer rates, custom chain subset/ENDF builds                      | Depletion chains, `depletion_results.h5` |
+| **Optimization Framework**    | Parameter sweeps and criticality (k-eff) searches                                      | Optimized inputs, convergence plots      |
+| **Volume Calculation**        | Stochastic volume estimation                                                           | Domain volumes ± σ                       |
+| **Native Plotting**           | Slice, voxel, and ray-traced geometry plots (C++ plot mode)                            | PNG, `.vti`                              |
+| **MGXS Generator**            | Multi-group cross-section libraries (automatic + Library modes)                        | `mgxs.h5`                                |
+| **Simulation Comparison**     | Compare multiple statepoints side-by-side                                              | Delta tables, overlay plots              |
+| **Project Management**        | Scaffold projects and track run history                                                | Project folders, run metadata            |
+| **CAD Import**                | Convert STEP/IGES to DAGMC or CSG                                                      | `.h5m`, `geometry.xml`                   |
 
 ---
 
@@ -50,24 +51,28 @@ docs/
 │   ├── index.md
 │   ├── getting-started.md
 │   ├── simulation-dashboard.md
-│   ├── csg-builder.md
+│   ├── geometry.md
 │   ├── dagmc-editor.md
 │   ├── tally-configurator.md
-│   ├── optimization-framework.md
+│   ├── optimization.md
+│   ├── volume-calculation.md
+│   ├── native-plotting.md
+│   ├── mgxs-generator.md
 │   ├── simulation-comparison.md
-│   ├── xml-generation.md
 │   ├── project-management.md
 │   ├── cad-import.md
 │   └── troubleshooting.md
 └── dev/                   # Developer guides
     ├── index.md
     ├── architecture.md
-    ├── frontend-module.md
-    ├── backend-services.md
+    ├── di-wiring.md
+    ├── state-model.md
     ├── widget-patterns.md
     ├── rpc-protocols.md
     ├── python-backends.md
-    └── adding-a-feature.md
+    ├── xml-generation.md
+    ├── adding-a-widget.md
+    └── testing.md
 ```
 
 ---
