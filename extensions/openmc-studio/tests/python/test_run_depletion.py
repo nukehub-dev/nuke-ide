@@ -54,6 +54,35 @@ class TestReadEnergyMode:
         assert run_depletion.read_energy_mode(tmp_path) == "continuous-energy"
 
 
+class TestReadMacroscopicDepletableNames:
+    def test_missing_materials_file_returns_empty(self, tmp_path):
+        """No materials.xml → empty list."""
+        assert run_depletion.read_macroscopic_depletable_names(tmp_path) == []
+
+    def test_macroscopic_depletable_is_reported(self, tmp_path):
+        """A depletable material with a <macroscopic> child is named."""
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel" depletable="true">'
+            '<macroscopic name="fuel"/></material></materials>'
+        )
+        assert run_depletion.read_macroscopic_depletable_names(tmp_path) == ["fuel"]
+
+    def test_microscopic_depletable_is_ignored(self, tmp_path):
+        """Nuclide-decomposed depletable materials are fine."""
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel" depletable="true">'
+            '<nuclide name="U235" ao="1.0"/></material></materials>'
+        )
+        assert run_depletion.read_macroscopic_depletable_names(tmp_path) == []
+
+    def test_non_depletable_macroscopic_is_ignored(self, tmp_path):
+        """Macroscopic materials not marked depletable don't deplete — no error."""
+        (tmp_path / "materials.xml").write_text(
+            '<materials><material id="1" name="fuel"><macroscopic name="fuel"/></material></materials>'
+        )
+        assert run_depletion.read_macroscopic_depletable_names(tmp_path) == []
+
+
 class TestMainArgparse:
     def test_no_arguments_exits_with_code_2(self, monkeypatch):
         """Missing working_directory and --time-steps is an argparse error."""

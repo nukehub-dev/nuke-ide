@@ -128,13 +128,15 @@ def _install_fake_openmc(
     return fake_openmc
 
 
-def _workdir(tmp_path, settings_xml="<settings></settings>", tallies_xml=None):
+def _workdir(tmp_path, settings_xml="<settings></settings>", tallies_xml=None, materials_xml=None):
     """Create a working directory with the XML files run_depletion parses."""
     workdir = tmp_path / "model"
     workdir.mkdir()
     (workdir / "settings.xml").write_text(settings_xml)
     if tallies_xml is not None:
         (workdir / "tallies.xml").write_text(tallies_xml)
+    if materials_xml is not None:
+        (workdir / "materials.xml").write_text(materials_xml)
     return workdir
 
 
@@ -603,3 +605,33 @@ class TestMultigroupCoupledGuard:
         assert result["success"] is True
         assert mats.cross_sections is None
         assert "is not a CE library" in capsys.readouterr().err
+
+    def test_multi_group_generate_microxs_is_a_clean_config_error(self, monkeypatch, tmp_path):
+        """MG project + independent + --generate-microxs needs CE mode."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(tmp_path, settings_xml=_MG_SETTINGS)
+
+        with pytest.raises(
+            run_depletion.DepletionConfigError,
+            match="MicroXS generation requires continuous-energy mode",
+        ):
+            run_depletion.run_depletion(
+                _args(workdir, operator="independent", generate_microxs=True)
+            )
+
+    def test_macroscopic_depletable_is_a_clean_config_error(self, monkeypatch, tmp_path):
+        """A depletable macroscopic material can never deplete (any mode)."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(
+            tmp_path,
+            materials_xml=(
+                '<materials><material id="1" name="fuel" depletable="true">'
+                '<macroscopic name="fuel"/></material></materials>'
+            ),
+        )
+
+        with pytest.raises(
+            run_depletion.DepletionConfigError,
+            match="Depletion requires nuclide-decomposed materials",
+        ):
+            run_depletion.run_depletion(_args(workdir))

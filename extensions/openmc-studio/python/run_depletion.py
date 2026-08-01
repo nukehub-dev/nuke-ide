@@ -78,6 +78,31 @@ def read_energy_mode(working_dir):
     return elem.text.strip() if elem is not None and elem.text else None
 
 
+def read_macroscopic_depletable_names(working_dir):
+    """Names of depletable materials that are macroscopic (multigroup).
+
+    Macroscopic materials carry cross-section SETS, not nuclides, so they can
+    never deplete. Detected from materials.xml with only the standard library
+    (`depletable="true"` attribute + a <macroscopic> child element).
+
+    Args:
+        working_dir: Path to the directory containing materials.xml.
+
+    Returns:
+        List of material names (empty when none / materials.xml missing).
+    """
+    import xml.etree.ElementTree as ET
+
+    materials_path = Path(working_dir) / "materials.xml"
+    if not materials_path.exists():
+        return []
+    names = []
+    for mat in ET.parse(materials_path).getroot().findall("material"):
+        if mat.get("depletable") == "true" and mat.find("macroscopic") is not None:
+            names.append(mat.get("name") or mat.get("id") or "?")
+    return names
+
+
 def resolve_solver(value):
     """Map a --solver value to a canonical solver id (aliases → warning)."""
     solver = (value or "cecm").lower()
@@ -122,16 +147,31 @@ def run_depletion(args):
     """
     working_dir = Path(args.working_directory).absolute()
 
-    # Coupled depletion is continuous-energy only in this OpenMC version —
-    # guard before any openmc import so the failure is a clean config error,
-    # not an lxml traceback from DataLibrary.from_xml(<mgxs.h5>)
-    energy_mode = read_energy_mode(working_dir)
-    if energy_mode == "multi-group" and args.operator != "independent":
+    # Semantic guards, before any openmc import so failures are clean config
+    # errors (not lxml tracebacks from DataLibrary.from_xml(<mgxs.h5>)):
+    # 1. Macroscopic (multigroup) materials have no nuclides — a depletable
+    #    macroscopic material can never deplete, in any mode or operator.
+    macroscopic = read_macroscopic_depletable_names(working_dir)
+    if macroscopic:
         raise DepletionConfigError(
-            "Coupled depletion requires continuous-energy mode; this project is "
-            "multi-group. Use the Independent operator with flux/MicroXS files "
-            "(or switch the model to continuous-energy)."
+            "Depletion requires nuclide-decomposed materials; macroscopic "
+            f"(multigroup) materials have no nuclide data ({', '.join(macroscopic)})."
         )
+    # 2. Coupled depletion is continuous-energy only in this OpenMC version,
+    #    and MicroXS generation needs a CE transport solve.
+    energy_mode = read_energy_mode(working_dir)
+    if energy_mode == "multi-group":
+        if args.operator != "independent":
+            raise DepletionConfigError(
+                "Coupled depletion requires continuous-energy mode; this project is "
+                "multi-group. Use the Independent operator with flux/MicroXS files "
+                "(or switch the model to continuous-energy)."
+            )
+        if getattr(args, "generate_microxs", False):
+            raise DepletionConfigError(
+                "MicroXS generation requires continuous-energy mode; provide "
+                "flux/MicroXS files instead, or switch the model to continuous-energy."
+            )
 
     import numpy as np
     import openmc

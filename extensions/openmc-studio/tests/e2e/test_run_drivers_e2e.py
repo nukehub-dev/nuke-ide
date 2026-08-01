@@ -126,6 +126,46 @@ def test_run_depletion_multigroup_coupled_clean_error_e2e(tmp_path):
     assert "Traceback" not in proc.stderr
 
 
+@pytest.mark.e2e
+def test_run_depletion_multigroup_generate_microxs_clean_error_e2e(tmp_path):
+    """Multi-group + independent + generate-from-model exits 1 with clean JSON.
+
+    get_microxs_and_flux needs a CE transport solve with per-nuclide data.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    (tmp_path / "settings.xml").write_text(
+        '<?xml version="1.0"?>\n<settings>\n  <run_mode>eigenvalue</run_mode>\n'
+        "  <energy_mode>multi-group</energy_mode>\n</settings>\n"
+    )
+    script = Path(__file__).parents[2] / "python" / "run_depletion.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(tmp_path),
+            "--time-steps",
+            "1",
+            "--power",
+            "1",
+            "--operator",
+            "independent",
+            "--generate-microxs",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 1
+    result = json.loads(proc.stdout)
+    assert result["success"] is False
+    assert "MicroXS generation requires continuous-energy mode" in result["error"]
+    assert "Traceback" not in proc.stderr
+
+
 # ---------------------------------------------------------------------------
 # run_keff_search.py
 # ---------------------------------------------------------------------------

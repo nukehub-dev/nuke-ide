@@ -2369,6 +2369,19 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 });
             }
 
+            // Macroscopic (multigroup) materials have no nuclides — they can
+            // never deplete, in any mode or operator
+            const macroscopicDepletable = materials.filter((m) => m.isDepletable && m.macroscopic);
+            if (macroscopicDepletable.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message: `Depletion requires nuclide-decomposed materials; ${macroscopicDepletable.map((m) => m.name).join(', ')} ${macroscopicDepletable.length === 1 ? 'is' : 'are'} macroscopic`,
+                    suggestion:
+                        'Macroscopic materials carry cross-section sets, not nuclides — use nuclide-decomposed materials for depletion'
+                });
+            }
+
             // Coupled depletion is continuous-energy only in this OpenMC
             // version (CoupledOperator needs a CE cross_sections.xml)
             if (settings.energyMode === 'multigroup' && (depletion.operator ?? 'coupled') !== 'independent') {
@@ -2379,6 +2392,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         'Coupled depletion requires continuous-energy mode; multigroup depletion uses the Independent operator (flux/MicroXS)',
                     suggestion:
                         'Switch the operator to Independent in the Depletion tab Advanced section (or switch the model to continuous-energy)'
+                });
+            }
+
+            // MicroXS generation needs a CE transport solve with per-nuclide data
+            if (
+                settings.energyMode === 'multigroup' &&
+                (depletion.operator ?? 'coupled') === 'independent' &&
+                depletion.generateFromModel
+            ) {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message: 'MicroXS generation requires continuous-energy mode',
+                    suggestion: 'Provide flux/MicroXS files instead, or switch the model to continuous-energy'
                 });
             }
 

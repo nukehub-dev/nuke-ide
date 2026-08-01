@@ -113,7 +113,7 @@ describe('validateState depletion operator restrictions', () => {
         ).toBe(true);
     });
 
-    it('accepts the independent operator with model-based generation in multi-group mode', async () => {
+    it('errors on model-based MicroXS generation in multi-group mode', async () => {
         const state = buildState();
         state.settings.energyMode = 'multigroup';
         enableDepletion(state);
@@ -123,8 +123,37 @@ describe('validateState depletion operator restrictions', () => {
         const backend = new OpenMCStudioBackendServiceImpl();
         const result = await backend.validateState({ state });
 
-        expect(result.issues.some((i) => i.message.includes('depletion operator'))).toBe(false);
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('MicroXS generation requires continuous-energy mode'))
+        ).toBe(true);
+    });
+
+    it('accepts model-based MicroXS generation in continuous-energy mode', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.operator = 'independent';
+        state.depletion!.generateFromModel = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('MicroXS generation'))).toBe(false);
         expect(result.issues.some((i) => i.message.includes('Coupled depletion'))).toBe(false);
+    });
+
+    it('errors when a depletable material is macroscopic', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        (state.materials[0] as any).macroscopic = { name: 'Water' };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const macroError = result.issues.find(
+            (i) => i.severity === 'error' && i.message.includes('Depletion requires nuclide-decomposed materials')
+        );
+        expect(macroError).toBeDefined();
+        expect(macroError!.message).toContain('Water');
     });
 
     it('accepts the independent operator with per-material flux/MicroXS files', async () => {

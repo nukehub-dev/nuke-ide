@@ -226,7 +226,25 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                     </button>
                                 </div>
                             ) : (
-                                <div className="depletion-materials-grid">{this.renderDepletableMaterialsSection(state)}</div>
+                                <>
+                                    {state.materials.some((m) => m.isDepletable && m.macroscopic) && (
+                                        <div className="depletion-warning-box">
+                                            <i className="codicon codicon-warning"></i>
+                                            <div className="warning-content">
+                                                <strong>Macroscopic materials cannot deplete</strong>
+                                                <p>
+                                                    {state.materials
+                                                        .filter((m) => m.isDepletable && m.macroscopic)
+                                                        .map((m) => m.name)
+                                                        .join(', ')}{' '}
+                                                    — macroscopic (multigroup) materials carry cross-section sets, not nuclides. Use
+                                                    nuclide-decomposed materials for depletion.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="depletion-materials-grid">{this.renderDepletableMaterialsSection(state)}</div>
+                                </>
                             )}
                         </div>
 
@@ -595,6 +613,12 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                     Runs a full neutron transport solve first (get_microxs_and_flux) — significantly slower, but no input
                                     files needed.
                                 </span>
+                                {isMultiGroup && depletion.generateFromModel && (
+                                    <span className="config-hint">
+                                        MicroXS generation requires continuous-energy mode — provide flux/MicroXS files instead on this
+                                        multi-group project (validation will block the run).
+                                    </span>
+                                )}
                             </div>
                         </div>
                         {!depletion.generateFromModel &&
