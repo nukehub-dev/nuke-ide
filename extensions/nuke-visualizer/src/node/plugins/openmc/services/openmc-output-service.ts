@@ -63,10 +63,7 @@ export class OpenMCOutputService {
     }
 
     async getTracksInfo(filePath: string): Promise<OpenMCTracksInfo> {
-        return this.pythonHelper.executeScriptJson<OpenMCTracksInfo>(this.scriptPath, ['openmc.tracks-info', filePath], {
-            timeout: 60000,
-            maxBuffer: 64 * 1024 * 1024
-        });
+        return this.executeCommandJson<OpenMCTracksInfo>(['openmc.tracks-info', filePath]);
     }
 
     async getTracksData(filePath: string, options?: OpenMCTracksDataOptions): Promise<OpenMCTracksData> {
@@ -89,10 +86,7 @@ export class OpenMCOutputService {
         if (options?.material?.length) {
             args.push('--material', options.material.join(','));
         }
-        return this.pythonHelper.executeScriptJson<OpenMCTracksData>(this.scriptPath, args, {
-            timeout: 60000,
-            maxBuffer: 64 * 1024 * 1024
-        });
+        return this.executeCommandJson<OpenMCTracksData>(args);
     }
 
     async convertTracksToVtk(filePath: string, options?: OpenMCTracksVtkOptions): Promise<OpenMCVtkConversionResult> {
@@ -116,9 +110,7 @@ export class OpenMCOutputService {
     }
 
     async getCollisionTrackInfo(filePath: string): Promise<OpenMCCollisionTrackInfo> {
-        return this.pythonHelper.executeScriptJson<OpenMCCollisionTrackInfo>(this.scriptPath, ['openmc.collision-track-info', filePath], {
-            timeout: 60000
-        });
+        return this.executeCommandJson<OpenMCCollisionTrackInfo>(['openmc.collision-track-info', filePath]);
     }
 
     async getCollisionTrackData(filePath: string, query?: OpenMCCollisionTrackQuery): Promise<OpenMCCollisionTrackData> {
@@ -135,10 +127,7 @@ export class OpenMCOutputService {
         if (query?.cell?.length) {
             args.push('--cell', query.cell.join(','));
         }
-        return this.pythonHelper.executeScriptJson<OpenMCCollisionTrackData>(this.scriptPath, args, {
-            timeout: 60000,
-            maxBuffer: 64 * 1024 * 1024
-        });
+        return this.executeCommandJson<OpenMCCollisionTrackData>(args);
     }
 
     async convertCollisionTrackToVtk(filePath: string, options?: OpenMCCollisionVtkOptions): Promise<OpenMCVtkConversionResult> {
@@ -156,16 +145,11 @@ export class OpenMCOutputService {
     }
 
     async getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData> {
-        return this.pythonHelper.executeScriptJson<OpenMCWeightWindowsData>(this.scriptPath, ['openmc.weight-windows', filePath], {
-            timeout: 60000,
-            maxBuffer: 64 * 1024 * 1024
-        });
+        return this.executeCommandJson<OpenMCWeightWindowsData>(['openmc.weight-windows', filePath]);
     }
 
     async getKineticsParameters(statepointPath: string): Promise<OpenMCKineticsResult> {
-        return this.pythonHelper.executeScriptJson<OpenMCKineticsResult>(this.scriptPath, ['openmc.kinetics', statepointPath], {
-            timeout: 60000
-        });
+        return this.executeCommandJson<OpenMCKineticsResult>(['openmc.kinetics', statepointPath]);
     }
 
     async convertVoxelToVtk(filePath: string): Promise<OpenMCVtkConversionResult> {
@@ -173,16 +157,11 @@ export class OpenMCOutputService {
     }
 
     async getVtkInfo(filePath: string): Promise<OpenMCVtkFileInfo> {
-        return this.pythonHelper.executeScriptJson<OpenMCVtkFileInfo>(this.scriptPath, ['openmc.vtk-info', filePath], {
-            timeout: 60000,
-            maxBuffer: 64 * 1024 * 1024
-        });
+        return this.executeCommandJson<OpenMCVtkFileInfo>(['openmc.vtk-info', filePath]);
     }
 
     async getParticleRestart(filePath: string): Promise<OpenMCParticleRestart> {
-        return this.pythonHelper.executeScriptJson<OpenMCParticleRestart>(this.scriptPath, ['openmc.particle-restart', filePath], {
-            timeout: 60000
-        });
+        return this.executeCommandJson<OpenMCParticleRestart>(['openmc.particle-restart', filePath]);
     }
 
     async getNuclearDataLibrary(request: NuclearDataLibraryRequest): Promise<NuclearDataLibraryResult> {
@@ -199,21 +178,40 @@ export class OpenMCOutputService {
     }
 
     /**
-     * Run an openmc.* command and parse its stdout JSON regardless of exit
-     * status: handlers print structured `{"success": false, "error": ...}`
-     * payloads on failure (exit 1), which carry a better message than the
-     * (empty) stderr that executeScriptJson would throw on.
+     * Run an openmc.* command and parse its stdout JSON. Error reporting is
+     * stdout-first: on non-zero exit, a parsed `{"error": ...}` payload
+     * provides the message (this is the genuine command error); stderr —
+     * which may carry unrelated plugin-load log lines — is only a fallback.
+     * Structured `{"success": false, ...}` envelopes (nuclear-data commands)
+     * are returned as-is so callers can render them.
      */
-    protected async executeCommandJson<T extends { success: boolean; error?: string }>(args: string[], timeout = 60000): Promise<T> {
+    protected async executeCommandJson<T>(args: string[], timeout = 60000): Promise<T> {
         const result = await this.pythonHelper.executeScript(this.scriptPath, args, {
             timeout,
             maxBuffer: 64 * 1024 * 1024
         });
+
+        let parsed: Record<string, unknown> | undefined;
         try {
-            return JSON.parse(result.stdout) as T;
+            parsed = JSON.parse(result.stdout) as Record<string, unknown>;
         } catch {
-            throw new Error(`Command '${args[0]}' failed (exit ${result.status}): ${result.stderr || result.stdout.substring(0, 500)}`);
+            parsed = undefined;
         }
+
+        if (result.status !== 0) {
+            if (parsed && 'success' in parsed && typeof parsed.error === 'string') {
+                return parsed as T; // structured failure envelope
+            }
+            const message =
+                (parsed && typeof parsed.error === 'string' && parsed.error) ||
+                result.stderr.trim() ||
+                `Command '${args[0]}' exited with code ${result.status}`;
+            throw new Error(message);
+        }
+        if (parsed === undefined) {
+            throw new Error(`Command '${args[0]}' produced non-JSON output (exit ${result.status}): ${result.stdout.substring(0, 500)}`);
+        }
+        return parsed as T;
     }
 
     async convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult> {
@@ -231,10 +229,7 @@ export class OpenMCOutputService {
      */
     protected async runConversion(args: string[], timeout = 60000): Promise<OpenMCVtkConversionResult> {
         try {
-            const raw = await this.pythonHelper.executeScriptJson<Record<string, unknown>>(this.scriptPath, args, {
-                timeout,
-                maxBuffer: 64 * 1024 * 1024
-            });
+            const raw = await this.executeCommandJson<Record<string, unknown>>(args, timeout);
             if (typeof raw.error === 'string') {
                 return { success: false, error: raw.error };
             }

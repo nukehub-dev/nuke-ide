@@ -178,6 +178,15 @@ export class OpenMCGeometryContribution {
         }
     }
 
+    /**
+     * Open a geometry file (geometry.xml or summary.h5) in the hierarchy tree
+     * and the 3D view. Used by the summary.h5 output-viewer contribution.
+     */
+    async openGeometry3DForFile(uri: URI): Promise<void> {
+        await this.openGeometryHierarchy(uri);
+        await this.showGeometry3D({ fileUri: uri });
+    }
+
     async viewGeometryHierarchyCommand(): Promise<void> {
         // Open file dialog to select geometry.xml or model directory
         const fileUri = await this.fileDialogService.showOpenDialog({

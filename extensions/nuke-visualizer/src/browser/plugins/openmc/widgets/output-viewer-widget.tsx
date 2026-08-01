@@ -34,6 +34,9 @@ import { MessageService } from '@theia/core/lib/common';
 import { OpenMCBackendService, OpenMCVtkConversionResult } from '../../../../common/openmc-protocol';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { toProxiedVisualizerUrl } from '../../../visualizer-url';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { detectMissingDependencies } from './dependency-hints';
+import { startSplitDrag } from './drag-split';
 import './output-viewer.css';
 
 /**
@@ -209,14 +212,15 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
                     {fileName}
                 </span>
                 {this.renderControls()}
-                <button
-                    className="theia-button secondary openmc-output-viewer-reload"
-                    title="Reload"
-                    onClick={() => this.reload()}
-                    disabled={this.isLoading}
-                >
-                    <i className={codicon('refresh')}></i>
-                </button>
+                <Tooltip content="Reload" position="bottom">
+                    <button
+                        className="theia-button secondary openmc-output-viewer-reload"
+                        onClick={() => this.reload()}
+                        disabled={this.isLoading}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }
@@ -230,26 +234,116 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
                 </div>
             );
         }
+        const panel = this.renderPanel();
         return (
             <>
-                {this.renderViewerHint()}
-                {this.serverUrl ? (
-                    <iframe className="openmc-output-viewer-iframe" src={this.serverUrl} title={this.title.label} />
-                ) : (
-                    <div className="openmc-output-viewer-status">
-                        <span>{this.statusMessage || 'No file loaded'}</span>
-                    </div>
+                <div className="openmc-output-viewer-viewarea">
+                    {this.renderViewerHint()}
+                    {this.serverUrl ? (
+                        <iframe className="openmc-output-viewer-iframe" src={this.serverUrl} title={this.title.label} />
+                    ) : (
+                        <div className="openmc-output-viewer-status">
+                            <span>{this.statusMessage || 'No file loaded'}</span>
+                        </div>
+                    )}
+                </div>
+                {panel && (
+                    <>
+                        <div
+                            className="openmc-output-viewer-split-handle"
+                            onMouseDown={this.startSplitDrag}
+                            role="separator"
+                            aria-orientation="horizontal"
+                        />
+                        <div
+                            className="openmc-output-viewer-panel-host"
+                            style={this.panelHeight !== undefined ? { height: `${this.panelHeight}px`, flex: 'none' } : undefined}
+                        >
+                            {panel}
+                        </div>
+                    </>
                 )}
-                {this.renderPanel()}
             </>
         );
     }
 
+    /** Panel height in px once the user drags the split (undefined = CSS default 40%). */
+    protected panelHeight?: number;
+
+    /**
+     * Drag-to-resize the split between the 3D view and the data panel
+     * (shared helper: direct DOM writes during the drag, iframe click-shield).
+     */
+    protected startSplitDrag = (e: React.MouseEvent): void => {
+        const host = this.node.querySelector<HTMLElement>('.openmc-output-viewer-panel-host');
+        const container = this.node.querySelector<HTMLElement>('.openmc-output-viewer-container');
+        if (!host || !container) {
+            return;
+        }
+        const startHeight = host.getBoundingClientRect().height;
+        const containerHeight = container.getBoundingClientRect().height;
+        // Keep at least 120px for the 3D view and 80px for the panel
+        const maxHeight = Math.max(120, containerHeight - 120);
+        startSplitDrag({
+            event: e,
+            node: this.node,
+            sizeFromEvent: (start, ev) => Math.round(Math.min(maxHeight, Math.max(80, startHeight + (start.clientY - ev.clientY)))),
+            apply: (size) => {
+                host.style.height = `${size}px`;
+                host.style.flex = 'none';
+                this.panelHeight = size;
+            },
+            commit: () => this.update()
+        });
+    };
+
     protected renderError(): React.ReactNode {
+        const missingDeps = this.error ? detectMissingDependencies(this.error) : undefined;
+        if (missingDeps) {
+            return this.renderDependencyError(missingDeps);
+        }
         return (
             <div className="openmc-output-viewer-status error">
                 <i className={codicon('error')}></i>
                 <span>{this.error}</span>
+            </div>
+        );
+    }
+
+    /**
+     * Actionable error panel for missing Python dependencies: name what's
+     * missing and how to fix it, keeping the genuine backend error text.
+     */
+    protected renderDependencyError(missingDeps: string[]): React.ReactNode {
+        return (
+            <div className="openmc-output-viewer-status">
+                <div className="openmc-output-viewer-dep-panel">
+                    <div className="dep-title">
+                        <i className={codicon('warning')}></i>
+                        Missing Python dependencies
+                    </div>
+                    <p className="dep-summary">
+                        This viewer needs <strong>{missingDeps.join(', ')}</strong>, which the configured Python environment does not
+                        provide.
+                    </p>
+                    <ul className="dep-actions">
+                        <li>
+                            Install the missing packages into the configured environment (for the 3D viewers that is <code>vtk</code> and{' '}
+                            <code>trame</code> with <code>paraview</code>).
+                        </li>
+                        <li>
+                            Or point NukeIDE at an environment that has them in <strong>Settings → Nuke Utils</strong> (Python environment),
+                            then reload this viewer.
+                        </li>
+                    </ul>
+                    <p className="dep-backend-error">
+                        <span className="dep-backend-label">Backend error:</span> {this.error}
+                    </p>
+                    <button className="theia-button secondary" onClick={() => this.reload()}>
+                        <i className={codicon('refresh')}></i>
+                        Retry
+                    </button>
+                </div>
             </div>
         );
     }

@@ -31,15 +31,16 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { MessageService } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCBackendService, OpenMCParticleRestart } from '../../../../../common/openmc-protocol';
+import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
 
 /**
  * Preview viewer for OpenMC particle restart files (`particle_restart.h5` /
  * `particle_<batch>_<id>.h5`): the state of the particle that was lost and
- * can be re-run. This is scalar/tabular data, so the widget renders a
- * summary + property table directly — no trame pipeline. A later
- * openmc-studio task adds the run-single-particle action on top of this.
+ * can be re-run. Scalar/tabular data rendered as section cards — no trame
+ * pipeline. A later openmc-studio task adds the run-single-particle action.
  */
 @injectable()
 export class OpenMCParticleRestartWidget extends ReactWidget {
@@ -95,6 +96,7 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         const fileName = this.fileUri?.path.base ?? '';
+        const data = this.data;
         return (
             <div className="openmc-output-viewer-container">
                 <div className="openmc-output-viewer-header">
@@ -102,14 +104,17 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
                         <i className={codicon('debug-restart')}></i>
                         {fileName}
                     </span>
-                    <button
-                        className="theia-button secondary openmc-output-viewer-reload"
-                        title="Reload"
-                        onClick={() => this.load()}
-                        disabled={this.isLoading}
-                    >
-                        <i className={codicon('refresh')}></i>
-                    </button>
+                    {data && <span className="openmc-output-viewer-chip">{data.particle}</span>}
+                    {data?.runMode && <span className="openmc-output-viewer-chip">{data.runMode}</span>}
+                    <Tooltip content="Reload" position="bottom">
+                        <button
+                            className="theia-button secondary openmc-output-viewer-reload"
+                            onClick={() => this.load()}
+                            disabled={this.isLoading}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
                 </div>
                 {this.renderBody()}
             </div>
@@ -126,10 +131,15 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
             );
         }
         if (this.error) {
+            const missingDeps = detectMissingDependencies(this.error);
             return (
                 <div className="openmc-output-viewer-status error">
                     <i className={codicon('error')}></i>
-                    <span>{this.error}</span>
+                    <span>
+                        {this.error}
+                        {missingDeps &&
+                            ` — install ${missingDeps.join(', ')} into the configured environment or switch it in Settings → Nuke Utils`}
+                    </span>
                 </div>
             );
         }
@@ -146,25 +156,31 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
             <div className="openmc-output-viewer-panel" style={{ maxHeight: 'none', borderTop: 'none', overflow: 'auto' }}>
                 <div className="openmc-output-viewer-card">
                     <div className="openmc-output-viewer-card-title">
-                        {data.particle} (id {data.particleId}) — lost in batch {data.currentBatch}, generation {data.currentGeneration}
+                        <i className={codicon('history')}></i> Run Context
                     </div>
                     <dl>
-                        <dt>Run mode</dt>
-                        <dd>{data.runMode ?? 'unknown'}</dd>
-                        <dt>Particles / generation</dt>
-                        <dd>{data.nParticles.toLocaleString()}</dd>
+                        <dt>Lost in batch</dt>
+                        <dd>{data.currentBatch}</dd>
+                        <dt>Generation</dt>
+                        <dd>{data.currentGeneration}</dd>
                         <dt>Generations / batch</dt>
                         <dd>{data.generationsPerBatch}</dd>
+                        <dt>Particles / generation</dt>
+                        <dd>{data.nParticles.toLocaleString()}</dd>
                     </dl>
                 </div>
 
                 <div className="openmc-output-viewer-card">
-                    <div className="openmc-output-viewer-card-title">Particle State</div>
+                    <div className="openmc-output-viewer-card-title">
+                        <i className={codicon('symbol-atom')}></i> Particle State
+                    </div>
                     <dl>
                         <dt>Type</dt>
                         <dd>
                             {data.particle} (PDG {data.pdg})
                         </dd>
+                        <dt>Particle ID</dt>
+                        <dd>{data.particleId}</dd>
                         <dt>Energy</dt>
                         <dd>{data.energy.toExponential(6)} eV</dd>
                         <dt>Weight</dt>
@@ -179,7 +195,9 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
                 </div>
 
                 <div className="openmc-output-viewer-card">
-                    <div className="openmc-output-viewer-card-title">File</div>
+                    <div className="openmc-output-viewer-card-title">
+                        <i className={codicon('file')}></i> File
+                    </div>
                     <dl>
                         {data.filetype && (
                             <>

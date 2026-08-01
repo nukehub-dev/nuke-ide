@@ -9,32 +9,52 @@ from nuke_viz.plugin import arg, command
 
 
 @command("openmc.geometry", help="Get geometry hierarchy")
-@arg("file", help="Path to geometry.xml")
+@arg("file", help="Path to geometry.xml or summary.h5")
 def cmd_geometry(args):
     """Get geometry hierarchy from OpenMC geometry file."""
     try:
         from plugins.openmc.lib.geometry_parser import parse_geometry
 
-        result = parse_geometry(args.file)
+        path = _resolve_geometry_path(args.file)
+        result = parse_geometry(path)
         print(json.dumps(result))
         return 0 if "error" not in result else 1
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 
 
+def _resolve_geometry_path(file_path: str) -> str:
+    """Resolve a geometry input for the parse/visualize pipeline.
+
+    summary.h5 is converted to geometry.xml + materials.xml in a temp
+    directory (returned as the directory so material names load); anything
+    else passes through unchanged.
+    """
+    if file_path.lower().endswith(".h5"):
+        import tempfile
+
+        from plugins.openmc.lib.geometry_parser import convert_summary_to_xml
+
+        return convert_summary_to_xml(file_path, tempfile.mkdtemp(prefix="nuke-summary-"))
+    return file_path
+
+
 @command("openmc.visualize-geometry", help="Visualize OpenMC geometry")
-@arg("file", help="Path to geometry.xml")
+@arg("file", help="Path to geometry.xml or summary.h5")
 @arg("--port", type=int, help="Server port")
 @arg("--highlight", help="Cell ID(s) to highlight (comma-separated)")
 @arg("--overlaps", help="Path to JSON file with overlap markers")
 def cmd_visualize_geometry(args):
     """Visualize OpenMC geometry in 3D."""
     try:
+        import os
+
         from plugins.openmc.lib.geometry_viz import visualize_geometry
+
+        path = _resolve_geometry_path(args.file)
+        if os.path.isdir(path):
+            path = os.path.join(path, "geometry.xml")
 
         highlight_ids = None
         if args.highlight:
@@ -44,11 +64,8 @@ def cmd_visualize_geometry(args):
             else:
                 highlight_ids = [int(args.highlight)]
 
-        return visualize_geometry(args.file, args.port, highlight_ids, args.overlaps)
+        return visualize_geometry(path, args.port, highlight_ids, args.overlaps)
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 

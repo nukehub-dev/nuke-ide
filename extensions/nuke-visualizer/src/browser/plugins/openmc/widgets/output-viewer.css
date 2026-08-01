@@ -31,9 +31,13 @@
     margin-right: auto;
 }
 
-.openmc-output-viewer-reload {
+.openmc-output-viewer-header .openmc-output-viewer-reload {
     display: flex;
     align-items: center;
+    /* Icon-only header button: undo Theia's global .theia-button min-width/offset */
+    min-width: 0;
+    margin-left: 0;
+    padding: 4px 6px;
 }
 
 .openmc-output-viewer-control {
@@ -106,6 +110,35 @@
     width: 100%;
 }
 
+/* Vertical split: 3D view above, data panel below, draggable divider */
+
+.openmc-output-viewer-viewarea {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.openmc-output-viewer-split-handle {
+    flex: none;
+    height: 5px;
+    cursor: row-resize;
+    background: transparent;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.openmc-output-viewer-split-handle:hover,
+.openmc-output-viewer-split-handle:active {
+    background: var(--theia-focusBorder);
+}
+
+.openmc-output-viewer-panel-host {
+    flex: none;
+    max-height: 40%;
+    display: flex;
+    flex-direction: column;
+}
+
 .openmc-output-viewer-status {
     flex: 1;
     display: flex;
@@ -141,8 +174,8 @@
 }
 
 .openmc-output-viewer-panel {
-    flex-shrink: 0;
-    max-height: 40%;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
     border-top: 1px solid var(--theia-panel-border);
     padding: 8px 16px;
@@ -210,4 +243,80 @@
 .openmc-output-viewer-card dd {
     margin: 0;
     font-family: var(--theia-monospace-font-family, monospace);
+}
+
+/* Missing-dependency guidance panel */
+
+.openmc-output-viewer-dep-panel {
+    max-width: 560px;
+    text-align: left;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.openmc-output-viewer-dep-panel .dep-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--theia-editorWarning-foreground, var(--theia-foreground));
+}
+
+.openmc-output-viewer-dep-panel .dep-summary {
+    margin: 0;
+    color: var(--theia-foreground);
+}
+
+.openmc-output-viewer-dep-panel .dep-actions {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--theia-descriptionForeground);
+}
+
+.openmc-output-viewer-dep-panel .dep-actions li {
+    margin: 4px 0;
+}
+
+.openmc-output-viewer-dep-panel .dep-actions code {
+    font-family: var(--theia-monospace-font-family, monospace);
+    background: var(--theia-textCodeBlock-background, var(--theia-editorWidget-background));
+    border-radius: 3px;
+    padding: 0 4px;
+}
+
+.openmc-output-viewer-dep-panel .dep-backend-error {
+    margin: 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family, monospace);
+    word-break: break-all;
+}
+
+.openmc-output-viewer-dep-panel .dep-backend-error .dep-backend-label {
+    font-weight: 600;
+}
+
+.openmc-output-viewer-dep-panel .theia-button {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Chips (particle restart header, badges) */
+
+.openmc-output-viewer-chip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    text-transform: uppercase;
+    white-space: nowrap;
 }

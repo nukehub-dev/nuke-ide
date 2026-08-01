@@ -1,10 +1,10 @@
 """OpenMC visualization plugin for NukeIDE."""
 
-import sys
+from nuke_viz.plugin import load_command_modules
 
 # Import all command modules — this triggers @command registration.
-# We catch import errors so missing optional dependencies don't break
-# the entire plugin.
+# Modules that fail to import (missing optional dependencies) are skipped and
+# logged via nuke_viz.logging, never printed raw to stderr.
 _COMMAND_MODULES = [
     "basic",
     "spectrum",
@@ -23,11 +23,7 @@ _COMMAND_MODULES = [
     "output_vtk",
 ]
 
-for mod_name in _COMMAND_MODULES:
-    try:
-        __import__(f"plugins.openmc.commands.{mod_name}")
-    except Exception as e:
-        print(f"[OpenMC Plugin] Command module '{mod_name}' not loaded: {e}", file=sys.stderr)
+load_command_modules("plugins.openmc.commands", _COMMAND_MODULES)
 
 # Plugin metadata (used by registry for discovery)
 PLUGIN_NAME = "openmc"

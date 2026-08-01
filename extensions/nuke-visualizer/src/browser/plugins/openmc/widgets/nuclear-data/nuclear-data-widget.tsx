@@ -41,6 +41,7 @@ import {
     NuclearDataNuclideEntry
 } from '../../../../../common/openmc-protocol';
 import { NukeCoreService } from 'nuke-core/lib/common';
+import { startSplitDrag } from '../drag-split';
 import { XSPlotWidget } from '../plotting/xs-plot-widget';
 import './nuclear-data.css';
 
@@ -197,31 +198,25 @@ export class NuclearDataWidget extends ReactWidget {
     private panelWidth?: number;
 
     /**
-     * Drag-to-resize the list panel. During the drag the width is written
-     * directly to the DOM (no React re-render per pixel — that is what makes
-     * custom splitters feel laggy); the width is committed to widget state on
-     * mouseup.
+     * Drag-to-resize the list panel (shared helper: direct DOM writes during
+     * the drag, iframe click-shield, commit once on mouseup).
      */
     private startPanelDrag = (e: React.MouseEvent): void => {
-        e.preventDefault();
         const panel = this.node.querySelector<HTMLElement>('.nuclide-list-panel');
         if (!panel) {
             return;
         }
-        const startX = e.clientX;
         const startWidth = panel.getBoundingClientRect().width;
-        const onMove = (ev: MouseEvent): void => {
-            const width = Math.min(640, Math.max(220, startWidth + ev.clientX - startX));
-            panel.style.width = `${width}px`;
-            this.panelWidth = width;
-        };
-        const onUp = (): void => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            this.update();
-        };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
+        startSplitDrag({
+            event: e,
+            node: this.node,
+            sizeFromEvent: (start, ev) => Math.min(640, Math.max(220, startWidth + ev.clientX - start.clientX)),
+            apply: (size) => {
+                panel.style.width = `${size}px`;
+                this.panelWidth = size;
+            },
+            commit: () => this.update()
+        });
     };
 
     /** Render the widget. */

@@ -52,6 +52,7 @@ import * as express from 'express';
 import httpProxy = require('http-proxy');
 import { VisualizerBackendServiceImpl } from './visualizer-backend-service';
 import { OpenMCBackendServiceImpl } from './plugins/openmc/openmc-backend-service';
+import { retryOnRefused } from './proxy-retry';
 
 @injectable()
 export class VisualizerProxyContribution implements BackendApplicationContribution {
@@ -65,6 +66,10 @@ export class VisualizerProxyContribution implements BackendApplicationContributi
 
     constructor() {
         this.proxy.on('error', (err, _req, resOrSocket) => {
+            // Safety net for proxy calls made without a per-call callback
+            // (none currently — the HTTP/WS paths handle errors per call with
+            // retry). Late WebSocket errors after a successful upgrade also
+            // land here when the socket was not yet handed to a retry callback.
             console.error(`[VisualizerProxy] ${err.message}`);
             if (resOrSocket instanceof http.ServerResponse) {
                 if (!resOrSocket.headersSent) {
@@ -72,7 +77,6 @@ export class VisualizerProxyContribution implements BackendApplicationContributi
                 }
                 resOrSocket.end('Visualizer server unreachable');
             } else {
-                // WebSocket upgrade failure — no HTTP response possible
                 (resOrSocket as net.Socket).destroy();
             }
         });
@@ -108,7 +112,64 @@ export class VisualizerProxyContribution implements BackendApplicationContributi
                 return;
             }
             req.url = target.path;
-            this.proxy.web(req, res, { target: `http://127.0.0.1:${target.port}` });
+            void this.proxyWebWithRetry(req, res, target.port);
+        });
+    }
+
+    /**
+     * Proxy one HTTP request, retrying ECONNREFUSED for a few seconds: trame
+     * prints its startup line before it finishes binding the port, so the
+     * browser's first request after a server start otherwise races the bind
+     * and gets a permanent 'unreachable' page.
+     */
+    protected async proxyWebWithRetry(req: http.IncomingMessage, res: http.ServerResponse, port: number): Promise<void> {
+        const options = { target: `http://127.0.0.1:${port}` };
+
+        // Each attempt attaches a few listeners to req/res (http-proxy's own
+        // error handlers); 20+ attempts would trip the default-10 warning.
+        req.setMaxListeners(0);
+        res.setMaxListeners(0);
+
+        // proxy.web only calls back on error, so success is observed as the
+        // response finishing (or the client going away) — one listener pair.
+        let clientDone!: () => void;
+        const finished = new Promise<undefined>((resolve) => {
+            clientDone = () => resolve(undefined);
+            res.once('finish', clientDone);
+            res.once('close', clientDone);
+        });
+
+        try {
+            const lastError = await retryOnRefused(() => Promise.race([this.attemptWeb(req, res, options), finished]));
+            if (lastError) {
+                console.error(`[VisualizerProxy] ${lastError.message}`);
+                if (!res.headersSent) {
+                    res.writeHead(502, { 'Content-Type': 'text/plain' });
+                }
+                res.end('Visualizer server unreachable');
+            }
+        } finally {
+            res.removeListener('finish', clientDone);
+            res.removeListener('close', clientDone);
+        }
+    }
+
+    /**
+     * One proxy.web attempt: resolves with the proxy error (success is raced
+     * against the response finishing in proxyWebWithRetry). A failure after
+     * headers went out cannot be retried cleanly, so it resolves as a plain
+     * Error without the errno code (non-retryable).
+     */
+    protected attemptWeb(req: http.IncomingMessage, res: http.ServerResponse, options: { target: string }): Promise<Error | undefined> {
+        return new Promise((resolve) => {
+            this.proxy.web(req, res, options, (err: Error) => {
+                if (res.headersSent) {
+                    res.end();
+                    resolve(new Error(`${err.message} (mid-response)`));
+                    return;
+                }
+                resolve(err);
+            });
         });
     }
 
@@ -126,7 +187,62 @@ export class VisualizerProxyContribution implements BackendApplicationContributi
                 return;
             }
             req.url = target.path;
-            this.proxy.ws(req, socket, head, { target: `ws://127.0.0.1:${target.port}` });
+            void this.proxyWsWithRetry(req, socket, head, target.port);
+        });
+    }
+
+    /**
+     * Proxy one WebSocket upgrade, retrying ECONNREFUSED for a few seconds —
+     * trame's /ws is the connection the iframe actually needs, and it races
+     * the server bind exactly like the initial HTTP GET.
+     */
+    protected async proxyWsWithRetry(req: http.IncomingMessage, socket: net.Socket, head: Buffer, port: number): Promise<void> {
+        const options = { target: `ws://127.0.0.1:${port}` };
+        // Retry attempts accumulate error listeners on the socket
+        socket.setMaxListeners(0);
+        const lastError = await retryOnRefused(() => this.attemptWs(req, socket, head, options));
+        if (lastError) {
+            console.error(`[VisualizerProxy] ws: ${lastError.message}`);
+            socket.destroy();
+        }
+    }
+
+    /**
+     * One proxy.ws attempt: resolves with the proxy error, or undefined when
+     * no error arrives within a short grace period (the upgrade succeeded —
+     * proxy.ws has already taken over the socket by then). Errors after the
+     * grace period destroy the socket directly.
+     */
+    protected attemptWs(
+        req: http.IncomingMessage,
+        socket: net.Socket,
+        head: Buffer,
+        options: { target: string },
+        graceMs = 1000
+    ): Promise<Error | undefined> {
+        return new Promise((resolve) => {
+            let settled = false;
+            const timer = setTimeout(() => {
+                settled = true;
+                resolve(undefined);
+            }, graceMs);
+            socket.on('error', () => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(undefined); // client-side failure — nothing to retry
+                }
+            });
+            this.proxy.ws(req, socket, head, options, (err: Error) => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(err);
+                } else {
+                    // Late error after a successful upgrade
+                    socket.destroy();
+                }
+            });
         });
     }
 }

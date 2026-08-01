@@ -55,3 +55,19 @@ export function isParticleRestartFileName(baseName: string): boolean {
     const name = baseName.toLowerCase();
     return name === 'particle_restart.h5' || /^particle_\d+_\d+\.h5$/.test(name);
 }
+
+/**
+ * Voxel plot HDF5 files: names containing `voxel` (e.g. `voxel_plot.h5`) or
+ * OpenMC's plot-file convention `plot_*.h5`. Collision-checked against the
+ * other patterns: no statepoint/source/depletion/tracks/collision/weight-
+ * windows/particle-restart name matches these.
+ */
+export function isVoxelPlotFileName(baseName: string): boolean {
+    const name = baseName.toLowerCase();
+    return name.endsWith('.h5') && (name.includes('voxel') || name.startsWith('plot_'));
+}
+
+/** `summary.h5` — OpenMC's geometry/materials exchange file (exact name). */
+export function isSummaryFileName(baseName: string): boolean {
+    return baseName.toLowerCase() === 'summary.h5';
+}

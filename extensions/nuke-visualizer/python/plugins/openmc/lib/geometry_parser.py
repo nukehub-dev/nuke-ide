@@ -567,6 +567,47 @@ def parse_geometry(file_path: str) -> dict[str, Any]:
     return parser.parse(file_path)
 
 
+def convert_summary_to_xml(summary_path: str, out_dir: str) -> str:
+    """Convert an OpenMC summary.h5 to geometry.xml + materials.xml.
+
+    summary.h5 carries the full CSG geometry and material definitions but the
+    hierarchy/3D pipeline reads XML, so we round-trip through
+    ``openmc.Summary``. Heavy import stays lazy and after the existence check.
+
+    Args:
+        summary_path: Path to summary.h5
+        out_dir: Directory to write geometry.xml / materials.xml into
+
+    Returns:
+        Path to the directory containing the exported XML files (suitable for
+        ``OpenMCGeometryParser.parse``).
+
+    Raises:
+        FileNotFoundError: If the summary file is missing.
+        ValueError: If openmc is unavailable or the file is not a summary.
+    """
+    if not os.path.isfile(summary_path):
+        raise FileNotFoundError(f"File not found: {summary_path}")
+
+    try:
+        import openmc
+    except ImportError:
+        raise ValueError(
+            "openmc not installed (required to read summary.h5)"  # noqa: B904
+        )
+
+    try:
+        summary = openmc.Summary(summary_path)
+    except Exception as e:
+        raise ValueError(f"Could not read {summary_path} as an OpenMC summary file: {e}")  # noqa: B904
+
+    os.makedirs(out_dir, exist_ok=True)
+    summary.geometry.export_to_xml(os.path.join(out_dir, "geometry.xml"))
+    if summary.materials:
+        summary.materials.export_to_xml(os.path.join(out_dir, "materials.xml"))
+    return out_dir
+
+
 # CLI interface
 if __name__ == "__main__":
     import sys

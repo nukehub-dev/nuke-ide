@@ -172,3 +172,53 @@ def test_plugin_subclass_overrides_do_not_touch_base():
     assert MyPlugin.PLUGIN_NAME == "mine"
     assert Plugin.PLUGIN_NAME == ""
     assert Plugin.REQUIREMENTS == []
+
+
+# ---------------------------------------------------------------------------
+# load_command_modules
+# ---------------------------------------------------------------------------
+
+
+def test_load_command_modules_skips_failures_with_namespaced_log(tmp_path, monkeypatch, capsys):
+    """A module that fails to import is skipped and logged via
+    nuke_viz.logging.info ('[NukeViz]' on stderr) — never a raw print or
+    traceback — while importable modules still register their commands."""
+    from nuke_viz.plugin import get_commands, load_command_modules
+
+    pkg = tmp_path / "fakepkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "good.py").write_text(
+        "from nuke_viz.plugin import command\n"
+        "@command('fake.good')\n"
+        "def cmd_good(args):\n"
+        "    return 0\n"
+    )
+    (pkg / "bad.py").write_text("import definitely_not_a_real_module_xyz\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    loaded = load_command_modules("fakepkg", ["good", "bad"])
+
+    assert loaded == ["good"]
+    assert "fake.good" in get_commands()
+    captured = capsys.readouterr()
+    assert captured.out == "", "nothing may be printed to stdout"
+    assert "Traceback" not in captured.err
+    assert captured.err.startswith("[NukeViz] ")
+    assert "'bad' not loaded" in captured.err
+    assert "definitely_not_a_real_module_xyz" in captured.err
+
+
+def test_load_command_modules_all_load(tmp_path, monkeypatch, capsys):
+    """When every module imports cleanly the log stays silent."""
+    from nuke_viz.plugin import load_command_modules
+
+    pkg = tmp_path / "fakepkg2"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "one.py").write_text("")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    assert load_command_modules("fakepkg2", ["one"]) == ["one"]
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""

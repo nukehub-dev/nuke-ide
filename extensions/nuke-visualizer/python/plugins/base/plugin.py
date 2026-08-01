@@ -1,17 +1,13 @@
 """Base visualizer plugin for NukeIDE."""
 
-import sys
+from nuke_viz.plugin import load_command_modules
 
 # Import command modules — this triggers @command registration.
-# We catch import errors so missing optional dependencies don't break
-# the entire plugin.
+# Modules that fail to import (missing optional dependencies) are skipped and
+# logged via nuke_viz.logging, never printed raw to stderr.
 _COMMAND_MODULES = ["serve", "convert", "dagmc"]
 
-for mod_name in _COMMAND_MODULES:
-    try:
-        __import__(f"plugins.base.commands.{mod_name}")
-    except Exception as e:
-        print(f"[Base Plugin] Command module '{mod_name}' not loaded: {e}", file=sys.stderr)
+load_command_modules("plugins.base.commands", _COMMAND_MODULES)
 
 # Plugin metadata
 PLUGIN_NAME = "base"

@@ -62,6 +62,30 @@ def get_commands() -> dict[str, Callable]:
     return _COMMANDS.copy()
 
 
+def load_command_modules(package_prefix: str, module_names: list[str]) -> list[str]:
+    """Import command modules so their @command decorators register handlers.
+
+    Each module is imported as ``f"{package_prefix}.{name}"``; a module that
+    fails to import (e.g. an optional heavy dependency is missing) is skipped
+    so one bad module never breaks the whole plugin. Failures are reported
+    via ``nuke_viz.logging.info`` (a namespaced log line on stderr) — never a
+    raw print or traceback, so the stdout-JSON / stderr command contract of
+    every invocation stays clean.
+
+    Returns the names of the modules that loaded successfully.
+    """
+    from nuke_viz import logging as nuke_logging
+
+    loaded = []
+    for mod_name in module_names:
+        try:
+            __import__(f"{package_prefix}.{mod_name}")
+            loaded.append(mod_name)
+        except Exception as e:
+            nuke_logging.info(f"Command module '{mod_name}' not loaded: {e}")
+    return loaded
+
+
 def unregister_command(name: str) -> bool:
     """Remove a command from the registry. Returns True if it existed."""
     if name in _COMMANDS:

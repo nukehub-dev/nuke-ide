@@ -39,7 +39,14 @@
 import { describe, expect, it } from 'vitest';
 import URI from '@theia/core/lib/common/uri';
 import { OutputViewerContribution, selectOutputViewer } from './output-viewer-registry';
-import { isCollisionTrackFileName, isParticleRestartFileName, isTracksFileName, isWeightWindowsFileName } from './output-file-patterns';
+import {
+    isCollisionTrackFileName,
+    isParticleRestartFileName,
+    isSummaryFileName,
+    isTracksFileName,
+    isVoxelPlotFileName,
+    isWeightWindowsFileName
+} from './output-file-patterns';
 
 /** Mirror of the real contributions' canHandle (same pattern fns and scores). */
 function contribution(id: string, matches: (base: string) => boolean): OutputViewerContribution {
@@ -56,7 +63,16 @@ const tracksContribution = contribution('openmc-tracks-viewer', isTracksFileName
 const collisionContribution = contribution('openmc-collision-track-viewer', isCollisionTrackFileName);
 const weightWindowsContribution = contribution('openmc-weight-windows-viewer', isWeightWindowsFileName);
 const particleRestartContribution = contribution('openmc-particle-restart-viewer', isParticleRestartFileName);
-const allContributions = [tracksContribution, collisionContribution, weightWindowsContribution, particleRestartContribution];
+const voxelPlotContribution = contribution('openmc-voxel-plot-viewer', isVoxelPlotFileName);
+const summaryContribution = contribution('openmc-summary-viewer', isSummaryFileName);
+const allContributions = [
+    tracksContribution,
+    collisionContribution,
+    weightWindowsContribution,
+    particleRestartContribution,
+    voxelPlotContribution,
+    summaryContribution
+];
 
 describe('output file patterns', () => {
     it('matches tracks files including MPI ranks', () => {
@@ -93,6 +109,32 @@ describe('output file patterns', () => {
         expect(isParticleRestartFileName('particle_abc.h5')).toBe(false);
         expect(isParticleRestartFileName('statepoint.100.h5')).toBe(false);
     });
+
+    it('matches voxel plot files without colliding with other outputs', () => {
+        expect(isVoxelPlotFileName('voxel_plot.h5')).toBe(true);
+        expect(isVoxelPlotFileName('plot_1.h5')).toBe(true);
+        expect(isVoxelPlotFileName('plot_12.h5')).toBe(true);
+        expect(isVoxelPlotFileName('VOXEL_PLOT.H5')).toBe(true);
+        expect(isVoxelPlotFileName('my_voxel.h5')).toBe(true);
+        // No collisions with the other claimed outputs
+        expect(isVoxelPlotFileName('statepoint.100.h5')).toBe(false);
+        expect(isVoxelPlotFileName('source.h5')).toBe(false);
+        expect(isVoxelPlotFileName('depletion_results.h5')).toBe(false);
+        expect(isVoxelPlotFileName('tracks.h5')).toBe(false);
+        expect(isVoxelPlotFileName('collision_track.h5')).toBe(false);
+        expect(isVoxelPlotFileName('weight_windows.h5')).toBe(false);
+        expect(isVoxelPlotFileName('particle_restart.h5')).toBe(false);
+        expect(isVoxelPlotFileName('summary.h5')).toBe(false);
+        expect(isVoxelPlotFileName('plot_1.h5.bak')).toBe(false);
+    });
+
+    it('matches summary.h5 exactly', () => {
+        expect(isSummaryFileName('summary.h5')).toBe(true);
+        expect(isSummaryFileName('SUMMARY.H5')).toBe(true);
+        expect(isSummaryFileName('summary.1.h5')).toBe(false);
+        expect(isSummaryFileName('my_summary.h5')).toBe(false);
+        expect(isSummaryFileName('statepoint.100.h5')).toBe(false);
+    });
 });
 
 describe('output viewer routing', () => {
@@ -115,10 +157,13 @@ describe('output viewer routing', () => {
         expect(selectOutputViewer(new URI('file:///run/weight_windows.h5'), allContributions)).toBe(weightWindowsContribution);
         expect(selectOutputViewer(new URI('file:///run/particle_restart.h5'), allContributions)).toBe(particleRestartContribution);
         expect(selectOutputViewer(new URI('file:///run/particle_17_42.h5'), allContributions)).toBe(particleRestartContribution);
+        expect(selectOutputViewer(new URI('file:///run/voxel_plot.h5'), allContributions)).toBe(voxelPlotContribution);
+        expect(selectOutputViewer(new URI('file:///run/plot_1.h5'), allContributions)).toBe(voxelPlotContribution);
+        expect(selectOutputViewer(new URI('file:///run/summary.h5'), allContributions)).toBe(summaryContribution);
     });
 
     it('lets statepoint/source/depletion files fall through', () => {
-        for (const name of ['statepoint.100.h5', 'statepoint.h5', 'source.h5', 'depletion_results.h5', 'summary.h5']) {
+        for (const name of ['statepoint.100.h5', 'statepoint.h5', 'source.h5', 'depletion_results.h5']) {
             expect(selectOutputViewer(new URI(`file:///run/${name}`), allContributions)).toBeUndefined();
         }
     });

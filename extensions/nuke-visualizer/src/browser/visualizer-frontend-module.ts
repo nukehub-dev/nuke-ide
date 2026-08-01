@@ -84,6 +84,8 @@ import { OpenMCParticleRestartWidget } from './plugins/openmc/widgets/particle-r
 import { OpenMCParticleRestartViewerContribution } from './plugins/openmc/contributions/openmc-particle-restart-viewer-contribution';
 import { NuclearDataWidget } from './plugins/openmc/widgets/nuclear-data/nuclear-data-widget';
 import { OpenMCNuclearDataCommands } from './plugins/openmc/commands/nuclear-data-commands';
+import { OpenMCVoxelPlotViewerContribution } from './plugins/openmc/contributions/openmc-voxel-plot-viewer-contribution';
+import { OpenMCSummaryViewerContribution } from './plugins/openmc/contributions/openmc-summary-viewer-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -197,6 +199,15 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCNuclearDataCommands).toSelf().inSingletonScope();
     bind(CommandContribution).toService(OpenMCNuclearDataCommands);
+
+    // Voxel plot files (*voxel*.h5, plot_*.h5) route to the random-ray results
+    // viewer (it converts them via openmc.voxel-vtk)
+    bind(OpenMCVoxelPlotViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCVoxelPlotViewerContribution);
+
+    // summary.h5 routes to the geometry hierarchy + 3D view
+    bind(OpenMCSummaryViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCSummaryViewerContribution);
 
     // Bind backend service proxy with client implementation for logging
     bind(VisualizerBackendService)
