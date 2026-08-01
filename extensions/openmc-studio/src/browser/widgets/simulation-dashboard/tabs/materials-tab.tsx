@@ -431,6 +431,11 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                             value={this.newMaterialType}
                             onChange={(e) => {
                                 this.newMaterialType = e.target.value as 'nuclides' | 'macroscopic';
+                                // Macroscopic materials require density in 'macro' units (default 1.0)
+                                if (this.newMaterialType === 'macroscopic') {
+                                    this.newMaterialDensityUnit = 'macro';
+                                    this.newMaterialDensity = 1.0;
+                                }
                                 host.update();
                             }}
                         >
@@ -439,7 +444,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                         </select>
                         {this.newMaterialType === 'macroscopic' && (
                             <span className="form-hint">
-                                Requires multi-group energy mode and an MGXS library (generation comes in a later phase)
+                                Requires multi-group energy mode and an MGXS library (generate one via Advanced → MGXS Generator)
                             </span>
                         )}
                     </div>
@@ -497,16 +502,26 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                         <label>Density Unit</label>
                         <select
                             value={this.newMaterialDensityUnit}
+                            disabled={this.newMaterialType === 'macroscopic'}
                             onChange={(e) => {
                                 this.newMaterialDensityUnit = e.target.value as OpenMCMaterial['densityUnit'];
                                 host.update();
                             }}
                         >
-                            <option value="g/cm3">g/cm³</option>
-                            <option value="kg/m3">kg/m³</option>
-                            <option value="atom/b-cm">atom/b-cm</option>
-                            <option value="sum">Sum</option>
+                            {this.newMaterialType === 'macroscopic' ? (
+                                <option value="macro">Macro</option>
+                            ) : (
+                                <>
+                                    <option value="g/cm3">g/cm³</option>
+                                    <option value="kg/m3">kg/m³</option>
+                                    <option value="atom/b-cm">atom/b-cm</option>
+                                    <option value="sum">Sum</option>
+                                </>
+                            )}
                         </select>
+                        {this.newMaterialType === 'macroscopic' && (
+                            <span className="form-hint">Macroscopic materials must use 'macro' density units</span>
+                        )}
                     </div>
                 </div>
 
@@ -926,7 +941,8 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                 id: this.editingMaterial?.id || host.stateManager.getNextMaterialId(),
                 name: this.newMaterialName.trim(),
                 density: this.newMaterialDensity,
-                densityUnit: this.newMaterialDensityUnit,
+                // OpenMC requires 'macro' units for macroscopic data — enforce regardless of the selector state
+                densityUnit: 'macro',
                 nuclides: [],
                 thermalScattering: [],
                 macroscopic: { name: this.newMaterialMacroscopicName.trim() },
