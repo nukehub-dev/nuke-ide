@@ -363,13 +363,30 @@ describe('project-file e2e (real OpenMC)', () => {
                 mat.density = 1.0;
                 mat.densityUnit = 'macro';
             }
+            // Regenerate settings.xml through the IDE generator with an explicit
+            // random-ray ray_source — this is the emission path the e2e otherwise
+            // bypasses (generate_mgxs.py --random-ray re-exports via the Python
+            // API). Default compat = release (direct <source> form); the run below
+            // proves the emitted XML gets past settings reading.
+            mgState.settings.energyMode = 'multigroup';
+            mgState.settings.mgxsLibrary = path.join(dir, 'mgxs.h5');
+            mgState.settings.randomRay = {
+                distanceInactive: 50,
+                distanceActive: 250,
+                // Box must stay inside the geometry — sites sampled in the
+                // vacuum boundary are rejected (source rejection fraction)
+                raySource: { lowerLeft: [-0.63, -0.63, -0.5], upperRight: [0.63, 0.63, 0.5] }
+            };
             const service = new XMLGenerationService();
             const mgXml = await service.generateXML({
                 state: mgState,
                 outputDirectory: dir,
-                files: { materials: true, geometry: false, settings: false, tallies: false, plots: false }
+                files: { materials: true, geometry: false, settings: true, tallies: false, plots: false }
             });
             expect(mgXml.success).toBe(true);
+            const mgSettings = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(mgSettings).toContain('<source type="independent"');
+            expect(mgSettings).not.toContain('<ray_source>');
 
             // Step 2: random-ray run against the generated library
             const proc = spawnSync(OPENMC_EXE!, [], {

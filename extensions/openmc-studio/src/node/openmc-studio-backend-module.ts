@@ -49,6 +49,7 @@ import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
 import { OptimizationBackendService } from './optimization-backend-service';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
+import { OpenMCCompatProbeService } from './openmc-compat-probe';
 import { RpcBufferConfiguration } from './rpc-buffer-config';
 
 // ============================================================================
@@ -80,6 +81,9 @@ export default new ContainerModule(
 
         // OpenMC validation service (uses nuke-core for environment detection)
         bind(OpenMCValidationBackendService).toSelf().inSingletonScope();
+
+        // Version compatibility probe (random ray XML format, cached per python env)
+        bind(OpenMCCompatProbeService).toSelf().inSingletonScope();
 
         // Main backend service implementation
         bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();

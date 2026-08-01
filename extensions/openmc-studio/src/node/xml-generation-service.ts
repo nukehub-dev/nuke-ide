@@ -35,7 +35,7 @@
 
 import { injectable } from '@theia/core/shared/inversify';
 
-import { XMLGenerationRequest, XMLGenerationResult } from '../common/openmc-studio-protocol';
+import { XMLGenerationRequest, XMLGenerationResult, RandomRayXmlCompat, DEFAULT_RANDOM_RAY_COMPAT } from '../common/openmc-studio-protocol';
 
 import {
     OpenMCState,
@@ -135,7 +135,7 @@ export class XMLGenerationService {
             // Generate settings.xml
             if (request.files.settings) {
                 const settingsPath = path.join(request.outputDirectory, 'settings.xml');
-                const settingsXml = this.generateSettingsXML(request.state);
+                const settingsXml = this.generateSettingsXML(request.state, request.randomRayCompat, warnings);
                 fs.writeFileSync(settingsPath, settingsXml);
                 generatedFiles.push(settingsPath);
                 this.log(`Generated settings.xml`);
@@ -482,11 +482,22 @@ export class XMLGenerationService {
     /**
      * Generate settings.xml from state settings.
      * @param state - Simulation state
+     * @param randomRayCompat - Random ray XML format compatibility (probed per
+     *   python env by the caller); defaults to the release-compatible form
+     * @param warnings - Optional array to collect generation warnings
      * @returns settings.xml content
      */
 
-    private generateSettingsXML(state: OpenMCState): string {
+    private generateSettingsXML(
+        state: OpenMCState,
+        randomRayCompat: RandomRayXmlCompat = DEFAULT_RANDOM_RAY_COMPAT,
+        warnings?: string[]
+    ): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<settings>', ''];
+
+        // Mesh IDs already emitted as elements into settings.xml (dedup guard
+        // for the variance-reduction mesh references below)
+        const emittedMeshIds = new Set<number>();
 
         const settings = state.settings;
         const run = settings.run;
@@ -751,6 +762,7 @@ export class XMLGenerationService {
             lines.push(`    <upper_right>${em.upperRight.join(' ')}</upper_right>`);
             lines.push(`    <dimension>${em.shape.join(' ')}</dimension>`);
             lines.push('  </mesh>');
+            emittedMeshIds.add(meshId);
         }
 
         // Random ray solver settings (openmc/settings.py _create_random_ray_subelement)
@@ -782,26 +794,41 @@ export class XMLGenerationService {
                 lines.push(`    <adjoint>${rr.adjoint}</adjoint>`);
             }
             if (rr.raySource) {
-                lines.push('    <ray_source>');
-                lines.push('      <source type="independent" strength="1" particle="neutron">');
-                lines.push('        <space type="box">');
-                lines.push(`          <parameters>${rr.raySource.lowerLeft.join(' ')} ${rr.raySource.upperRight.join(' ')}</parameters>`);
-                lines.push('        </space>');
-                lines.push('      </source>');
-                lines.push('    </ray_source>');
+                // Release 0.15.3 reads <source> directly under <random_ray>;
+                // post-0.15.3 dev wraps it in <ray_source> (src/settings.cpp:284-289)
+                const wrap = randomRayCompat.raySourceFormat === 'wrapper';
+                if (wrap) {
+                    lines.push('    <ray_source>');
+                }
+                lines.push(`${wrap ? '      ' : '    '}<source type="independent" strength="1" particle="neutron">`);
+                lines.push(`${wrap ? '        ' : '      '}<space type="box">`);
+                lines.push(
+                    `${wrap ? '          ' : '        '}<parameters>${rr.raySource.lowerLeft.join(' ')} ${rr.raySource.upperRight.join(' ')}</parameters>`
+                );
+                lines.push(`${wrap ? '        ' : '      '}</space>`);
+                lines.push(`${wrap ? '      ' : '    '}</source>`);
+                if (wrap) {
+                    lines.push('    </ray_source>');
+                }
             }
             if (rr.adjointSource) {
-                // settings.py:2036-2047 — adjoint_source holds a list of
-                // source elements; the UI models the single-box case
-                lines.push('    <adjoint_source>');
-                lines.push('      <source type="independent" strength="1" particle="neutron">');
-                lines.push('        <space type="box">');
-                lines.push(
-                    `          <parameters>${rr.adjointSource.lowerLeft.join(' ')} ${rr.adjointSource.upperRight.join(' ')}</parameters>`
-                );
-                lines.push('        </space>');
-                lines.push('      </source>');
-                lines.push('    </adjoint_source>');
+                if (randomRayCompat.adjointSource) {
+                    // settings.py:2036-2047 — adjoint_source holds a list of
+                    // source elements; the UI models the single-box case
+                    lines.push('    <adjoint_source>');
+                    lines.push('      <source type="independent" strength="1" particle="neutron">');
+                    lines.push('        <space type="box">');
+                    lines.push(
+                        `          <parameters>${rr.adjointSource.lowerLeft.join(' ')} ${rr.adjointSource.upperRight.join(' ')}</parameters>`
+                    );
+                    lines.push('        </space>');
+                    lines.push('      </source>');
+                    lines.push('    </adjoint_source>');
+                } else {
+                    warnings?.push(
+                        'Random ray adjoint source requires a post-0.15.3 OpenMC; the configured adjoint source was not written to settings.xml'
+                    );
+                }
             }
             if (rr.sourceRegionMeshId !== undefined) {
                 lines.push('    <source_region_meshes>');
@@ -819,6 +846,7 @@ export class XMLGenerationService {
                 const srMesh = state.meshes.find((m) => m.id === rr.sourceRegionMeshId && m.type === 'regular');
                 if (srMesh) {
                     lines.push(this.generateMeshElement(srMesh));
+                    emittedMeshIds.add(rr.sourceRegionMeshId);
                 }
             }
         }
@@ -1040,6 +1068,31 @@ export class XMLGenerationService {
                     lines.push(`    <mesh>${vr.ufs.meshId}</mesh>`);
                 }
                 lines.push('  </ufs>');
+            }
+
+            // Emit the mesh elements referenced by weight windows / the WW
+            // generator / UFS into settings.xml (openmc python appends them to
+            // the settings root — without them the C++ mesh lookup crashes
+            // with unordered_map::at during settings reading)
+            const vrMeshIds = new Set<number>();
+            if (vr.weightWindowGenerator) {
+                vrMeshIds.add(vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1);
+            }
+            if (vr.weightWindows?.meshId !== undefined) {
+                vrMeshIds.add(vr.weightWindows.meshId);
+            }
+            if (vr.ufs?.enabled && vr.ufs.meshId !== undefined) {
+                vrMeshIds.add(vr.ufs.meshId);
+            }
+            for (const meshId of vrMeshIds) {
+                if (emittedMeshIds.has(meshId)) {
+                    continue;
+                }
+                const vrMesh = state.meshes.find((m) => m.id === meshId && m.type === 'regular');
+                if (vrMesh) {
+                    lines.push(this.generateMeshElement(vrMesh));
+                    emittedMeshIds.add(meshId);
+                }
             }
         }
 

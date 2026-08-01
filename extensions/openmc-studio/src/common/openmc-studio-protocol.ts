@@ -318,7 +318,29 @@ export interface XMLGenerationRequest {
     overwrite?: boolean;
     /** Optional comment header for generated files */
     headerComment?: string;
+    /**
+     * Random ray XML format compatibility, probed per python environment
+     * ({@link OpenMCCompatProbeService}). Defaults to the release-compatible
+     * form ({@link DEFAULT_RANDOM_RAY_COMPAT}) when unspecified.
+     */
+    randomRayCompat?: RandomRayXmlCompat;
 }
+
+/**
+ * Random ray settings.xml format compatibility. OpenMC release 0.15.3 writes
+ * `<source>` directly under `<random_ray>` and has no adjoint source support;
+ * the post-0.15.3 dev version wraps sources in `<ray_source>`/`<adjoint_source>`
+ * elements (settings.py:2006+ / src/settings.cpp:284-289).
+ */
+export interface RandomRayXmlCompat {
+    /** `direct` = release 0.15.3 (`<random_ray><source>`); `wrapper` = post-0.15.3 dev (`<ray_source><source>`) */
+    raySourceFormat: 'direct' | 'wrapper';
+    /** Whether the environment supports `<adjoint_source>` (post-0.15.3 only) */
+    adjointSource: boolean;
+}
+
+/** Release-compatible default (stable releases are the common case). */
+export const DEFAULT_RANDOM_RAY_COMPAT: RandomRayXmlCompat = { raySourceFormat: 'direct', adjointSource: false };
 
 /** Result of XML generation */
 export interface XMLGenerationResult {

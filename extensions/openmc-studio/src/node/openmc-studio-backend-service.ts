@@ -88,6 +88,7 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
 import { DAGMCEditorService } from './dagmc-editor-service';
 import { OptimizationBackendService } from './optimization-backend-service';
+import { OpenMCCompatProbeService } from './openmc-compat-probe';
 
 /**
  * OpenMC Studio Backend Service Implementation
@@ -115,6 +116,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     @inject(OptimizationBackendService)
     protected readonly optimizationService: OptimizationBackendService;
+
+    @inject(OpenMCCompatProbeService)
+    protected readonly compatProbe: OpenMCCompatProbeService;
 
     /**
      * Set the client for receiving log messages and events.
@@ -175,7 +179,21 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         this.log(`Generating XML files in ${request.outputDirectory}`);
-        return this.xmlService.generateXML(request);
+        return this.xmlService.generateXML(await this.withRandomRayCompat(request));
+    }
+
+    /**
+     * Fill in the random ray XML format compatibility from the environment
+     * probe unless the caller already specified it. Applied on every
+     * frontend-driven generation (XML export, run preparation, project save).
+     * @param request - Generation request
+     * @returns Request with randomRayCompat resolved
+     */
+    protected async withRandomRayCompat(request: XMLGenerationRequest): Promise<XMLGenerationRequest> {
+        if (!request.files.settings || request.randomRayCompat) {
+            return request;
+        }
+        return { ...request, randomRayCompat: await this.compatProbe.getRandomRayCompat() };
     }
 
     /**
@@ -889,8 +907,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             if (rr.adjoint !== undefined) {
                 randomRay.adjoint = this.parseXmlBool(rr.adjoint);
             }
-            if (rr.ray_source?.source?.space?.parameters) {
-                const params = this.parseNumberList(rr.ray_source.source.space.parameters);
+            // ray_source: post-0.15.3 wraps <source> in <ray_source>; release
+            // 0.15.3 puts <source> directly under <random_ray> — accept both
+            const raySourceElem = rr.ray_source?.source ?? rr.source;
+            const raySrc = Array.isArray(raySourceElem) ? raySourceElem[0] : raySourceElem;
+            if (raySrc?.space?.parameters) {
+                const params = this.parseNumberList(raySrc.space.parameters);
                 if (params.length >= 6) {
                     randomRay.raySource = {
                         lowerLeft: params.slice(0, 3),
@@ -2491,18 +2513,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             if (request.generateXml) {
                 const path = await import('path');
                 const outputDir = path.dirname(request.projectPath);
-                await this.xmlService.generateXML({
-                    state: request.state,
-                    outputDirectory: outputDir,
-                    files: {
-                        geometry: true,
-                        materials: true,
-                        settings: true,
-                        tallies: true,
-                        plots: false
-                    },
-                    overwrite: true
-                });
+                await this.xmlService.generateXML(
+                    await this.withRandomRayCompat({
+                        state: request.state,
+                        outputDirectory: outputDir,
+                        files: {
+                            geometry: true,
+                            materials: true,
+                            settings: true,
+                            tallies: true,
+                            plots: false
+                        },
+                        overwrite: true
+                    })
+                );
             }
 
             return { success: true };

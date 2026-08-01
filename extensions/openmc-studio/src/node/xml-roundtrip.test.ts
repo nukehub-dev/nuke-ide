@@ -1167,7 +1167,9 @@ describe('settings.xml round-trip', () => {
         await generator.generateXML({
             state,
             outputDirectory: tempDir,
-            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            // Post-0.15.3 dev format: wrapped <ray_source> + <adjoint_source>
+            randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true }
         });
 
         const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
@@ -1197,6 +1199,104 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.settings.mgxsLibrary).toBe('/data/mgxs.h5');
         expect(imported.state!.settings.run).toEqual(state.settings.run);
         expect(imported.state!.settings.randomRay).toEqual(state.settings.randomRay);
+    });
+
+    it('emits the release (direct) ray_source form by default and drops adjoint_source with a warning', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/data/mgxs.h5';
+        state.settings.randomRay = {
+            distanceInactive: 50,
+            distanceActive: 250,
+            raySource: { lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10] },
+            adjointSource: { lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5] }
+        };
+
+        const generator = new XMLGenerationService();
+        // No randomRayCompat — defaults to the release 0.15.3 format
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<random_ray>');
+        expect(xml).not.toContain('<ray_source>');
+        expect(xml).toContain('    <source type="independent" strength="1" particle="neutron">');
+        expect(xml).toContain('<parameters>-10 -10 -10 10 10 10</parameters>');
+        // adjoint_source is post-0.15.3-only: dropped with a warning
+        expect(xml).not.toContain('<adjoint_source>');
+        expect(result.warnings?.some((w) => w.includes('adjoint source'))).toBe(true);
+
+        // The direct form round-trips through import
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.randomRay!.raySource).toEqual(state.settings.randomRay.raySource);
+        expect(imported.state!.settings.randomRay!.adjointSource).toBeUndefined();
+    });
+
+    it('parses the direct (release) ray_source form from hand-written XML', async () => {
+        const settingsXml = `<?xml version="1.0"?>
+<settings>
+  <run_mode>eigenvalue</run_mode>
+  <particles>100</particles>
+  <batches>10</batches>
+  <inactive>5</inactive>
+  <energy_mode>multi-group</energy_mode>
+  <random_ray>
+    <distance_inactive>50</distance_inactive>
+    <distance_active>250</distance_active>
+    <source type="independent" strength="1" particle="neutron">
+      <space type="box">
+        <parameters>-1 -1 -1 1 1 1</parameters>
+      </space>
+    </source>
+  </random_ray>
+</settings>`;
+        fs.writeFileSync(path.join(tempDir, 'settings.xml'), settingsXml);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.randomRay!.raySource).toEqual({ lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] });
+    });
+
+    it('parses the wrapper (post-0.15.3) ray_source form from hand-written XML', async () => {
+        const settingsXml = `<?xml version="1.0"?>
+<settings>
+  <run_mode>eigenvalue</run_mode>
+  <particles>100</particles>
+  <batches>10</batches>
+  <inactive>5</inactive>
+  <energy_mode>multi-group</energy_mode>
+  <random_ray>
+    <distance_inactive>50</distance_inactive>
+    <distance_active>250</distance_active>
+    <ray_source>
+      <source type="independent" strength="1" particle="neutron">
+        <space type="box">
+          <parameters>-2 -2 -2 2 2 2</parameters>
+        </space>
+      </source>
+    </ray_source>
+    <adjoint_source>
+      <source type="independent" strength="1" particle="neutron">
+        <space type="box">
+          <parameters>-3 -3 -3 3 3 3</parameters>
+        </space>
+      </source>
+    </adjoint_source>
+  </random_ray>
+</settings>`;
+        fs.writeFileSync(path.join(tempDir, 'settings.xml'), settingsXml);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.randomRay!.raySource).toEqual({ lowerLeft: [-2, -2, -2], upperRight: [2, 2, 2] });
+        expect(imported.state!.settings.randomRay!.adjointSource).toEqual({ lowerLeft: [-3, -3, -3], upperRight: [3, 3, 3] });
     });
 
     it('round-trips the weight window generator in the real OpenMC format', async () => {
@@ -1232,6 +1332,9 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('<on_the_fly>true</on_the_fly>');
         expect(xml).toContain('<method>fw_cadis</method>');
         expect(xml).toContain('<targets>1 2</targets>');
+        // Referenced mesh is appended to the settings root (openmc python behavior);
+        // without it the C++ mesh lookup crashes during settings reading
+        expect(xml).toContain('<mesh id="5" type="regular">');
 
         const backend = new OpenMCStudioBackendServiceImpl();
         const imported = await backend.importXML({ directory: tempDir });
