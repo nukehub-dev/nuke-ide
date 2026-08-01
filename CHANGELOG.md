@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Phase 5: comprehensive OpenMC feature completeness.
 Phase 6: remaining OpenMC surface.
+Phase 7: deferred surface + end-to-end testing layer.
+
+### Added
+
+- openmc-studio: tally derivatives (`TallyDerivative`) — sensitivity tallies in
+  the tally editor with density/nuclide-density/temperature perturbation
+  variables, e2e-verified against the real statepoint layout.
+- openmc-studio: custom depletion chain builder (Depletion tab) — build from an
+  ENDF-B-VII library directory (`decay/` + `nfy/` + `neutron(s)/`) or subset an
+  existing chain XML, with full recursive closure over decay/reaction targets,
+  fission-yield products, and FPY borrow parents; 'Use as Depletion Chain'
+  applies the result directly.
+- nuke-visualizer: nuclear data browser (Materials menu) — searchable library table
+  (nuclides, temperatures, reaction counts) with per-nuclide MT/temperature/
+  fission detail, resolved from `OPENMC_CROSS_SECTIONS`, and one-click plotting
+  of any nuclide in the XS viewer.
+- openmc-studio: Library (manual) mode in the MGXS generator — user-chosen XS
+  types, domains, by-nuclide decomposition, Legendre order, and estimator via
+  the `openmc.mgxs.Library` API (validated: MG k-eff within 0.3% of CE).
+- openmc-studio: random-ray adjoint source editing, tally-trigger `ignore_zeros`,
+  muir energy round-trip (serializes as `normal` in this OpenMC version),
+  TokamakSource time distributions, criticality-search cancellation, and CMFD
+  mesh-reference validation.
+- openmc-studio: end-to-end test layer — real OpenMC runs for every driver
+  (CMFD, depletion, k-eff search, volume calc, MGXS, chain build, plots) and a
+  project-file suite (10+ `.nuke-openmc` fixtures through the real
+  load → migrate → XML → run pipeline, incl. DAGMC, random ray, kinetics,
+  derivatives, mesh/tokamak sources, and a v1.0.0 migration fixture).
+  `yarn test:python:full` runs the full-dependency profile via `NUKE_TEST_PYTHON`;
+  env-gated on `OPENMC_CROSS_SECTIONS` / `NUKE_E2E_CHAIN` / `NUKE_E2E_ENDF`,
+  skipping cleanly otherwise.
+- nuke-visualizer: weight-windows viewer mesh selector for multi-mesh files.
+
+### Fixed
+
+- openmc-studio: `generateSurfaceElement` stamped `boundary="vacuum"` on every
+  surface, silently killing particles in all multi-region models — regenerate
+  XML for existing projects.
+- openmc-studio: cylinder surfaces generated invalid Python (`openmc.Cylinder`
+  does not exist); kinetics-enabled scripts omitted the auto-generated IFP
+  tallies; macroscopic materials lacked the required `macro` density unit —
+  all caught by the e2e layer.
+- openmc-studio: MGXS generation passed a wrong `particles` kwarg to
+  `convert_to_multigroup`; k-eff search used nonexistent `Model.clone()` and a
+  direct density assignment; nuclide-fraction changes now renormalize only
+  within the same element instead of distorting all other nuclides.
+- openmc-studio: chain builder accepts both ENDF `neutron/` and `neutrons/`
+  layouts and closes FPY borrow-parent references in ENDF-built chains.
 
 ### Added
 

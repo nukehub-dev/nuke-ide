@@ -167,8 +167,21 @@ function applyGeometryParameter(state: OpenMCState, paramKey: string, value: num
 }
 
 /**
- * Set a specific nuclide's fraction in a material and renormalize the other
- * nuclides proportionally so all fractions still sum to 1.
+ * Extract the element symbol from a nuclide name ('U235' → 'u', 'Am242_m1' → 'am', 'O16' → 'o').
+ * @param name - Nuclide name.
+ * @returns Lowercase element symbol.
+ */
+function elementSymbol(name: string): string {
+    const match = name.match(/^([A-Za-z]+)/);
+    return match ? match[1].toLowerCase() : name.toLowerCase();
+}
+
+/**
+ * Set a specific nuclide's fraction in a material and renormalize ONLY the
+ * other nuclides of the SAME ELEMENT (e.g. enriching U235 scales U238, never
+ * O16 — compound stoichiometry is preserved). The element's total fraction is
+ * kept constant; if the siblings' total is zero the remainder is distributed
+ * equally. A single-nuclide-per-element material needs no renormalization.
  * @param material - The material to modify.
  * @param nuclideName - Name of the nuclide whose fraction is set.
  * @param fraction - New fraction for the target nuclide.
@@ -180,22 +193,33 @@ function setNuclideFraction(material: OpenMCState['materials'][number], nuclideN
         return;
     }
 
-    const otherNuclides = material.nuclides.filter((n) => n.name.toLowerCase() !== nuclideName.toLowerCase());
-    const otherTotalBefore = otherNuclides.reduce((sum, n) => sum + n.fraction, 0);
+    const targetElement = elementSymbol(targetNuclide.name);
+    const siblings = material.nuclides.filter(
+        (n) =>
+            n.name.toLowerCase() !== nuclideName.toLowerCase() &&
+            elementSymbol(n.name) === targetElement &&
+            n.fractionType === targetNuclide.fractionType
+    );
+
+    if (siblings.length === 0) {
+        targetNuclide.fraction = fraction;
+        return;
+    }
+
+    const elementTotalBefore = targetNuclide.fraction + siblings.reduce((sum, n) => sum + n.fraction, 0);
+    const remainingFraction = elementTotalBefore - fraction;
+    const siblingTotalBefore = siblings.reduce((sum, n) => sum + n.fraction, 0);
 
     targetNuclide.fraction = fraction;
-    const remainingFraction = 1.0 - fraction;
 
-    if (otherNuclides.length > 0) {
-        if (otherTotalBefore > 0) {
-            for (const n of otherNuclides) {
-                n.fraction = (n.fraction / otherTotalBefore) * remainingFraction;
-            }
-        } else {
-            const equalFraction = remainingFraction / otherNuclides.length;
-            for (const n of otherNuclides) {
-                n.fraction = equalFraction;
-            }
+    if (siblingTotalBefore > 0) {
+        for (const n of siblings) {
+            n.fraction = (n.fraction / siblingTotalBefore) * remainingFraction;
+        }
+    } else {
+        const equalFraction = remainingFraction / siblings.length;
+        for (const n of siblings) {
+            n.fraction = equalFraction;
         }
     }
 }

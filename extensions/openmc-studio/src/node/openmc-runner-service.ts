@@ -53,7 +53,11 @@ import {
     DepletionRunSettings,
     NCrystalImportResult,
     MgxsGenerationRequest,
-    MgxsGenerationResult
+    MgxsGenerationResult,
+    ChainBuildRequest,
+    ChainBuildResult,
+    MgxsLibraryGenerationRequest,
+    MgxsLibraryGenerationResult
 } from '../common/openmc-studio-protocol';
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
@@ -1622,6 +1626,81 @@ export class OpenMCRunnerService {
         }
 
         return this.executePythonScriptJson<MgxsGenerationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Generate a fine-grained MGXS library via python/generate_mgxs_library.py.
+     * @param request - Library generation configuration
+     * @returns The generated library path and configuration summary
+     */
+    async generateMgxsLibrary(request: MgxsLibraryGenerationRequest): Promise<MgxsLibraryGenerationResult> {
+        this.log(`Generating fine-grained MGXS library in ${request.workingDirectory}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'generate_mgxs_library.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: generate_mgxs_library.py' };
+        }
+
+        const args: string[] = [scriptPath, request.workingDirectory];
+        if (request.groups) {
+            args.push('--groups', request.groups);
+        }
+        if (request.mgxsTypes && request.mgxsTypes.length > 0) {
+            args.push('--mgxs-types', request.mgxsTypes.join(','));
+        }
+        if (request.domainType) {
+            args.push('--domain-type', request.domainType);
+        }
+        if (request.domainIds && request.domainIds.length > 0) {
+            args.push('--domain-ids', request.domainIds.join(','));
+        }
+        if (request.byNuclide) {
+            args.push('--by-nuclide');
+        }
+        if (request.legendreOrder !== undefined) {
+            args.push('--legendre-order', String(request.legendreOrder));
+        }
+        if (request.estimator) {
+            args.push('--estimator', request.estimator);
+        }
+        if (request.correction) {
+            args.push('--correction', request.correction);
+        }
+        if (request.particles) {
+            args.push('--particles', String(request.particles));
+        }
+        if (request.output) {
+            args.push('--output', request.output);
+        }
+
+        return this.executePythonScriptJson<MgxsLibraryGenerationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Build a custom depletion chain via python/build_chain.py (blocking).
+     * @param request - Chain build configuration (subset or ENDF mode)
+     * @returns The build result with the output chain path
+     */
+    async buildChain(request: ChainBuildRequest): Promise<ChainBuildResult> {
+        this.log(`Building depletion chain (mode=${request.fromChain ? 'subset' : 'endf'}) → ${request.output}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'build_chain.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: build_chain.py' };
+        }
+
+        const args: string[] = [scriptPath, '--output', request.output];
+        if (request.fromChain) {
+            args.push('--from-chain', request.fromChain);
+        }
+        if (request.fromEndf) {
+            args.push('--from-endf', request.fromEndf);
+        }
+        if (request.nuclides && request.nuclides.length > 0) {
+            args.push('--nuclides', request.nuclides.join(','));
+        }
+
+        return this.executePythonScriptJson<ChainBuildResult>(args, process.cwd());
     }
 
     /**

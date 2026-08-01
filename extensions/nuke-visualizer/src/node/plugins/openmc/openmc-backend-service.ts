@@ -53,7 +53,11 @@ import {
     OpenMCVtkConversionResult,
     OpenMCKineticsResult,
     OpenMCVtkFileInfo,
-    OpenMCParticleRestart
+    OpenMCParticleRestart,
+    NuclearDataLibraryRequest,
+    NuclearDataLibraryResult,
+    NuclideDetailRequest,
+    NuclideDetailResult
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -936,8 +940,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.outputService.getWeightWindows(filePath);
     }
 
-    async convertWeightWindowsToVtk(filePath: string): Promise<OpenMCVtkConversionResult> {
-        return this.outputService.convertWeightWindowsToVtk(filePath);
+    async convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertWeightWindowsToVtk(filePath, meshId);
     }
 
     async getKineticsParameters(statepointPath: string): Promise<OpenMCKineticsResult> {
@@ -954,6 +958,14 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getParticleRestart(filePath: string): Promise<OpenMCParticleRestart> {
         return this.outputService.getParticleRestart(filePath);
+    }
+
+    async getNuclearDataLibrary(request: NuclearDataLibraryRequest): Promise<NuclearDataLibraryResult> {
+        return this.outputService.getNuclearDataLibrary(request);
+    }
+
+    async getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult> {
+        return this.outputService.getNuclideDetail(request);
     }
 
     private async findFreePort(startPort: number): Promise<number> {

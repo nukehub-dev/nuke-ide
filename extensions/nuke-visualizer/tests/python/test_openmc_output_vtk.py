@@ -8,6 +8,7 @@ importorskip("vtk").
 
 import argparse
 import json
+import sys
 
 import pytest
 
@@ -318,6 +319,87 @@ def test_weight_windows_to_vtk_missing_mesh(tmp_path, h5py, monkeypatch):
         group.create_dataset("weight_cutoff", data=0.25)
     with pytest.raises(output_readers.OutputReaderError, match="Mesh 42"):
         output_vtk.weight_windows_to_vtk(str(path))
+
+
+def _write_multi_mesh_weight_windows(path, h5py):
+    """Write a weight_windows.h5 with two meshes and one window per mesh."""
+    with h5py.File(path, "w") as f:
+        meshes = f.create_group("meshes")
+        for mesh_id, dim in ((1, [2, 2, 2]), (2, [3, 3, 3])):
+            # OpenMC names mesh groups 'mesh <id>' (with a space)
+            mesh = meshes.create_group(f"mesh {mesh_id}")
+            mesh.attrs["id"] = mesh_id
+            mesh.attrs["type"] = "regular"
+            mesh.create_dataset("dimension", data=dim)
+            mesh.create_dataset("lower_left", data=[-1.0, -1.0, -1.0])
+            mesh.create_dataset("upper_right", data=[1.0, 1.0, 1.0])
+        ww = f.create_group("weight_windows")
+        for window_id, mesh_id in ((1, 1), (2, 2)):
+            group = ww.create_group(f"weight_windows_{window_id}")
+            group.create_dataset("mesh", data=mesh_id)
+            group.create_dataset("particle_type", data=b"neutron")
+            group.create_dataset("energy_bounds", data=[0.0, 1.0])
+            group.create_dataset("lower_ww_bounds", data=[0.5] * (dim[0] * dim[1] * dim[2]))
+            group.create_dataset("upper_ww_bounds", data=[2.5] * (dim[0] * dim[1] * dim[2]))
+            group.create_dataset("survival_ratio", data=3.0)
+            group.create_dataset("max_split", data=5)
+            group.create_dataset("weight_cutoff", data=0.25)
+
+
+def test_weight_windows_to_vtk_mesh_id_anchors_conversion(tmp_path, h5py, monkeypatch):
+    """--mesh-id anchors the conversion to the chosen mesh (others skipped)."""
+    monkeypatch.setattr(output_vtk, "HAS_VTK", True)
+    path = tmp_path / "weight_windows.h5"
+    _write_multi_mesh_weight_windows(path, h5py)
+
+    captured = {}
+
+    class FakeGrid:
+        def __init__(self):
+            self.dims = None
+
+        def SetDimensions(self, x, y, z):
+            self.dims = (x, y, z)
+
+        def SetXCoordinates(self, arr):
+            captured["x"] = arr
+
+        def SetYCoordinates(self, arr):
+            pass
+
+        def SetZCoordinates(self, arr):
+            pass
+
+        def GetCellData(self):
+            return None
+
+    import types
+
+    fake_vtk = types.SimpleNamespace(
+        vtkRectilinearGrid=FakeGrid,
+        vtkXMLRectilinearGridWriter=lambda: types.SimpleNamespace(
+            SetFileName=lambda p: None, SetInputData=lambda g: None, Write=lambda: None
+        ),
+    )
+    # vtk is lazy-imported in output_vtk — inject the fake module wholesale.
+    # numpy_support is a separate module-level name that only exists when vtk
+    # is importable, so it must be faked too (identity passthrough is fine).
+    monkeypatch.setitem(sys.modules, "vtk", fake_vtk)
+    monkeypatch.setattr(output_vtk, "vtk", fake_vtk, raising=False)
+    monkeypatch.setattr(
+        output_vtk,
+        "numpy_support",
+        types.SimpleNamespace(numpy_to_vtk=lambda arr, deep=True: arr),
+        raising=False,
+    )
+    monkeypatch.setattr(output_vtk, "_set_array", lambda *a, **k: None)
+
+    result = output_vtk.weight_windows_to_vtk(str(path), mesh_id=2)
+
+    assert result["meshId"] == 2
+    assert result["convertedWindows"] == [2]
+    assert result["skippedWindows"] == [1]
+    assert result["dimensions"] == [3, 3, 3]
 
 
 # ---------------------------------------------------------------------------

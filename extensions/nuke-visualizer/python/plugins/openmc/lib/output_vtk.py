@@ -276,7 +276,7 @@ def weight_window_grid(mesh, window):
     return axes, arrays
 
 
-def weight_windows_to_vtk(path, output_path=None):
+def weight_windows_to_vtk(path, output_path=None, mesh_id=None):
     """Convert weight_windows.h5 to a .vtr rectilinear grid.
 
     One cell-data array per (bound, energy group): ``lower_g<i>`` and
@@ -292,10 +292,13 @@ def weight_windows_to_vtk(path, output_path=None):
 
     meshes = {mesh["id"]: mesh for mesh in data["meshes"]}
     first = data["weightWindows"][0]
-    mesh = meshes.get(first["meshId"])
+    # Anchor mesh: the requested one, else the first window's mesh. Windows on
+    # other meshes are skipped (reported in the result).
+    anchor_id = mesh_id if mesh_id is not None else first["meshId"]
+    mesh = meshes.get(anchor_id)
     if mesh is None or "dimension" not in mesh:
         raise OutputReaderError(
-            f"Mesh {first['meshId']} for weight window {first['id']} is missing or not "
+            f"Mesh {anchor_id} for weight window {first['id']} is missing or not "
             "a regular mesh — only regular-mesh weight windows can be exported"
         )
 
@@ -303,7 +306,7 @@ def weight_windows_to_vtk(path, output_path=None):
     converted = []
     skipped = []
     for window in data["weightWindows"]:
-        if window["meshId"] != first["meshId"]:
+        if window["meshId"] != anchor_id:
             skipped.append(window["id"])
             continue
         axes, window_arrays = weight_window_grid(mesh, window)
@@ -330,7 +333,7 @@ def weight_windows_to_vtk(path, output_path=None):
     return {
         "vtkPath": output_path,
         "sourceFile": data["file"],
-        "meshId": first["meshId"],
+        "meshId": anchor_id,
         "dimensions": [int(d) for d in mesh["dimension"]],
         "convertedWindows": converted,
         "skippedWindows": skipped,

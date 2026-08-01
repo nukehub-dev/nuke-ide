@@ -533,7 +533,7 @@ describe('settings.xml round-trip', () => {
                     nuclides: [],
                     filters: [],
                     triggers: [
-                        { type: 'rel_err', threshold: 0.01, scores: ['flux'] },
+                        { type: 'rel_err', threshold: 0.01, scores: ['flux'], ignoreZeros: true },
                         { type: 'std_dev', threshold: 100 }
                     ]
                 }
@@ -550,7 +550,7 @@ describe('settings.xml round-trip', () => {
 
         // Per-tally triggers (trigger.py: scores is a space-separated attribute)
         const talliesXml = fs.readFileSync(path.join(triggerDir, 'tallies.xml'), 'utf-8');
-        expect(talliesXml).toContain('<trigger type="rel_err" threshold="0.01" scores="flux"/>');
+        expect(talliesXml).toContain('<trigger type="rel_err" threshold="0.01" scores="flux" ignore_zeros="true"/>');
         expect(talliesXml).toContain('<trigger type="std_dev" threshold="100"/>');
 
         // Run-level trigger block (settings.py _create_trigger_subelement)
@@ -598,6 +598,116 @@ describe('settings.xml round-trip', () => {
         fs.rmSync(autoDir, { recursive: true, force: true });
     });
 
+    it('round-trips tally derivatives (top-level elements + ID references)', async () => {
+        const derivDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-deriv-'));
+        const state = buildTalliesTestState();
+        state.tallies[0] = {
+            ...state.tallies[0],
+            derivative: { variable: 'density', materialId: 1 }
+        };
+        state.tallies[1] = {
+            ...state.tallies[1],
+            derivative: { variable: 'nuclide_density', materialId: 1, nuclide: 'U235' }
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: derivDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(derivDir, 'tallies.xml'), 'utf-8');
+        // Top-level derivative elements (tally_derivative.py to_xml_element)
+        expect(xml).toContain('<derivative id="1" variable="density" material="1"/>');
+        expect(xml).toContain('<derivative id="2" variable="nuclide_density" material="1" nuclide="U235"/>');
+        // Tally references (text sub-elements carrying the derivative ID)
+        expect(xml).toContain('<derivative>1</derivative>');
+        expect(xml).toContain('<derivative>2</derivative>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: derivDir });
+
+        expect(imported.success).toBe(true);
+        expect(imported.state!.tallies[0].derivative).toEqual({ id: 1, variable: 'density', materialId: 1 });
+        expect(imported.state!.tallies[1].derivative).toEqual({ id: 2, variable: 'nuclide_density', materialId: 1, nuclide: 'U235' });
+
+        fs.rmSync(derivDir, { recursive: true, force: true });
+    });
+
+    it('round-trips muir energy as a normal distribution (this version has no muir XML type)', async () => {
+        const muirDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-muir-'));
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'muir', e0: 14.08e6, m_rat: 5.0, kt: 20000 },
+                particle: 'neutron',
+                strength: 1.0
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: muirDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        // muir() returns a Normal in this OpenMC version: std = sqrt(2*e0*kt/m_rat)
+        const expectedStd = Math.sqrt((2 * 14.08e6 * 20000) / 5.0);
+        const settingsXml = fs.readFileSync(path.join(muirDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<energy type="normal">');
+        expect(settingsXml).toContain(`<parameters>${14.08e6} ${expectedStd}</parameters>`);
+        expect(settingsXml).not.toContain('type="muir"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: muirDir });
+        expect(imported.success).toBe(true);
+        const energy = (imported.state!.settings.sources[0] as { energy: unknown }).energy as {
+            type: string;
+            mean: number;
+            stdDev: number;
+        };
+        expect(energy).toEqual({ type: 'normal', mean: 14.08e6, stdDev: expectedStd });
+
+        fs.rmSync(muirDir, { recursive: true, force: true });
+    });
+
+    it('parses legacy muir XML into normal form (backward compat)', async () => {
+        const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-muir-legacy-'));
+        const state = buildTestState();
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: legacyDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        // Rewrite the source's energy element as a legacy muir element
+        const settingsPath = path.join(legacyDir, 'settings.xml');
+        let settingsXml = fs.readFileSync(settingsPath, 'utf-8');
+        settingsXml = settingsXml.replace(
+            /<energy type="discrete">[\s\S]*?<\/energy>/,
+            '<energy type="muir">\n      <parameters>14080000 5.0 20000</parameters>\n    </energy>'
+        );
+        fs.writeFileSync(settingsPath, settingsXml);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: legacyDir });
+        expect(imported.success).toBe(true);
+        const energy = (imported.state!.settings.sources[0] as { energy: unknown }).energy as {
+            type: string;
+            mean: number;
+            stdDev: number;
+        };
+        expect(energy.type).toBe('normal');
+        expect(energy.mean).toBe(14.08e6);
+        expect(energy.stdDev).toBeCloseTo(Math.sqrt((2 * 14.08e6 * 20000) / 5.0), 3);
+
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+    });
+
     it('round-trips a TokamakSource (geometry, profile, energy, constraints)', async () => {
         const tokamakDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-tokamak-'));
         const now = new Date().toISOString();
@@ -619,7 +729,8 @@ describe('settings.xml round-trip', () => {
                 { r: 0.5, s: 0.8 },
                 { r: 1, s: 0 }
             ],
-            energy: { type: 'uniform' as const, min: 13e6, max: 15e6 }
+            energy: { type: 'uniform' as const, min: 13e6, max: 15e6 },
+            time: { type: 'delta' as const, params: { time: 1e-6 } }
         };
         const state: OpenMCState = {
             metadata: { version: '1.1.0', name: 'Tokamak Source Test', created: now, modified: now },
@@ -668,6 +779,8 @@ describe('settings.xml round-trip', () => {
         expect(settingsXml).toContain('<emission_density>1 0.8 0</emission_density>');
         expect(settingsXml).toContain('<n_alpha>101</n_alpha>');
         expect(settingsXml).toContain('<rejection_strategy>kill</rejection_strategy>');
+        expect(settingsXml).toContain('<time type="discrete">');
+        expect(settingsXml).toContain('<parameters>0.000001 1</parameters>');
 
         const backend = new OpenMCStudioBackendServiceImpl();
         const imported = await backend.importXML({ directory: tokamakDir });
@@ -1045,7 +1158,8 @@ describe('settings.xml round-trip', () => {
             sourceRegionMeshId: 5,
             sourceRegionDomainType: 'cell',
             sourceRegionDomainIds: [1],
-            raySource: { lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10] }
+            raySource: { lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10] },
+            adjointSource: { lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5] }
         };
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10], dimension: [5, 5, 5] }];
 
@@ -1070,6 +1184,8 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('<adjoint>true</adjoint>');
         expect(xml).toContain('<ray_source>');
         expect(xml).toContain('<parameters>-10 -10 -10 10 10 10</parameters>');
+        expect(xml).toContain('<adjoint_source>');
+        expect(xml).toContain('<parameters>-5 -5 -5 5 5 5</parameters>');
         expect(xml).toContain('<source_region_meshes>');
         expect(xml).toContain('<domain id="1" type="cell"/>');
 

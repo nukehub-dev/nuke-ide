@@ -404,6 +404,31 @@ describe('project-file e2e (real OpenMC)', () => {
         RUN_TIMEOUT
     );
 
+    it.skipIf(!CAN_RUN)(
+        'derivative project: tally derivative reaches the statepoint with its derivative group',
+        async () => {
+            const state = loadProjectState('pincell-derivative');
+            const dir = await generateToTempDir(state);
+            tempDirs.push(dir);
+
+            // Derivative is a top-level element + an ID reference on the tally
+            const talliesXml = fs.readFileSync(path.join(dir, 'tallies.xml'), 'utf-8');
+            expect(talliesXml).toContain('<derivative id="1" variable="nuclide_density" material="1" nuclide="U235"/>');
+            expect(talliesXml).toContain('<derivative>1</derivative>');
+
+            runOpenMC(dir);
+
+            // The statepoint carries the derivative definition and a
+            // /tallies/derivatives group (verified layout in 0.15.3)
+            const info = evalInStatepoint(
+                dir,
+                '"%s|%s|%s|%s" % (sp.tallies[1].derivative.variable, sp.tallies[1].derivative.material, sp.tallies[1].derivative.nuclide, "derivatives" in __import__("h5py").File(sp_path, "r")["tallies"])'
+            );
+            expect(info).toBe('nuclide_density|1|U235|True');
+        },
+        RUN_TIMEOUT
+    );
+
     it('v1.0.0 project migrates, generates XML, and round-trips (no run)', async () => {
         const legacyPath = path.join(PROJECTS_DIR, 'migration-v1.0.0.nuke-openmc');
         if (!fs.existsSync(legacyPath)) {

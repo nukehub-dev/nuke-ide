@@ -140,13 +140,34 @@ def test_apply_density_and_temperature():
     assert model.materials[0].temperature == 300.0
 
 
-def test_apply_nuclide_fraction_renormalizes_others():
+def test_apply_nuclide_fraction_element_scoped_renormalization():
+    """Enriching a nuclide scales only its same-element siblings; other
+    elements (compound stoichiometry) are preserved."""
     model = _make_model()
+    # Water = H1 (2/3) + O16 (1/3): setting H1 has no same-element sibling → no renorm
     run_keff_search.apply_search_parameter(model, "water.H1", 0.5)
     h1, o16 = model.materials[0].nuclides
     assert h1.percent == 0.5
-    assert o16.percent == pytest.approx(0.5)  # remaining 0.5 over the only other nuclide
-    assert sum(n.percent for n in model.materials[0].nuclides) == pytest.approx(1.0)
+    assert o16.percent == pytest.approx(1.0 / 3.0)  # untouched — different element
+
+    # Compound UO2-style material: U235+U238+O16 → enriching U235 scales only U238
+    fuel = SimpleNamespace(
+        name="fuel",
+        density=10.4,
+        density_units="g/cm3",
+        nuclides=[
+            SimpleNamespace(name="U235", percent=0.03, percent_type="ao"),
+            SimpleNamespace(name="U238", percent=0.97, percent_type="ao"),
+            SimpleNamespace(name="O16", percent=2.0, percent_type="ao"),
+        ],
+    )
+    fuel.set_density = lambda units, value: setattr(fuel, "density", value)
+    fuel_model = SimpleNamespace(materials=[fuel])
+    run_keff_search.apply_search_parameter(fuel_model, "fuel.U235", 0.05)
+    u235, u238, o16 = fuel.nuclides
+    assert u235.percent == 0.05
+    assert u238.percent == pytest.approx(0.95)  # element total 1.0 preserved
+    assert o16.percent == 2.0  # stoichiometry NOT distorted
 
 
 def test_apply_settings_and_geometry_parameters():

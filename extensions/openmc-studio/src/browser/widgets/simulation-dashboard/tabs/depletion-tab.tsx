@@ -30,6 +30,7 @@ import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCTransferRate } from '../../../../common/openmc-state-schema';
+import { ChainBuildResult } from '../../../../common/openmc-studio-protocol';
 import { DepletionTimeline } from '../depletion-timeline';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -193,6 +194,8 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             </div>
                         </div>
 
+                        {this.renderChainBuilder(host)}
+
                         {this.renderAdvancedSection(host, state)}
 
                         {/* Materials Section */}
@@ -259,6 +262,199 @@ export class DepletionTabContribution implements DashboardTabContribution {
         const uri = await host.fileDialogService.showOpenDialog(props);
         if (uri) {
             host.stateManager.updateDepletion({ chainFile: uri.path.toString() });
+        }
+    }
+
+    // Chain builder UI state
+    private chainBuilderMode: 'subset' | 'endf' = 'subset';
+    private chainBuilderSource = '';
+    private chainBuilderNuclides = '';
+    private chainBuilderOutput = '';
+    private chainBuilderBusy = false;
+    private chainBuilderResult?: ChainBuildResult;
+
+    /**
+     * Render the custom depletion chain builder section.
+     * @param host - Simulation dashboard widget host.
+     * @returns Chain builder section React node.
+     */
+    private renderChainBuilder(host: SimulationDashboardWidget): React.ReactNode {
+        const result = this.chainBuilderResult;
+        const canBuild = !this.chainBuilderBusy && this.chainBuilderSource.trim() !== '' && this.chainBuilderOutput.trim() !== '';
+
+        return (
+            <div className="settings-section chain-builder">
+                <h3>
+                    <i className="codicon codicon-wand"></i> Custom Chain Builder
+                </h3>
+                <div className="config-grid">
+                    <div className="config-item">
+                        <label>Mode</label>
+                        <select
+                            value={this.chainBuilderMode}
+                            onChange={(e) => {
+                                this.chainBuilderMode = e.target.value as 'subset' | 'endf';
+                                host.update();
+                            }}
+                        >
+                            <option value="subset">Subset an existing chain</option>
+                            <option value="endf">Build from ENDF directory</option>
+                        </select>
+                        <span className="config-hint">
+                            {this.chainBuilderMode === 'subset'
+                                ? 'Filter a full chain to a fast subset (FPY borrow parents included automatically)'
+                                : 'Build from ENDF text sub-libraries (decay/ nfy/ neutron(s)/ — HDF5 incident data cannot build chains)'}
+                        </span>
+                    </div>
+                    <div className="config-item">
+                        <label>{this.chainBuilderMode === 'subset' ? 'Source Chain XML' : 'ENDF Directory'}</label>
+                        <div className="file-input-group">
+                            <input
+                                type="text"
+                                value={this.chainBuilderSource}
+                                onChange={(e) => {
+                                    this.chainBuilderSource = e.target.value;
+                                    host.update();
+                                }}
+                                placeholder={this.chainBuilderMode === 'subset' ? 'chain.xml...' : 'ENDF-B directory...'}
+                            />
+                            <button className="theia-button secondary" onClick={() => this.browseChainBuilderSource(host)}>
+                                <i className="codicon codicon-folder-opened"></i> Browse
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div className="config-grid">
+                    <div className="config-item">
+                        <label>Nuclides (optional)</label>
+                        <input
+                            type="text"
+                            value={this.chainBuilderNuclides}
+                            onChange={(e) => {
+                                this.chainBuilderNuclides = e.target.value;
+                                host.update();
+                            }}
+                            placeholder="All from source, or e.g. U235,U238,Pu239"
+                        />
+                        <span className="config-hint">Comma-separated subset</span>
+                    </div>
+                    <div className="config-item">
+                        <label>Output Chain XML</label>
+                        <div className="file-input-group">
+                            <input
+                                type="text"
+                                value={this.chainBuilderOutput}
+                                onChange={(e) => {
+                                    this.chainBuilderOutput = e.target.value;
+                                    host.update();
+                                }}
+                                placeholder="custom_chain.xml..."
+                            />
+                            <button className="theia-button secondary" onClick={() => this.browseChainBuilderOutput(host)}>
+                                <i className="codicon codicon-folder-opened"></i> Browse
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div className="config-grid single">
+                    <div className="config-item">
+                        <button className="theia-button primary" disabled={!canBuild} onClick={() => this.runChainBuild(host)}>
+                            <i className="codicon codicon-play"></i> {this.chainBuilderBusy ? 'Building…' : 'Build Chain'}
+                        </button>
+                    </div>
+                </div>
+                {result &&
+                    (result.success ? (
+                        <div className="depletion-info-box">
+                            <i className="codicon codicon-check"></i>
+                            <div className="warning-content">
+                                <strong>Chain built: {result.nuclideCount} nuclides</strong>
+                                <p>
+                                    {result.mode === 'subset' && result.sourceNuclideCount !== undefined
+                                        ? `Filtered from ${result.sourceNuclideCount}. `
+                                        : ''}
+                                    {(result.borrowParentsIncluded?.length ?? 0) > 0 &&
+                                        `FPY borrow parents included: ${result.borrowParentsIncluded!.join(', ')}. `}
+                                    {result.outputPath}
+                                </p>
+                                <button
+                                    className="theia-button primary"
+                                    onClick={() => host.stateManager.updateDepletion({ chainFile: result.outputPath })}
+                                >
+                                    <i className="codicon codicon-check"></i> Use as Depletion Chain
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="depletion-warning-box">
+                            <i className="codicon codicon-error"></i>
+                            <div className="warning-content">
+                                <strong>Chain build failed</strong>
+                                <p>{result.error}</p>
+                            </div>
+                        </div>
+                    ))}
+            </div>
+        );
+    }
+
+    /**
+     * Browse for the chain builder source (file in subset mode, folder in ENDF mode).
+     * @param host - Simulation dashboard widget host.
+     */
+    private async browseChainBuilderSource(host: SimulationDashboardWidget): Promise<void> {
+        const props: OpenFileDialogProps =
+            this.chainBuilderMode === 'subset'
+                ? {
+                      title: 'Select Source Chain XML',
+                      canSelectFiles: true,
+                      canSelectFolders: false,
+                      filters: { 'OpenMC Chain': ['xml'], 'All Files': ['*'] }
+                  }
+                : { title: 'Select ENDF Directory', canSelectFiles: false, canSelectFolders: true };
+        const uri = await host.fileDialogService.showOpenDialog(props);
+        if (uri) {
+            this.chainBuilderSource = uri.path.toString();
+            host.update();
+        }
+    }
+
+    /**
+     * Browse for the chain builder output path.
+     * @param host - Simulation dashboard widget host.
+     */
+    private async browseChainBuilderOutput(host: SimulationDashboardWidget): Promise<void> {
+        const uri = await host.fileDialogService.showSaveDialog({ title: 'Save Custom Chain XML', filters: { 'OpenMC Chain': ['xml'] } });
+        if (uri) {
+            this.chainBuilderOutput = uri.path.toString();
+            host.update();
+        }
+    }
+
+    /**
+     * Run the chain build via the backend and surface the result.
+     * @param host - Simulation dashboard widget host.
+     */
+    private async runChainBuild(host: SimulationDashboardWidget): Promise<void> {
+        this.chainBuilderBusy = true;
+        this.chainBuilderResult = undefined;
+        host.update();
+        try {
+            const nuclides = this.chainBuilderNuclides
+                .split(',')
+                .map((n) => n.trim())
+                .filter((n) => n.length > 0);
+            this.chainBuilderResult = await host.studioService.getBackendService().buildChain({
+                fromChain: this.chainBuilderMode === 'subset' ? this.chainBuilderSource : undefined,
+                fromEndf: this.chainBuilderMode === 'endf' ? this.chainBuilderSource : undefined,
+                nuclides: nuclides.length > 0 ? nuclides : undefined,
+                output: this.chainBuilderOutput
+            });
+        } catch (error) {
+            this.chainBuilderResult = { success: false, error: String(error) };
+        } finally {
+            this.chainBuilderBusy = false;
+            host.update();
         }
     }
 
@@ -521,17 +717,19 @@ export class DepletionTabContribution implements DashboardTabContribution {
                         </div>
                     </div>
                 ))}
-                <button
-                    className="theia-button secondary small"
-                    disabled={depletableMaterials.length === 0}
-                    onClick={() =>
-                        host.stateManager.updateDepletion({
-                            transferRates: [...transferRates, { material: depletableMaterials[0]?.id ?? 1, element: 'U', rate: 1e-5 }]
-                        })
-                    }
-                >
-                    <i className="codicon codicon-add"></i> Add Transfer Rate
-                </button>
+                <div className="form-group">
+                    <button
+                        className="theia-button secondary small"
+                        disabled={depletableMaterials.length === 0}
+                        onClick={() =>
+                            host.stateManager.updateDepletion({
+                                transferRates: [...transferRates, { material: depletableMaterials[0]?.id ?? 1, element: 'U', rate: 1e-5 }]
+                            })
+                        }
+                    >
+                        <i className="codicon codicon-add"></i> Add Transfer Rate
+                    </button>
+                </div>
 
                 {(depletion.normalizationMode ?? 'fission-q') === 'fission-q' && (
                     <>
@@ -568,7 +766,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                         }}
                                     />
                                 </div>
-                                <div className="form-group">
+                                <div className="form-group row-delete">
                                     <label>&nbsp;</label>
                                     <button
                                         className="theia-button secondary small"
@@ -579,13 +777,15 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                 </div>
                             </div>
                         ))}
-                        <button
-                            className="theia-button secondary small"
-                            onClick={() => updateFissionQ([...fissionQEntries, ['U235', 2.02e8]])}
-                        >
-                            <i className="codicon codicon-add"></i> Add Fission Q
-                        </button>
-                        <span className="config-hint">Overrides chain-file fission Q values for normalization</span>
+                        <div className="form-group">
+                            <button
+                                className="theia-button secondary small"
+                                onClick={() => updateFissionQ([...fissionQEntries, ['U235', 2.02e8]])}
+                            >
+                                <i className="codicon codicon-add"></i> Add Fission Q
+                            </button>
+                            <span className="form-hint">Overrides chain-file fission Q values for normalization</span>
+                        </div>
                     </>
                 )}
 

@@ -87,6 +87,10 @@ export class OptimizationBackendService {
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
     private activeRuns: Map<string, OptimizationRunState> = new Map();
+    /** Running k-eff search processes (runId → process), for cancellation */
+    private activeSearches: Map<string, any> = new Map();
+    /** Search runIds cancelled by the user */
+    private cancelledSearches: Set<string> = new Set();
     private clients: Set<OpenMCStudioClient> = new Set();
 
     /**
@@ -207,6 +211,23 @@ export class OptimizationBackendService {
             progressPercent: (runState.currentIteration / runState.totalIterations) * 100
         });
 
+        return { success: true };
+    }
+
+    /**
+     * Cancel a running k-eff search (kills the driver process).
+     * @param runId - The search run ID passed to runKeffSearch
+     * @returns Whether a running search was found and killed
+     */
+    async cancelKeffSearch(runId: string): Promise<{ success: boolean; error?: string }> {
+        const childProcess = this.activeSearches.get(runId);
+        if (!childProcess) {
+            return { success: false, error: `No running search with runId ${runId}` };
+        }
+        this.cancelledSearches.add(runId);
+        childProcess.kill();
+        this.activeSearches.delete(runId);
+        this.logger.info(`[OptimizationBackend] K-eff search ${runId} cancelled by user`);
         return { success: true };
     }
 
@@ -466,14 +487,25 @@ export class OptimizationBackendService {
                     stdio: ['ignore', 'pipe', 'pipe']
                 });
 
+                this.activeSearches.set(request.runId, childProcess);
+
                 childProcess.stdout?.on('data', (data: Buffer) => this.notifyLog(data.toString()));
                 childProcess.stderr?.on('data', (data: Buffer) => this.notifyLog(data.toString()));
-                childProcess.on('close', (code) => resolve(code ?? -1));
-                childProcess.on('error', () => resolve(-1));
+                childProcess.on('close', (code) => {
+                    this.activeSearches.delete(request.runId);
+                    resolve(code ?? -1);
+                });
+                childProcess.on('error', () => {
+                    this.activeSearches.delete(request.runId);
+                    resolve(-1);
+                });
             });
 
             // Read the result file written by the driver
             const resultPath = path.join(outputDir, 'keff_search_result.json');
+            if (this.cancelledSearches.delete(request.runId)) {
+                return fail('Search cancelled by user');
+            }
             if (fs.existsSync(resultPath)) {
                 const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as KeffSearchResult;
                 this.notifyLog(

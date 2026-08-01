@@ -82,6 +82,8 @@ import { OpenMCRandomRayResultsWidget } from './plugins/openmc/widgets/random-ra
 import { OpenMCRandomRayCommands } from './plugins/openmc/commands/random-ray-commands';
 import { OpenMCParticleRestartWidget } from './plugins/openmc/widgets/particle-restart/openmc-particle-restart-widget';
 import { OpenMCParticleRestartViewerContribution } from './plugins/openmc/contributions/openmc-particle-restart-viewer-contribution';
+import { NuclearDataWidget } from './plugins/openmc/widgets/nuclear-data/nuclear-data-widget';
+import { OpenMCNuclearDataCommands } from './plugins/openmc/commands/nuclear-data-commands';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -184,6 +186,17 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCParticleRestartViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCParticleRestartViewerContribution);
+
+    // Bind nuclear data browser widget + open command
+    bind(NuclearDataWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: NuclearDataWidget.ID,
+            createWidget: () => context.container.get<NuclearDataWidget>(NuclearDataWidget)
+        }))
+        .inSingletonScope();
+    bind(OpenMCNuclearDataCommands).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(OpenMCNuclearDataCommands);
 
     // Bind backend service proxy with client implementation for logging
     bind(VisualizerBackendService)

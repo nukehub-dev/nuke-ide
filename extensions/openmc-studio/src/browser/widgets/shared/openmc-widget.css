@@ -441,3 +441,25 @@
 :is(.simulation-dashboard, .openmc-widget) .settings-section > div:not(.form-group) > .form-hint:last-child {
     margin-bottom: 16px;
 }
+
+/* Info box (success variant of the warning box, e.g. chain-builder result) */
+:is(.simulation-dashboard, .openmc-widget) .depletion-info-box {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    background: var(--theia-inputValidation-infoBackground);
+    border: 1px solid var(--theia-inputValidation-infoBorder);
+    border-radius: 8px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .depletion-info-box > i {
+    font-size: 32px;
+    color: var(--theia-inputValidation-infoBorder);
+    flex-shrink: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .chain-builder .config-grid {
+    margin-bottom: 4px;
+}

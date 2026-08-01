@@ -790,6 +790,19 @@ export class XMLGenerationService {
                 lines.push('      </source>');
                 lines.push('    </ray_source>');
             }
+            if (rr.adjointSource) {
+                // settings.py:2036-2047 — adjoint_source holds a list of
+                // source elements; the UI models the single-box case
+                lines.push('    <adjoint_source>');
+                lines.push('      <source type="independent" strength="1" particle="neutron">');
+                lines.push('        <space type="box">');
+                lines.push(
+                    `          <parameters>${rr.adjointSource.lowerLeft.join(' ')} ${rr.adjointSource.upperRight.join(' ')}</parameters>`
+                );
+                lines.push('        </space>');
+                lines.push('      </source>');
+                lines.push('    </adjoint_source>');
+            }
             if (rr.sourceRegionMeshId !== undefined) {
                 lines.push('    <source_region_meshes>');
                 lines.push(`      <mesh id="${rr.sourceRegionMeshId}">`);
@@ -1207,6 +1220,18 @@ export class XMLGenerationService {
                     lines.push(energyLines);
                 }
             }
+            // Optional time distribution (TokamakSource.time; delta is a
+            // single-point discrete in OpenMC XML)
+            const time = source.time;
+            if (time?.type === 'delta' && time.params.time !== undefined) {
+                lines.push(`    <time type="discrete">\n      <parameters>${time.params.time} 1</parameters>\n    </time>`);
+            } else if (time?.type === 'uniform' && time.params.min !== undefined && time.params.max !== undefined) {
+                lines.push(`    <time type="uniform">\n      <parameters>${time.params.min} ${time.params.max}</parameters>\n    </time>`);
+            } else if (time?.type === 'discrete' && time.params.times && time.params.times.length > 0) {
+                const probs: number[] = time.params.probabilities ?? time.params.times.map(() => 1 / time.params.times!.length);
+                const interleaved: number[] = time.params.times.flatMap((v: number, i: number) => [v, probs[i]]);
+                lines.push(`    <time type="discrete">\n      <parameters>${interleaved.join(' ')}</parameters>\n    </time>`);
+            }
             const tokamakConstraints = this.generateSourceConstraintsElement(source.constraints);
             if (tokamakConstraints) {
                 lines.push(tokamakConstraints);
@@ -1354,7 +1379,18 @@ export class XMLGenerationService {
                 const b = energy.b || 2.249;
                 return `    <energy type="watt">\n      <parameters>${a} ${b}</parameters>\n    </energy>`;
 
-            case 'muir':
+            case 'normal': {
+                return `    <energy type="normal">\n      <parameters>${energy.mean} ${energy.stdDev}</parameters>\n    </energy>`;
+            }
+
+            case 'muir': {
+                // muir() is a function returning a Normal in this OpenMC
+                // version: std_dev = sqrt(2 * e0 * kt / m_rat); XML is type
+                // 'normal' (univariate.py:1243-1267)
+                const stdDev = Math.sqrt((2 * energy.e0 * energy.kt) / energy.m_rat);
+                return `    <energy type="normal">\n      <parameters>${energy.e0} ${stdDev}</parameters>\n    </energy>`;
+            }
+
             case 'tabular':
                 this.log(`Warning: Energy type '${type}' not fully implemented`);
                 return '';
@@ -1430,6 +1466,26 @@ export class XMLGenerationService {
             }
         }
 
+        // Collect all unique derivatives and assign IDs (top-level
+        // <derivative> elements referenced by tallies, per
+        // tallies.py _create_derivative_subelements)
+        const derivativeIds = new Map<NonNullable<OpenMCTally['derivative']>, number>();
+        let nextDerivativeId = 1;
+        for (const tally of effectiveTallies) {
+            if (tally.derivative) {
+                if (!derivativeIds.has(tally.derivative)) {
+                    derivativeIds.set(tally.derivative, tally.derivative.id ?? nextDerivativeId++);
+                }
+            }
+        }
+
+        // Generate derivative elements at the top level
+        for (const [derivative, id] of derivativeIds) {
+            const nuclideAttr = derivative.variable === 'nuclide_density' && derivative.nuclide ? ` nuclide="${derivative.nuclide}"` : '';
+            lines.push(`  <derivative id="${id}" variable="${derivative.variable}" material="${derivative.materialId}"${nuclideAttr}/>`);
+            lines.push('');
+        }
+
         // Generate filter elements at the top level
         for (const filter of filterMap.values()) {
             lines.push(this.generateFilterElement(filter));
@@ -1437,7 +1493,7 @@ export class XMLGenerationService {
 
         // Add tallies with filter references
         for (const tally of effectiveTallies) {
-            lines.push(this.generateTallyElement(tally, filterMap));
+            lines.push(this.generateTallyElement(tally, filterMap, derivativeIds));
         }
 
         lines.push('</tallies>');
@@ -1503,7 +1559,11 @@ export class XMLGenerationService {
         lines.push('');
         return lines.join('\n');
     }
-    private generateTallyElement(tally: OpenMCTally, filterMap: Map<string, any>): string {
+    private generateTallyElement(
+        tally: OpenMCTally,
+        filterMap: Map<string, any>,
+        derivativeIds?: Map<NonNullable<OpenMCTally['derivative']>, number>
+    ): string {
         const lines: string[] = [];
 
         const nameAttr = tally.name ? ` name="${this.escapeXml(tally.name)}"` : '';
@@ -1540,11 +1600,21 @@ export class XMLGenerationService {
             lines.push(`    <estimator>${tally.estimator}</estimator>`);
         }
 
+        // Derivative reference (the <derivative> elements live at the
+        // tallies root; the tally carries the ID as text, tallies.py:1477-1480)
+        if (tally.derivative && derivativeIds) {
+            const derivativeId = derivativeIds.get(tally.derivative);
+            if (derivativeId !== undefined) {
+                lines.push(`    <derivative>${derivativeId}</derivative>`);
+            }
+        }
+
         // Per-tally triggers (openmc/trigger.py Trigger.to_xml_element:
         // scores is a space-separated ATTRIBUTE, not a sub-element)
         for (const trigger of tally.triggers ?? []) {
             const scoresAttr = trigger.scores && trigger.scores.length > 0 ? ` scores="${trigger.scores.join(' ')}"` : '';
-            lines.push(`    <trigger type="${trigger.type}" threshold="${trigger.threshold}"${scoresAttr}/>`);
+            const ignoreZerosAttr = trigger.ignoreZeros ? ' ignore_zeros="true"' : '';
+            lines.push(`    <trigger type="${trigger.type}" threshold="${trigger.threshold}"${scoresAttr}${ignoreZerosAttr}/>`);
         }
 
         lines.push('  </tally>');

@@ -92,6 +92,11 @@ export class OpenMCMenuContribution implements MenuContribution {
             order: 'a'
         });
 
+        registry.registerMenuAction(NukeVisualizerMenus.OPENMC_MATERIAL, {
+            commandId: OpenMCCommands.OPEN_NUCLEAR_DATA.id,
+            order: 'b'
+        });
+
         registry.registerMenuAction(NukeVisualizerMenus.OPENMC_PLOT, {
             commandId: OpenMCCommands.PLOT_CROSS_SECTIONS.id,
             order: 'a'

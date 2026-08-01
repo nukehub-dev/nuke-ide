@@ -1979,6 +1979,11 @@ export class XSPlotWidget extends ReactWidget {
         this.update();
     }
 
+    /** Add a nuclide to the plot selection programmatically (e.g. from the Nuclear Data browser). */
+    public selectNuclide(nuclide: string): void {
+        this.addNuclide(nuclide);
+    }
+
     private removeNuclide(nuclide: string): void {
         this.selectedNuclides = this.selectedNuclides.filter((n) => n !== nuclide);
         this.nuclidesInput = this.selectedNuclides.join(', ');

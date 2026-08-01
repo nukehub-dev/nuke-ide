@@ -233,6 +233,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         <TallyEditor
                             tally={selectedTally}
                             meshes={meshes}
+                            materials={state.materials}
                             triggerBatchInterval={this.stateManager.getState().settings.triggers?.batchInterval}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />

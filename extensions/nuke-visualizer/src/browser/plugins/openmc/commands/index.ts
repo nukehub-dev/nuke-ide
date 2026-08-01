@@ -98,4 +98,9 @@ export namespace OpenMCCommands {
         label: 'Open as Random Ray Results...',
         iconClass: 'codicon codicon-symbol-misc'
     };
+    export const OPEN_NUCLEAR_DATA: Command = {
+        id: 'openmc.open-nuclear-data',
+        label: 'Nuclear Data',
+        iconClass: 'codicon codicon-database'
+    };
 }

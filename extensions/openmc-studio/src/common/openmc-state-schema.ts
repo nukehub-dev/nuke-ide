@@ -432,7 +432,7 @@ export type OpenMCSourceSpatial =
     OpenMCPointSourceSpatial | OpenMCBoxSourceSpatial | OpenMCSphereSourceSpatial | OpenMCCylinderSourceSpatial;
 
 /** Source energy distribution types */
-export type OpenMCSourceEnergyType = 'discrete' | 'uniform' | 'maxwell' | 'watt' | 'muir' | 'tabular';
+export type OpenMCSourceEnergyType = 'discrete' | 'uniform' | 'maxwell' | 'watt' | 'muir' | 'normal' | 'tabular';
 
 /** Base source energy definition */
 export interface OpenMCSourceEnergyBase {
@@ -466,12 +466,25 @@ export interface OpenMCWattEnergy extends OpenMCSourceEnergyBase {
     b: number;
 }
 
-/** Muir energy distribution */
+/** Muir energy distribution (D-T fusion; a Normal parameterized by e0/m_rat/kt) */
 export interface OpenMCMuirEnergy extends OpenMCSourceEnergyBase {
     type: 'muir';
     e0: number;
     m_rat: number;
     kt: number;
+}
+
+/**
+ * Normal (Gaussian) energy distribution — the form Muir serializes to in this
+ * OpenMC version (muir() is a function returning Normal; XML is type="normal"
+ * with mean/std_dev parameters, univariate.py:1243-1267).
+ */
+export interface OpenMCNormalEnergy extends OpenMCSourceEnergyBase {
+    type: 'normal';
+    /** Mean of the Gaussian [eV] */
+    mean: number;
+    /** Standard deviation of the Gaussian [eV] */
+    stdDev: number;
 }
 
 /** Tabular energy distribution */
@@ -484,7 +497,13 @@ export interface OpenMCTabularEnergy extends OpenMCSourceEnergyBase {
 
 /** Source energy distribution (union of all types) */
 export type OpenMCSourceEnergy =
-    OpenMCDiscreteEnergy | OpenMCUniformEnergy | OpenMCMaxwellEnergy | OpenMCWattEnergy | OpenMCMuirEnergy | OpenMCTabularEnergy;
+    | OpenMCDiscreteEnergy
+    | OpenMCUniformEnergy
+    | OpenMCMaxwellEnergy
+    | OpenMCWattEnergy
+    | OpenMCMuirEnergy
+    | OpenMCNormalEnergy
+    | OpenMCTabularEnergy;
 
 /** Source angular distribution */
 export interface OpenMCSourceAngle {
@@ -619,6 +638,12 @@ export interface OpenMCTokamakSource extends OpenMCSourceBase {
     nAlpha?: number;
     /** Vertical shift of the plasma center [cm] (default 0) */
     verticalShift?: number;
+    /**
+     * Optional time distribution (source.py TokamakSource.time; absent =
+     * particles born at t=0). NOTE: per-radius energy lists are NOT modeled
+     * (the UI keeps a single energy distribution for all radii).
+     */
+    time?: OpenMCIndependentSource['time'];
 }
 
 /** External source definition (discriminated union over source types) */
@@ -761,6 +786,16 @@ export interface OpenMCRandomRaySettings {
     sourceRegionDomainIds?: number[];
     /** Ray source: uniform spatial box over the domain */
     raySource?: {
+        lowerLeft: [number, number, number];
+        upperRight: [number, number, number];
+    };
+    /**
+     * Adjoint source: uniform spatial box defining the localized adjoint
+     * source / detector response function (settings.py:243). XML emits a
+     * single independent box source inside `<adjoint_source>` (the API
+     * accepts a list; the UI models the common single-source case).
+     */
+    adjointSource?: {
         lowerLeft: [number, number, number];
         upperRight: [number, number, number];
     };
@@ -1070,6 +1105,25 @@ export type OpenMCTallyScore =
 /** Tally estimator types */
 export type OpenMCTallyEstimator = 'analog' | 'tracklength' | 'collision';
 
+/**
+ * Material perturbation derivative applied to all scores of a tally
+ * (openmc.TallyDerivative, tally_derivative.py). Serializes as a top-level
+ * `<derivative id variable material [nuclide]/>` element in tallies.xml; the
+ * owning tally references it via a `<derivative>ID</derivative>` text
+ * sub-element (tallies.py:1477-1480). NOTE: this OpenMC version has no cell
+ * domain — the perturbed domain is always a material.
+ */
+export interface OpenMCTallyDerivative {
+    /** Unique derivative ID (referenced by the owning tally; auto-assigned on export when absent) */
+    id?: number;
+    /** Perturbed variable */
+    variable: 'density' | 'nuclide_density' | 'temperature';
+    /** Perturbed material ID (references a material in state.materials) */
+    materialId: number;
+    /** Perturbed nuclide (only for 'nuclide_density', e.g. 'Xe135') */
+    nuclide?: string;
+}
+
 /** Per-tally trigger criterion (openmc.Trigger trigger_type, trigger.py) */
 export type OpenMCTallyTriggerType = 'variance' | 'std_dev' | 'rel_err';
 
@@ -1089,6 +1143,8 @@ export interface OpenMCTallyTrigger {
     threshold: number;
     /** Scores the trigger applies to (subset of the tally's scores; absent = all scores) */
     scores?: string[];
+    /** Allow zero tally bins to be ignored when evaluating the trigger (trigger.py: can fire early with zeros) */
+    ignoreZeros?: boolean;
 }
 
 /** Tally definition */
@@ -1109,6 +1165,8 @@ export interface OpenMCTally {
     multiplyDensity?: boolean;
     /** Per-tally triggers (openmc.Trigger list) */
     triggers?: OpenMCTallyTrigger[];
+    /** Material perturbation derivative for this tally (openmc.TallyDerivative) */
+    derivative?: OpenMCTallyDerivative;
 }
 
 // ============================================================================

@@ -174,4 +174,17 @@ describe('CMFD validation (validateState)', () => {
         const result = await backend.validateState({ state });
         expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('albedo'))).toBe(true);
     });
+
+    it('errors when meshRef points at a missing mesh', async () => {
+        const state = buildState({ enabled: true, meshRef: 99 });
+        const result = await backend.validateState({ state });
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('mesh 99 which does not exist'))).toBe(true);
+    });
+
+    it('errors when meshRef points at a non-regular mesh', async () => {
+        const state = buildState({ enabled: true, meshRef: 5 });
+        state.meshes = [{ type: 'cylindrical', id: 5, rGrid: [0, 1], phiGrid: [0, 6.28], zGrid: [0, 1] }];
+        const result = await backend.validateState({ state });
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('not a regular mesh'))).toBe(true);
+    });
 });

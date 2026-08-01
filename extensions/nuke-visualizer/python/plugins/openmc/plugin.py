@@ -19,6 +19,7 @@ _COMMAND_MODULES = [
     "weight_windows",
     "kinetics",
     "particle_restart",
+    "nuclear_data",
     "output_vtk",
 ]
 

@@ -131,6 +131,7 @@ export class OptimizationWidget extends ReactWidget {
     private searchRunning = false;
     private searchResult?: KeffSearchResult;
     private searchApplied = false;
+    private currentSearchRunId?: string;
 
     /**
      * Initialize widget id, title, event listeners, and state.
@@ -609,6 +610,11 @@ export class OptimizationWidget extends ReactWidget {
                             <button className="theia-button primary" disabled={!canRun} onClick={() => this.runKeffSearch()}>
                                 <i className="codicon codicon-play"></i> {this.searchRunning ? 'Searching…' : 'Run Search'}
                             </button>
+                            {this.searchRunning && (
+                                <button className="theia-button secondary" onClick={() => this.cancelKeffSearch()}>
+                                    <i className="codicon codicon-debug-stop"></i> Stop
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -697,6 +703,7 @@ export class OptimizationWidget extends ReactWidget {
         }
 
         const runId = `keff-search-${Date.now()}`;
+        this.currentSearchRunId = runId;
         const projectPath = this.stateManager.projectPath;
         const projectDir = projectPath.includes('/')
             ? projectPath.substring(0, projectPath.lastIndexOf('/'))
@@ -733,7 +740,23 @@ export class OptimizationWidget extends ReactWidget {
             this.messageService.error(`Criticality search failed: ${String(error)}`);
         } finally {
             this.searchRunning = false;
+            this.currentSearchRunId = undefined;
             this.update();
+        }
+    }
+
+    /**
+     * Cancel the running criticality search via the backend.
+     */
+    private async cancelKeffSearch(): Promise<void> {
+        if (!this.currentSearchRunId) {
+            return;
+        }
+        const result = await this.backendService.cancelKeffSearch(this.currentSearchRunId);
+        if (result.success) {
+            this.messageService.info('Criticality search stopped');
+        } else {
+            this.messageService.warn(result.error || 'Failed to stop the search');
         }
     }
 

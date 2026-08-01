@@ -39,7 +39,11 @@ import {
     OpenMCVtkConversionResult,
     OpenMCKineticsResult,
     OpenMCVtkFileInfo,
-    OpenMCParticleRestart
+    OpenMCParticleRestart,
+    NuclearDataLibraryRequest,
+    NuclearDataLibraryResult,
+    NuclideDetailRequest,
+    NuclideDetailResult
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -181,8 +185,43 @@ export class OpenMCOutputService {
         });
     }
 
-    async convertWeightWindowsToVtk(filePath: string): Promise<OpenMCVtkConversionResult> {
-        return this.runConversion(['openmc.weight-windows-vtk', filePath], 120000);
+    async getNuclearDataLibrary(request: NuclearDataLibraryRequest): Promise<NuclearDataLibraryResult> {
+        const args = ['openmc.nuclear-data-library'];
+        if (request.crossSectionsPath) {
+            args.push('--cross-sections', request.crossSectionsPath);
+        }
+        // Library scans read hundreds of HDF5 group keys — allow a long timeout
+        return this.executeCommandJson<NuclearDataLibraryResult>(args, 300000);
+    }
+
+    async getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult> {
+        return this.executeCommandJson<NuclideDetailResult>(['openmc.nuclear-data-nuclide', request.path], 120000);
+    }
+
+    /**
+     * Run an openmc.* command and parse its stdout JSON regardless of exit
+     * status: handlers print structured `{"success": false, "error": ...}`
+     * payloads on failure (exit 1), which carry a better message than the
+     * (empty) stderr that executeScriptJson would throw on.
+     */
+    protected async executeCommandJson<T extends { success: boolean; error?: string }>(args: string[], timeout = 60000): Promise<T> {
+        const result = await this.pythonHelper.executeScript(this.scriptPath, args, {
+            timeout,
+            maxBuffer: 64 * 1024 * 1024
+        });
+        try {
+            return JSON.parse(result.stdout) as T;
+        } catch {
+            throw new Error(`Command '${args[0]}' failed (exit ${result.status}): ${result.stderr || result.stdout.substring(0, 500)}`);
+        }
+    }
+
+    async convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.weight-windows-vtk', filePath];
+        if (meshId !== undefined) {
+            args.push('--mesh-id', String(meshId));
+        }
+        return this.runConversion(args, 120000);
     }
 
     /**

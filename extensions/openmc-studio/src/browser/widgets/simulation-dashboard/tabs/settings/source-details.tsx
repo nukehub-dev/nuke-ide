@@ -277,6 +277,10 @@ function defaultEnergyOfType(type: OpenMCSourceEnergy['type']): OpenMCSourceEner
             return { type: 'maxwell', temperature: 293.6 };
         case 'watt':
             return { type: 'watt', a: 0.988e6, b: 2.249e-6 };
+        case 'normal':
+            return { type: 'normal', mean: 14.1e6, stdDev: 0.3e6 };
+        case 'muir':
+            return { type: 'muir', e0: 14.08e6, m_rat: 5.0, kt: 20000 };
         default:
             return { type: 'discrete', energies: [1e6] };
     }
@@ -350,6 +354,63 @@ function renderEnergyParamFields(energy: OpenMCSourceEnergy, apply: (energy: Ope
             </>
         );
     }
+    if (energy.type === 'normal') {
+        return (
+            <>
+                <div className="form-group">
+                    <label>Mean (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.mean}
+                        onChange={(e) => apply({ ...energy, mean: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Std Dev (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.stdDev}
+                        onChange={(e) => apply({ ...energy, stdDev: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </>
+        );
+    }
+    if (energy.type === 'muir') {
+        return (
+            <>
+                <div className="form-group">
+                    <label>Mean Energy e0 (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.e0}
+                        onChange={(e) => apply({ ...energy, e0: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Mass Ratio</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.m_rat}
+                        onChange={(e) => apply({ ...energy, m_rat: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+                <div className="form-group">
+                    <label>Ion Temp kt (eV)</label>
+                    <input
+                        type="number"
+                        step="any"
+                        value={energy.kt}
+                        onChange={(e) => apply({ ...energy, kt: parseFloat(e.target.value) || 0 })}
+                    />
+                </div>
+            </>
+        );
+    }
     // discrete: single energy value
     const discrete = energy as { energies?: number[] };
     return (
@@ -382,6 +443,8 @@ function renderEnergyFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSo
                     <option value="uniform">Uniform</option>
                     <option value="maxwell">Maxwell</option>
                     <option value="watt">Watt</option>
+                    <option value="normal">Normal (Gaussian)</option>
+                    <option value="muir">Muir (D-T fusion)</option>
                 </select>
             </div>
             {renderEnergyParamFields(energy, apply)}
@@ -721,6 +784,74 @@ export function renderTokamakSourceEditor(host: SimulationDashboardWidget, sourc
                     />
                     <span className="form-hint">CDF sampling resolution (default 101)</span>
                 </div>
+                <div className="form-group">
+                    <label>Time Mode</label>
+                    <select
+                        value={source.time?.type ?? 'none'}
+                        onChange={(e) => {
+                            const mode = e.target.value;
+                            if (mode === 'none') {
+                                update({ time: undefined });
+                            } else if (mode === 'delta') {
+                                update({ time: { type: 'delta', params: { time: 0 } } });
+                            } else {
+                                update({ time: { type: 'uniform', params: { min: 0, max: 1e-3 } } });
+                            }
+                        }}
+                    >
+                        <option value="none">Born at t=0 (default)</option>
+                        <option value="delta">Delta (single time)</option>
+                        <option value="uniform">Uniform range</option>
+                    </select>
+                    <span className="form-hint">Per-radius energy lists are not modeled (single energy for all radii)</span>
+                </div>
+                {source.time?.type === 'delta' && (
+                    <div className="form-group">
+                        <label>Time (s)</label>
+                        <input
+                            type="number"
+                            step="any"
+                            value={source.time.params.time ?? 0}
+                            onChange={(e) => update({ time: { type: 'delta', params: { time: parseFloat(e.target.value) || 0 } } })}
+                        />
+                    </div>
+                )}
+                {source.time?.type === 'uniform' && (
+                    <>
+                        <div className="form-group">
+                            <label>Time Min (s)</label>
+                            <input
+                                type="number"
+                                step="any"
+                                value={source.time.params.min ?? 0}
+                                onChange={(e) =>
+                                    update({
+                                        time: {
+                                            type: 'uniform',
+                                            params: { min: parseFloat(e.target.value) || 0, max: source.time?.params.max ?? 1e-3 }
+                                        }
+                                    })
+                                }
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Time Max (s)</label>
+                            <input
+                                type="number"
+                                step="any"
+                                value={source.time.params.max ?? 1e-3}
+                                onChange={(e) =>
+                                    update({
+                                        time: {
+                                            type: 'uniform',
+                                            params: { min: source.time?.params.min ?? 0, max: parseFloat(e.target.value) || 1e-3 }
+                                        }
+                                    })
+                                }
+                            />
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );

@@ -88,6 +88,17 @@ export const TriggerEditor: React.FC<TriggerEditorProps> = ({ triggers, tallySco
                             onChange={(e) => updateTrigger(index, { threshold: parseFloat(e.target.value) || 0 })}
                         />
                     </div>
+                    <div className="form-group checkbox">
+                        <label>&nbsp;</label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={trigger.ignoreZeros ?? false}
+                                onChange={(e) => updateTrigger(index, { ignoreZeros: e.target.checked ? true : undefined })}
+                            />
+                            Ignore zeros
+                        </label>
+                    </div>
                     <div className="form-group">
                         <label>&nbsp;</label>
                         <button className="remove-filter-btn" onClick={() => onUpdate(triggers.filter((_, i) => i !== index))}>

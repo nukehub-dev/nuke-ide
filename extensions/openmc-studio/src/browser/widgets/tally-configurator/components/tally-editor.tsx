@@ -27,11 +27,12 @@
 
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCTally, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
+import { OpenMCTally, OpenMCMaterial, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
 import { TriggerEditor } from './trigger-editor';
+import { DerivativeEditor } from './derivative-editor';
 
 /**
  * Props for the {@link TallyEditor} component.
@@ -41,6 +42,8 @@ interface TallyEditorProps {
     tally: OpenMCTally;
     /** Available meshes for mesh filter selection */
     meshes: OpenMCMesh[];
+    /** Available materials for derivative domain selection */
+    materials: OpenMCMaterial[];
     /** Run-level trigger evaluation interval in batches (settings.triggers.batchInterval) */
     triggerBatchInterval?: number;
     /** Callback when tally properties change */
@@ -58,7 +61,7 @@ interface TallyEditorProps {
  * @see {@link FilterBuilder}
  * @see {@link NuclideSelector}
  */
-export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, triggerBatchInterval, onUpdate }) => {
+export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materials, triggerBatchInterval, onUpdate }) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
@@ -169,6 +172,22 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, trigger
                         tallyScores={tally.scores}
                         batchInterval={triggerBatchInterval}
                         onUpdate={(triggers) => onUpdate({ triggers: triggers.length > 0 ? triggers : undefined })}
+                    />
+                </div>
+
+                <div className="editor-section">
+                    <h4>
+                        <i className="codicon codicon-symbol-operator"></i>
+                        Derivative
+                    </h4>
+                    <p className="section-description">
+                        Score the derivative of this tally with respect to a material property (density, nuclide density, or temperature)
+                        for sensitivity analysis.
+                    </p>
+                    <DerivativeEditor
+                        derivative={tally.derivative}
+                        materials={materials}
+                        onUpdate={(derivative) => onUpdate({ derivative })}
                     />
                 </div>
             </div>

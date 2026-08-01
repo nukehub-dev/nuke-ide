@@ -301,6 +301,61 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             )}
 
                             <h4>
+                                <i className="codicon codicon-target"></i> Adjoint Source (Uniform Box)
+                            </h4>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <Tooltip
+                                        content="Set the adjoint source (detector response) box from the current geometry bounds"
+                                        position="bottom"
+                                    >
+                                        <button
+                                            className="theia-button secondary small"
+                                            onClick={() => {
+                                                const bounds = calculateGeometryBounds(state);
+                                                if (bounds) {
+                                                    updateRandomRay({
+                                                        adjointSource: {
+                                                            lowerLeft: bounds.min as [number, number, number],
+                                                            upperRight: bounds.max as [number, number, number]
+                                                        }
+                                                    });
+                                                } else {
+                                                    host.messageService.warn('Cannot auto-detect bounds: no geometry defined');
+                                                }
+                                            }}
+                                        >
+                                            <i className="codicon codicon-target"></i> Auto-detect from Geometry
+                                        </button>
+                                    </Tooltip>
+                                </div>
+                                <div className="form-group">
+                                    <Tooltip content="Clear the adjoint source" position="bottom">
+                                        <button
+                                            className="theia-button secondary small"
+                                            disabled={!randomRay.adjointSource}
+                                            onClick={() => updateRandomRay({ adjointSource: undefined })}
+                                        >
+                                            <i className="codicon codicon-close"></i> Clear
+                                        </button>
+                                    </Tooltip>
+                                </div>
+                            </div>
+                            {this.renderVectorInput('Lower Left', randomRay.adjointSource?.lowerLeft ?? [0, 0, 0], (v) =>
+                                updateRandomRay({
+                                    adjointSource: { ...(randomRay.adjointSource ?? { upperRight: [10, 10, 10] }), lowerLeft: v }
+                                })
+                            )}
+                            {this.renderVectorInput('Upper Right', randomRay.adjointSource?.upperRight ?? [10, 10, 10], (v) =>
+                                updateRandomRay({
+                                    adjointSource: { ...(randomRay.adjointSource ?? { lowerLeft: [0, 0, 0] }), upperRight: v }
+                                })
+                            )}
+                            <span className="form-hint">
+                                Localized adjoint source / detector response function (FW-CADIS adjoint solve)
+                            </span>
+
+                            <h4>
                                 <i className="codicon codicon-symbol-grid"></i> Source Region
                             </h4>
                             <div className="form-row">

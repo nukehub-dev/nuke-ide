@@ -1015,3 +1015,8 @@
 .tally-configurator-container .trigger-editor .checkbox-row {
     margin-top: 4px;
 }
+
+/* Derivative editor: single-row layout */
+.tally-configurator-container .derivative-editor .form-row {
+    align-items: flex-end;
+}

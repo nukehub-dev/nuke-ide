@@ -60,13 +60,43 @@ const GROUP_STRUCTURES = [
     'CCFE-709'
 ];
 
+const MGXS_TYPES = [
+    'total',
+    'transport',
+    'nu-transport',
+    'absorption',
+    'capture',
+    'fission',
+    'nu-fission',
+    'kappa-fission',
+    'scatter',
+    'nu-scatter',
+    'scatter matrix',
+    'nu-scatter matrix',
+    'multiplicity matrix',
+    'nu-fission matrix',
+    'consistent scatter matrix',
+    'consistent nu-scatter matrix',
+    'chi',
+    'chi-prompt',
+    'inverse-velocity',
+    'current',
+    'diffusion-coefficient',
+    'nu-diffusion-coefficient'
+];
+
+/** Default XS types for library mode (mirrors the driver default) */
+const DEFAULT_LIBRARY_TYPES = ['total', 'absorption', 'fission', 'nu-fission', 'chi', 'scatter matrix'];
+
 /**
  * MGXS library generator window.
  *
  * Wraps `Model.convert_to_multigroup()` (and optionally
  * `Model.convert_to_random_ray()`) to produce a multi-group cross section
  * library from the current model, then writes the library path back into the
- * project settings for multi-group runs.
+ * project settings for multi-group runs. A second 'Library' mode drives
+ * `openmc.mgxs.Library` directly for fine-grained control over XS types,
+ * spatial domains, nuclide decomposition, Legendre order, and estimator.
  */
 @injectable()
 export class MgxsGeneratorWidget extends ReactWidget {
@@ -98,6 +128,15 @@ export class MgxsGeneratorWidget extends ReactWidget {
     private convertToRandomRay = false;
     private isRunning = false;
     private statusMessage = '';
+
+    // Library (manual) mode state
+    private mode: 'convert' | 'library' = 'convert';
+    private libraryTypes = new Set<string>(DEFAULT_LIBRARY_TYPES);
+    private domainType: 'material' | 'cell' | 'universe' = 'material';
+    private domainIds = new Set<number>();
+    private byNuclide = false;
+    private legendreOrder = 0;
+    private estimator: '' | 'analog' | 'tracklength' | 'collision' = '';
     private generatedPath?: string;
 
     /** Initialize widget id, title, and state listeners. */
@@ -160,6 +199,11 @@ export class MgxsGeneratorWidget extends ReactWidget {
             this.statusMessage = 'Running continuous-energy MGXS generation (this may take a while)...';
             this.update();
 
+            if (this.mode === 'library') {
+                await this.generateLibraryMode(workingDirectory);
+                return;
+            }
+
             const temperatures = this.temperaturesText
                 .split(/[\s,]+/)
                 .filter((t) => t.length > 0)
@@ -197,6 +241,312 @@ export class MgxsGeneratorWidget extends ReactWidget {
     }
 
     /**
+     * Run the fine-grained openmc.mgxs.Library generation (manual mode).
+     * @param workingDirectory - Directory with generated XML inputs.
+     */
+    private async generateLibraryMode(workingDirectory: string): Promise<void> {
+        const result = await this.backendService.generateMgxsLibrary({
+            workingDirectory,
+            groups: this.groups,
+            mgxsTypes: [...this.libraryTypes],
+            domainType: this.domainType,
+            domainIds: this.domainIds.size > 0 ? [...this.domainIds] : undefined,
+            byNuclide: this.byNuclide,
+            legendreOrder: this.legendreOrder,
+            estimator: this.estimator || undefined,
+            correction: this.correction,
+            particles: this.particles,
+            output: 'mgxs.h5'
+        });
+
+        if (result.success && result.mgxsPath) {
+            this.generatedPath = result.mgxsPath;
+            this.stateManager.updateSettings({ mgxsLibrary: result.mgxsPath });
+            this.statusMessage = `MGXS library written to ${result.mgxsPath} (${result.mgxsTypes?.length} XS types over ${result.domainIds?.length} domain(s))`;
+            this.messageService.info(`MGXS library generated and set as project library: ${result.mgxsPath}`);
+        } else {
+            this.statusMessage = `MGXS generation failed: ${result.error}`;
+            this.messageService.error(result.error || 'MGXS generation failed');
+        }
+    }
+
+    /**
+     * Render the automatic (convert_to_multigroup) form.
+     * @returns Convert-mode form React node.
+     */
+    private renderConvertForm(): React.ReactNode {
+        return (
+            <div className="settings-section">
+                <h3>
+                    <i className="codicon codicon-library"></i> Multi-Group Cross Section Library
+                </h3>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Generation Method</label>
+                        <select
+                            value={this.method}
+                            onChange={(e) => {
+                                this.method = e.target.value as typeof this.method;
+                                this.update();
+                            }}
+                        >
+                            <option value="material_wise">Material Wise (highest fidelity)</option>
+                            <option value="stochastic_slab">Stochastic Slab</option>
+                            <option value="infinite_medium">Infinite Medium</option>
+                        </select>
+                        <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
+                    </div>
+                    <div className="form-group">
+                        <label>Energy Group Structure</label>
+                        <select
+                            value={this.groups}
+                            onChange={(e) => {
+                                this.groups = e.target.value;
+                                this.update();
+                            }}
+                        >
+                            {GROUP_STRUCTURES.map((g) => (
+                                <option key={g} value={g}>
+                                    {g}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Particles</label>
+                        <input
+                            type="number"
+                            min={1}
+                            value={this.particles}
+                            onChange={(e) => {
+                                this.particles = parseInt(e.target.value) || 2000;
+                                this.update();
+                            }}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label>Transport Correction</label>
+                        <select
+                            value={this.correction}
+                            onChange={(e) => {
+                                this.correction = e.target.value as 'none' | 'P0';
+                                this.update();
+                            }}
+                        >
+                            <option value="none">None (default)</option>
+                            <option value="P0">P0</option>
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Temperatures (K, optional)</label>
+                        <input
+                            type="text"
+                            value={this.temperaturesText}
+                            placeholder="e.g. 300 600 900"
+                            onChange={(e) => {
+                                this.temperaturesText = e.target.value;
+                                this.update();
+                            }}
+                        />
+                        <span className="form-hint">Space/comma-separated; one MGXS set per temperature point</span>
+                    </div>
+                </div>
+                <div className="form-group checkbox">
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={this.convertToRandomRay}
+                            onChange={(e) => {
+                                this.convertToRandomRay = e.target.checked;
+                                this.update();
+                            }}
+                        />
+                        Also convert model to random ray (sets random_ray defaults in settings.xml)
+                    </label>
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * Render the fine-grained openmc.mgxs.Library form.
+     * @returns Library-mode form React node.
+     */
+    private renderLibraryForm(): React.ReactNode {
+        const state = this.stateManager.getState();
+        const domains =
+            this.domainType === 'material'
+                ? state.materials.map((m) => ({ id: m.id, label: m.name || `Material ${m.id}` }))
+                : this.domainType === 'cell'
+                  ? state.geometry.cells.map((c) => ({ id: c.id, label: c.name || `Cell ${c.id}` }))
+                  : state.geometry.universes.map((u) => ({ id: u.id, label: u.name || `Universe ${u.id}` }));
+
+        return (
+            <div className="settings-section">
+                <h3>
+                    <i className="codicon codicon-symbol-operator"></i> Fine-Grained MGXS Library
+                </h3>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Energy Group Structure</label>
+                        <select
+                            value={this.groups}
+                            onChange={(e) => {
+                                this.groups = e.target.value;
+                                this.update();
+                            }}
+                        >
+                            {GROUP_STRUCTURES.map((g) => (
+                                <option key={g} value={g}>
+                                    {g}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Particles</label>
+                        <input
+                            type="number"
+                            min={1}
+                            value={this.particles}
+                            onChange={(e) => {
+                                this.particles = parseInt(e.target.value) || 2000;
+                                this.update();
+                            }}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label>Transport Correction</label>
+                        <select
+                            value={this.correction}
+                            onChange={(e) => {
+                                this.correction = e.target.value as 'none' | 'P0';
+                                this.update();
+                            }}
+                        >
+                            <option value="none">None (default)</option>
+                            <option value="P0">P0</option>
+                        </select>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Domain Type</label>
+                        <select
+                            value={this.domainType}
+                            onChange={(e) => {
+                                this.domainType = e.target.value as typeof this.domainType;
+                                this.domainIds = new Set();
+                                this.update();
+                            }}
+                        >
+                            <option value="material">Material</option>
+                            <option value="cell">Cell</option>
+                            <option value="universe">Universe</option>
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Domains (none checked = all)</label>
+                        <div className="checkbox-grid">
+                            {domains.map((d) => (
+                                <label key={d.id}>
+                                    <input
+                                        type="checkbox"
+                                        checked={this.domainIds.has(d.id)}
+                                        onChange={(e) => {
+                                            const next = new Set(this.domainIds);
+                                            if (e.target.checked) {
+                                                next.add(d.id);
+                                            } else {
+                                                next.delete(d.id);
+                                            }
+                                            this.domainIds = next;
+                                            this.update();
+                                        }}
+                                    />
+                                    {d.label}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Legendre Order</label>
+                        <input
+                            type="number"
+                            min={0}
+                            value={this.legendreOrder}
+                            onChange={(e) => {
+                                this.legendreOrder = parseInt(e.target.value) || 0;
+                                this.update();
+                            }}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label>Estimator</label>
+                        <select
+                            value={this.estimator}
+                            onChange={(e) => {
+                                this.estimator = e.target.value as typeof this.estimator;
+                                this.update();
+                            }}
+                        >
+                            <option value="">Default (per XS type)</option>
+                            <option value="analog">Analog</option>
+                            <option value="tracklength">Tracklength</option>
+                            <option value="collision">Collision</option>
+                        </select>
+                    </div>
+                    <div className="form-group checkbox stacked">
+                        <label aria-hidden="true">&nbsp;</label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={this.byNuclide}
+                                onChange={(e) => {
+                                    this.byNuclide = e.target.checked;
+                                    this.update();
+                                }}
+                            />
+                            By-nuclide decomposition
+                        </label>
+                    </div>
+                </div>
+                <div className="form-group">
+                    <label>Cross Section Types ({this.libraryTypes.size} selected)</label>
+                    <div className="xs-types-grid">
+                        {MGXS_TYPES.map((t) => (
+                            <label key={t}>
+                                <input
+                                    type="checkbox"
+                                    checked={this.libraryTypes.has(t)}
+                                    onChange={(e) => {
+                                        const next = new Set(this.libraryTypes);
+                                        if (e.target.checked) {
+                                            next.add(t);
+                                        } else {
+                                            next.delete(t);
+                                        }
+                                        this.libraryTypes = next;
+                                        this.update();
+                                    }}
+                                />
+                                {t}
+                            </label>
+                        ))}
+                    </div>
+                    <span className="form-hint">
+                        Scatter/multiplicity matrix types are added automatically when missing (required for XSdata output)
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    /**
      * Render the MGXS generator window.
      * @returns The React element tree for the widget.
      */
@@ -222,97 +572,24 @@ export class MgxsGeneratorWidget extends ReactWidget {
                 </div>
 
                 <div className="mgxs-body">
-                    <div className="settings-section">
-                        <h3>
-                            <i className="codicon codicon-library"></i> Multi-Group Cross Section Library
-                        </h3>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Generation Method</label>
-                                <select
-                                    value={this.method}
-                                    onChange={(e) => {
-                                        this.method = e.target.value as typeof this.method;
+                    <div className="mgxs-mode-row">
+                        <div className="segmented-control">
+                            {(['convert', 'library'] as const).map((m) => (
+                                <button
+                                    key={m}
+                                    className={`segment${this.mode === m ? ' active' : ''}`}
+                                    onClick={() => {
+                                        this.mode = m;
                                         this.update();
                                     }}
                                 >
-                                    <option value="material_wise">Material Wise (highest fidelity)</option>
-                                    <option value="stochastic_slab">Stochastic Slab</option>
-                                    <option value="infinite_medium">Infinite Medium</option>
-                                </select>
-                                <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
-                            </div>
-                            <div className="form-group">
-                                <label>Energy Group Structure</label>
-                                <select
-                                    value={this.groups}
-                                    onChange={(e) => {
-                                        this.groups = e.target.value;
-                                        this.update();
-                                    }}
-                                >
-                                    {GROUP_STRUCTURES.map((g) => (
-                                        <option key={g} value={g}>
-                                            {g}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Particles</label>
-                                <input
-                                    type="number"
-                                    min={1}
-                                    value={this.particles}
-                                    onChange={(e) => {
-                                        this.particles = parseInt(e.target.value) || 2000;
-                                        this.update();
-                                    }}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Transport Correction</label>
-                                <select
-                                    value={this.correction}
-                                    onChange={(e) => {
-                                        this.correction = e.target.value as 'none' | 'P0';
-                                        this.update();
-                                    }}
-                                >
-                                    <option value="none">None (default)</option>
-                                    <option value="P0">P0</option>
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Temperatures (K, optional)</label>
-                                <input
-                                    type="text"
-                                    value={this.temperaturesText}
-                                    placeholder="e.g. 300 600 900"
-                                    onChange={(e) => {
-                                        this.temperaturesText = e.target.value;
-                                        this.update();
-                                    }}
-                                />
-                                <span className="form-hint">Space/comma-separated; one MGXS set per temperature point</span>
-                            </div>
-                        </div>
-                        <div className="form-group checkbox">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    checked={this.convertToRandomRay}
-                                    onChange={(e) => {
-                                        this.convertToRandomRay = e.target.checked;
-                                        this.update();
-                                    }}
-                                />
-                                Also convert model to random ray (sets random_ray defaults in settings.xml)
-                            </label>
+                                    {m === 'convert' ? 'Convert (automatic)' : 'Library (manual)'}
+                                </button>
+                            ))}
                         </div>
                     </div>
+
+                    {this.mode === 'library' ? this.renderLibraryForm() : this.renderConvertForm()}
 
                     {this.statusMessage && (
                         <div className="mgxs-generate-actions">

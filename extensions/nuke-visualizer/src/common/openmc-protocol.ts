@@ -400,7 +400,7 @@ export interface OpenMCBackendService {
     getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData>;
 
     /** Convert a weight windows file to a VTK rectilinear grid for the trame viewer */
-    convertWeightWindowsToVtk(filePath: string): Promise<OpenMCVtkConversionResult>;
+    convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult>;
 
     /** Get IFP kinetics parameters (beta_eff, Lambda_eff) from a statepoint */
     getKineticsParameters(statepointPath: string): Promise<OpenMCKineticsResult>;
@@ -413,6 +413,12 @@ export interface OpenMCBackendService {
 
     /** Read a particle restart file (lost-particle state) */
     getParticleRestart(filePath: string): Promise<OpenMCParticleRestart>;
+
+    /** Summarize a cross_sections.xml data library (read-only nuclear data) */
+    getNuclearDataLibrary(request: NuclearDataLibraryRequest): Promise<NuclearDataLibraryResult>;
+
+    /** Get detail for a single nuclide HDF5 data file */
+    getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -1785,4 +1791,64 @@ export interface OpenMCParticleRestart {
     position: number[];
     /** Direction cosines */
     direction: number[];
+}
+
+// ============================================================================
+// Nuclear Data Inspection Types (read-only data library browser)
+// ============================================================================
+
+/** One nuclide entry in a data-library summary */
+export interface NuclearDataNuclideEntry {
+    /** Nuclide name (e.g. 'U235') */
+    name: string;
+    /** Absolute path to the HDF5 data file */
+    path: string;
+    /** Number of tabulated temperatures */
+    temperatureCount: number;
+    /** Temperature keys (e.g. ['294K', '600K']) */
+    temperatures: string[];
+    /** Number of reaction channels */
+    reactionCount: number;
+}
+
+/** Data-library summary request (`openmc.nuclear-data-library`) */
+export interface NuclearDataLibraryRequest {
+    /** Path to cross_sections.xml (default: openmc.config resolution) */
+    crossSectionsPath?: string;
+}
+
+/** Data-library summary result */
+export interface NuclearDataLibraryResult {
+    success: boolean;
+    /** Resolved cross_sections.xml path */
+    libraryPath?: string;
+    /** Number of nuclide files in the library */
+    nuclideCount?: number;
+    /** Per-nuclide entries, sorted by name */
+    nuclides?: NuclearDataNuclideEntry[];
+    error?: string;
+}
+
+/** Nuclide detail request (`openmc.nuclear-data-nuclide`) */
+export interface NuclideDetailRequest {
+    /** Path to the HDF5 data file */
+    path: string;
+}
+
+/** Nuclide detail result */
+export interface NuclideDetailResult {
+    success: boolean;
+    /** Nuclide name */
+    name?: string;
+    /** Absolute path of the data file */
+    path?: string;
+    /** Temperature keys (e.g. ['294K']) */
+    temperatures?: string[];
+    /** Number of reaction channels */
+    reactionCount?: number;
+    /** Reaction channels (MT + label), sorted by MT */
+    reactions?: { mt: number; label: string }[];
+    /** Whether the nuclide has fission channels/data */
+    fission?: boolean;
+    error?: string;
 }

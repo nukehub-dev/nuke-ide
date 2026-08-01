@@ -65,6 +65,21 @@ def _json_safe(obj):
     return str(obj)
 
 
+def _element_symbol(name):
+    """Extract the element symbol from a nuclide name ('U235' → 'u', 'Am242_m1' → 'am', 'O16' → 'o').
+
+    Args:
+        name: Nuclide name.
+
+    Returns:
+        Lowercase element symbol.
+    """
+    import re
+
+    match = re.match(r"^([A-Za-z]+)", name)
+    return match.group(1).lower() if match else name.lower()
+
+
 def apply_search_parameter(model, param_path, value):
     """Apply a parameter value to an openmc.Model using the IDE's optimization
     parameter vocabulary (mirrors src/common/parameter-paths.ts semantics).
@@ -122,8 +137,9 @@ def apply_search_parameter(model, param_path, value):
         material.temperature = value
         return
 
-    # Nuclide fraction with renormalization of the remaining nuclides
-    # (mirrors setNuclideFraction in src/common/parameter-paths.ts)
+    # Nuclide fraction with ELEMENT-SCOPED renormalization (e.g. enriching
+    # U235 scales U238 only — compound stoichiometry like O16 is preserved).
+    # Mirrors setNuclideFraction in src/common/parameter-paths.ts.
     target = None
     for nuc in material.nuclides:
         if nuc.name.lower() == prop:
@@ -132,17 +148,29 @@ def apply_search_parameter(model, param_path, value):
     if target is None:
         raise ValueError(f"Nuclide not found for parameter: {param_path}")
 
-    others = [nuc for nuc in material.nuclides if nuc is not target]
-    other_total = sum(nuc.percent for nuc in others)
+    target_element = _element_symbol(target.name)
+    siblings = [
+        nuc
+        for nuc in material.nuclides
+        if nuc is not target
+        and _element_symbol(nuc.name) == target_element
+        and nuc.percent_type == target.percent_type
+    ]
+
+    if not siblings:
+        target.percent = value
+        return
+
+    element_total = target.percent + sum(nuc.percent for nuc in siblings)
+    remaining = element_total - value
+    sibling_total = sum(nuc.percent for nuc in siblings)
     target.percent = value
-    remaining = 1.0 - value
-    if others:
-        if other_total > 0:
-            for nuc in others:
-                nuc.percent = (nuc.percent / other_total) * remaining
-        else:
-            for nuc in others:
-                nuc.percent = remaining / len(others)
+    if sibling_total > 0:
+        for nuc in siblings:
+            nuc.percent = (nuc.percent / sibling_total) * remaining
+    else:
+        for nuc in siblings:
+            nuc.percent = remaining / len(siblings)
 
 
 def run_search(args):

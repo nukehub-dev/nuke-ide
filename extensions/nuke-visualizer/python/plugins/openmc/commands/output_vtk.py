@@ -71,12 +71,17 @@ def cmd_collision_vtk(args):
 @command("openmc.weight-windows-vtk", help="Convert weight windows to a VTK grid (.vtr)")
 @arg("file", help="Path to weight_windows.h5")
 @arg("--output", help="Output .vtr path (default: temp file)")
+@arg(
+    "--mesh-id", type=int, help="Mesh ID to anchor the conversion to (default: first window's mesh)"
+)
 def cmd_weight_windows_vtk(args):
     """Convert an OpenMC weight windows file to a VTK rectilinear grid."""
     from plugins.openmc.lib import output_vtk
 
     try:
-        result = output_vtk.weight_windows_to_vtk(args.file, output_path=args.output)
+        result = output_vtk.weight_windows_to_vtk(
+            args.file, output_path=args.output, mesh_id=args.mesh_id
+        )
         print(json.dumps(result))
         return 0
     except Exception as e:

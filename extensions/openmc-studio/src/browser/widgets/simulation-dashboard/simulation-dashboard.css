@@ -3390,3 +3390,13 @@
 .simulation-dashboard .advanced-section h4 {
     margin-top: 16px;
 }
+
+/* Depletion tab: Advanced sub-section spacing (mirrors .advanced-section h4) */
+.simulation-dashboard .depletion-advanced h4 {
+    margin-top: 16px;
+}
+
+/* Depletion tab: narrow icon-only delete column in form-rows (fission Q) */
+.simulation-dashboard .form-row .form-group.row-delete {
+    flex: 0 0 auto;
+}

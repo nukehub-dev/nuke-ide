@@ -47,6 +47,8 @@ export class OpenMCWeightWindowsViewerWidget extends OpenMCOutputViewerWidget {
 
     protected data: OpenMCWeightWindowsData | undefined;
     protected conversionArrays: string[] = [];
+    /** Mesh ID the conversion is anchored to (undefined = first window's mesh). */
+    protected selectedMeshId?: number;
 
     @postConstruct()
     protected init(): void {
@@ -58,11 +60,12 @@ export class OpenMCWeightWindowsViewerWidget extends OpenMCOutputViewerWidget {
     }
 
     setFile(uri: URI): void {
+        this.selectedMeshId = undefined;
         super.setFile(uri, OpenMCWeightWindowsViewerWidget.ID, OpenMCWeightWindowsViewerWidget.LABEL);
     }
 
     protected async convert(filePath: string): Promise<OpenMCVtkConversionResult> {
-        const result = await this.openmcBackend.convertWeightWindowsToVtk(filePath);
+        const result = await this.openmcBackend.convertWeightWindowsToVtk(filePath, this.selectedMeshId);
         const arrays = result.stats?.arrays;
         this.conversionArrays = Array.isArray(arrays) ? (arrays as string[]) : [];
         return result;
@@ -85,9 +88,30 @@ export class OpenMCWeightWindowsViewerWidget extends OpenMCOutputViewerWidget {
         if (!this.data) {
             return undefined;
         }
+        const meshIds = [...new Set(this.data.weightWindows.map((w) => w.meshId))].sort((a, b) => a - b);
         return (
             <div className="openmc-output-viewer-panel">
                 <h4>Weight Windows</h4>
+                {meshIds.length > 1 && (
+                    <div className="openmc-output-viewer-card">
+                        <div className="openmc-output-viewer-card-title">Mesh to display</div>
+                        <select
+                            value={this.selectedMeshId ?? meshIds[0]}
+                            onChange={(e) => {
+                                this.selectedMeshId = parseInt(e.target.value);
+                                this.update();
+                                void this.reload();
+                            }}
+                        >
+                            {meshIds.map((id) => (
+                                <option key={id} value={id}>
+                                    Mesh {id} ({this.data!.weightWindows.filter((w) => w.meshId === id).length} window
+                                    {this.data!.weightWindows.filter((w) => w.meshId === id).length === 1 ? '' : 's'})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 {this.data.meshes.map((mesh) => (
                     <div className="openmc-output-viewer-card" key={`mesh-${mesh.id}`}>
                         <div className="openmc-output-viewer-card-title">Mesh {mesh.id}</div>

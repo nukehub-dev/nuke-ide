@@ -898,6 +898,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     };
                 }
             }
+            if (rr.adjoint_source?.source?.space?.parameters) {
+                // Single-source UI model; take the first entry if a list
+                const adjSrc = Array.isArray(rr.adjoint_source.source) ? rr.adjoint_source.source[0] : rr.adjoint_source.source;
+                const params = this.parseNumberList(adjSrc.space.parameters);
+                if (params.length >= 6) {
+                    randomRay.adjointSource = {
+                        lowerLeft: params.slice(0, 3),
+                        upperRight: params.slice(3, 6)
+                    };
+                }
+            }
             if (rr.source_region_meshes?.mesh) {
                 const srMesh = rr.source_region_meshes.mesh;
                 randomRay.sourceRegionMeshId = parseInt(srMesh.$?.id);
@@ -1139,6 +1150,27 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const emission = src.emission_density ? this.parseNumberList(src.emission_density) : [];
             source.profile = rOverA.map((r, i) => ({ r, s: emission[i] ?? 0 }));
             source.energy = this.parseSourceEnergy(src.energy);
+            // Optional time distribution (delta/uniform/discrete)
+            if (src.time) {
+                const timeElem = Array.isArray(src.time) ? src.time[0] : src.time;
+                const timeType = timeElem.$?.type || 'discrete';
+                const timeParams = timeElem.parameters ? this.parseNumberList(timeElem.parameters) : [];
+                if (timeType === 'uniform' && timeParams.length >= 2) {
+                    source.time = { type: 'uniform', params: { min: timeParams[0], max: timeParams[1] } };
+                } else if (timeType === 'discrete' && timeParams.length >= 1) {
+                    if (timeParams.length === 2 && timeParams[1] === 1) {
+                        source.time = { type: 'delta', params: { time: timeParams[0] } };
+                    } else {
+                        const times: number[] = [];
+                        const probabilities: number[] = [];
+                        for (let i = 0; i + 1 < timeParams.length; i += 2) {
+                            times.push(timeParams[i]);
+                            probabilities.push(timeParams[i + 1]);
+                        }
+                        source.time = { type: 'discrete', params: { times, probabilities } };
+                    }
+                }
+            }
         } else {
             // Independent source (type attribute absent means 'independent')
             if (attrs.particle) {
@@ -1259,6 +1291,16 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         if (energyType === 'watt' && params.length >= 2) {
             return { type: 'watt', a: params[0], b: params[1] };
         }
+        if (energyType === 'normal' && params.length >= 2) {
+            // Muir serializes as 'normal' in this OpenMC version (muir() → Normal)
+            return { type: 'normal', mean: params[0], stdDev: params[1] };
+        }
+        if (energyType === 'muir' && params.length >= 3) {
+            // Legacy files where Muir had its own class: parameters are
+            // (e0, m_rat, kt) — convert to the normal form it now is
+            const [e0, mRat, kt] = params;
+            return { type: 'normal', mean: e0, stdDev: Math.sqrt((2 * e0 * kt) / mRat) };
+        }
         return { type: 'discrete', energies: [1e6] };
     }
 
@@ -1304,6 +1346,27 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // Derivative definitions (top-level, referenced by ID from tallies,
+        // per tally_derivative.py TallyDerivative.from_xml_element)
+        const derivativeDefs = new Map<number, NonNullable<OpenMCTally['derivative']>>();
+        const derivElems = Array.isArray(t.derivative) ? t.derivative : t.derivative ? [t.derivative] : [];
+        for (const derivElem of derivElems) {
+            const attrs = derivElem.$ || {};
+            const id = parseInt(attrs.id);
+            if (isNaN(id)) {
+                continue;
+            }
+            const derivative: NonNullable<OpenMCTally['derivative']> = {
+                id,
+                variable: attrs.variable,
+                materialId: parseInt(attrs.material)
+            };
+            if (attrs.variable === 'nuclide_density' && attrs.nuclide) {
+                derivative.nuclide = attrs.nuclide;
+            }
+            derivativeDefs.set(id, derivative);
+        }
+
         // Tallies
         const tallyElems = Array.isArray(t.tally) ? t.tally : t.tally ? [t.tally] : [];
         for (const tallyElem of tallyElems) {
@@ -1314,6 +1377,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 nuclides: [],
                 filters: []
             };
+
+            // Derivative reference (text sub-element carrying the derivative ID)
+            if (tallyElem.derivative !== undefined) {
+                const derivId = parseInt(tallyElem.derivative.toString());
+                const deriv = derivativeDefs.get(derivId);
+                if (deriv) {
+                    tally.derivative = deriv;
+                } else {
+                    warnings.push(`Tally ${tally.id} references unknown derivative ID ${derivId}`);
+                }
+            }
 
             // multiply_density attribute (written when false)
             if (tallyElem.$?.multiply_density !== undefined) {
@@ -1357,6 +1431,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     };
                     if (triggerElem.$?.scores) {
                         trigger.scores = triggerElem.$.scores.toString().trim().split(/\s+/);
+                    }
+                    if (triggerElem.$?.ignore_zeros !== undefined) {
+                        trigger.ignoreZeros = this.parseXmlBool(triggerElem.$.ignore_zeros);
                     }
                     return trigger;
                 });
@@ -1709,6 +1786,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return this.runnerService.generateMgxs(request);
     }
 
+    /**
+     * Build a custom depletion chain.
+     * @param request - Chain build configuration
+     * @returns The build result with the output chain path
+     */
+    async buildChain(
+        request: import('../common/openmc-studio-protocol').ChainBuildRequest
+    ): Promise<import('../common/openmc-studio-protocol').ChainBuildResult> {
+        this.log(`Building depletion chain → ${request.output}`);
+        return this.runnerService.buildChain(request);
+    }
+
+    /**
+     * Generate a fine-grained MGXS library (openmc.mgxs.Library mode).
+     * @param request - Library generation configuration
+     * @returns The generated library path
+     */
+    async generateMgxsLibrary(
+        request: import('../common/openmc-studio-protocol').MgxsLibraryGenerationRequest
+    ): Promise<import('../common/openmc-studio-protocol').MgxsLibraryGenerationResult> {
+        return this.runnerService.generateMgxsLibrary(request);
+    }
+
     // ============================================================================
     // Validation
     // ============================================================================
@@ -2019,6 +2119,24 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     message: 'CMFD is enabled but no mesh is defined',
                     suggestion: 'Select a state mesh or define inline mesh bounds in the Convergence section'
                 });
+            }
+            if (settings.cmfd.meshRef !== undefined) {
+                const ref = meshes.find((m) => m.id === settings.cmfd!.meshRef);
+                if (!ref) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `CMFD references mesh ${settings.cmfd.meshRef} which does not exist`,
+                        suggestion: 'Select an existing mesh or create one in the Tally Configurator'
+                    });
+                } else if (ref.type !== 'regular') {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `CMFD references mesh ${settings.cmfd.meshRef} which is not a regular mesh (CMFDMesh needs structured bounds/dimension)`,
+                        suggestion: 'Select a regular mesh or define inline mesh bounds in the Convergence section'
+                    });
+                }
             }
             if (settings.cmfd.meshRef === undefined && cmfdMesh) {
                 const ll = cmfdMesh.lowerLeft;
@@ -3246,5 +3364,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         request: import('../common/openmc-studio-protocol').StartKeffSearchRequest
     ): Promise<import('../common/openmc-studio-protocol').KeffSearchResult> {
         return this.optimizationService.runKeffSearch(request);
+    }
+
+    /**
+     * Cancel a running k-eff search.
+     * @param runId - The search run ID
+     * @returns Whether a running search was found and killed
+     */
+    async cancelKeffSearch(runId: string): Promise<{ success: boolean; error?: string }> {
+        return this.optimizationService.cancelKeffSearch(runId);
     }
 }

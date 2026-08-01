@@ -174,6 +174,82 @@ export interface MgxsGenerationResult {
     output?: string;
 }
 
+/** Fine-grained MGXS library generation request (python/generate_mgxs_library.py) */
+export interface MgxsLibraryGenerationRequest {
+    /** Working directory containing the model XML files */
+    workingDirectory: string;
+    /** Group structure name (e.g. 'CASMO-2') or comma-separated edges in eV */
+    groups?: string;
+    /** Cross-section types (openmc.mgxs.MGXS_TYPES names) */
+    mgxsTypes?: string[];
+    /** Spatial domain type for homogenization */
+    domainType?: 'material' | 'cell' | 'universe';
+    /** Domain IDs (default: all domains of the domain type) */
+    domainIds?: number[];
+    /** Compute cross sections per nuclide in each domain */
+    byNuclide?: boolean;
+    /** Legendre order for scattering matrices */
+    legendreOrder?: number;
+    /** Tally estimator override */
+    estimator?: 'analog' | 'tracklength' | 'collision';
+    /** Transport correction */
+    correction?: 'none' | 'P0';
+    /** Particles per generation for the generation run */
+    particles?: number;
+    /** Output library filename (default mgxs.h5) */
+    output?: string;
+}
+
+/** Fine-grained MGXS library generation result */
+export interface MgxsLibraryGenerationResult {
+    success: boolean;
+    /** Absolute path to the generated library */
+    mgxsPath?: string;
+    /** Cross-section types included (incl. auto-appended scatter/multiplicity) */
+    mgxsTypes?: string[];
+    /** Domain type used */
+    domainType?: string;
+    /** Domain IDs computed over */
+    domainIds?: number[];
+    /** Whether by-nuclide decomposition was used */
+    byNuclide?: boolean;
+    /** Statepoint used for post-processing */
+    statepoint?: string;
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
+/** Chain builder request (python/build_chain.py) */
+export interface ChainBuildRequest {
+    /** Subset mode: source chain XML to filter */
+    fromChain?: string;
+    /** ENDF mode: directory with decay/ nfy/ neutron/ sub-libraries */
+    fromEndf?: string;
+    /** Nuclides to include (default: all from source) */
+    nuclides?: string[];
+    /** Output chain XML path */
+    output: string;
+}
+
+/** Chain builder result */
+export interface ChainBuildResult {
+    success: boolean;
+    /** Builder mode used */
+    mode?: 'subset' | 'endf';
+    /** Nuclides in the built chain */
+    nuclideCount?: number;
+    /** Source chain nuclide count (subset mode) */
+    sourceNuclideCount?: number;
+    /** FPY borrow parents pulled into a subset chain */
+    borrowParentsIncluded?: string[];
+    /** Absolute path to the built chain XML */
+    outputPath?: string;
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
 /** Depletion run settings extracted from the settings.xml `<depletion>` block */
 export interface DepletionRunSettings {
     /** Depletion chain XML file path */
@@ -721,6 +797,12 @@ export interface OpenMCStudioBackendService {
     /** Generate an MGXS library via Model.convert_to_multigroup (blocking) */
     generateMgxs(request: MgxsGenerationRequest): Promise<MgxsGenerationResult>;
 
+    /** Generate a fine-grained MGXS library via openmc.mgxs.Library (blocking) */
+    generateMgxsLibrary(request: MgxsLibraryGenerationRequest): Promise<MgxsLibraryGenerationResult>;
+
+    /** Build a custom depletion chain XML (subset or ENDF mode, blocking) */
+    buildChain(request: ChainBuildRequest): Promise<ChainBuildResult>;
+
     // === Validation ===
 
     /** Validate simulation state */
@@ -980,6 +1062,9 @@ export interface OpenMCStudioBackendService {
      * per-iteration output streams to client logs meanwhile.
      */
     runKeffSearch(request: StartKeffSearchRequest): Promise<KeffSearchResult>;
+
+    /** Cancel a running k-eff search by run ID */
+    cancelKeffSearch(runId: string): Promise<{ success: boolean; error?: string }>;
 }
 
 // ============================================================================

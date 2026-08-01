@@ -1448,6 +1448,9 @@ export class OpenMCPythonExporter {
             if (source.verticalShift !== undefined) {
                 args.push(`vertical_shift=${source.verticalShift}`);
             }
+            if (source.time) {
+                args.push(`time=${this.generateTimeExpression(source.time)}`);
+            }
             if (source.strength !== undefined && source.strength !== 1) {
                 args.push(`strength=${source.strength}`);
             }
@@ -1507,6 +1510,14 @@ export class OpenMCPythonExporter {
                         const watt = energy as any;
                         lines.push(`${name}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
                         break;
+                    case 'normal':
+                        const normal = energy as any;
+                        lines.push(`${name}.energy = openmc.stats.Normal(${normal.mean}, ${normal.stdDev})`);
+                        break;
+                    case 'muir':
+                        const muir = energy as any;
+                        lines.push(`${name}.energy = openmc.stats.muir(${muir.e0}, ${muir.m_rat}, ${muir.kt})`);
+                        break;
                 }
             }
 
@@ -1564,6 +1575,29 @@ export class OpenMCPythonExporter {
     }
 
     /**
+     * Generate a Python expression for a time distribution (used by
+     * TokamakSource's optional `time` argument; delta maps to delta_function,
+     * a single-point Discrete in OpenMC).
+     *
+     * @param time - The time distribution to convert.
+     * @returns A Python expression string for the distribution.
+     */
+    private generateTimeExpression(time: {
+        type: 'delta' | 'uniform' | 'discrete';
+        params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
+    }): string {
+        if (time.type === 'delta') {
+            return `openmc.stats.delta_function(${time.params.time ?? 0})`;
+        }
+        if (time.type === 'uniform') {
+            return `openmc.stats.Uniform(${time.params.min ?? 0}, ${time.params.max ?? 1})`;
+        }
+        const times = time.params.times ?? [0];
+        const probs = time.params.probabilities ?? times.map(() => 1.0 / times.length);
+        return `openmc.stats.Discrete([${times.join(', ')}], [${probs.join(', ')}])`;
+    }
+
+    /**
      * Generate a Python expression for an energy distribution (used where a
      * distribution is passed as a constructor argument, e.g. TokamakSource).
      *
@@ -1578,8 +1612,11 @@ export class OpenMCPythonExporter {
                 return `openmc.stats.Maxwell(${energy.temperature})`;
             case 'watt':
                 return `openmc.stats.WattFission(${energy.a}, ${energy.b})`;
+            case 'normal':
+                return `openmc.stats.Normal(${energy.mean}, ${energy.stdDev})`;
             case 'muir':
-                return `openmc.stats.Muir(${energy.e0}, ${energy.m_rat}, ${energy.kt})`;
+                // Function form (deprecated Muir class removed in a future version)
+                return `openmc.stats.muir(${energy.e0}, ${energy.m_rat}, ${energy.kt})`;
             case 'tabular':
                 return `openmc.stats.Tabular([${energy.energies.join(', ')}], [${energy.probabilities.join(', ')}])`;
             default: {
@@ -1819,13 +1856,24 @@ export class OpenMCPythonExporter {
             const triggerVars: string[] = [];
             tally.triggers.forEach((trigger, i) => {
                 const varName = `trigger_${tally.id}_${i}`;
-                lines.push(`${varName} = openmc.Trigger('${trigger.type}', ${trigger.threshold})`);
+                const ignoreArg = trigger.ignoreZeros ? ', ignore_zeros=True' : '';
+                lines.push(`${varName} = openmc.Trigger('${trigger.type}', ${trigger.threshold}${ignoreArg})`);
                 if (trigger.scores && trigger.scores.length > 0) {
                     lines.push(`${varName}.scores = [${trigger.scores.map((s) => `"${s}"`).join(', ')}]`);
                 }
                 triggerVars.push(varName);
             });
             lines.push(`tally_${tally.id}.triggers = [${triggerVars.join(', ')}]`);
+        }
+
+        // Derivative (openmc/tally_derivative.py: TallyDerivative ctor kwargs
+        // are variable/material/nuclide; assigned to tally.derivative)
+        if (tally.derivative) {
+            const deriv = tally.derivative;
+            const derivVar = `derivative_${deriv.id ?? tally.id}`;
+            const nuclideArg = deriv.variable === 'nuclide_density' && deriv.nuclide ? `, nuclide='${deriv.nuclide}'` : '';
+            lines.push(`${derivVar} = openmc.TallyDerivative(variable='${deriv.variable}', material=${deriv.materialId}${nuclideArg})`);
+            lines.push(`tally_${tally.id}.derivative = ${derivVar}`);
         }
 
         lines.push('');
