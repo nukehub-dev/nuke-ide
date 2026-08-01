@@ -33,17 +33,24 @@ A single particle's recorded state, written when a particle is lost with restart
 
 ## Random Ray Results
 
-Random ray output is plain VTK/HDF5 with no distinctive filename, so it is opened explicitly:
+Random ray output is plain VTK with no distinctive filename, so those files are opened explicitly:
 
 1. `Ctrl+Shift+P` → **"Open as Random Ray Results..."**
-2. Pick a `.vtk`, `.vti`, `.vtr`, or voxel `.h5` file.
+2. Pick a `.vtk`, `.vti`, or `.vtr` file.
 
-Known random ray arrays (flux, source, residuals, …) are detected and offered as quick-select color-by buttons; voxel `.h5` files are converted to `.vti` automatically.
+Voxel plot HDF5 files (`*voxel*.h5`, `plot_*.h5`) open directly on double-click — they are converted to `.vti` automatically. Known random ray arrays (flux, source, residuals, …) are detected and offered as quick-select color-by buttons.
+
+## Geometry Summary (`summary.h5`)
+
+Double-clicking `summary.h5` opens the geometry 3D view (hierarchy tree + 3D). The file is converted to `geometry.xml`/`materials.xml` on the fly, so this requires the `openmc` Python package in the active environment.
 
 ---
 
 ## Viewer Controls
 
 All 3D output viewers share the base visualizer's [display controls](../base-visualizer.md): color-by array, color map, scalar bar, opacity, representation, clip plane, point size / line width, and Save Screenshot.
+
+- **Resizable split** — drag the handle between the 3D area and the data panel to resize it (the handle disables the 3D iframe's mouse capture while dragging, so fast drags stay smooth).
+- **Missing dependencies** — if the active Python environment lacks `vtk`/`trame`, the viewer shows an actionable panel (what to install, or switch environment in Settings → Nuke Utils) with a Retry button.
 
 > **Tip:** Conversions run in the active Python environment and cache nothing — if you switch environments, reopen the file to re-convert.

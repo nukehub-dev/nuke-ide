@@ -20,7 +20,7 @@ interface OutputViewerContribution {
 
 - Filename matching lives in `src/browser/output-viewer/output-file-patterns.ts` — one place to add a new recognized pattern.
 - Both open handlers consult the registry **first**: `VisualizerOpenHandler` ("Open in Nuke Visualizer") and the OpenMC plugin's `OpenMCContribution` ("OpenMC Files"). Double-clicking a recognized file therefore routes automatically — there is no manual "Open as" step (except random ray results, whose plain `.vtk`/`.h5` names are not distinctive; those open via the `openmc.open-random-ray-results` command).
-- Built-in contributions: tracks, collision tracks, weight windows, particle restart (the last is a React summary — no 3D conversion).
+- Built-in contributions: tracks, collision tracks, weight windows, particle restart (a React summary — no 3D conversion), voxel plots (`*voxel*.h5`, `plot_*.h5` → random-ray results widget), and `summary.h5` (→ geometry 3D view).
 
 To add a viewer: add a pattern, implement the contribution, bind it with `bind(OutputViewerContribution).to(...).inSingletonScope()`.
 
@@ -49,8 +49,16 @@ reload()
 ### Server Lifecycle
 
 - `startServer` waits for the server's `ACTUAL_PORT:` line; the timeout scales with file size via the `nukeVisualizer.serverTimeout` + `nukeVisualizer.serverTimeoutPerMB` preferences.
-- Servers bind `127.0.0.1` only and are reached through the Theia backend reverse proxy (`src/node/visualizer-proxy-contribution.ts`), so iframes work in both browser and Electron deployments.
+- Servers bind `127.0.0.1` only and are reached through the Theia backend reverse proxy (`src/node/visualizer-proxy-contribution.ts`), so iframes work in both browser and Electron deployments. The proxy retries `ECONNREFUSED`/`ECONNRESET` for up to 5 s (250 ms intervals, `src/node/proxy-retry.ts`) on both the HTTP and WebSocket paths — trame needs a moment to bind after printing its startup banner, and answering the first request immediately produced a false 'Visualizer server unreachable'.
 - The widget kills its server on dispose (`stopServer(port)`); parameter changes (filters, mesh selection) re-run `reload()` — convert again, restart the server.
+
+### Split Drag (`drag-split.ts`)
+
+The resizable split between the 3D area and the data panel uses `src/browser/plugins/openmc/widgets/drag-split.ts::startSplitDrag`. During the drag it sets `pointer-events: none` on every `iframe` in the widget (an iframe swallows the document-level mouse events mid-drag, jamming the splitter) and writes sizes directly to the DOM — no per-pixel React renders; state commits once on mouseup. The Nuclear Data window's horizontal split uses the same helper.
+
+### Summary Conversion
+
+`summary.h5` opens in the geometry 3D view via `geometry_parser.convert_summary_to_xml()` (lazy `openmc.Summary` round-trip to `geometry.xml`/`materials.xml` in a temp dir). The `openmc.geometry` and `openmc.visualize-geometry` commands resolve any `.h5` input through it; errors (missing file, missing openmc, non-summary HDF5) return the standard error JSON without tracebacks.
 
 ### Multi-Mesh Weight Windows
 
@@ -65,7 +73,10 @@ reload()
 | Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                        |
 | Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                          |
 | Viewer base class          | `src/browser/plugins/openmc/widgets/output-viewer-widget.tsx`                |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                           |
+| Proxy retry policy         | `src/node/proxy-retry.ts`                                                    |
 | Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                  |
 | VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                    |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                               |
 | Trame server command       | `python/plugins/base/commands/serve.py`                                      |
 | URL proxying               | `src/browser/visualizer-url.ts`, `src/node/visualizer-proxy-contribution.ts` |

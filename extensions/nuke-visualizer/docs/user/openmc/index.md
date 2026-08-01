@@ -15,7 +15,9 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 | Collision tracks  | `collision_track*.h5`                  | 3D point cloud + table of recorded collision sites                          |
 | Weight windows    | `weight_windows.h5`                    | 3D mesh view of weight window bounds (multi-mesh selector)                  |
 | Particle restart  | `particle_restart.h5`, `particle_*.h5` | Inspect a lost particle's recorded state                                    |
-| Random ray        | `.vtk`, `.vti`, `.vtr`, voxel `.h5`    | 3D view of random ray results (via "Open as Random Ray Results...")         |
+| Voxel plot        | `*voxel*.h5`, `plot_*.h5`              | 3D view of voxel plot data (auto-converted to VTK)                          |
+| Summary           | `summary.h5`                           | Browse CSG hierarchy, view cells/surfaces in 3D (auto-converted to XML)     |
+| Random ray        | `.vtk`, `.vti`, `.vtr`                 | 3D view of random ray results (via "Open as Random Ray Results...")         |
 | Geometry          | `geometry.xml`                         | Browse CSG hierarchy, view cells/surfaces/lattices in 3D                    |
 | Materials         | `materials.xml`                        | Inspect compositions, mix materials, trace cell usage                       |
 | DAGMC geometry    | `.h5m`                                 | Visualize geometry with optional tally overlay                              |
