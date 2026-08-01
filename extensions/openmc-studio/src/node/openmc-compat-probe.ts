@@ -28,11 +28,16 @@
 /**
  * OpenMC Version Compatibility Probe
  *
- * One-shot probe of the configured python environment's OpenMC version
- * capabilities that affect settings.xml emission. Currently: the random ray
- * `ray_source` XML format (direct `<source>` in release 0.15.3 vs the
- * `<ray_source>` wrapper in post-0.15.3 dev) and adjoint source support
- * (post-0.15.3 only).
+ * One-shot runtime probe of the configured python environment's OpenMC
+ * capabilities (never version parsing):
+ *
+ * - `raySourceFormat` — the random ray `ray_source` XML format (direct
+ *   `<source>` in release 0.15.3 vs the `<ray_source>` wrapper in post-0.15.3
+ *   dev), detected from what `Settings.to_xml_element()` actually writes
+ * - `adjointSource` — random ray adjoint source support (post-0.15.3 only;
+ *   release rejects the key with ValueError)
+ * - `tokamakSource` — `openmc.TokamakSource` existence (0.15.4+)
+ * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -42,16 +47,14 @@
 
 import * as cp from 'child_process';
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { RandomRayXmlCompat, DEFAULT_RANDOM_RAY_COMPAT } from '../common/openmc-studio-protocol';
+import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints `<direct|wrapper> <adjoint|no-adjoint>`.
- * The format check inspects what `Settings.to_xml_element()` actually writes;
- * the adjoint check relies on release 0.15.3 rejecting the `adjoint_source`
- * random_ray key with a ValueError.
+ * Python one-liner: prints four space-separated tokens —
+ * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>`.
  */
-const RANDOM_RAY_PROBE_SCRIPT = `
+const OPENMC_COMPAT_PROBE_SCRIPT = `
 import openmc
 s = openmc.Settings()
 box = openmc.IndependentSource(space=openmc.stats.Box([-1,-1,-1],[1,1,1]))
@@ -62,7 +65,17 @@ try:
     adj = True
 except Exception:
     adj = False
-print(fmt + ' ' + ('adjoint' if adj else 'no-adjoint'))
+try:
+    s.random_ray = {'ray_source': box, 'sample_method': 's2'}
+    s2 = True
+except Exception:
+    s2 = False
+tok = hasattr(openmc, 'TokamakSource')
+print('{} {} {} {}'.format(
+    fmt,
+    'adjoint' if adj else 'no-adjoint',
+    'tokamak' if tok else 'no-tokamak',
+    's2' if s2 else 'no-s2'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -73,16 +86,16 @@ export class OpenMCCompatProbeService {
     protected readonly validationService: OpenMCValidationBackendService;
 
     /** Probe results, keyed by python command path. */
-    private readonly cache = new Map<string, RandomRayXmlCompat>();
+    private readonly cache = new Map<string, OpenMCCompat>();
 
     /**
-     * Resolve the random ray XML compatibility for the configured python
-     * environment, probing once per python command and caching the result.
-     * Falls back to the release-compatible default when no environment is
-     * configured or the probe fails.
-     * @returns Random ray XML compatibility descriptor
+     * Resolve the OpenMC compatibility for the configured python environment,
+     * probing once per python command and caching the result. Falls back to
+     * the release-compatible default when no environment is configured or the
+     * probe fails.
+     * @returns OpenMC compatibility descriptor
      */
-    async getRandomRayCompat(): Promise<RandomRayXmlCompat> {
+    async getOpenMCCompat(): Promise<OpenMCCompat> {
         let pythonCommand: string | undefined;
         try {
             const validation = await this.validationService.validateOpenMCSetup();
@@ -91,15 +104,15 @@ export class OpenMCCompatProbeService {
             // Environment detection failed — fall through to the default
         }
         if (!pythonCommand) {
-            return DEFAULT_RANDOM_RAY_COMPAT;
+            return DEFAULT_OPENMC_COMPAT;
         }
         const cached = this.cache.get(pythonCommand);
         if (cached) {
             return cached;
         }
-        const compat = this.runProbe(pythonCommand) ?? DEFAULT_RANDOM_RAY_COMPAT;
+        const compat = this.runProbe(pythonCommand) ?? DEFAULT_OPENMC_COMPAT;
         this.cache.set(pythonCommand, compat);
-        console.log(`[OpenMC Compat Probe] ${pythonCommand}: ray_source=${compat.raySourceFormat}, adjoint_source=${compat.adjointSource}`);
+        console.log(`[OpenMC Compat Probe] ${pythonCommand}: ${JSON.stringify(compat)}`);
         return compat;
     }
 
@@ -108,9 +121,9 @@ export class OpenMCCompatProbeService {
      * @param pythonCommand - Python executable path
      * @returns Probe result, or undefined on any failure
      */
-    protected runProbe(pythonCommand: string): RandomRayXmlCompat | undefined {
+    protected runProbe(pythonCommand: string): OpenMCCompat | undefined {
         try {
-            const result = cp.spawnSync(pythonCommand, ['-c', RANDOM_RAY_PROBE_SCRIPT], {
+            const result = cp.spawnSync(pythonCommand, ['-c', OPENMC_COMPAT_PROBE_SCRIPT], {
                 encoding: 'utf-8',
                 timeout: PROBE_TIMEOUT_MS
             });
@@ -124,21 +137,26 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's `<direct|wrapper> <adjoint|no-adjoint>` output line.
+     * Parse the probe's four-token output line.
      * @param stdout - Probe stdout
      * @returns Parsed compatibility, or undefined if malformed
      */
-    protected parseProbeOutput(stdout: string): RandomRayXmlCompat | undefined {
+    protected parseProbeOutput(stdout: string): OpenMCCompat | undefined {
         const line = stdout
             .trim()
             .split('\n')
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint] = (line ?? '').split(/\s+/);
+        const [format, adjoint, tokamak, s2] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
         }
-        return { raySourceFormat: format, adjointSource: adjoint === 'adjoint' };
+        return {
+            raySourceFormat: format,
+            adjointSource: adjoint === 'adjoint',
+            tokamakSource: tokamak === 'tokamak',
+            s2SampleMethod: s2 === 's2'
+        };
     }
 }

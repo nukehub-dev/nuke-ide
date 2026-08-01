@@ -790,6 +790,13 @@ export interface OpenMCRandomRaySettings {
         upperRight: [number, number, number];
     };
     /**
+     * @deprecated Legacy pre-1.1.0 field — the canonical MGXS library path is
+     * `OpenMCSettings.mgxsLibrary`. Read by `resolveMgxsLibrary` as a
+     * fallback (a directory value resolves to `<dir>/mgxs.h5`); the random
+     * ray tab migrates it to the canonical field on first edit.
+     */
+    mgxsLibraryPath?: string;
+    /**
      * Adjoint source: uniform spatial box defining the localized adjoint
      * source / detector response function (settings.py:243). XML emits a
      * single independent box source inside `<adjoint_source>` (the API

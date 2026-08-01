@@ -27,7 +27,7 @@
 
 /**
  * Tests for the OpenMC version compatibility probe and the backend's
- * random ray XML format selection (probe mocked).
+ * compat-aware XML format/feature selection (probe mocked).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -38,21 +38,24 @@ import * as path from 'path';
 import { OpenMCCompatProbeService } from './openmc-compat-probe';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { XMLGenerationService } from './xml-generation-service';
-import { DEFAULT_RANDOM_RAY_COMPAT, RandomRayXmlCompat } from '../common/openmc-studio-protocol';
+import { DEFAULT_OPENMC_COMPAT, OpenMCCompat } from '../common/openmc-studio-protocol';
 import { OpenMCState } from '../common/openmc-state-schema';
+
+const WRAPPER_FULL: OpenMCCompat = { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true };
+const DIRECT_MIN: OpenMCCompat = { raySourceFormat: 'direct', adjointSource: false, tokamakSource: false, s2SampleMethod: false };
 
 /** Probe subclass with the python spawn mocked out. */
 class MockProbe extends OpenMCCompatProbeService {
     probeCalls: string[] = [];
-    probeResult: RandomRayXmlCompat | undefined;
+    probeResult: OpenMCCompat | undefined;
 
-    protected runProbe(pythonCommand: string): RandomRayXmlCompat | undefined {
+    protected runProbe(pythonCommand: string): OpenMCCompat | undefined {
         this.probeCalls.push(pythonCommand);
         return this.probeResult;
     }
 }
 
-function makeProbe(pythonCommand: string | undefined, probeResult: RandomRayXmlCompat | undefined): MockProbe {
+function makeProbe(pythonCommand: string | undefined, probeResult: OpenMCCompat | undefined): MockProbe {
     const probe = new MockProbe();
     (probe as any).validationService = {
         validateOpenMCSetup: async () => ({
@@ -90,19 +93,23 @@ function buildRandomRayState(): OpenMCState {
 }
 
 describe('OpenMCCompatProbeService', () => {
-    it('parses the release probe output (direct, no adjoint)', async () => {
+    it('parses the release probe output (direct, no dev features)', () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect((probe as any).parseProbeOutput('direct no-adjoint\n')).toEqual({
+        expect((probe as any).parseProbeOutput('direct no-adjoint no-tokamak s2\n')).toEqual({
             raySourceFormat: 'direct',
-            adjointSource: false
+            adjointSource: false,
+            tokamakSource: false,
+            s2SampleMethod: true
         });
     });
 
-    it('parses the dev probe output (wrapper, adjoint)', async () => {
+    it('parses the dev probe output (wrapper, all features)', () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect((probe as any).parseProbeOutput('wrapper adjoint\n')).toEqual({
+        expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2\n')).toEqual({
             raySourceFormat: 'wrapper',
-            adjointSource: true
+            adjointSource: true,
+            tokamakSource: true,
+            s2SampleMethod: true
         });
     });
 
@@ -112,46 +119,52 @@ describe('OpenMCCompatProbeService', () => {
         expect((probe as any).parseProbeOutput('')).toBeUndefined();
     });
 
-    it('returns the probed format and caches it per python command', async () => {
-        const probe = makeProbe('/fake/python', { raySourceFormat: 'wrapper', adjointSource: true });
-        const first = await probe.getRandomRayCompat();
-        const second = await probe.getRandomRayCompat();
-        expect(first).toEqual({ raySourceFormat: 'wrapper', adjointSource: true });
+    it('returns the probed compat and caches it per python command', async () => {
+        const probe = makeProbe('/fake/python', WRAPPER_FULL);
+        const first = await probe.getOpenMCCompat();
+        const second = await probe.getOpenMCCompat();
+        expect(first).toEqual(WRAPPER_FULL);
         expect(second).toEqual(first);
         expect(probe.probeCalls).toEqual(['/fake/python']);
     });
 
     it('falls back to the release-compatible default on probe failure', async () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect(await probe.getRandomRayCompat()).toEqual(DEFAULT_RANDOM_RAY_COMPAT);
+        expect(await probe.getOpenMCCompat()).toEqual(DEFAULT_OPENMC_COMPAT);
     });
 
     it('falls back to the default when no environment is configured', async () => {
-        const probe = makeProbe(undefined, { raySourceFormat: 'wrapper', adjointSource: true });
-        expect(await probe.getRandomRayCompat()).toEqual(DEFAULT_RANDOM_RAY_COMPAT);
+        const probe = makeProbe(undefined, WRAPPER_FULL);
+        expect(await probe.getOpenMCCompat()).toEqual(DEFAULT_OPENMC_COMPAT);
         expect(probe.probeCalls).toEqual([]);
     });
 
     it('caches per python command, not globally', async () => {
-        const probe = makeProbe('/fake/python-a', { raySourceFormat: 'direct', adjointSource: false });
-        await probe.getRandomRayCompat();
+        const probe = makeProbe('/fake/python-a', DIRECT_MIN);
+        await probe.getOpenMCCompat();
         (probe as any).validationService = {
             validateOpenMCSetup: async () => ({ ready: true, pythonCommand: '/fake/python-b', errors: [], warnings: [] })
         };
-        probe.probeResult = { raySourceFormat: 'wrapper', adjointSource: true };
-        const second = await probe.getRandomRayCompat();
-        expect(second).toEqual({ raySourceFormat: 'wrapper', adjointSource: true });
+        probe.probeResult = WRAPPER_FULL;
+        const second = await probe.getOpenMCCompat();
+        expect(second).toEqual(WRAPPER_FULL);
         expect(probe.probeCalls).toEqual(['/fake/python-a', '/fake/python-b']);
     });
 });
 
-describe('OpenMCStudioBackendServiceImpl random ray format selection', () => {
+describe('OpenMCStudioBackendServiceImpl compat-aware generation', () => {
+    it('exposes the probed compat via getOpenMCCompat', async () => {
+        const backend = new OpenMCStudioBackendServiceImpl();
+        (backend as any).compatProbe = makeProbe('/fake/python', WRAPPER_FULL);
+        expect(await backend.getOpenMCCompat()).toEqual(WRAPPER_FULL);
+    });
+
     it('injects the probed format into generateXML', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-compat-'));
         try {
             const backend = new OpenMCStudioBackendServiceImpl();
             (backend as any).xmlService = new XMLGenerationService();
-            (backend as any).compatProbe = makeProbe('/fake/python', { raySourceFormat: 'wrapper', adjointSource: true });
+            (backend as any).compatProbe = makeProbe('/fake/python', WRAPPER_FULL);
 
             await backend.generateXML({
                 state: buildRandomRayState(),
@@ -166,19 +179,19 @@ describe('OpenMCStudioBackendServiceImpl random ray format selection', () => {
         }
     });
 
-    it('does not override an explicitly supplied format', async () => {
+    it('does not override an explicitly supplied compat', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-compat-'));
         try {
             const backend = new OpenMCStudioBackendServiceImpl();
             (backend as any).xmlService = new XMLGenerationService();
-            const probe = makeProbe('/fake/python', { raySourceFormat: 'wrapper', adjointSource: true });
+            const probe = makeProbe('/fake/python', WRAPPER_FULL);
             (backend as any).compatProbe = probe;
 
             await backend.generateXML({
                 state: buildRandomRayState(),
                 outputDirectory: tempDir,
                 files: { materials: false, geometry: false, settings: true, tallies: false, plots: false },
-                randomRayCompat: { raySourceFormat: 'direct', adjointSource: false }
+                randomRayCompat: DIRECT_MIN
             });
 
             const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');

@@ -43,6 +43,7 @@ import {
 } from '../../../../common/openmc-state-schema';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
+import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import { CollapsibleSection } from './settings/collapsible-section';
 import {
     changeSourceType,
@@ -71,6 +72,26 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
     /** Indices of collapsed source cards (persisted per card index). */
     private readonly collapsedSources = new Set<number>();
+
+    /** Probed OpenMC compatibility for feature gating (fetched once). */
+    private compat?: OpenMCCompat;
+    private compatRequested = false;
+
+    /**
+     * Fetch the OpenMC compatibility descriptor once and re-render when it
+     * arrives (gates the tokamak source type on 0.15.3 and older).
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestCompat(host: SimulationDashboardWidget): void {
+        if (this.compatRequested) {
+            return;
+        }
+        this.compatRequested = true;
+        void host.studioService.getOpenMCCompat().then((compat) => {
+            this.compat = compat;
+            host.update();
+        });
+    }
 
     /**
      * Whether a source card is collapsed. Default: expanded for the first
@@ -109,6 +130,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
     render(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
         const { settings } = state;
         const runSettings = settings.run;
+        this.requestCompat(host);
 
         return (
             <div className="settings-tab">
@@ -345,23 +367,41 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                         <span className="source-card-title">Source {index + 1}</span>
                                         <span className="strength-chip">×{source.strength ?? 1.0}</span>
                                         <div className="segmented-control">
-                                            {(['independent', 'file', 'compiled', 'mesh', 'tokamak'] as const).map((type) => (
-                                                <button
-                                                    key={type}
-                                                    className={`segment${sourceType === type ? ' active' : ''}`}
-                                                    onClick={() => changeSourceType(host, index, type as OpenMCSourceType)}
-                                                >
-                                                    {type === 'independent'
-                                                        ? 'Independent'
-                                                        : type === 'file'
-                                                          ? 'File'
-                                                          : type === 'compiled'
-                                                            ? 'Compiled'
-                                                            : type === 'mesh'
-                                                              ? 'Mesh'
-                                                              : 'Tokamak'}
-                                                </button>
-                                            ))}
+                                            {(['independent', 'file', 'compiled', 'mesh', 'tokamak'] as const).map((type) => {
+                                                // TokamakSource is 0.15.4+ — block switching to it on
+                                                // unsupported envs; an existing tokamak source stays shown
+                                                const tokamakGated =
+                                                    type === 'tokamak' && this.compat !== undefined && !this.compat.tokamakSource;
+                                                const segment = (
+                                                    <button
+                                                        key={type}
+                                                        className={`segment${sourceType === type ? ' active' : ''}`}
+                                                        disabled={tokamakGated && sourceType !== 'tokamak'}
+                                                        onClick={() => changeSourceType(host, index, type as OpenMCSourceType)}
+                                                    >
+                                                        {type === 'independent'
+                                                            ? 'Independent'
+                                                            : type === 'file'
+                                                              ? 'File'
+                                                              : type === 'compiled'
+                                                                ? 'Compiled'
+                                                                : type === 'mesh'
+                                                                  ? 'Mesh'
+                                                                  : 'Tokamak'}
+                                                    </button>
+                                                );
+                                                return tokamakGated ? (
+                                                    <Tooltip
+                                                        key={type}
+                                                        content="TokamakSource requires OpenMC ≥ 0.15.4 (not available in the configured env)"
+                                                        position="top"
+                                                    >
+                                                        {segment}
+                                                    </Tooltip>
+                                                ) : (
+                                                    segment
+                                                );
+                                            })}
                                         </div>
                                         <Tooltip content="Remove Source" position="top">
                                             <button className="theia-button secondary small" onClick={() => this.removeSource(host, index)}>
@@ -380,6 +420,12 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                                 renderMeshSourceEditor(host, source as OpenMCMeshSource, index, state)}
                                             {sourceType === 'tokamak' &&
                                                 renderTokamakSourceEditor(host, source as OpenMCTokamakSource, index)}
+                                            {sourceType === 'tokamak' && this.compat && !this.compat.tokamakSource && (
+                                                <span className="form-hint">
+                                                    TokamakSource requires OpenMC ≥ 0.15.4 — it will be omitted from settings.xml with the
+                                                    configured environment.
+                                                </span>
+                                            )}
                                             <ConstraintsEditor host={host} source={source} index={index} />
                                         </div>
                                     )}

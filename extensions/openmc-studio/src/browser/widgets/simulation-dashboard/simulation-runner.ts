@@ -47,6 +47,10 @@ import {
     SimulationLogResult,
     OpenMCStudioBackendService
 } from '../../../common/openmc-studio-protocol';
+import { OpenMCStateManager } from '../../openmc-state-manager';
+import { resolveMgxsLibrary } from '../../../common/mgxs-library';
+import URI from '@theia/core/lib/common/uri';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
 
 /**
@@ -71,6 +75,12 @@ export class OpenMCSimulationRunner {
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
+
+    @inject(OpenMCStateManager)
+    protected readonly stateManager: OpenMCStateManager;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
 
     private _isRunning = false;
     private _currentProcessId?: string;
@@ -117,7 +127,8 @@ export class OpenMCSimulationRunner {
             // Get cross-sections and chain file environment if available
             const crossSectionsEnv = await this.getCrossSectionsEnv();
             const chainFileEnv = await this.getChainFileEnv();
-            const env = { ...crossSectionsEnv, ...chainFileEnv };
+            const mgCrossSectionsEnv = await this.getMgCrossSectionsEnv();
+            const env = { ...crossSectionsEnv, ...chainFileEnv, ...mgCrossSectionsEnv };
             const fullRequest = {
                 ...request,
                 env: {
@@ -264,6 +275,52 @@ export class OpenMCSimulationRunner {
         }
 
         return undefined;
+    }
+
+    /**
+     * Get the multi-group cross-sections environment variable for multi-group
+     * runs, resolved from the project's MGXS library setting (canonical
+     * `settings.mgxsLibrary`, falling back to the legacy
+     * `randomRay.mgxsLibraryPath`; directories resolve to `mgxs.h5` inside).
+     *
+     * @returns A record with `OPENMC_MG_CROSS_SECTIONS` set, or `undefined` if not applicable.
+     */
+    private async getMgCrossSectionsEnv(): Promise<{ [key: string]: string } | undefined> {
+        const { settings } = this.stateManager.getState();
+        if (settings.energyMode !== 'multigroup') {
+            return undefined;
+        }
+        const raw = resolveMgxsLibrary(settings);
+        if (!raw) {
+            return undefined;
+        }
+        const mgxsPath = await this.resolveMgxsLibraryFile(raw);
+        console.log(`[OpenMC Studio] Using multi-group cross-sections: ${mgxsPath}`);
+        return { OPENMC_MG_CROSS_SECTIONS: mgxsPath };
+    }
+
+    /**
+     * Resolve the MGXS library FILE path: a `.h5` value or an existing
+     * extension-less file is used as-is; a directory (or an unresolvable
+     * path) resolves to the `mgxs.h5` inside it. The env var outranks
+     * materials.xml, so this must not guess wrong for real files.
+     *
+     * @param raw - Configured library path.
+     * @returns Path to the `mgxs.h5` file.
+     */
+    private async resolveMgxsLibraryFile(raw: string): Promise<string> {
+        if (raw.toLowerCase().endsWith('.h5')) {
+            return raw;
+        }
+        try {
+            const stat = await this.fileService.resolve(new URI(raw));
+            if (!stat.isDirectory) {
+                return raw;
+            }
+        } catch {
+            // Not resolvable — assume directory intent
+        }
+        return `${raw.replace(/[\\/]+$/, '')}/mgxs.h5`;
     }
 
     /**

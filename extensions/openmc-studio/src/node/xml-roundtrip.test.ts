@@ -763,7 +763,9 @@ describe('settings.xml round-trip', () => {
         await generator.generateXML({
             state,
             outputDirectory: tokamakDir,
-            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            // TokamakSource is gated on 0.15.4+ — mark the env as supporting it
+            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -814,7 +816,8 @@ describe('settings.xml round-trip', () => {
         await generator.generateXML({
             state,
             outputDirectory: tokamakDir,
-            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -822,6 +825,183 @@ describe('settings.xml round-trip', () => {
         expect(settingsXml).not.toContain('<vertical_shift>');
 
         fs.rmSync(tokamakDir, { recursive: true, force: true });
+    });
+
+    it('drops tokamak sources with a warning on envs without TokamakSource (release 0.15.3)', async () => {
+        const tokamakDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-tokamak-gated-'));
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'tokamak',
+                majorRadius: 600,
+                minorRadius: 200,
+                elongation: 1.7,
+                triangularity: 0.33,
+                shafranovShift: 30,
+                profile: [
+                    { r: 0, s: 1 },
+                    { r: 1, s: 0 }
+                ],
+                energy: { type: 'discrete', energies: [14.1e6], probabilities: [1] }
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        // No randomRayCompat — default is the release profile (no TokamakSource)
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tokamakDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).not.toContain('type="tokamak"');
+        expect(result.warnings?.some((w) => w.includes('Tokamak source requires OpenMC >= 0.15.4'))).toBe(true);
+
+        fs.rmSync(tokamakDir, { recursive: true, force: true });
+    });
+
+    it("falls back from sample_method 's2' to 'halton' with a warning on unsupported envs", async () => {
+        const s2Dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-s2-gated-'));
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/data/mgxs.h5';
+        state.settings.randomRay = {
+            distanceInactive: 50,
+            distanceActive: 250,
+            sampleMethod: 's2',
+            raySource: { lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] }
+        };
+
+        const generator = new XMLGenerationService();
+        const gated = await generator.generateXML({
+            state,
+            outputDirectory: s2Dir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        let settingsXml = fs.readFileSync(path.join(s2Dir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<sample_method>halton</sample_method>');
+        expect(settingsXml).not.toContain('<sample_method>s2</sample_method>');
+        expect(gated.warnings?.some((w) => w.includes("'s2' is not supported"))).toBe(true);
+
+        // Supported env emits s2 as configured
+        const supported = await generator.generateXML({
+            state,
+            outputDirectory: s2Dir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false },
+            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: false, s2SampleMethod: true }
+        });
+        settingsXml = fs.readFileSync(path.join(s2Dir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<sample_method>s2</sample_method>');
+        expect(supported.warnings?.some((w) => w.includes("'s2'"))).toBeFalsy();
+
+        fs.rmSync(s2Dir, { recursive: true, force: true });
+    });
+
+    it('emits the MGXS library reference into materials.xml (first child) and parses it back', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/data/mgxs.h5';
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        const materialsXml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(materialsXml).toContain('<cross_sections>/data/mgxs.h5</cross_sections>');
+        // First child of <materials> (openmc.Materials.cross_sections export format)
+        expect(materialsXml.indexOf('<cross_sections>')).toBeLessThan(materialsXml.indexOf('<material '));
+        // The deprecated settings.xml element is kept for older OpenMC versions
+        const settingsXml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<cross_sections>/data/mgxs.h5</cross_sections>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.mgxsLibrary).toBe('/data/mgxs.h5');
+    });
+
+    it('resolves a legacy randomRay.mgxsLibraryPath directory to the mgxs.h5 inside it', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = undefined;
+        state.settings.randomRay = { mgxsLibraryPath: '/data/MGXS' };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const materialsXml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(materialsXml).toContain('<cross_sections>/data/MGXS/mgxs.h5</cross_sections>');
+        const settingsXml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).toContain('<cross_sections>/data/MGXS/mgxs.h5</cross_sections>');
+    });
+
+    it('keeps an extension-less library FILE path as-is (fs-aware resolution)', async () => {
+        // The legacy path in the wild is an HDF5 file without .h5 extension
+        const fakeLib = path.join(tempDir, 'MGXS');
+        fs.writeFileSync(fakeLib, 'not really hdf5');
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = fakeLib;
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const materialsXml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(materialsXml).toContain(`<cross_sections>${fakeLib}</cross_sections>`);
+        expect(materialsXml).not.toContain('MGXS/mgxs.h5');
+    });
+
+    it('resolves a relative MGXS library path against the output directory', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = 'mgxs.h5';
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: false, tallies: false, plots: false }
+        });
+
+        const materialsXml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(materialsXml).toContain(`<cross_sections>${path.join(tempDir, 'mgxs.h5')}</cross_sections>`);
+    });
+
+    it('import: materials.xml cross_sections fills mgxsLibrary only when settings.xml lacks it', async () => {
+        // No settings value → materials.xml reference wins
+        fs.writeFileSync(
+            path.join(tempDir, 'materials.xml'),
+            `<?xml version="1.0"?>\n<materials>\n  <cross_sections>/data/from-materials.h5</cross_sections>\n</materials>\n`
+        );
+        fs.writeFileSync(
+            path.join(tempDir, 'settings.xml'),
+            `<?xml version="1.0"?>\n<settings>\n  <run_mode>eigenvalue</run_mode>\n  <particles>100</particles>\n  <batches>10</batches>\n  <inactive>5</inactive>\n</settings>\n`
+        );
+        const backend = new OpenMCStudioBackendServiceImpl();
+        let imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.mgxsLibrary).toBe('/data/from-materials.h5');
+
+        // settings.xml value takes precedence over materials.xml
+        fs.writeFileSync(
+            path.join(tempDir, 'settings.xml'),
+            `<?xml version="1.0"?>\n<settings>\n  <run_mode>eigenvalue</run_mode>\n  <particles>100</particles>\n  <batches>10</batches>\n  <inactive>5</inactive>\n  <energy_mode>multi-group</energy_mode>\n  <cross_sections>/data/from-settings.h5</cross_sections>\n</settings>\n`
+        );
+        imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.settings.mgxsLibrary).toBe('/data/from-settings.h5');
     });
 
     it('round-trips the advanced scalar settings sweep (P6F)', async () => {
@@ -1169,7 +1349,7 @@ describe('settings.xml round-trip', () => {
             outputDirectory: tempDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
             // Post-0.15.3 dev format: wrapped <ray_source> + <adjoint_source>
-            randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true }
+            randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true }
         });
 
         const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');

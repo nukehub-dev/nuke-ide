@@ -30,6 +30,7 @@ import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCRandomRaySettings, OpenMCRegularMesh } from '../../../../common/openmc-state-schema';
+import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
@@ -45,6 +46,26 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     readonly icon = 'zap';
     readonly order = 5;
 
+    /** Probed OpenMC compatibility for feature gating (fetched once). */
+    private compat?: OpenMCCompat;
+    private compatRequested = false;
+
+    /**
+     * Fetch the OpenMC compatibility descriptor once and re-render when it
+     * arrives (gates the s2 sample method on envs that reject it).
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestCompat(host: SimulationDashboardWidget): void {
+        if (this.compatRequested) {
+            return;
+        }
+        this.compatRequested = true;
+        void host.studioService.getOpenMCCompat().then((compat) => {
+            this.compat = compat;
+            host.update();
+        });
+    }
+
     /**
      * Render the Random Ray tab.
      * @param host - Simulation dashboard widget host.
@@ -56,6 +77,8 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         const randomRay = settings.randomRay;
         const isMultiGroup = settings.energyMode === 'multigroup';
         const regularMeshes = state.meshes.filter((m) => m.type === 'regular') as OpenMCRegularMesh[];
+        this.requestCompat(host);
+        const s2Unsupported = this.compat !== undefined && !this.compat.s2SampleMethod;
 
         const updateRandomRay = (updates: Partial<OpenMCRandomRaySettings>): void => {
             const merged = { ...(randomRay ?? {}), ...updates };
@@ -103,9 +126,13 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                 <label>MGXS Library (mgxs.h5)</label>
                                 <input
                                     type="text"
-                                    value={settings.mgxsLibrary ?? ''}
+                                    value={settings.mgxsLibrary ?? randomRay?.mgxsLibraryPath ?? ''}
                                     placeholder="Path to mgxs.h5"
-                                    onChange={(e) => host.stateManager.updateSettings({ mgxsLibrary: e.target.value || undefined })}
+                                    onChange={(e) =>
+                                        // Migrates the legacy randomRay.mgxsLibraryPath to the
+                                        // canonical settings.mgxsLibrary on first edit (legacy kept)
+                                        host.stateManager.updateSettings({ mgxsLibrary: e.target.value || undefined })
+                                    }
                                 />
                                 <span className="form-hint">Required for multi-group runs (OPENMC_MG_CROSS_SECTIONS)</span>
                             </div>
@@ -205,8 +232,15 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                     >
                                         <option value="prng">PRNG (default)</option>
                                         <option value="halton">Halton</option>
-                                        <option value="s2">S2</option>
+                                        <option value="s2" disabled={s2Unsupported}>
+                                            S2{s2Unsupported ? ' (not supported by the configured OpenMC)' : ''}
+                                        </option>
                                     </select>
+                                    {s2Unsupported && randomRay.sampleMethod === 's2' && (
+                                        <span className="form-hint">
+                                            s2 is not supported by the configured OpenMC — 'halton' will be written to settings.xml instead.
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="form-group">
                                     <label>Volume Estimator</label>
@@ -269,29 +303,27 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             <h4>
                                 <i className="codicon codicon-target"></i> Ray Source (Uniform Box)
                             </h4>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <Tooltip content="Set the ray source box from the current geometry bounds" position="bottom">
-                                        <button
-                                            className="theia-button secondary small"
-                                            onClick={() => {
-                                                const bounds = calculateGeometryBounds(state);
-                                                if (bounds) {
-                                                    updateRandomRay({
-                                                        raySource: {
-                                                            lowerLeft: bounds.min as [number, number, number],
-                                                            upperRight: bounds.max as [number, number, number]
-                                                        }
-                                                    });
-                                                } else {
-                                                    host.messageService.warn('Cannot auto-detect bounds: no geometry defined');
-                                                }
-                                            }}
-                                        >
-                                            <i className="codicon codicon-target"></i> Auto-detect from Geometry
-                                        </button>
-                                    </Tooltip>
-                                </div>
+                            <div className="rr-actions-row">
+                                <Tooltip content="Set the ray source box from the current geometry bounds" position="bottom">
+                                    <button
+                                        className="theia-button secondary small"
+                                        onClick={() => {
+                                            const bounds = calculateGeometryBounds(state);
+                                            if (bounds) {
+                                                updateRandomRay({
+                                                    raySource: {
+                                                        lowerLeft: bounds.min as [number, number, number],
+                                                        upperRight: bounds.max as [number, number, number]
+                                                    }
+                                                });
+                                            } else {
+                                                host.messageService.warn('Cannot auto-detect bounds: no geometry defined');
+                                            }
+                                        }}
+                                    >
+                                        <i className="codicon codicon-target"></i> Auto-detect from Geometry
+                                    </button>
+                                </Tooltip>
                             </div>
                             {this.renderVectorInput('Lower Left', randomRay.raySource?.lowerLeft ?? [0, 0, 0], (v) =>
                                 updateRandomRay({ raySource: { ...(randomRay.raySource ?? { upperRight: [10, 10, 10] }), lowerLeft: v } })
@@ -303,43 +335,39 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             <h4>
                                 <i className="codicon codicon-target"></i> Adjoint Source (Uniform Box)
                             </h4>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <Tooltip
-                                        content="Set the adjoint source (detector response) box from the current geometry bounds"
-                                        position="bottom"
+                            <div className="rr-actions-row">
+                                <Tooltip
+                                    content="Set the adjoint source (detector response) box from the current geometry bounds"
+                                    position="bottom"
+                                >
+                                    <button
+                                        className="theia-button secondary small"
+                                        onClick={() => {
+                                            const bounds = calculateGeometryBounds(state);
+                                            if (bounds) {
+                                                updateRandomRay({
+                                                    adjointSource: {
+                                                        lowerLeft: bounds.min as [number, number, number],
+                                                        upperRight: bounds.max as [number, number, number]
+                                                    }
+                                                });
+                                            } else {
+                                                host.messageService.warn('Cannot auto-detect bounds: no geometry defined');
+                                            }
+                                        }}
                                     >
-                                        <button
-                                            className="theia-button secondary small"
-                                            onClick={() => {
-                                                const bounds = calculateGeometryBounds(state);
-                                                if (bounds) {
-                                                    updateRandomRay({
-                                                        adjointSource: {
-                                                            lowerLeft: bounds.min as [number, number, number],
-                                                            upperRight: bounds.max as [number, number, number]
-                                                        }
-                                                    });
-                                                } else {
-                                                    host.messageService.warn('Cannot auto-detect bounds: no geometry defined');
-                                                }
-                                            }}
-                                        >
-                                            <i className="codicon codicon-target"></i> Auto-detect from Geometry
-                                        </button>
-                                    </Tooltip>
-                                </div>
-                                <div className="form-group">
-                                    <Tooltip content="Clear the adjoint source" position="bottom">
-                                        <button
-                                            className="theia-button secondary small"
-                                            disabled={!randomRay.adjointSource}
-                                            onClick={() => updateRandomRay({ adjointSource: undefined })}
-                                        >
-                                            <i className="codicon codicon-close"></i> Clear
-                                        </button>
-                                    </Tooltip>
-                                </div>
+                                        <i className="codicon codicon-target"></i> Auto-detect from Geometry
+                                    </button>
+                                </Tooltip>
+                                <Tooltip content="Clear the adjoint source" position="bottom">
+                                    <button
+                                        className="theia-button secondary small"
+                                        disabled={!randomRay.adjointSource}
+                                        onClick={() => updateRandomRay({ adjointSource: undefined })}
+                                    >
+                                        <i className="codicon codicon-close"></i> Clear
+                                    </button>
+                                </Tooltip>
                             </div>
                             {this.renderVectorInput('Lower Left', randomRay.adjointSource?.lowerLeft ?? [0, 0, 0], (v) =>
                                 updateRandomRay({

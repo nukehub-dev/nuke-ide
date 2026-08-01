@@ -67,6 +67,7 @@ import {
     NCrystalImportResult,
     MgxsGenerationRequest,
     MgxsGenerationResult,
+    OpenMCCompat,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-studio-protocol';
 
@@ -179,21 +180,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         this.log(`Generating XML files in ${request.outputDirectory}`);
-        return this.xmlService.generateXML(await this.withRandomRayCompat(request));
+        return this.xmlService.generateXML(await this.withOpenMCCompat(request));
     }
 
     /**
-     * Fill in the random ray XML format compatibility from the environment
-     * probe unless the caller already specified it. Applied on every
+     * Get the probed OpenMC version compatibility for the configured python
+     * environment (cached per python command by the probe service).
+     * @returns OpenMC compatibility descriptor
+     */
+    async getOpenMCCompat(): Promise<OpenMCCompat> {
+        return this.compatProbe.getOpenMCCompat();
+    }
+
+    /**
+     * Fill in the OpenMC version compatibility from the environment probe
+     * unless the caller already specified it. Applied on every
      * frontend-driven generation (XML export, run preparation, project save).
      * @param request - Generation request
      * @returns Request with randomRayCompat resolved
      */
-    protected async withRandomRayCompat(request: XMLGenerationRequest): Promise<XMLGenerationRequest> {
+    protected async withOpenMCCompat(request: XMLGenerationRequest): Promise<XMLGenerationRequest> {
         if (!request.files.settings || request.randomRayCompat) {
             return request;
         }
-        return { ...request, randomRayCompat: await this.compatProbe.getRandomRayCompat() };
+        return { ...request, randomRayCompat: await this.compatProbe.getOpenMCCompat() };
     }
 
     /**
@@ -220,10 +230,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const state = this.createDefaultState(dirName);
 
             // Import materials.xml
+            let materialsCrossSections: string | undefined;
             if (fs.existsSync(materialsPath)) {
                 try {
                     const materialsData = await this.parseMaterialsXML(materialsPath);
                     state.materials = materialsData.materials;
+                    materialsCrossSections = materialsData.crossSections;
                     warnings.push(...materialsData.warnings);
                     this.log(`Imported ${materialsData.materials.length} materials`);
                 } catch (err) {
@@ -271,6 +283,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
             } else {
                 warnings.push('settings.xml not found');
+            }
+
+            // A <cross_sections> reference in materials.xml fills settings.mgxsLibrary
+            // when settings.xml did not provide one (openmc.Materials.cross_sections)
+            if (materialsCrossSections && !state.settings.mgxsLibrary) {
+                state.settings.mgxsLibrary = materialsCrossSections;
             }
 
             // Import tallies.xml
@@ -383,7 +401,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         };
     }
 
-    private async parseMaterialsXML(filePath: string): Promise<{ materials: any[]; warnings: string[] }> {
+    private async parseMaterialsXML(filePath: string): Promise<{ materials: any[]; warnings: string[]; crossSections?: string }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -394,9 +412,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         const materials: any[] = [];
 
+        // Multi-group library reference (openmc.Materials.cross_sections)
+        const crossSections = result.materials?.cross_sections?.toString();
+
         if (!result.materials || !result.materials.material) {
             warnings.push('No materials found in materials.xml');
-            return { materials, warnings };
+            return { materials, warnings, crossSections };
         }
 
         const materialArray = Array.isArray(result.materials.material) ? result.materials.material : [result.materials.material];
@@ -457,7 +478,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        return { materials, warnings };
+        return { materials, warnings, crossSections };
     }
 
     private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[] }> {
@@ -2514,7 +2535,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 const path = await import('path');
                 const outputDir = path.dirname(request.projectPath);
                 await this.xmlService.generateXML(
-                    await this.withRandomRayCompat({
+                    await this.withOpenMCCompat({
                         state: request.state,
                         outputDirectory: outputDir,
                         files: {

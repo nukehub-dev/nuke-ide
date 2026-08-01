@@ -3400,3 +3400,12 @@
 .simulation-dashboard .form-row .form-group.row-delete {
     flex: 0 0 auto;
 }
+
+/* Random Ray tab: natural-width, left-aligned action rows above the source
+   box field grids (ray source auto-detect; adjoint auto-detect + clear) */
+.simulation-dashboard .rr-actions-row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-start;
+    margin-bottom: 12px;
+}

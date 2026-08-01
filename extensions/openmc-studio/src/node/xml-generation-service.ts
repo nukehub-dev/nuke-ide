@@ -34,8 +34,11 @@
  */
 
 import { injectable } from '@theia/core/shared/inversify';
+import * as path from 'path';
+import * as fs from 'fs';
 
-import { XMLGenerationRequest, XMLGenerationResult, RandomRayXmlCompat, DEFAULT_RANDOM_RAY_COMPAT } from '../common/openmc-studio-protocol';
+import { XMLGenerationRequest, XMLGenerationResult, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
+import { resolveMgxsLibrary } from '../common/mgxs-library';
 
 import {
     OpenMCState,
@@ -108,7 +111,7 @@ export class XMLGenerationService {
             // Generate materials.xml
             if (request.files.materials) {
                 const materialsPath = path.join(request.outputDirectory, 'materials.xml');
-                const materialsXml = this.generateMaterialsXML(request.state);
+                const materialsXml = this.generateMaterialsXML(request.state, request.outputDirectory);
                 fs.writeFileSync(materialsPath, materialsXml);
                 generatedFiles.push(materialsPath);
                 this.log(`Generated materials.xml`);
@@ -201,8 +204,47 @@ export class XMLGenerationService {
      * @returns materials.xml content
      */
 
-    private generateMaterialsXML(state: OpenMCState): string {
+    /**
+     * Resolve the MGXS library FILE path for emission (fs-aware): a `.h5`
+     * value is used as-is; an existing extension-less FILE is used as-is;
+     * anything else is treated as a directory and resolved to the `mgxs.h5`
+     * inside it. Canonical `settings.mgxsLibrary` wins over the legacy
+     * `randomRay.mgxsLibraryPath` (see `resolveMgxsLibrary`).
+     * @param settings - Simulation settings.
+     * @returns Path to the `mgxs.h5` file, or undefined when unconfigured.
+     */
+    private resolveMgxsLibraryFile(settings: OpenMCState['settings']): string | undefined {
+        const raw = resolveMgxsLibrary(settings);
+        if (!raw) {
+            return undefined;
+        }
+        if (raw.toLowerCase().endsWith('.h5')) {
+            return raw;
+        }
+        try {
+            if (fs.existsSync(raw) && !fs.statSync(raw).isDirectory()) {
+                return raw;
+            }
+        } catch {
+            // Stat failed — fall through to the directory assumption
+        }
+        return `${raw.replace(/[\\/]+$/, '')}/mgxs.h5`;
+    }
+
+    private generateMaterialsXML(state: OpenMCState, outputDirectory?: string): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<materials>', ''];
+
+        // Multi-group cross sections library reference (openmc.Materials.cross_sections
+        // — the settings.xml element is deprecated in favor of this one). First
+        // child of <materials> per the verified export format.
+        if (state.settings.energyMode === 'multigroup') {
+            const mgxs = this.resolveMgxsLibraryFile(state.settings);
+            if (mgxs) {
+                const resolved = path.isAbsolute(mgxs) || !outputDirectory ? mgxs : path.resolve(outputDirectory, mgxs);
+                lines.push(`  <cross_sections>${this.escapeXml(resolved)}</cross_sections>`);
+                lines.push('');
+            }
+        }
 
         // Debug logging for DAGMC
         if (state.settings.dagmcFile) {
@@ -488,11 +530,7 @@ export class XMLGenerationService {
      * @returns settings.xml content
      */
 
-    private generateSettingsXML(
-        state: OpenMCState,
-        randomRayCompat: RandomRayXmlCompat = DEFAULT_RANDOM_RAY_COMPAT,
-        warnings?: string[]
-    ): string {
+    private generateSettingsXML(state: OpenMCState, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<settings>', ''];
 
         // Mesh IDs already emitted as elements into settings.xml (dedup guard
@@ -526,14 +564,21 @@ export class XMLGenerationService {
         }
 
         // MGXS library path for multi-group runs (deprecated-but-read settings.xml element, src/settings.cpp:450)
-        if (settings.mgxsLibrary && settings.energyMode === 'multigroup') {
-            lines.push(`  <cross_sections>${this.escapeXml(settings.mgxsLibrary)}</cross_sections>`);
+        // Resolves canonical settings.mgxsLibrary, falling back to the legacy randomRay.mgxsLibraryPath.
+        const mgxsLibrary = settings.energyMode === 'multigroup' ? this.resolveMgxsLibraryFile(settings) : undefined;
+        if (mgxsLibrary) {
+            lines.push(`  <cross_sections>${this.escapeXml(mgxsLibrary)}</cross_sections>`);
         }
 
         // Sources
         if (settings.sources && settings.sources.length > 0) {
             let validSources = 0;
             for (const source of settings.sources) {
+                // TokamakSource is 0.15.4+ — drop on unsupported envs with a warning
+                if (source.type === 'tokamak' && !compat.tokamakSource) {
+                    warnings?.push('Tokamak source requires OpenMC >= 0.15.4; the tokamak source was not written to settings.xml');
+                    continue;
+                }
                 const sourceXml = this.generateSourceElement(source);
                 if (sourceXml) {
                     lines.push(sourceXml);
@@ -553,7 +598,6 @@ export class XMLGenerationService {
             // Meshes referenced by mesh sources are emitted into settings.xml
             // (settings.py _create_source_subelement), NOT tallies.xml — the
             // tallies generator skips these ids (OpenMC mesh_memo pattern).
-            const emittedMeshIds = new Set<number>();
             for (const source of settings.sources) {
                 if (source.type === 'mesh' && source.meshId !== undefined && !emittedMeshIds.has(source.meshId)) {
                     const mesh = state.meshes.find((m) => m.id === source.meshId);
@@ -785,7 +829,13 @@ export class XMLGenerationService {
                 lines.push(`    <volume_normalized_flux_tallies>${rr.volumeNormalizedFluxTallies}</volume_normalized_flux_tallies>`);
             }
             if (rr.sampleMethod) {
-                lines.push(`    <sample_method>${rr.sampleMethod}</sample_method>`);
+                // s2 is not accepted by every version — fall back to halton
+                if (rr.sampleMethod === 's2' && !compat.s2SampleMethod) {
+                    warnings?.push("Random ray sample_method 's2' is not supported by the configured OpenMC; emitted 'halton' instead");
+                    lines.push(`    <sample_method>halton</sample_method>`);
+                } else {
+                    lines.push(`    <sample_method>${rr.sampleMethod}</sample_method>`);
+                }
             }
             if (rr.diagonalStabilizationRho !== undefined) {
                 lines.push(`    <diagonal_stabilization_rho>${rr.diagonalStabilizationRho}</diagonal_stabilization_rho>`);
@@ -796,7 +846,7 @@ export class XMLGenerationService {
             if (rr.raySource) {
                 // Release 0.15.3 reads <source> directly under <random_ray>;
                 // post-0.15.3 dev wraps it in <ray_source> (src/settings.cpp:284-289)
-                const wrap = randomRayCompat.raySourceFormat === 'wrapper';
+                const wrap = compat.raySourceFormat === 'wrapper';
                 if (wrap) {
                     lines.push('    <ray_source>');
                 }
@@ -812,7 +862,7 @@ export class XMLGenerationService {
                 }
             }
             if (rr.adjointSource) {
-                if (randomRayCompat.adjointSource) {
+                if (compat.adjointSource) {
                     // settings.py:2036-2047 — adjoint_source holds a list of
                     // source elements; the UI models the single-box case
                     lines.push('    <adjoint_source>');

@@ -43,7 +43,7 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 
 import { OpenMCStateManager } from './openmc-state-manager';
-import { OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
+import { OpenMCStudioBackendService, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { NukeCoreService } from 'nuke-core/lib/common';
 
 @injectable()
@@ -125,6 +125,21 @@ export class OpenMCStudioService implements FrontendApplicationContribution {
      */
     getBackendService(): OpenMCStudioBackendService {
         return this.backendService;
+    }
+
+    /** Cached compat promise — the backend caches per python env. */
+    private compatPromise?: Promise<OpenMCCompat>;
+
+    /**
+     * Get the probed OpenMC version compatibility for the configured python
+     * environment, fetching once and caching the promise. Used by the UI to
+     * gate dev-only features (tokamak sources, s2 sampling).
+     *
+     * @returns OpenMC compatibility descriptor.
+     */
+    getOpenMCCompat(): Promise<OpenMCCompat> {
+        this.compatPromise ??= this.backendService.getOpenMCCompat().catch(() => DEFAULT_OPENMC_COMPAT);
+        return this.compatPromise;
     }
 
     /**

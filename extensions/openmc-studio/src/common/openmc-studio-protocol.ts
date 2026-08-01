@@ -319,28 +319,40 @@ export interface XMLGenerationRequest {
     /** Optional comment header for generated files */
     headerComment?: string;
     /**
-     * Random ray XML format compatibility, probed per python environment
+     * OpenMC version compatibility, probed per python environment
      * ({@link OpenMCCompatProbeService}). Defaults to the release-compatible
-     * form ({@link DEFAULT_RANDOM_RAY_COMPAT}) when unspecified.
+     * form ({@link DEFAULT_OPENMC_COMPAT}) when unspecified.
      */
-    randomRayCompat?: RandomRayXmlCompat;
+    randomRayCompat?: OpenMCCompat;
 }
 
 /**
- * Random ray settings.xml format compatibility. OpenMC release 0.15.3 writes
- * `<source>` directly under `<random_ray>` and has no adjoint source support;
- * the post-0.15.3 dev version wraps sources in `<ray_source>`/`<adjoint_source>`
- * elements (settings.py:2006+ / src/settings.cpp:284-289).
+ * OpenMC version compatibility, detected at runtime per python environment
+ * (never version parsing). Covers the settings.xml format skew between
+ * release 0.15.3 and post-0.15.3 dev plus feature support gates.
  */
-export interface RandomRayXmlCompat {
-    /** `direct` = release 0.15.3 (`<random_ray><source>`); `wrapper` = post-0.15.3 dev (`<ray_source><source>`) */
+export interface OpenMCCompat {
+    /**
+     * ray_source emission: `direct` = release 0.15.3 (`<random_ray><source>`);
+     * `wrapper` = post-0.15.3 dev (`<ray_source><source>`,
+     * settings.py:2006+ / src/settings.cpp:284-289)
+     */
     raySourceFormat: 'direct' | 'wrapper';
     /** Whether the environment supports `<adjoint_source>` (post-0.15.3 only) */
     adjointSource: boolean;
+    /** Whether `openmc.TokamakSource` exists (0.15.4+) */
+    tokamakSource: boolean;
+    /** Whether random ray `sample_method: 's2'` is accepted */
+    s2SampleMethod: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
-export const DEFAULT_RANDOM_RAY_COMPAT: RandomRayXmlCompat = { raySourceFormat: 'direct', adjointSource: false };
+export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
+    raySourceFormat: 'direct',
+    adjointSource: false,
+    tokamakSource: false,
+    s2SampleMethod: false
+};
 
 /** Result of XML generation */
 export interface XMLGenerationResult {
@@ -775,6 +787,14 @@ export interface OpenMCStudioBackendService {
 
     /** Set Python configuration (shared with nuke-visualizer) */
     setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void>;
+
+    /**
+     * Get the probed OpenMC version compatibility for the configured python
+     * environment (cached per python command; release-compatible default when
+     * undetectable). Lets the UI gate dev-only features (tokamak sources,
+     * random ray adjoint / s2 sampling) before XML generation.
+     */
+    getOpenMCCompat(): Promise<OpenMCCompat>;
 
     // === XML Generation ===
 

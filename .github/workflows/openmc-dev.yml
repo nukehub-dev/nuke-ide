@@ -1,0 +1,196 @@
+name: OpenMC dev
+
+# Tests the extension suites against the LATEST development OpenMC (the
+# openmc-dev/openmc `develop` branch — the repo's default branch), built from
+# source. Complements upstream-latest.yml, which tests the latest RELEASED
+# conda/pip packages; this lane catches an upstream API break before it ever
+# ships in a release. Weekly-cheap: the libopenmc build is cached by upstream
+# SHA and skipped entirely when develop hasn't moved.
+
+on:
+  schedule:
+    # Weekly (Mondays ~04:23 UTC), staggered from the docker smoke build
+    # (Sun 06:00) and the upstream-latest check (Wed 05:17).
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Open/update an issue when a scheduled run fails.
+  issues: write
+
+jobs:
+  openmc-develop:
+    name: Test against openmc-dev/openmc@develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkout OpenMC (develop)
+        uses: actions/checkout@v7
+        with:
+          repository: openmc-dev/openmc
+          ref: develop
+          path: openmc-src
+          # Full history: setuptools-scm derives the package version from git
+          # tags, and the C++ build needs the pugixml/fmt submodules.
+          fetch-depth: 0
+          submodules: true
+
+      - name: Record upstream SHA
+        id: upstream
+        working-directory: openmc-src
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Install build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake g++ libhdf5-dev
+
+      - name: Cache libopenmc build
+        # Exact hit (same upstream SHA) → skip the C++ build entirely. On a
+        # new SHA the prefix restore gives make an incremental head start —
+        # correct either way because make rebuilds what changed and the
+        # post-build step copies a fresh libopenmc.so into the package tree.
+        id: build-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            openmc-src/build
+            openmc-src/openmc/lib
+          key: openmc-dev-build-${{ runner.os }}-${{ steps.upstream.outputs.sha }}
+          restore-keys: |
+            openmc-dev-build-${{ runner.os }}-
+
+      - name: Build libopenmc (skipped when upstream SHA unchanged)
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        working-directory: openmc-src
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+          make -j"$(nproc)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install OpenMC Python package
+        # Plain setuptools install (pyproject.toml) — packages the sources
+        # plus the prebuilt libopenmc.so; it does not recompile. openmc's
+        # declared dependencies (numpy, h5py, scipy, endf, ...) come along
+        # from PyPI; pytest and vtk (pip wheels) are all our suites need —
+        # no paraview here.
+        run: |
+          pip install ./openmc-src
+          pip install -q pytest vtk
+
+      - name: Make the openmc executable discoverable
+        # pip does not ship the openmc binary; it comes from the cmake build.
+        # The e2e conftests look for it next to the running interpreter (and
+        # the vitest e2e prepends dirname(NUKE_TEST_PYTHON) to PATH itself).
+        run: |
+          ln -sf "$PWD/openmc-src/build/bin/openmc" "$(dirname "$(which python)")/openmc"
+          ls -l "$(dirname "$(which python)")/openmc"
+          openmc --version || true
+
+      - name: Cache nuclear data libraries
+        id: data-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/nndc_hdf5
+            ~/endf-b-vii.1
+            ~/nuclear-data/chain_endfb71_pwr.xml
+          key: nuclear-data-v1
+
+      - name: Download nuclear data libraries
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/nuclear-data
+          # NNDC HDF5 (ENDF/B-VIII.0) and ENDF/B-VII.1 raw evaluations — the
+          # same tarballs OpenMC's own CI downloads (tools/ci/download-xs.sh).
+          wget -q -O - https://anl.box.com/shared/static/teaup95cqv8s9nn56hfn7ku8mmelr95p.xz | tar -C ~ -xJ
+          wget -q -O - https://anl.box.com/shared/static/4kd2gxnf4gtk4w1c8eua5fsua22kvgjb.xz | tar -C ~ -xJ
+          # Depletion chain for NUKE_E2E_CHAIN: the public ENDF/B-VII.1 PWR
+          # chain from openmc.org/depletion-chains (our local env uses the
+          # CASL chain; any valid chain satisfies the e2e gate).
+          wget -q -O ~/nuclear-data/chain_endfb71_pwr.xml \
+            https://anl.box.com/shared/static/1ndcrc1j042nkdpfobp5ebsvxghziisc.xml
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache node_modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            applications/*/node_modules
+            extensions/*/node_modules
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: openmc-dev-yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            openmc-dev-yarn-${{ runner.os }}-
+
+      - name: Install dependencies
+        # --ignore-scripts skips the lerna prepare rebuild (repo pitfall);
+        # native modules are not needed for pytest or node-env vitest.
+        run: yarn install --frozen-lockfile --ignore-scripts
+
+      - name: Run extension test suites
+        env:
+          NUKE_TEST_PYTHON: python
+          OPENMC_CROSS_SECTIONS: ${{ env.HOME }}/nndc_hdf5/cross_sections.xml
+          NUKE_E2E_CHAIN: ${{ env.HOME }}/nuclear-data/chain_endfb71_pwr.xml
+          NUKE_E2E_ENDF: ${{ env.HOME }}/endf-b-vii.1
+        run: yarn test:python:full
+
+      - name: Run openmc-studio vitest e2e
+        # Project-level e2e (fixtures → XML → real runs); gates on
+        # NUKE_TEST_PYTHON + OPENMC_CROSS_SECTIONS, skips cleanly otherwise.
+        env:
+          NUKE_TEST_PYTHON: python
+          OPENMC_CROSS_SECTIONS: ${{ env.HOME }}/nndc_hdf5/cross_sections.xml
+          NUKE_E2E_CHAIN: ${{ env.HOME }}/nuclear-data/chain_endfb71_pwr.xml
+        run: npx vitest run extensions/openmc-studio
+
+      - name: Open issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const title = 'OpenMC develop check failed';
+            const labels = ['ci', 'upstream-regression'];
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+            });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sha = `${{ steps.upstream.outputs.sha }}`;
+            const body = `The weekly check against the latest development OpenMC (openmc-dev/openmc@develop, source-built) failed.\n\nUpstream SHA tested: ${sha}\nRun: ${runUrl}\n\nThis means a change on OpenMC's develop branch breaks our extension suites — an API break that will reach the next release. Fix forward or pin/document before it ships.`;
+            const open = existing.find((issue) => issue.title === title);
+            if (open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels,
+              });
+            }
