@@ -506,6 +506,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
         }
         const depletableMaterials = state.materials.filter((m) => m.isDepletable);
         const isIndependent = depletion.operator === 'independent';
+        const isMultiGroup = state.settings.energyMode === 'multigroup';
         const transferRates = depletion.transferRates ?? [];
         const fissionQEntries = Object.entries(depletion.fissionQ ?? {});
 
@@ -551,6 +552,12 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             <option value="independent">Independent (pre-computed flux &amp; XS)</option>
                         </select>
                         <span className="config-hint">Independent uses multigroup flux/cross sections instead of transport solves</span>
+                        {isMultiGroup && !isIndependent && (
+                            <span className="config-hint">
+                                Coupled depletion requires continuous-energy mode — this project is multi-group; use the Independent
+                                operator (validation will block the run).
+                            </span>
+                        )}
                     </div>
                     <div className="config-item">
                         <label>

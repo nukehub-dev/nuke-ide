@@ -2369,6 +2369,36 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 });
             }
 
+            // Coupled depletion is continuous-energy only in this OpenMC
+            // version (CoupledOperator needs a CE cross_sections.xml)
+            if (settings.energyMode === 'multigroup' && (depletion.operator ?? 'coupled') !== 'independent') {
+                issues.push({
+                    severity: 'error',
+                    category: 'depletion',
+                    message:
+                        'Coupled depletion requires continuous-energy mode; multigroup depletion uses the Independent operator (flux/MicroXS)',
+                    suggestion:
+                        'Switch the operator to Independent in the Depletion tab Advanced section (or switch the model to continuous-energy)'
+                });
+            }
+
+            // Independent operator needs precomputed flux/MicroXS per
+            // depletable material, or model-based generation
+            if ((depletion.operator ?? 'coupled') === 'independent' && !depletion.generateFromModel) {
+                const depletableCount = Math.max(materials.filter((m) => m.isDepletable).length, 1);
+                const fluxFiles = (depletion.fluxFiles ?? []).filter((f) => f.trim().length > 0);
+                const microxsFiles = (depletion.microxsFiles ?? []).filter((f) => f.trim().length > 0);
+                if (fluxFiles.length < depletableCount || microxsFiles.length < depletableCount) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'depletion',
+                        message: 'Independent depletion operator requires flux and MicroXS files for each depletable material',
+                        suggestion:
+                            'Provide flux/MicroXS files in the Depletion tab Advanced section, or enable "Generate flux & MicroXS from current model"'
+                    });
+                }
+            }
+
             // Check for depletable materials
             const hasDepletableMaterials = materials.some((m) => m.isDepletable);
             if (!hasDepletableMaterials) {

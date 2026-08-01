@@ -55,6 +55,29 @@ SOLVER_ALIASES = {
 }
 
 
+class DepletionConfigError(ValueError):
+    """User-facing configuration error — reported as clean JSON, no traceback."""
+
+
+def read_energy_mode(working_dir):
+    """Read <energy_mode> from settings.xml using only the standard library.
+
+    Args:
+        working_dir: Path to the directory containing settings.xml.
+
+    Returns:
+        The energy mode text (e.g. 'continuous-energy', 'multi-group'), or
+        None when settings.xml or the element is missing.
+    """
+    import xml.etree.ElementTree as ET
+
+    settings_path = Path(working_dir) / "settings.xml"
+    if not settings_path.exists():
+        return None
+    elem = ET.parse(settings_path).getroot().find("energy_mode")
+    return elem.text.strip() if elem is not None and elem.text else None
+
+
 def resolve_solver(value):
     """Map a --solver value to a canonical solver id (aliases → warning)."""
     solver = (value or "cecm").lower()
@@ -97,11 +120,23 @@ def run_depletion(args):
         ValueError: If neither power nor power-density is specified.
         NotImplementedError: If the independent operator is requested.
     """
+    working_dir = Path(args.working_directory).absolute()
+
+    # Coupled depletion is continuous-energy only in this OpenMC version —
+    # guard before any openmc import so the failure is a clean config error,
+    # not an lxml traceback from DataLibrary.from_xml(<mgxs.h5>)
+    energy_mode = read_energy_mode(working_dir)
+    if energy_mode == "multi-group" and args.operator != "independent":
+        raise DepletionConfigError(
+            "Coupled depletion requires continuous-energy mode; this project is "
+            "multi-group. Use the Independent operator with flux/MicroXS files "
+            "(or switch the model to continuous-energy)."
+        )
+
     import numpy as np
     import openmc
     import openmc.deplete
 
-    working_dir = Path(args.working_directory).absolute()
     os.chdir(working_dir)
 
     log_progress(f"Loading OpenMC model from {working_dir}")
@@ -218,22 +253,41 @@ def run_depletion(args):
         json.loads(args.transfer_rates) if getattr(args, "transfer_rates", None) else []
     )
 
-    # Create the operator
-    chain = openmc.deplete.Chain.from_xml(chain_file)
-    if args.operator == "independent":
-        operator = build_independent_operator(args, model, materials, chain, fission_q)
-    else:
-        log_progress("Creating CoupledOperator...")
-        # Only pass W6 kwargs when enabled to keep the default call shape stable
-        coupled_kwargs = {"normalization_mode": args.normalization or "fission-q"}
-        if getattr(args, "diff_burnable_mats", False):
-            coupled_kwargs["diff_burnable_mats"] = True
-            coupled_kwargs["diff_volume_method"] = getattr(
-                args, "diff_volume_method", "divide equally"
-            )
-        if fission_q is not None:
-            coupled_kwargs["fission_q"] = fission_q
-        operator = openmc.deplete.CoupledOperator(model, chain, **coupled_kwargs)
+    # Create the operator — construction errors are user-facing config
+    # problems (wrong mode, missing files, bad library), so they surface as
+    # clean JSON without a traceback
+    try:
+        chain = openmc.deplete.Chain.from_xml(chain_file)
+        if args.operator == "independent":
+            operator = build_independent_operator(args, model, materials, chain, fission_q)
+        else:
+            log_progress("Creating CoupledOperator...")
+            # CE edge: an MG/non-XML library reference in materials.xml would be
+            # fed to DataLibrary.from_xml (lxml crash). 0.15.3's CoupledOperator
+            # has no cross_sections kwarg, so clear it and let
+            # _find_cross_sections fall back to openmc.config (OPENMC_CROSS_SECTIONS).
+            mat_xs = getattr(materials, "cross_sections", None)
+            env_xs = os.environ.get("OPENMC_CROSS_SECTIONS")
+            if env_xs and mat_xs and not str(mat_xs).lower().endswith(".xml"):
+                log_progress(
+                    f"Note: materials cross_sections ({mat_xs}) is not a CE library — "
+                    "using OPENMC_CROSS_SECTIONS for nuclide data"
+                )
+                materials.cross_sections = None
+            # Only pass W6 kwargs when enabled to keep the default call shape stable
+            coupled_kwargs = {"normalization_mode": args.normalization or "fission-q"}
+            if getattr(args, "diff_burnable_mats", False):
+                coupled_kwargs["diff_burnable_mats"] = True
+                coupled_kwargs["diff_volume_method"] = getattr(
+                    args, "diff_volume_method", "divide equally"
+                )
+            if fission_q is not None:
+                coupled_kwargs["fission_q"] = fission_q
+            operator = openmc.deplete.CoupledOperator(model, chain, **coupled_kwargs)
+    except DepletionConfigError:
+        raise
+    except Exception as e:
+        raise DepletionConfigError(f"Failed to create the depletion operator: {e}") from e
 
     # Create the integrator (solver) — canonical ids from
     # integrator_by_name; legacy aliases resolve with a deprecation warning
@@ -487,6 +541,11 @@ Examples:
         result = run_depletion(args)
         print(json.dumps(result))
         return 0
+    except DepletionConfigError as e:
+        # User-facing configuration errors: clean JSON, no traceback
+        log_progress(f"FAILED: {e}")
+        print(json.dumps({"success": False, "error": str(e)}))
+        return 1
     except Exception as e:
         log_progress(f"FAILED: {e}")
         traceback.print_exc(file=sys.stderr)

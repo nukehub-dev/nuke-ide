@@ -67,6 +67,80 @@ function buildState(): OpenMCState {
     } as OpenMCState;
 }
 
+describe('validateState depletion operator restrictions', () => {
+    /** Enable depletion with the required basics so only the operator checks fire. */
+    function enableDepletion(state: OpenMCState): void {
+        state.depletion = { enabled: true, chainFile: '/chains/chain.xml', power: 1e6, timeSteps: [86400] };
+        (state.materials[0] as any).isDepletable = true;
+    }
+
+    it('errors on coupled depletion in multi-group mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        enableDepletion(state);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('Coupled depletion requires continuous-energy mode'))
+        ).toBe(true);
+    });
+
+    it('accepts coupled depletion in continuous-energy mode', async () => {
+        const state = buildState();
+        enableDepletion(state);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('Coupled depletion'))).toBe(false);
+    });
+
+    it('errors on the independent operator without flux/MicroXS inputs', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        enableDepletion(state);
+        state.depletion!.operator = 'independent';
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) => i.severity === 'error' && i.message.includes('Independent depletion operator requires flux and MicroXS files')
+            )
+        ).toBe(true);
+    });
+
+    it('accepts the independent operator with model-based generation in multi-group mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        enableDepletion(state);
+        state.depletion!.operator = 'independent';
+        state.depletion!.generateFromModel = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('depletion operator'))).toBe(false);
+        expect(result.issues.some((i) => i.message.includes('Coupled depletion'))).toBe(false);
+    });
+
+    it('accepts the independent operator with per-material flux/MicroXS files', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.operator = 'independent';
+        state.depletion!.fluxFiles = ['/data/flux_1.npy'];
+        state.depletion!.microxsFiles = ['/data/micro_1.csv'];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('flux and MicroXS'))).toBe(false);
+    });
+});
+
 describe('validateState random ray (multi-group) restrictions', () => {
     it('errors when IFP kinetics is enabled in multi-group mode', async () => {
         const state = buildState();

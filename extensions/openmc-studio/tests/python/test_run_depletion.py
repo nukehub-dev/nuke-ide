@@ -27,6 +27,33 @@ class TestLogProgress:
         assert capsys.readouterr().err == "a\nb\n"
 
 
+class TestReadEnergyMode:
+    def test_missing_settings_file_returns_none(self, tmp_path):
+        """No settings.xml → None (no energy mode known)."""
+        assert run_depletion.read_energy_mode(tmp_path) is None
+
+    def test_missing_element_returns_none(self, tmp_path):
+        """settings.xml without energy_mode → None."""
+        (tmp_path / "settings.xml").write_text(
+            "<settings><run_mode>eigenvalue</run_mode></settings>"
+        )
+        assert run_depletion.read_energy_mode(tmp_path) is None
+
+    def test_reads_multi_group(self, tmp_path):
+        """A multi-group energy_mode element is returned verbatim."""
+        (tmp_path / "settings.xml").write_text(
+            "<settings><energy_mode>multi-group</energy_mode></settings>"
+        )
+        assert run_depletion.read_energy_mode(tmp_path) == "multi-group"
+
+    def test_reads_continuous_energy(self, tmp_path):
+        """A continuous-energy energy_mode element is returned verbatim."""
+        (tmp_path / "settings.xml").write_text(
+            "<settings><energy_mode>continuous-energy</energy_mode></settings>"
+        )
+        assert run_depletion.read_energy_mode(tmp_path) == "continuous-energy"
+
+
 class TestMainArgparse:
     def test_no_arguments_exits_with_code_2(self, monkeypatch):
         """Missing working_directory and --time-steps is an argparse error."""

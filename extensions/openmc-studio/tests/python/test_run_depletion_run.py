@@ -520,3 +520,86 @@ class TestOperatorAndSolverFailures:
             run_depletion.run_depletion(_args(workdir, chain_file="ignored"))
 
         assert "Error loading XML files: bad xml" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Multi-group / coupled guard and operator-construction wrapping
+# ---------------------------------------------------------------------------
+
+_MG_SETTINGS = (
+    "<settings><run_mode>eigenvalue</run_mode><energy_mode>multi-group</energy_mode></settings>"
+)
+
+
+class TestMultigroupCoupledGuard:
+    def test_multi_group_coupled_is_a_clean_config_error(self, monkeypatch, tmp_path):
+        """MG project + coupled operator fails before any openmc import."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(tmp_path, settings_xml=_MG_SETTINGS)
+
+        with pytest.raises(
+            run_depletion.DepletionConfigError,
+            match="Coupled depletion requires continuous-energy mode",
+        ):
+            run_depletion.run_depletion(_args(workdir))
+
+    def test_multi_group_openmc_operator_is_also_blocked(self, monkeypatch, tmp_path):
+        """The 'openmc' operator path builds a CoupledOperator too — same guard."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(tmp_path, settings_xml=_MG_SETTINGS)
+
+        with pytest.raises(run_depletion.DepletionConfigError, match="multi-group"):
+            run_depletion.run_depletion(_args(workdir, operator="openmc"))
+
+    def test_multi_group_independent_passes_the_guard(self, monkeypatch, tmp_path, chain_file):
+        """The independent operator is allowed in multi-group mode."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        sentinel_operator = SimpleNamespace()
+        monkeypatch.setattr(
+            run_depletion, "build_independent_operator", lambda *a, **k: sentinel_operator
+        )
+        workdir = _workdir(tmp_path, settings_xml=_MG_SETTINGS)
+
+        result = run_depletion.run_depletion(
+            _args(workdir, chain_file=chain_file, operator="independent")
+        )
+
+        assert result["success"] is True
+        assert result["operator"] == "independent"
+        (integrator,) = RecordingIntegrator.instances
+        assert integrator.operator is sentinel_operator
+
+    def test_operator_construction_errors_are_wrapped(self, monkeypatch, tmp_path, chain_file):
+        """A failure inside operator construction surfaces as a clean config error."""
+        fake_openmc = _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        fake_openmc.deplete.Chain = SimpleNamespace(
+            from_xml=lambda path: (_ for _ in ()).throw(RuntimeError("Start tag expected"))
+        )
+        workdir = _workdir(tmp_path)
+
+        with pytest.raises(
+            run_depletion.DepletionConfigError,
+            match="Failed to create the depletion operator: Start tag expected",
+        ):
+            run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+    def test_ce_mode_mg_library_reference_falls_back_to_env(
+        self, monkeypatch, tmp_path, chain_file, capsys
+    ):
+        """CE mode with an MG library in materials.xml clears it for openmc.config."""
+
+        class FakeMaterials(list):
+            pass
+
+        mats = FakeMaterials([FakeMaterial("fuel")])
+        mats.cross_sections = "/data/mgxs.h5"
+        fake_openmc = _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        fake_openmc.Materials = SimpleNamespace(from_xml=lambda path: mats)
+        monkeypatch.setenv("OPENMC_CROSS_SECTIONS", "/data/cross_sections.xml")
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+        assert result["success"] is True
+        assert mats.cross_sections is None
+        assert "is not a CE library" in capsys.readouterr().err
