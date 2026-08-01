@@ -2873,9 +2873,12 @@ export class XSPlotWidget extends ReactWidget {
     }
 
     private startResizeIntegrals(e: React.MouseEvent): void {
+        e.preventDefault();
         this.isDraggingIntegrals = true;
+        this.update(); // one render for the drag-highlight on the handle
         const startY = e.clientY;
         const startHeight = this.integralsPanelHeight;
+        const panel = this.node.querySelector<HTMLElement>('.xs-integrals-panel');
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
             if (!this.isDraggingIntegrals) return;
@@ -2883,7 +2886,11 @@ export class XSPlotWidget extends ReactWidget {
             const deltaY = startY - moveEvent.clientY; // Negative when dragging down
             const newHeight = Math.max(100, Math.min(400, startHeight + deltaY));
             this.integralsPanelHeight = newHeight;
-            this.update();
+            // Write directly to the DOM during the drag — a React re-render per
+            // pixel (with a Plotly chart in the tree) is what made this laggy.
+            if (panel) {
+                panel.style.height = `${newHeight}px`;
+            }
         };
 
         const handleMouseUp = () => {
@@ -2909,6 +2916,7 @@ export class XSPlotWidget extends ReactWidget {
 
         return (
             <div
+                className="xs-integrals-panel"
                 style={{
                     height: `${this.integralsPanelHeight}px`,
                     overflow: 'auto',

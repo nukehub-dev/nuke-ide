@@ -113,11 +113,23 @@
     width: 340px;
     min-width: 220px;
     max-width: 640px;
-    resize: horizontal;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--theia-editorGroup-border);
+}
+
+/* Drag divider between the list and detail panels */
+.nuclear-data-widget .nuclide-split-handle {
+    flex: 0 0 5px;
+    margin-left: -3px;
+    cursor: col-resize;
+    z-index: 1;
+}
+
+.nuclear-data-widget .nuclide-split-handle:hover,
+.nuclear-data-widget .nuclide-split-handle:active {
+    background: var(--theia-focusBorder);
+    opacity: 0.5;
 }
 
 .nuclear-data-widget .nuclide-toolbar {
@@ -146,24 +158,29 @@
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
 }
 
+.nuclear-data-widget .nuclide-table-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .nuclear-data-widget .nuclide-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
-    overflow-y: auto;
-    display: block;
-    flex: 1;
+    table-layout: fixed;
 }
 
 .nuclear-data-widget .nuclide-table thead {
     position: sticky;
     top: 0;
     background: var(--theia-editor-background);
+    z-index: 1;
 }
 
 .nuclear-data-widget .nuclide-table th {
     text-align: left;
-    padding: 4px 8px;
+    padding: 6px 10px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -171,15 +188,28 @@
     border-bottom: 1px solid var(--theia-editorGroup-border);
 }
 
+/* Fixed column widths: name flexible, counts narrow and right-aligned */
+.nuclear-data-widget .nuclide-table th:nth-child(2) {
+    width: 60px;
+}
+
+.nuclear-data-widget .nuclide-table th:nth-child(3) {
+    width: 88px;
+}
+
 .nuclear-data-widget .nuclide-table td {
-    padding: 3px 8px;
+    padding: 5px 10px;
     border-bottom: 1px solid var(--theia-editorGroup-border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Numeric columns (temperatures / reaction counts) right-align for scanning */
 .nuclear-data-widget .nuclide-table th.numeric,
 .nuclear-data-widget .nuclide-table td.numeric {
     text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .nuclear-data-widget .nuclide-table tbody tr {

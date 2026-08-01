@@ -193,6 +193,37 @@ export class NuclearDataWidget extends ReactWidget {
         this.shell.activateWidget(widget.id);
     }
 
+    /** Width of the list panel in px (undefined = CSS default). */
+    private panelWidth?: number;
+
+    /**
+     * Drag-to-resize the list panel. During the drag the width is written
+     * directly to the DOM (no React re-render per pixel — that is what makes
+     * custom splitters feel laggy); the width is committed to widget state on
+     * mouseup.
+     */
+    private startPanelDrag = (e: React.MouseEvent): void => {
+        e.preventDefault();
+        const panel = this.node.querySelector<HTMLElement>('.nuclide-list-panel');
+        if (!panel) {
+            return;
+        }
+        const startX = e.clientX;
+        const startWidth = panel.getBoundingClientRect().width;
+        const onMove = (ev: MouseEvent): void => {
+            const width = Math.min(640, Math.max(220, startWidth + ev.clientX - startX));
+            panel.style.width = `${width}px`;
+            this.panelWidth = width;
+        };
+        const onUp = (): void => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            this.update();
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    };
+
     /** Render the widget. */
     protected render(): React.ReactNode {
         const nuclides = (this.library?.nuclides ?? []).filter((n) => n.name.toLowerCase().includes(this.filter.toLowerCase()));
@@ -247,7 +278,7 @@ export class NuclearDataWidget extends ReactWidget {
 
                 {!this.loading && this.library?.success && (
                     <div className="nuclear-data-body">
-                        <div className="nuclide-list-panel">
+                        <div className="nuclide-list-panel" style={this.panelWidth ? { width: this.panelWidth } : undefined}>
                             <div className="nuclide-toolbar">
                                 <input
                                     type="text"
@@ -259,34 +290,38 @@ export class NuclearDataWidget extends ReactWidget {
                                     }}
                                 />
                             </div>
-                            <table className="nuclide-table">
-                                <thead>
-                                    <tr>
-                                        <th>Nuclide</th>
-                                        <th className="numeric">Temps</th>
-                                        <th className="numeric">Reactions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {nuclides.map((n) => (
-                                        <tr
-                                            key={n.name}
-                                            className={this.selectedNuclide === n.name ? 'selected' : ''}
-                                            onClick={() => this.selectNuclide(n)}
-                                        >
-                                            <td>{n.name}</td>
-                                            <td className="numeric">{n.temperatureCount}</td>
-                                            <td className="numeric">{n.reactionCount}</td>
+                            <div className="nuclide-table-wrapper">
+                                <table className="nuclide-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nuclide</th>
+                                            <th className="numeric">Temps</th>
+                                            <th className="numeric">Reactions</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {nuclides.map((n) => (
+                                            <tr
+                                                key={n.name}
+                                                className={this.selectedNuclide === n.name ? 'selected' : ''}
+                                                onClick={() => this.selectNuclide(n)}
+                                            >
+                                                <td>{n.name}</td>
+                                                <td className="numeric">{n.temperatureCount}</td>
+                                                <td className="numeric">{n.reactionCount}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                             <div className="nuclide-list-footer">
                                 {nuclides.length === this.library.nuclideCount
                                     ? `${this.library.nuclideCount} nuclides`
                                     : `${nuclides.length} of ${this.library.nuclideCount} nuclides`}
                             </div>
                         </div>
+
+                        <div className="nuclide-split-handle" onMouseDown={this.startPanelDrag} title="Drag to resize" />
 
                         <div className="nuclide-detail-panel">
                             {this.detailLoading && <p className="form-hint">Loading {this.selectedNuclide}…</p>}
