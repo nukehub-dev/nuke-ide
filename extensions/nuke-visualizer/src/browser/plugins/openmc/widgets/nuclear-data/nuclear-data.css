@@ -388,7 +388,7 @@
 
 .nuclear-data-widget .cfg-builder-fields {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 8px;
     margin-bottom: 10px;
 }
@@ -397,15 +397,21 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .nuclear-data-widget .cfg-field-label {
     font-size: 11px;
     font-weight: 600;
     color: var(--theia-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .nuclear-data-widget .cfg-field input {
+    width: 100%;
+    min-width: 0;
     padding: 4px 8px;
     border: 1px solid var(--theia-input-border);
     border-radius: 4px;
@@ -413,6 +419,7 @@
     color: var(--theia-input-foreground);
     font-size: 12px;
     outline: none;
+    box-sizing: border-box;
 }
 
 .nuclear-data-widget .cfg-field input:focus {

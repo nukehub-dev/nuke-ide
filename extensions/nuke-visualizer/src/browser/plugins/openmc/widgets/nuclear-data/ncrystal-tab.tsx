@@ -252,17 +252,15 @@ export const NCrystalTab: React.FC<NCrystalTabProps> = ({ backendService, fileDi
                         <div className="cfg-builder">
                             <div className="cfg-builder-fields">
                                 {CFG_FIELDS.map((field) => (
-                                    <Tooltip key={field.key} content={field.hint} position="bottom">
-                                        <label className="cfg-field">
-                                            <span className="cfg-field-label">{field.label}</span>
-                                            <input
-                                                type="text"
-                                                placeholder={field.placeholder}
-                                                value={fields[field.key] ?? ''}
-                                                onChange={(e) => setFields({ ...fields, [field.key]: e.target.value })}
-                                            />
-                                        </label>
-                                    </Tooltip>
+                                    <label key={field.key} className="cfg-field">
+                                        <span className="cfg-field-label">{field.label}</span>
+                                        <input
+                                            type="text"
+                                            placeholder={field.placeholder}
+                                            value={fields[field.key] ?? ''}
+                                            onChange={(e) => setFields({ ...fields, [field.key]: e.target.value })}
+                                        />
+                                    </label>
                                 ))}
                             </div>
                             <div className="cfg-preview-row">
