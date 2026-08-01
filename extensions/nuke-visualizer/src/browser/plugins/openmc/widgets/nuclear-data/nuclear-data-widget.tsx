@@ -29,6 +29,7 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
@@ -65,6 +66,9 @@ export class NuclearDataWidget extends ReactWidget {
     @inject(NukeCoreService)
     protected readonly nukeCoreService!: NukeCoreService;
 
+    @inject(PreferenceService)
+    protected readonly preferenceService!: PreferenceService;
+
     @inject(FileDialogService)
     protected readonly fileDialogService!: FileDialogService;
 
@@ -91,8 +95,27 @@ export class NuclearDataWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-database';
 
-        this.libraryPath = this.nukeCoreService.getCrossSectionsPath() || undefined;
-        void this.loadLibrary();
+        // Follow preference changes (e.g. the user sets the path in Settings)
+        this.toDispose.push(
+            this.preferenceService.onPreferenceChanged((event) => {
+                if (event.preferenceName === 'nuke.openmcCrossSections') {
+                    this.libraryPath = this.nukeCoreService.getCrossSectionsPath() || undefined;
+                    this.selectedNuclide = undefined;
+                    this.detail = undefined;
+                    void this.loadLibrary();
+                }
+            })
+        );
+
+        // Initial load only once preferences are ready — on a browser reload the
+        // layout restores this widget before user settings have loaded, and
+        // reading the preference early yields the schema default ''.
+        this.preferenceService.ready.then(() => {
+            if (!this.libraryPath) {
+                this.libraryPath = this.nukeCoreService.getCrossSectionsPath() || undefined;
+            }
+            void this.loadLibrary();
+        });
         this.update();
     }
 
@@ -200,7 +223,7 @@ export class NuclearDataWidget extends ReactWidget {
 
                 <div className="library-path-row">
                     <span className="library-path-label">Library:</span>
-                    <code className="library-path-value">
+                    <code className="library-path-value" title={this.libraryPath}>
                         {this.libraryPath ?? '(unresolved — set nuke.openmcCrossSections or Change Library…)'}
                     </code>
                 </div>
@@ -258,6 +281,11 @@ export class NuclearDataWidget extends ReactWidget {
                                     ))}
                                 </tbody>
                             </table>
+                            <div className="nuclide-list-footer">
+                                {nuclides.length === this.library.nuclideCount
+                                    ? `${this.library.nuclideCount} nuclides`
+                                    : `${nuclides.length} of ${this.library.nuclideCount} nuclides`}
+                            </div>
                         </div>
 
                         <div className="nuclide-detail-panel">
@@ -288,17 +316,35 @@ export class NuclearDataWidget extends ReactWidget {
                                     </div>
                                     <div className="detail-row">
                                         <span className="detail-label">Temperatures:</span>
-                                        <span>{this.detail.temperatures?.join(', ') || '—'}</span>
+                                        <span className="temp-chips">
+                                            {(this.detail.temperatures ?? []).map((t) => (
+                                                <span key={t} className="temp-chip">
+                                                    {t}
+                                                </span>
+                                            ))}
+                                            {(this.detail.temperatures ?? []).length === 0 && '—'}
+                                        </span>
                                     </div>
                                     <div className="detail-row">
                                         <span className="detail-label">Reactions ({this.detail.reactionCount}):</span>
                                     </div>
                                     <div className="reaction-grid">
-                                        {(this.detail.reactions ?? []).map((r) => (
-                                            <span key={r.mt} className="reaction-chip" title={`MT ${r.mt}`}>
-                                                {r.label}
-                                            </span>
-                                        ))}
+                                        {(this.detail.reactions ?? []).map((r) => {
+                                            const mtText = `MT ${r.mt}`;
+                                            const chip = (
+                                                <span key={r.mt} className="reaction-chip">
+                                                    {r.label}
+                                                </span>
+                                            );
+                                            // Unknown-MT labels already read "MT <n>" — no tooltip needed
+                                            return r.label === mtText ? (
+                                                chip
+                                            ) : (
+                                                <Tooltip key={r.mt} content={mtText} position="top">
+                                                    {chip}
+                                                </Tooltip>
+                                            );
+                                        })}
                                     </div>
                                 </>
                             )}

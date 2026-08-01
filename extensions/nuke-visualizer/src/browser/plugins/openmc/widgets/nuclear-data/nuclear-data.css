@@ -109,10 +109,14 @@
 }
 
 .nuclear-data-widget .nuclide-list-panel {
-    flex: 1;
+    flex: 0 0 auto;
+    width: 340px;
+    min-width: 220px;
+    max-width: 640px;
+    resize: horizontal;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    min-width: 0;
     border-right: 1px solid var(--theia-editorGroup-border);
 }
 
@@ -191,6 +195,18 @@
     color: var(--theia-list-activeSelectionForeground);
 }
 
+/* Zebra striping for scannability over long lists */
+.nuclear-data-widget .nuclide-table tbody tr:nth-child(even):not(.selected) {
+    background: var(--theia-editorWidget-background);
+}
+
+.nuclear-data-widget .nuclide-list-footer {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    border-top: 1px solid var(--theia-editorGroup-border);
+}
+
 /* Detail panel */
 
 .nuclear-data-widget .nuclide-detail-panel {
@@ -253,4 +269,22 @@
     border-radius: 4px;
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-editorGroup-border);
+}
+
+.nuclear-data-widget .reaction-chip:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuclear-data-widget .temp-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.nuclear-data-widget .temp-chip {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
 }
