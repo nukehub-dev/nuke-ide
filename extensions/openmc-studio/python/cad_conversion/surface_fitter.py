@@ -480,6 +480,16 @@ def fit_quadric(points: list[list[float]]) -> SurfaceFitResult | None:
         if max_c > 1e-10:
             coeffs = coeffs / max_c
 
+        # Canonicalize the (arbitrary, LAPACK-dependent) sign of the singular
+        # vector: the quadratic part must be positive (a + b + c > 0), so an
+        # ellipsoid reads ax^2 + by^2 + cz^2 - 1 = 0. Near-degenerate quadratic
+        # part → first nonzero coefficient positive.
+        quad_sum = coeffs[0] + coeffs[1] + coeffs[2]
+        if quad_sum < 0 or (
+            abs(quad_sum) < 1e-12 and next((c for c in coeffs if abs(c) > 1e-12), 1.0) < 0
+        ):
+            coeffs = -coeffs
+
         coeffs_list = [float(c) for c in coeffs]
 
         # Compute deviation: evaluate quadric equation at each point
