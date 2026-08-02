@@ -189,6 +189,18 @@ Configure multi-group energy mode and the random ray solver.
 
 Switch the **Energy Treatment** between `Continuous Energy` and `Multi-Group`. Multi-group mode requires an **MGXS Library** (`mgxs.h5`) — generate one with the [MGXS Generator](mgxs-generator.md) or point at an existing file (used as `OPENMC_MG_CROSS_SECTIONS`).
 
+### Multi-Group Conversion
+
+One-click conversion from a continuous-energy project: pick the generation method, group structure, particle count, and a working directory, then **Run Conversion**. The IDE generates the MGXS library, then offers **Apply Conversion**, which:
+
+- converts every matched material to **Macroscopic (Multigroup)** with the correct XS data name and `macro` density units,
+- switches the model to multi-group mode and sets the MGXS library path,
+- stores the original nuclide-decomposed materials in project metadata.
+
+A **Revert to Continuous-Energy** button then restores the original materials losslessly (the MGXS library is kept). Materials that don't match an XS data set in the library are left untouched, so mixed models convert partially and cleanly.
+
+> **Note:** Conversion requires a continuous-energy model with nuclide-decomposed materials (the Generate step runs a CE solve). Save a CE copy for depletion work — depletion needs nuclide decomposition and cannot run on a converted project.
+
 ### Random Ray Solver
 
 Inactive/active ray distances, source shape (`Flat` / `Linear` / `Linear XY`), sample method (`PRNG` / `Halton` / `S2`), volume estimator, diagonal stabilization, volume-normalized flux tallies, and **Adjoint flux mode** (forward then adjoint solve, for FW-CADIS weight window generation).

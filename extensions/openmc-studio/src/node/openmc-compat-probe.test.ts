@@ -37,6 +37,7 @@ import * as path from 'path';
 
 import { OpenMCCompatProbeService } from './openmc-compat-probe';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
+import { OptimizationBackendService } from './optimization-backend-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { DEFAULT_OPENMC_COMPAT, OpenMCCompat } from '../common/openmc-studio-protocol';
 import { OpenMCState } from '../common/openmc-state-schema';
@@ -149,6 +150,35 @@ describe('OpenMCCompatProbeService', () => {
         const second = await probe.getOpenMCCompat();
         expect(second).toEqual(WRAPPER_FULL);
         expect(probe.probeCalls).toEqual(['/fake/python-a', '/fake/python-b']);
+    });
+});
+
+describe('OptimizationBackendService compat wiring', () => {
+    it('enriches sweep XML requests with the probed compat', async () => {
+        const svc = new OptimizationBackendService();
+        (svc as any).compatProbe = makeProbe('/fake/python', WRAPPER_FULL);
+
+        const enriched = await (svc as any).withOpenMCCompat({
+            state: {},
+            outputDirectory: '/tmp/x',
+            files: { settings: true }
+        });
+        expect(enriched.randomRayCompat).toEqual(WRAPPER_FULL);
+
+        const explicit = await (svc as any).withOpenMCCompat({
+            state: {},
+            outputDirectory: '/tmp/x',
+            files: { settings: true },
+            randomRayCompat: DIRECT_MIN
+        });
+        expect(explicit.randomRayCompat).toEqual(DIRECT_MIN);
+
+        const noSettings = await (svc as any).withOpenMCCompat({
+            state: {},
+            outputDirectory: '/tmp/x',
+            files: { settings: false }
+        });
+        expect(noSettings.randomRayCompat).toBeUndefined();
     });
 });
 

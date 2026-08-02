@@ -52,12 +52,14 @@ import {
     KeffSearchResult,
     OptimizationProgressEvent,
     OptimizationIterationResult,
-    OpenMCStudioClient
+    OpenMCStudioClient,
+    XMLGenerationRequest
 } from '../common/openmc-studio-protocol';
 import { OpenMCParameterSweep, OpenMCState } from '../common/openmc-state-schema';
 import { applyParameterByPath } from '../common/parameter-paths';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { XMLGenerationService } from './xml-generation-service';
+import { OpenMCCompatProbeService } from './openmc-compat-probe';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 
 interface OptimizationRunState {
@@ -85,6 +87,24 @@ export class OptimizationBackendService {
 
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
+
+    @inject(OpenMCCompatProbeService)
+    protected readonly compatProbe: OpenMCCompatProbeService;
+
+    /**
+     * Fill in the OpenMC version compatibility from the environment probe
+     * unless the caller already specified it (same contract as the main
+     * backend service's `withOpenMCCompat`) — sweeping a random-ray project
+     * on a post-0.15.3 dev env must emit the wrapper ray_source format.
+     * @param request - Generation request
+     * @returns Request with randomRayCompat resolved
+     */
+    protected async withOpenMCCompat(request: XMLGenerationRequest): Promise<XMLGenerationRequest> {
+        if (!request.files.settings || request.randomRayCompat) {
+            return request;
+        }
+        return { ...request, randomRayCompat: await this.compatProbe.getOpenMCCompat() };
+    }
 
     private activeRuns: Map<string, OptimizationRunState> = new Map();
     /** Running k-eff search processes (runId → process), for cancellation */
@@ -425,11 +445,13 @@ export class OptimizationBackendService {
             }
 
             // Generate base model XML from the IDE state
-            const xmlResult = await this.xmlService.generateXML({
-                state: request.baseState,
-                outputDirectory: outputDir,
-                files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
-            });
+            const xmlResult = await this.xmlService.generateXML(
+                await this.withOpenMCCompat({
+                    state: request.baseState,
+                    outputDirectory: outputDir,
+                    files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+                })
+            );
             if (!xmlResult.success) {
                 return fail(`XML generation failed: ${xmlResult.error}`);
             }
@@ -627,17 +649,19 @@ export class OptimizationBackendService {
         }
 
         // Generate XML files
-        const xmlResult = await this.xmlService.generateXML({
-            state: modifiedState,
-            outputDirectory: iterationDir,
-            files: {
-                materials: true,
-                geometry: true,
-                settings: true,
-                tallies: true,
-                plots: false
-            }
-        });
+        const xmlResult = await this.xmlService.generateXML(
+            await this.withOpenMCCompat({
+                state: modifiedState,
+                outputDirectory: iterationDir,
+                files: {
+                    materials: true,
+                    geometry: true,
+                    settings: true,
+                    tallies: true,
+                    plots: false
+                }
+            })
+        );
 
         if (!xmlResult.success) {
             throw new Error(`XML generation failed: ${xmlResult.error}`);

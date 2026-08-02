@@ -174,6 +174,40 @@ export interface MgxsGenerationResult {
     output?: string;
 }
 
+/** Material name → XS data set name in the generated library */
+export interface MgXsDataMapping {
+    /** Material name in the project */
+    materialName: string;
+    /** XS data set (group) name in mgxs.h5 */
+    xsDataName: string;
+}
+
+/** CE → multi-group project conversion request (python/convert_to_multigroup_project.py) */
+export interface MgConversionRequest {
+    /** Working directory containing the generated model XML files */
+    workingDirectory: string;
+    /** MGXS generation method */
+    method?: 'material_wise' | 'stochastic_slab' | 'infinite_medium';
+    /** Energy group structure name (e.g. 'CASMO-2') */
+    groups?: string;
+    /** Particles for the generation runs */
+    particles?: number;
+    /** Output library filename (default mgxs.h5) */
+    output?: string;
+}
+
+/** CE → multi-group project conversion result */
+export interface MgConversionResult {
+    success: boolean;
+    /** Absolute path to the generated mgxs.h5 library */
+    mgxsPath?: string;
+    /** Material → XS data set mapping (materials with a library group) */
+    xsDataNames?: MgXsDataMapping[];
+    error?: string;
+    /** Captured script output (progress lines) */
+    output?: string;
+}
+
 /** Fine-grained MGXS library generation request (python/generate_mgxs_library.py) */
 export interface MgxsLibraryGenerationRequest {
     /** Working directory containing the model XML files */
@@ -841,6 +875,9 @@ export interface OpenMCStudioBackendService {
 
     /** Generate a fine-grained MGXS library via openmc.mgxs.Library (blocking) */
     generateMgxsLibrary(request: MgxsLibraryGenerationRequest): Promise<MgxsLibraryGenerationResult>;
+
+    /** Convert a CE project to multi-group: MGXS generation + material/XS-data mapping (blocking) */
+    convertToMultigroupProject(request: MgConversionRequest): Promise<MgConversionResult>;
 
     /** Build a custom depletion chain XML (subset or ENDF mode, blocking) */
     buildChain(request: ChainBuildRequest): Promise<ChainBuildResult>;

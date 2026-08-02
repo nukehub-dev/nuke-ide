@@ -26,11 +26,13 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
-import { injectable } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCRandomRaySettings, OpenMCRegularMesh } from '../../../../common/openmc-state-schema';
-import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import { OpenMCCompat, MgConversionResult } from '../../../../common/openmc-studio-protocol';
+import { MGXS_GROUP_STRUCTURES, computeMgConversion, computeMgRevert } from '../../../../common/mg-conversion';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
@@ -45,6 +47,280 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     readonly label = 'Random Ray';
     readonly icon = 'zap';
     readonly order = 5;
+
+    @inject(PreferenceService)
+    protected readonly preferenceService: PreferenceService;
+
+    // Multi-group conversion UI state (P9B one-click CE ↔ MG)
+    private mgConvertDir = '';
+    private mgConvertDirInitialized = false;
+    private mgConvertMethod: 'material_wise' | 'stochastic_slab' | 'infinite_medium' = 'material_wise';
+    private mgConvertGroups = 'CASMO-2';
+    private mgConvertParticles = 2000;
+    private mgConvertBusy = false;
+    private mgConvertResult?: MgConversionResult;
+    private mgAppliedSummary = '';
+
+    /**
+     * Render the Multi-Group Conversion section: the one-click CE → MG
+     * converter (with backup) or the MG → CE revert when a backup exists.
+     * @param host - Simulation dashboard widget host.
+     * @param state - Current OpenMC simulation state.
+     * @returns Conversion section React node, or undefined when not applicable.
+     */
+    private renderMgConversion(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
+        const backup = state.metadata.mgBackup;
+        const isMultiGroup = state.settings.energyMode === 'multigroup';
+        const macroscopicNames = state.materials.filter((m) => m.macroscopic).map((m) => m.name);
+        const result = this.mgConvertResult;
+
+        // Seed the working directory from the persisted preference once
+        if (!this.mgConvertDirInitialized) {
+            this.mgConvertDirInitialized = true;
+            this.mgConvertDir = this.mgConvertDir || this.preferenceService.get<string>('openmcStudio.lastMgxsWorkDir', '');
+        }
+
+        if (backup) {
+            return (
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-arrow-swap"></i> Multi-Group Conversion
+                    </h3>
+                    <div className="rr-actions-row">
+                        <Tooltip content="Restore the pre-conversion nuclide materials and energy mode" position="bottom">
+                            <button className="theia-button secondary" onClick={() => this.revertMgConversion(host)}>
+                                <i className="codicon codicon-history"></i> Revert to Continuous-Energy
+                            </button>
+                        </Tooltip>
+                    </div>
+                    <span className="form-hint">
+                        This project was converted to multi-group. Reverting restores the original nuclide materials and energy mode (the
+                        MGXS library path is kept).
+                    </span>
+                </div>
+            );
+        }
+
+        if (isMultiGroup) {
+            return undefined;
+        }
+
+        return (
+            <div className="settings-section">
+                <h3>
+                    <i className="codicon codicon-arrow-swap"></i> Multi-Group Conversion
+                </h3>
+                {macroscopicNames.length > 0 ? (
+                    <span className="form-hint">
+                        Conversion requires nuclide-decomposed materials; macroscopic materials present: {macroscopicNames.join(', ')}.
+                    </span>
+                ) : (
+                    <>
+                        <span className="form-hint">
+                            CE detail is preserved in a backup — but save a CE project copy for depletion work.
+                        </span>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Method</label>
+                                <select
+                                    value={this.mgConvertMethod}
+                                    onChange={(e) => {
+                                        this.mgConvertMethod = e.target.value as typeof this.mgConvertMethod;
+                                        host.update();
+                                    }}
+                                >
+                                    <option value="material_wise">Material Wise (highest fidelity)</option>
+                                    <option value="stochastic_slab">Stochastic Slab</option>
+                                    <option value="infinite_medium">Infinite Medium</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Group Structure</label>
+                                <select
+                                    value={this.mgConvertGroups}
+                                    onChange={(e) => {
+                                        this.mgConvertGroups = e.target.value;
+                                        host.update();
+                                    }}
+                                >
+                                    {MGXS_GROUP_STRUCTURES.map((g) => (
+                                        <option key={g} value={g}>
+                                            {g}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Particles</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    value={this.mgConvertParticles}
+                                    onChange={(e) => {
+                                        this.mgConvertParticles = parseInt(e.target.value) || 2000;
+                                        host.update();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Working Directory</label>
+                                <div className="file-input-group">
+                                    <input
+                                        type="text"
+                                        value={this.mgConvertDir}
+                                        placeholder="Directory for the generated XML + mgxs.h5..."
+                                        onChange={(e) => {
+                                            this.mgConvertDir = e.target.value;
+                                            host.update();
+                                        }}
+                                    />
+                                    <button className="theia-button secondary" onClick={() => this.browseMgConvertDir(host)}>
+                                        <i className="codicon codicon-folder-opened"></i> Browse
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="rr-actions-row">
+                            <button
+                                className="theia-button primary"
+                                disabled={this.mgConvertBusy || this.mgConvertDir.trim() === ''}
+                                onClick={() => this.runMgConversion(host)}
+                            >
+                                <i className="codicon codicon-play"></i>
+                                {this.mgConvertBusy ? 'Converting…' : 'Run Conversion'}
+                            </button>
+                            {result?.success && (
+                                <button className="theia-button primary" onClick={() => this.applyMgConversion(host)}>
+                                    <i className="codicon codicon-check"></i> Apply Conversion ({result.xsDataNames?.length ?? 0} materials)
+                                </button>
+                            )}
+                        </div>
+                        {result &&
+                            (result.success ? (
+                                <span className="form-hint">
+                                    Library written to {result.mgxsPath} — {result.xsDataNames?.length ?? 0} material(s) have an XS data
+                                    set. Apply to switch them to macroscopic and enter multi-group mode.
+                                </span>
+                            ) : (
+                                <div className="depletion-warning-box">
+                                    <i className="codicon codicon-error"></i>
+                                    <div className="warning-content">
+                                        <strong>Conversion failed</strong>
+                                        <p>{result.error}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        {this.mgAppliedSummary && <span className="form-hint">{this.mgAppliedSummary}</span>}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    /**
+     * Browse for the conversion working directory.
+     * @param host - Simulation dashboard widget host.
+     */
+    private async browseMgConvertDir(host: SimulationDashboardWidget): Promise<void> {
+        const uri = await host.fileDialogService.showOpenDialog({
+            title: 'Select Conversion Working Directory',
+            canSelectFiles: false,
+            canSelectFolders: true
+        });
+        if (uri) {
+            this.mgConvertDir = uri.path.toString();
+            host.update();
+        }
+    }
+
+    /**
+     * Generate the project XML into the working directory and run the
+     * conversion driver (MGXS generation + material mapping).
+     * @param host - Simulation dashboard widget host.
+     */
+    private async runMgConversion(host: SimulationDashboardWidget): Promise<void> {
+        this.mgConvertBusy = true;
+        this.mgConvertResult = undefined;
+        this.mgAppliedSummary = '';
+        // Persist the last-used working directory across sessions
+        void this.preferenceService.set('openmcStudio.lastMgxsWorkDir', this.mgConvertDir);
+        host.update();
+        try {
+            const backend = host.studioService.getBackendService();
+            const state = host.stateManager.getState();
+            const xml = await backend.generateXML({
+                state,
+                outputDirectory: this.mgConvertDir,
+                files: {
+                    geometry: true,
+                    materials: true,
+                    settings: true,
+                    tallies: state.tallies.length > 0,
+                    plots: false
+                }
+            });
+            if (!xml.success) {
+                this.mgConvertResult = { success: false, error: `XML generation failed: ${xml.error}` };
+                return;
+            }
+            this.mgConvertResult = await backend.convertToMultigroupProject({
+                workingDirectory: this.mgConvertDir,
+                method: this.mgConvertMethod,
+                groups: this.mgConvertGroups,
+                particles: this.mgConvertParticles,
+                output: 'mgxs.h5'
+            });
+        } catch (error) {
+            this.mgConvertResult = { success: false, error: String(error) };
+        } finally {
+            this.mgConvertBusy = false;
+            host.update();
+        }
+    }
+
+    /**
+     * Apply a successful conversion: macroscopic materials for every mapped
+     * material, multi-group mode + library path, and the CE backup stash.
+     * @param host - Simulation dashboard widget host.
+     */
+    private applyMgConversion(host: SimulationDashboardWidget): void {
+        const result = this.mgConvertResult;
+        if (!result?.success || !result.mgxsPath) {
+            return;
+        }
+        const state = host.stateManager.getState();
+        const updates = computeMgConversion(state, result.xsDataNames ?? [], result.mgxsPath);
+        for (const material of updates.materials) {
+            host.stateManager.updateMaterial(material.id, material);
+        }
+        host.stateManager.updateSettings(updates.settings);
+        host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
+        this.mgAppliedSummary = `Converted ${updates.convertedNames.length} material(s) to macroscopic (${updates.convertedNames.join(', ')}). Library: ${result.mgxsPath}`;
+        this.mgConvertResult = undefined;
+        host.update();
+    }
+
+    /**
+     * Revert to continuous-energy: restore the backed-up materials and energy
+     * mode, keep the MGXS library path, clear the backup.
+     * @param host - Simulation dashboard widget host.
+     */
+    private revertMgConversion(host: SimulationDashboardWidget): void {
+        const state = host.stateManager.getState();
+        const updates = computeMgRevert(state);
+        if (!updates) {
+            return;
+        }
+        for (const material of updates.materials) {
+            host.stateManager.updateMaterial(material.id, material);
+        }
+        host.stateManager.updateSettings({ energyMode: updates.energyMode });
+        host.stateManager.updateMetadata({ mgBackup: undefined });
+        this.mgAppliedSummary = '';
+        host.update();
+    }
 
     /** Probed OpenMC compatibility for feature gating (fetched once). */
     private compat?: OpenMCCompat;
@@ -154,6 +430,8 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                         </div>
                     )}
                 </div>
+
+                {this.renderMgConversion(host, state)}
 
                 <div className="settings-section">
                     <h3>

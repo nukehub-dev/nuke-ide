@@ -1,0 +1,69 @@
+name: UI smoke
+
+# Playwright GUI smoke tests (tests/ui/) against the built browser app:
+# boots the real Theia frontend in Chromium and checks for console errors,
+# blank widgets, and interaction regressions (see .crush/PHASE9_PLAN.md P9A).
+# Weekly only — the browser bundle is too heavy for per-PR gating.
+
+on:
+  schedule:
+    # Weekly (Tuesdays ~05:41 UTC), staggered from the other weekly jobs.
+    - cron: '41 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    name: Playwright GUI smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache node_modules
+        # Own prefix: must NOT collide with ci.yml's ci-yarn- caches, which
+        # are created with --ignore-scripts (repo cache-prefix pitfall).
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            applications/*/node_modules
+            extensions/*/node_modules
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ui-smoke-yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ui-smoke-yarn-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+
+      - name: Build the browser app
+        run: yarn build:browser
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright suite
+        run: yarn test:ui
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 7

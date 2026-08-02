@@ -26,6 +26,7 @@
     "test:python:full": "${NUKE_TEST_PYTHON:-python} -m pytest",
     "test:python:cov": "python -m pytest --cov --cov-report=term-missing --cov-report=xml",
     "test:ts": "vitest run",
+    "test:ui": "playwright test",
     "docker:build": "docker compose -f applications/docker/compose.yml build",
     "docker:up": "docker compose -f applications/docker/compose.yml up",
     "build:electron:prod": "yarn generate:preload && yarn download:plugins && yarn --cwd applications/electron bundle:prod",
@@ -41,6 +42,7 @@
     "package:electron:all": "yarn build:electron:prod && yarn --cwd applications/electron dist -mwl"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "lerna": "9.0.7",

@@ -53,6 +53,17 @@ export interface OpenMCProjectMetadata {
     created: string;
     /** Last modification timestamp (ISO 8601) */
     modified: string;
+    /**
+     * Pre-conversion snapshot from "Convert to Multi-Group" (optional,
+     * version-tolerant — no migration needed). Restored by "Revert to
+     * Continuous-Energy". See `src/common/mg-conversion.ts`.
+     */
+    mgBackup?: {
+        /** Materials as they were before macroscopic conversion */
+        materials: OpenMCMaterial[];
+        /** Energy mode before conversion (typically continuous-energy) */
+        energyMode?: OpenMCSettings['energyMode'];
+    };
 }
 
 // ============================================================================

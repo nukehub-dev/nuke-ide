@@ -1852,6 +1852,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return this.runnerService.generateMgxsLibrary(request);
     }
 
+    /**
+     * Convert a CE project to multi-group (MGXS generation + material mapping).
+     * @param request - Conversion configuration
+     * @returns The library path and material/XS-data mapping
+     */
+    async convertToMultigroupProject(
+        request: import('../common/openmc-studio-protocol').MgConversionRequest
+    ): Promise<import('../common/openmc-studio-protocol').MgConversionResult> {
+        return this.runnerService.convertToMultigroupProject(request);
+    }
+
     // ============================================================================
     // Validation
     // ============================================================================

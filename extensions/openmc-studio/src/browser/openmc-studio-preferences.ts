@@ -70,6 +70,11 @@ export const OpenMCStudioPreferenceSchema: PreferenceSchema = {
             type: 'boolean',
             default: true,
             description: 'Automatically increase faceting tolerance for very large models to prevent excessive mesh generation time.'
+        },
+        'openmcStudio.lastMgxsWorkDir': {
+            type: 'string',
+            default: '',
+            description: 'Last working directory used for MGXS / multi-group conversion runs (persists across sessions).'
         }
     }
 };
@@ -86,6 +91,8 @@ export interface OpenMCStudioConfiguration {
     'openmcStudio.defaultFacetingTolerance': number;
     /** Whether to auto-adjust faceting tolerance for large models. */
     'openmcStudio.autoAdjustFacetingTolerance': boolean;
+    /** Last working directory used for MGXS / multi-group conversion runs. */
+    'openmcStudio.lastMgxsWorkDir': string;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for OpenMC Studio. */

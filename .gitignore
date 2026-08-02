@@ -24,3 +24,7 @@ coverage.xml
 
 # Docker compose workspace volume
 applications/docker/workspace/
+
+# Playwright GUI smoke test artifacts
+test-results/
+playwright-report/

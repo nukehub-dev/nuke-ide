@@ -108,6 +108,13 @@ Notes:
 - Formatter configs: `.prettierrc.json` (Theia style: 4-space, single quotes, no trailing commas, width 140), `ruff.toml` (py313, width 100), `.editorconfig` mirrors both.
 - Full application bundles are heavy: `yarn build:browser` / `yarn build:electron` run webpack. Prefer `npx lerna run build` for a fast compile check.
 
+## UI smoke tests (Playwright)
+
+- `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start` on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards.
+- Prerequisites: `yarn build:browser` first (the suite tests the bundled app), and `npx playwright install chromium` once to download the browser (the npm package `@playwright/test` does not include it).
+- Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
+- CI runs it weekly via `.github/workflows/ui-smoke.yml` (build → boot → tests → artifact on failure); it is not part of per-PR CI because the browser bundle is heavy.
+
 ## CI/CD
 
 GitHub Actions workflows under `.github/workflows/`:
@@ -115,6 +122,7 @@ GitHub Actions workflows under `.github/workflows/`:
 - `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage, and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
 - `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional rendering check (`applications/docker/render_smoke_test.py` — the trame/ParaView/VTK seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
+- `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls).
 - `upstream-latest.yml` — weekly early-warning job: builds the backend conda env with the `paraview` pin relaxed (everything else already floats) and runs pytest + the rendering smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
 - `openmc-dev.yml` — weekly early-warning job against the _development_ OpenMC: checks out `openmc-dev/openmc@develop` (its default branch), builds libopenmc from source (cached by upstream SHA — skipped when develop hasn't moved, incremental on a new SHA), `pip install .` (openmc's own deps incl. `endf` come from PyPI; plus `pytest` + `vtk` wheels), downloads the NNDC HDF5 / ENDF-B-VII.1 / ENDF-B-VII.1-PWR-chain data (same tarballs OpenMC's own CI uses, cached), then runs `yarn test:python:full` and the openmc-studio vitest e2e with the same env gates we use locally. Failures open/update an `upstream-regression` issue.
 

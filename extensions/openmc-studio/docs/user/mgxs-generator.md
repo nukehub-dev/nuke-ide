@@ -2,6 +2,8 @@
 
 The MGXS Generator produces a multi-group cross-section library (`mgxs.h5`) from your continuous-energy model and writes the library path into the project settings — the library multi-group and random ray runs need (see the Random Ray tab in the [Simulation Dashboard](simulation-dashboard.md)).
 
+> **Tip:** For the full one-click workflow (generate + convert materials to macroscopic + switch to multi-group, with lossless revert), use **Multi-Group Conversion** in the Random Ray tab instead — it wraps this generator. The **Generate…** button next to the MGXS library picker opens this window directly.
+
 ---
 
 ## Opening

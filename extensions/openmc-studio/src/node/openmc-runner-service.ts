@@ -54,6 +54,8 @@ import {
     NCrystalImportResult,
     MgxsGenerationRequest,
     MgxsGenerationResult,
+    MgConversionRequest,
+    MgConversionResult,
     ChainBuildRequest,
     ChainBuildResult,
     MgxsLibraryGenerationRequest,
@@ -1629,6 +1631,37 @@ export class OpenMCRunnerService {
         }
 
         return this.executePythonScriptJson<MgxsGenerationResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Convert a CE project to multi-group via python/convert_to_multigroup_project.py:
+     * MGXS generation (reusing generate_mgxs) plus the material/XS-data mapping.
+     * @param request - Conversion configuration
+     * @returns The library path and material mapping
+     */
+    async convertToMultigroupProject(request: MgConversionRequest): Promise<MgConversionResult> {
+        this.log(`Converting project to multi-group in ${request.workingDirectory}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'convert_to_multigroup_project.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: convert_to_multigroup_project.py' };
+        }
+
+        const args: string[] = [scriptPath, request.workingDirectory];
+        if (request.method) {
+            args.push('--method', request.method);
+        }
+        if (request.groups) {
+            args.push('--groups', request.groups);
+        }
+        if (request.particles) {
+            args.push('--particles', String(request.particles));
+        }
+        if (request.output) {
+            args.push('--output', request.output);
+        }
+
+        return this.executePythonScriptJson<MgConversionResult>(args, request.workingDirectory);
     }
 
     /**

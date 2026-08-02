@@ -29,3 +29,7 @@ yarn.lock
 
 # Docker workspace volume
 applications/docker/workspace/
+
+# Playwright test output (ephemeral)
+test-results/
+playwright-report/

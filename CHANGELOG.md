@@ -11,9 +11,22 @@ Phase 5: comprehensive OpenMC feature completeness.
 Phase 6: remaining OpenMC surface.
 Phase 7: deferred surface + end-to-end testing layer.
 Phase 8: nuclear data hub (NCrystal + ENDF).
+Phase 9: hardening + workflow unification.
 
 ### Added
 
+- openmc-studio: one-click **CE ↔ Multi-Group conversion** (Random Ray tab) —
+  generates MGXS from the current CE model, converts matched materials to
+  macroscopic with the correct XS data names, and stashes the original materials
+  in project metadata for a lossless **Revert to Continuous-Energy**.
+- openmc-studio: version-compatibility architecture for upstream OpenMC drift —
+  a per-env runtime probe (ray_source XML format, adjoint source, TokamakSource,
+  s2 sampling) that adapts XML emission and gates dev-only UI options; MG library
+  reference in materials.xml with legacy path unification; depletion solver names
+  aligned to OpenMC's real integrator registry with legacy aliases.
+- openmc-studio: mode guard rails with plain-language errors — coupled depletion
+  vs multi-group, macroscopic depletable materials, MGXS generation vs MG models,
+  IFP kinetics vs random ray, random-ray score whitelist, duplicate mesh emission.
 - nuke-visualizer: NCrystal tab in the Nuclear Data window — browse the installed
   `.ncmat` material library (or custom files/dirs), inspect phases/structure,
   build config strings with a guided editor (temp, dcutoff, mosaicity, …) for
@@ -29,7 +42,6 @@ Phase 8: nuclear data hub (NCrystal + ENDF).
   split, and missing-dependency errors show an actionable install/env panel.
 - nuke-visualizer: the visualizer proxy retries refused connections on startup
   (trame bind race), eliminating false 'Visualizer server unreachable' errors.
-
 - openmc-studio: tally derivatives (`TallyDerivative`) — sensitivity tallies in
   the tally editor with density/nuclide-density/temperature perturbation
   variables, e2e-verified against the real statepoint layout.
@@ -49,34 +61,7 @@ Phase 8: nuclear data hub (NCrystal + ENDF).
   muir energy round-trip (serializes as `normal` in this OpenMC version),
   TokamakSource time distributions, criticality-search cancellation, and CMFD
   mesh-reference validation.
-- openmc-studio: end-to-end test layer — real OpenMC runs for every driver
-  (CMFD, depletion, k-eff search, volume calc, MGXS, chain build, plots) and a
-  project-file suite (10+ `.nuke-openmc` fixtures through the real
-  load → migrate → XML → run pipeline, incl. DAGMC, random ray, kinetics,
-  derivatives, mesh/tokamak sources, and a v1.0.0 migration fixture).
-  `yarn test:python:full` runs the full-dependency profile via `NUKE_TEST_PYTHON`;
-  env-gated on `OPENMC_CROSS_SECTIONS` / `NUKE_E2E_CHAIN` / `NUKE_E2E_ENDF`,
-  skipping cleanly otherwise.
 - nuke-visualizer: weight-windows viewer mesh selector for multi-mesh files.
-
-### Fixed
-
-- openmc-studio: `generateSurfaceElement` stamped `boundary="vacuum"` on every
-  surface, silently killing particles in all multi-region models — regenerate
-  XML for existing projects.
-- openmc-studio: cylinder surfaces generated invalid Python (`openmc.Cylinder`
-  does not exist); kinetics-enabled scripts omitted the auto-generated IFP
-  tallies; macroscopic materials lacked the required `macro` density unit —
-  all caught by the e2e layer.
-- openmc-studio: MGXS generation passed a wrong `particles` kwarg to
-  `convert_to_multigroup`; k-eff search used nonexistent `Model.clone()` and a
-  direct density assignment; nuclide-fraction changes now renormalize only
-  within the same element instead of distorting all other nuclides.
-- openmc-studio: chain builder accepts both ENDF `neutron/` and `neutrons/`
-  layouts and closes FPY borrow-parent references in ENDF-built chains.
-
-### Added
-
 - openmc-studio: CMFD acceleration — Convergence-section UI, validation, codegen,
   and a `run_cmfd.py` driver so CMFD-enabled runs execute through the IDE (CMFD is
   C-API-only in this OpenMC version; there is no settings.xml form).
@@ -96,22 +81,6 @@ Phase 8: nuclear data hub (NCrystal + ENDF).
   biasing, generations per batch, probability tables, lost-particle limits,
   initial-source writing, uniform source sampling, log-grid bins, and multi-group
   max order.
-
-### Fixed
-
-- openmc-studio: run-level tally trigger settings, `eventBased`,
-  `probabilityTables`, `maxLostParticles`, and `relLostParticleRate` existed in
-  the project schema but never round-tripped to XML or appeared in the UI.
-- openmc-studio: React controlled selects/checkboxes that mutated widget fields
-  without scheduling a re-render were reverted by React (DAGMC overrides, MGXS
-  generator, volume calculator) — selections now stick immediately.
-- nuke-essentials: tooltips anchored to a stretched wrapper span could appear far
-  from their control, and lingered at stale coordinates after scroll/resize.
-- nuke-visualizer: output viewers' selects/inputs lacked focus/disabled styling
-  and themed dropdown option lists.
-
-### Added
-
 - openmc-studio: simulation dashboard tabs are now modular contributions behind a
   `DashboardTabRegistry` (the monolithic dashboard widget was split into per-tab
   modules), and `.nuke-openmc` project files carry schema version 1.1.0 with a
@@ -147,9 +116,49 @@ Phase 8: nuclear data hub (NCrystal + ENDF).
 - nuke-visualizer: IFP kinetics tab in the statepoint viewer (β_eff/Λ_eff with
   uncertainties, CSV export), particle-restart preview viewer, and a random-ray
   results viewer with initial-coloring support (`base.serve --color-by`).
+- Testing: **Playwright UI smoke suite** (`yarn test:ui`) — boot with zero
+  console errors, all dashboard tabs, New Project flow, windows, select-sticks;
+  weekly `ui-smoke.yml` CI with failure screenshots.
+- Testing: `openmc-dev.yml` weekly CI lane building upstream OpenMC develop from
+  source; CI python tests moved to a cached conda full profile (coverage ratchet
+  back above 94%).
+- Testing: end-to-end test layer — real OpenMC runs for every driver
+  (CMFD, depletion, k-eff search, volume calc, MGXS, chain build, plots) and a
+  project-file suite (10+ `.nuke-openmc` fixtures through the real
+  load → migrate → XML → run pipeline, incl. DAGMC, random ray, kinetics,
+  derivatives, mesh/tokamak sources, and a v1.0.0 migration fixture).
+  `yarn test:python:full` runs the full-dependency profile via `NUKE_TEST_PYTHON`;
+  env-gated on `OPENMC_CROSS_SECTIONS` / `NUKE_E2E_CHAIN` / `NUKE_E2E_ENDF`,
+  skipping cleanly otherwise.
 
 ### Fixed
 
+- openmc-studio: random-ray ray_source emitted in the dev-clone XML format,
+  which release 0.15.3 binaries reject — now probed per env.
+- openmc-studio: macroscopic materials couldn't select the required `macro`
+  density unit; MGXS generation crashed silently on MG models via libopenmc's
+  C-level exit — now a first-class guarded error with the real cause surfaced.
+- openmc-studio: depletion solver dropdown emitted names the driver rejected
+  (`ce-cm`, `leapfrog`, `si-rk4`, `predictor-corrector`).
+- openmc-studio: `generateSurfaceElement` stamped `boundary="vacuum"` on every
+  surface, silently killing particles in all multi-region models — regenerate
+  XML for existing projects.
+- openmc-studio: cylinder surfaces generated invalid Python (`openmc.Cylinder`
+  does not exist); kinetics-enabled scripts omitted the auto-generated IFP
+  tallies; macroscopic materials lacked the required `macro` density unit —
+  all caught by the e2e layer.
+- openmc-studio: MGXS generation passed a wrong `particles` kwarg to
+  `convert_to_multigroup`; k-eff search used nonexistent `Model.clone()` and a
+  direct density assignment; nuclide-fraction changes now renormalize only
+  within the same element instead of distorting all other nuclides.
+- openmc-studio: chain builder accepts both ENDF `neutron/` and `neutrons/`
+  layouts and closes FPY borrow-parent references in ENDF-built chains.
+- openmc-studio: run-level tally trigger settings, `eventBased`,
+  `probabilityTables`, `maxLostParticles`, and `relLostParticleRate` existed in
+  the project schema but never round-tripped to XML or appeared in the UI.
+- openmc-studio: React controlled selects/checkboxes that mutated widget fields
+  without scheduling a re-render were reverted by React (DAGMC overrides, MGXS
+  generator, volume calculator) — selections now stick immediately.
 - openmc-studio: `tallies.xml` and `plots.xml` are now parsed back on XML import
   (previously export-only), and plots use the real OpenMC element format.
 - openmc-studio: tallies emit a single space-joined `<nuclides>` element (the
@@ -157,6 +166,12 @@ Phase 8: nuclear data hub (NCrystal + ENDF).
   emits real filter constructors instead of invalid `openmc.Filter()` calls.
 - openmc-studio: weight window generators use the real
   `<weight_window_generators>` settings.xml format.
+- nuke-essentials: tooltips anchored to a stretched wrapper span could appear far
+  from their control, and lingered at stale coordinates after scroll/resize.
+- nuke-visualizer: output viewers' selects/inputs lacked focus/disabled styling
+  and themed dropdown option lists.
+- CI: vitest job never compiled extensions (broken imports on fresh runners);
+  setup-miniconda pinned Python 3.14, unsatisfiable for OpenMC.
 
 ## [0.1.3] - 2026-07-28
 
