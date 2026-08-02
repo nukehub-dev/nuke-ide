@@ -36,7 +36,8 @@
   "scripts": {
     "prepare": "yarn clean && yarn build",
     "clean": "rimraf --glob lib *.tsbuildinfo",
-    "build": "tsc",
+    "build": "tsc && yarn run copy-css",
+    "copy-css": "node ../../scripts/copy-css.js",
     "watch": "tsc -w"
   },
   "theiaExtensions": [

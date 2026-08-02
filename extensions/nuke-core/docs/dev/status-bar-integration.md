@@ -108,4 +108,4 @@ menus.registerMenuAction(NukeMenus.TOOLS, {
 });
 ```
 
-> **Tip:** If your extension contributes a widget that frequently interacts with the environment, also consider adding a command to `NukeMenus.TOOLS` so users can access it from the same menu as other Nuke commands.
+> **Tip:** If your extension contributes a widget that frequently interacts with the environment, also consider adding a command to `NukeMenus.TOOLS` so users can access it from the same menu as other Nuke commands. For discoverability in the left panel, register the same command in the [Nuke Tools sidebar](tools-sidebar.md) via `NukeToolsContribution`.

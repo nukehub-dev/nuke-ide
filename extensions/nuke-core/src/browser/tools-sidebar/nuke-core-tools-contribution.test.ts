@@ -25,20 +25,37 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-/**
- * OpenMC Studio Browser Contributions
- *
- * Barrel export for all Theia contribution classes in the OpenMC Studio extension.
- *
- * @see {@link OpenMCCommandContribution} for command registration
- * @see {@link OpenMCMenuContribution} for menu registration
- * @see {@link OpenMCToolbarContribution} for toolbar registration
- * @see {@link OpenMCOpenHandlerContribution} for file open handling
- * @module openmc-studio/browser/contributions
- */
+import { describe, it, expect } from 'vitest';
+import { NukeToolsItem, NukeToolsRegistry } from '../../common/nuke-tools-protocol';
+import { NukeCoreCommands } from '../commands/nuke-core-commands';
+import { NukeCoreToolsContribution } from './nuke-core-tools-contribution';
 
-export * from './openmc-command-contribution';
-export * from './openmc-menu-contribution';
-export * from './openmc-toolbar-contribution';
-export * from './openmc-openhandler-contribution';
-export * from './openmc-tools-contribution';
+describe('NukeCoreToolsContribution', () => {
+    it('registers all core tool categories', () => {
+        const items: NukeToolsItem[] = [];
+        const registry: NukeToolsRegistry = {
+            registerItem: (item) => items.push(item)
+        };
+
+        new NukeCoreToolsContribution().registerTools(registry);
+
+        const categories = new Set(items.map((i) => i.category[0]));
+        expect(categories).toContain('Environment');
+        expect(categories).toContain('Packages');
+        expect(categories).toContain('Health & Diagnostics');
+        expect(items).toHaveLength(8);
+    });
+
+    it('uses existing NukeCore command ids', () => {
+        const items: NukeToolsItem[] = [];
+        const registry: NukeToolsRegistry = {
+            registerItem: (item) => items.push(item)
+        };
+
+        new NukeCoreToolsContribution().registerTools(registry);
+
+        expect(items.some((i) => i.commandId === NukeCoreCommands.SWITCH_ENVIRONMENT.id)).toBe(true);
+        expect(items.some((i) => i.commandId === NukeCoreCommands.HEALTH_CHECK.id)).toBe(true);
+        expect(items.some((i) => i.commandId === NukeCoreCommands.INSTALL_PACKAGE.id)).toBe(true);
+    });
+});

@@ -13,6 +13,7 @@ Nuke Core is a Theia extension that provides Python environment discovery, packa
 | [`architecture.md`](architecture.md)                     | High-level architecture, layer diagram, provider pattern, and key design decisions.                                              |
 | [`service-api.md`](service-api.md)                       | How to consume nuke-core from another extension—environment detection, package installation, health checks, and event listeners. |
 | [`status-bar-integration.md`](status-bar-integration.md) | How to request status bar visibility from your extension, including reference counting and widget lifecycle patterns.            |
+| [`tools-sidebar.md`](tools-sidebar.md)                   | How to register commands in the Nuke Tools sidebar so they appear in the searchable, categorized left panel.                     |
 
 ---
 
@@ -27,6 +28,8 @@ The source of truth for APIs and behavior is the TypeScript source, not these do
 | Environment Actions | [`src/browser/services/environment-actions-helper.ts`](../../src/browser/services/environment-actions-helper.ts)                 | One-shot install/delete/terminal helper used by commands and the status bar.                                                  |
 | Visibility Service  | [`src/browser/services/nuke-core-visibility-service.ts`](../../src/browser/services/nuke-core-visibility-service.ts)             | Reference-counted status bar visibility requests.                                                                             |
 | Status Bar          | [`src/browser/contributions/status-bar-contribution.ts`](../../src/browser/contributions/status-bar-contribution.ts)             | Widget contribution with grouped environment picker.                                                                          |
+| Tools Sidebar       | [`src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx`](../../src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx)       | Searchable, categorized left-panel view of all Nuke commands.                                                                 |
+| Tools Sidebar Model | [`src/browser/tools-sidebar/nuke-tools-sidebar-model.ts`](../../src/browser/tools-sidebar/nuke-tools-sidebar-model.ts)           | Pure grouping/filtering/sorting helpers for the sidebar.                                                                      |
 | Backend Service     | [`src/node/nuke-core-backend-service.ts`](../../src/node/nuke-core-backend-service.ts)                                           | RPC implementation that delegates to backend services.                                                                        |
 | Frontend Serving    | [`src/node/static-frontend-server.ts`](../../src/node/static-frontend-server.ts)                                                 | `BackendApplicationServer` override; serves the built frontend with `Cache-Control: no-store` on HTML so redeploys propagate. |
 | Environment Service | [`src/node/services/environment/environment-service.ts`](../../src/node/services/environment/environment-service.ts)             | Aggregates all providers, manages config, validates env existence.                                                            |

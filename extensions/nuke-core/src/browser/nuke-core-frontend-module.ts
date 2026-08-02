@@ -49,9 +49,11 @@
  */
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
-import { WebSocketConnectionProvider } from '@theia/core/lib/browser';
+import { WebSocketConnectionProvider, bindViewContribution } from '@theia/core/lib/browser';
+import { WidgetFactory } from '@theia/core/lib/browser';
 import { MenuContribution, CommandContribution } from '@theia/core/lib/common';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { bindContributionProvider } from '@theia/core/lib/common/contribution-provider';
 import { PreferenceLayoutProvider } from '@theia/preferences/lib/browser/util/preference-layout';
 import {
     NukeCoreBackendService,
@@ -59,12 +61,14 @@ import {
     NukeCoreStatusBarVisibility,
     NUKE_CORE_BACKEND_PATH
 } from '../common/nuke-core-protocol';
+import { NukeToolsContribution } from '../common/nuke-tools-protocol';
 import { EnvironmentActionsHelper, NukeCoreService, NukeCoreVisibilityService } from './services';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
 import { NukeCoreStatusBarContribution, WorkspaceEnvContribution } from './contributions';
 import { NukeHealthCommandContribution, NukeEnvironmentCommandContribution, NukePackageCommandContribution } from './commands';
+import { NukeToolsSidebarWidget, NukeToolsSidebarContribution, NukeCoreToolsContribution } from './tools-sidebar';
 
 export default new ContainerModule(
     (bind: interfaces.Bind, unbind: interfaces.Unbind, isBound: interfaces.IsBound, rebind: interfaces.Rebind) => {
@@ -114,6 +118,20 @@ export default new ContainerModule(
         // Status bar visibility service (for dependent extensions)
         bind(NukeCoreVisibilityService).toSelf().inSingletonScope();
         bind(NukeCoreStatusBarVisibility).toService(NukeCoreVisibilityService);
+
+        // Nuke Tools sidebar
+        bindContributionProvider(bind, NukeToolsContribution);
+        bind(NukeCoreToolsContribution).toSelf().inSingletonScope();
+        bind(NukeToolsContribution).toService(NukeCoreToolsContribution);
+
+        bind(NukeToolsSidebarWidget).toSelf().inTransientScope();
+        bind(WidgetFactory)
+            .toDynamicValue(({ container }) => ({
+                id: NukeToolsSidebarWidget.ID,
+                createWidget: () => container.get(NukeToolsSidebarWidget)
+            }))
+            .inSingletonScope();
+        bindViewContribution(bind, NukeToolsSidebarContribution);
 
         console.log('[NukeCore] Frontend module initialized');
     }

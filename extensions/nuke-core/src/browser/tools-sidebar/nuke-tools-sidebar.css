@@ -1,0 +1,131 @@
+.nuke-tools-sidebar-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-sideBar-background);
+    color: var(--theia-sideBar-foreground);
+}
+
+.nuke-tools-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border);
+    background: var(--theia-sideBarSectionHeader-background);
+}
+
+.nuke-tools-search > span {
+    font-size: 14px;
+    color: var(--theia-input-placeholder-foreground);
+}
+
+.nuke-tools-search input {
+    flex: 1;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 13px;
+    outline: none;
+}
+
+.nuke-tools-search input:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-tools-search input::placeholder {
+    color: var(--theia-input-placeholder-foreground);
+}
+
+.nuke-tools-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 0;
+}
+
+.nuke-tools-category {
+    margin-bottom: 2px;
+}
+
+.nuke-tools-category-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--theia-sideBarSectionHeader-foreground);
+    background: var(--theia-sideBarSectionHeader-background);
+    cursor: pointer;
+    user-select: none;
+}
+
+.nuke-tools-category-header:hover {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
+}
+
+.nuke-tools-category-header:focus {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.nuke-tools-category-toggle {
+    font-size: 14px;
+}
+
+.nuke-tools-category-label {
+    flex: 1;
+}
+
+.nuke-tools-category-items {
+    display: flex;
+    flex-direction: column;
+}
+
+.nuke-tools-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px 5px 28px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--theia-foreground);
+}
+
+.nuke-tools-item:hover {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
+}
+
+.nuke-tools-item:focus {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+    background: var(--theia-list-focusBackground);
+    color: var(--theia-list-focusForeground);
+}
+
+.nuke-tools-item-icon {
+    font-size: 14px;
+    color: var(--theia-icon-foreground);
+    flex-shrink: 0;
+}
+
+.nuke-tools-item-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nuke-tools-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+}

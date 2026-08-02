@@ -26,19 +26,44 @@
 // *****************************************************************************
 
 /**
- * OpenMC Studio Browser Contributions
+ * Nuke Tools Sidebar View Contribution
  *
- * Barrel export for all Theia contribution classes in the OpenMC Studio extension.
+ * Registers the Nuke Tools sidebar as a first-class Theia view and exposes a
+ * command to focus it from the command palette.
  *
- * @see {@link OpenMCCommandContribution} for command registration
- * @see {@link OpenMCMenuContribution} for menu registration
- * @see {@link OpenMCToolbarContribution} for toolbar registration
- * @see {@link OpenMCOpenHandlerContribution} for file open handling
- * @module openmc-studio/browser/contributions
+ * @module nuke-core/browser/tools-sidebar
  */
 
-export * from './openmc-command-contribution';
-export * from './openmc-menu-contribution';
-export * from './openmc-toolbar-contribution';
-export * from './openmc-openhandler-contribution';
-export * from './openmc-tools-contribution';
+import { injectable } from '@theia/core/shared/inversify';
+import { AbstractViewContribution } from '@theia/core/lib/browser';
+import { CommandRegistry } from '@theia/core/lib/common/command';
+import { NukeToolsSidebarWidget } from './nuke-tools-sidebar-widget';
+
+export namespace NukeToolsSidebarCommands {
+    export const FOCUS = {
+        id: 'nuke.tools.focus',
+        label: 'Nuke: Focus Tools Sidebar'
+    };
+}
+
+@injectable()
+export class NukeToolsSidebarContribution extends AbstractViewContribution<NukeToolsSidebarWidget> {
+    constructor() {
+        super({
+            widgetId: NukeToolsSidebarWidget.ID,
+            widgetName: NukeToolsSidebarWidget.LABEL,
+            defaultWidgetOptions: {
+                area: 'left',
+                rank: 200
+            },
+            toggleCommandId: NukeToolsSidebarCommands.FOCUS.id
+        });
+    }
+
+    override registerCommands(commands: CommandRegistry): void {
+        super.registerCommands(commands);
+        commands.registerCommand(NukeToolsSidebarCommands.FOCUS, {
+            execute: () => this.openView({ activate: true })
+        });
+    }
+}

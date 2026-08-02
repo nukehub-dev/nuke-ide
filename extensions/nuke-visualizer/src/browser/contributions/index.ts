@@ -29,3 +29,4 @@ export * from './visualizer-menus';
 export * from './visualizer-view-contribution';
 export * from './visualizer-open-handler';
 export * from './visualizer-menu-contribution';
+export * from './visualizer-tools-contribution';

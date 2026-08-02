@@ -33,6 +33,8 @@ import { VisualizerViewContribution } from './contributions/visualizer-view-cont
 import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
 import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
 import { VisualizerMenuContribution } from './contributions/visualizer-menu-contribution';
+import { VisualizerToolsContribution } from './contributions/visualizer-tools-contribution';
+import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 import { WidgetStatusBarContribution, noopWidgetStatusBarContribution } from '@theia/core/lib/browser';
 import { VisualizerBackendService, VISUALIZER_BACKEND_PATH, VisualizerClient } from '../common/base-visualizer-protocol';
 import { OpenMCBackendService, OPENMC_BACKEND_PATH } from '../common/openmc-protocol';
@@ -250,6 +252,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind custom menus
     bind(VisualizerMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(VisualizerMenuContribution);
+
+    // Nuke Tools sidebar contribution
+    bind(VisualizerToolsContribution).toSelf().inSingletonScope();
+    bind(NukeToolsContribution).toService(VisualizerToolsContribution);
 
     // Note: XS Plot and OpenMC Tallies are handled by OpenMCContribution (not AbstractViewContribution)
     // to avoid automatic View-menu registration. They use manual Command+Menu+Keybinding contributions.

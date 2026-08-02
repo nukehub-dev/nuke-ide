@@ -25,20 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-/**
- * OpenMC Studio Browser Contributions
- *
- * Barrel export for all Theia contribution classes in the OpenMC Studio extension.
- *
- * @see {@link OpenMCCommandContribution} for command registration
- * @see {@link OpenMCMenuContribution} for menu registration
- * @see {@link OpenMCToolbarContribution} for toolbar registration
- * @see {@link OpenMCOpenHandlerContribution} for file open handling
- * @module openmc-studio/browser/contributions
- */
-
-export * from './openmc-command-contribution';
-export * from './openmc-menu-contribution';
-export * from './openmc-toolbar-contribution';
-export * from './openmc-openhandler-contribution';
-export * from './openmc-tools-contribution';
+export * from './nuke-tools-sidebar-widget';
+export * from './nuke-tools-sidebar-contribution';
+export * from './nuke-core-tools-contribution';
+export * from './nuke-tools-sidebar-model';

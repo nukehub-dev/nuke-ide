@@ -44,6 +44,7 @@ import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar
 
 // Protocol imports
 import { OpenMCStudioBackendService, OpenMCStudioClient, OPENMC_STUDIO_BACKEND_PATH } from '../common/openmc-studio-protocol';
+import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 
 // Service imports
 import { OpenMCStudioService } from './openmc-studio-service';
@@ -63,7 +64,8 @@ import {
     OpenMCCommandContribution,
     OpenMCMenuContribution,
     OpenMCToolbarContribution,
-    OpenMCOpenHandlerContribution
+    OpenMCOpenHandlerContribution,
+    OpenMCToolsContribution
 } from './contributions';
 
 // Widget imports
@@ -181,6 +183,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     bind(OpenMCMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(OpenMCMenuContribution);
+
+    bind(OpenMCToolsContribution).toSelf().inSingletonScope();
+    bind(NukeToolsContribution).toService(OpenMCToolsContribution);
 
     bind(OpenMCToolbarContribution).toSelf().inSingletonScope();
     bind(TabBarToolbarContribution).toService(OpenMCToolbarContribution);
