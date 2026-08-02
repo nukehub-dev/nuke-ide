@@ -14,6 +14,8 @@ import pytest
 from e2e_helpers import FUEL_PIN_H5M, require_openmc
 
 openmc = require_openmc()
+# The DAGMC drivers shell out to pydagmc (needs pymoab) — skip when unavailable
+pytest.importorskip("pydagmc", reason="dagmc e2e requires pydagmc (with pymoab)")
 
 pytestmark = pytest.mark.e2e
 

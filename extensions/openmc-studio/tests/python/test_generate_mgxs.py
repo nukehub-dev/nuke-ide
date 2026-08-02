@@ -79,6 +79,39 @@ class TestLogProgress:
         assert captured.out == ""
 
 
+class TestCallWithSupportedKwargs:
+    def test_drops_unsupported_kwargs_with_note(self, capsys):
+        """Version-specific kwargs are filtered out before the call."""
+        import generate_mgxs
+
+        calls = []
+
+        def old_api(*, method, groups):
+            calls.append({"method": method, "groups": groups})
+            return "ok"
+
+        result = generate_mgxs._call_with_supported_kwargs(
+            old_api, method="material_wise", groups="CASMO-2", temperatures=[300.0]
+        )
+        assert result == "ok"
+        assert calls == [{"method": "material_wise", "groups": "CASMO-2"}]
+        assert "temperatures" in capsys.readouterr().err
+
+    def test_passes_all_when_supported(self, capsys):
+        """Fully supported signatures receive every kwarg, with no note."""
+
+        def new_api(*, method, temperatures):
+            return temperatures
+
+        import generate_mgxs
+
+        result = generate_mgxs._call_with_supported_kwargs(
+            new_api, method="material_wise", temperatures=[600.0]
+        )
+        assert result == [600.0]
+        assert "ignores unsupported" not in capsys.readouterr().err
+
+
 class TestReadModelCompatibility:
     def test_missing_files_are_compatible(self, tmp_path):
         """No XML files → nothing to object to (the load step reports it)."""
@@ -262,14 +295,10 @@ class TestOpenMCIntegration:
         import inspect
 
         mg_params = inspect.signature(openmc.Model.convert_to_multigroup).parameters
-        for expected in (
-            "method",
-            "groups",
-            "correction",
-            "temperatures",
-            "mgxs_path",
-            "overwrite_mgxs_library",
-        ):
+        # Version-stable kwargs every supported OpenMC accepts; version-specific
+        # extras (temperatures, overwrite_mgxs_library) are filtered by the
+        # driver's _call_with_supported_kwargs — covered by its own tests.
+        for expected in ("method", "groups", "correction", "mgxs_path"):
             assert expected in mg_params
 
         rr_params = inspect.signature(openmc.Model.convert_to_random_ray).parameters

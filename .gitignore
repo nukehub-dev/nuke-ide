@@ -20,6 +20,7 @@ extensions/*/lib/
 # Generated files
 resources/preload.html
 coverage.xml
+.coverage
 
 # Docker compose workspace volume
 applications/docker/workspace/

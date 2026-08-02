@@ -738,3 +738,224 @@ def test_particle_restart_command_success(particle_restart_file, capsys):
     result = _stdout_json(capsys)
     assert result["particle"] == "neutron"
     assert result["energy"] == pytest.approx(1.2e6)
+
+
+# ---------------------------------------------------------------------------
+# json_default numpy/bytes conversions
+# ---------------------------------------------------------------------------
+
+
+def test_json_default_converts_numpy_and_bytes_types():
+    """json_default maps numpy scalars/arrays and bytes to JSON-safe values."""
+    assert output_readers.json_default(np.array([1, 2])) == [1, 2]
+    assert output_readers.json_default(np.int64(7)) == 7
+    assert output_readers.json_default(np.float64(2.5)) == 2.5
+    assert output_readers.json_default(np.bool_(True)) is True
+    assert output_readers.json_default(b"abc") == "abc"
+
+
+# ---------------------------------------------------------------------------
+# Error paths across readers
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_output_files_no_match_raises(tmp_path):
+    with pytest.raises(output_readers.OutputReaderError, match="No files match glob"):
+        output_readers.resolve_output_files(str(tmp_path / "nomatch*.h5"), ("tracks.h5",))
+
+
+def test_read_tracks_data_offset_and_limit_validation(tracks_file):
+    with pytest.raises(output_readers.OutputReaderError, match="offset must be >= 0"):
+        output_readers.read_tracks_data(str(tracks_file), offset=-1)
+    with pytest.raises(output_readers.OutputReaderError, match="limit must be > 0"):
+        output_readers.read_tracks_data(str(tracks_file), limit=0)
+
+
+def test_read_collision_track_data_offset_and_limit_validation(tmp_path, h5py):
+    path = tmp_path / "collision_track.h5"
+    with h5py.File(path, "w") as f:
+        bank = f.create_group("collision_track_bank")
+        bank.create_dataset("positions", data=np.zeros((0, 3)))
+    with pytest.raises(output_readers.OutputReaderError, match="offset must be >= 0"):
+        output_readers.read_collision_track_data(str(path), offset=-1)
+    with pytest.raises(output_readers.OutputReaderError, match="limit must be > 0"):
+        output_readers.read_collision_track_data(str(path), limit=0)
+
+
+def test_read_collision_track_data_missing_bank_raises(tmp_path, h5py):
+    path = tmp_path / "collision_track.h5"
+    with h5py.File(path, "w"):
+        pass
+    with pytest.raises(output_readers.OutputReaderError, match="collision_track_bank"):
+        output_readers.read_collision_track_data(str(path))
+
+
+def test_read_weight_windows_missing_file_raises(tmp_path, h5py):
+    with pytest.raises(output_readers.OutputReaderError, match="File not found"):
+        output_readers.read_weight_windows(str(tmp_path / "nope.h5"))
+
+
+def test_read_weight_windows_missing_group_raises(tmp_path, h5py):
+    path = tmp_path / "weight_windows.h5"
+    with h5py.File(path, "w"):
+        pass
+    with pytest.raises(output_readers.OutputReaderError, match="weight_windows"):
+        output_readers.read_weight_windows(str(path))
+
+
+def test_read_mesh_group_type_conversions(tmp_path, h5py):
+    """Mesh group values convert ndarray/bytes/numpy-scalars to JSON-safe types."""
+    path = tmp_path / "weight_windows.h5"
+    with h5py.File(path, "w") as f:
+        meshes = f.create_group("meshes")
+        mesh = meshes.create_group("mesh 7")
+        mesh.create_dataset("dimension", data=np.array([2, 2, 2]))
+        mesh.attrs["type"] = np.bytes_("regular")
+        mesh.attrs["id"] = np.int64(7)
+        ww = f.create_group("weight_windows")
+        group = ww.create_group("weight_windows_1")
+        group.create_dataset("mesh", data=7)
+        group.create_dataset("particle_type", data=b"neutron")
+        group.create_dataset("energy_bounds", data=[0.0, 1.0])
+        group.create_dataset("lower_ww_bounds", data=[0.5] * 8)
+        group.create_dataset("upper_ww_bounds", data=[2.5] * 8)
+        group.create_dataset("survival_ratio", data=3.0)
+        group.create_dataset("max_split", data=5)
+        group.create_dataset("weight_cutoff", data=0.25)
+
+    result = output_readers.read_weight_windows(str(path))
+    (mesh,) = result["meshes"]
+    assert mesh["id"] == 7
+    assert mesh["type"] == "regular"
+    assert mesh["dimension"] == [2, 2, 2]
+
+
+def test_read_voxel_info_missing_file_raises(tmp_path, h5py):
+    with pytest.raises(output_readers.OutputReaderError, match="File not found"):
+        output_readers.read_voxel_info(str(tmp_path / "nope.h5"))
+
+
+def test_read_voxel_info_missing_data_raises(tmp_path, h5py):
+    path = tmp_path / "voxel.h5"
+    with h5py.File(path, "w"):
+        pass
+    with pytest.raises(output_readers.OutputReaderError):
+        output_readers.read_voxel_info(str(path))
+
+
+def test_read_particle_restart_missing_datasets_raises(tmp_path, h5py):
+    path = tmp_path / "particle_restart.h5"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("current_batch", data=1)
+    with pytest.raises(output_readers.OutputReaderError, match="Missing datasets"):
+        output_readers.read_particle_restart(str(path))
+
+
+def test_read_kinetics_missing_file_raises(tmp_path, h5py):
+    with pytest.raises(output_readers.OutputReaderError, match="File not found"):
+        output_readers.read_kinetics(str(tmp_path / "nope.h5"))
+
+
+def test_tally_score_moments_out_of_range_raises(tmp_path, h5py):
+    path = tmp_path / "statepoint.h5"
+    with h5py.File(path, "w") as f:
+        tally = f.create_group("tally 1")
+        tally.create_dataset("n_realizations", data=10)
+        tally.create_dataset("results", data=np.zeros((1, 2, 2)))
+        with pytest.raises(output_readers.OutputReaderError, match="out of range"):
+            output_readers._tally_score_moments(tally, 5)
+
+
+# ---------------------------------------------------------------------------
+# Kinetics via the openmc API path (_read_kinetics_openmc)
+# ---------------------------------------------------------------------------
+
+
+class _FakeUfloat:
+    def __init__(self, nominal, std):
+        self.nominal_value = nominal
+        self.std_dev = std
+
+
+def _fake_openmc_statepoint(params, keff=None, keff_raises=False):
+    """Fake openmc module whose StatePoint serves canned kinetics parameters."""
+    import types
+
+    fake = types.ModuleType("openmc")
+
+    class _SP:
+        def __init__(self, path):
+            pass
+
+        def get_kinetics_parameters(self):
+            return params
+
+    if keff_raises:
+
+        class _KeffExplodes:
+            @property
+            def keff(self):
+                raise RuntimeError("no keff")
+
+        class _SPNoKeff(_SP, _KeffExplodes):
+            pass
+
+        fake.StatePoint = _SPNoKeff
+    else:
+        _SP.keff = keff
+        fake.StatePoint = _SP
+    return fake
+
+
+def test_read_kinetics_openmc_full(monkeypatch):
+    """The openmc path shapes generation time, per-group betas, totals, and keff."""
+    params = type(
+        "P",
+        (),
+        {
+            "generation_time": _FakeUfloat(2e-6, 1e-7),
+            "beta_effective": [_FakeUfloat(0.003, 0.001), _FakeUfloat(0.004, 0.002)],
+        },
+    )()
+    monkeypatch.setitem(
+        sys.modules, "openmc", _fake_openmc_statepoint(params, keff=_FakeUfloat(1.01, 0.002))
+    )
+
+    result = output_readers._read_kinetics_openmc("ignored.h5")
+
+    assert result["method"] == "openmc"
+    assert result["generationTime"] == {"mean": 2e-6, "stdDev": 1e-7}
+    assert result["betaEffectiveGroups"] == [
+        {"mean": 0.003, "stdDev": 0.001},
+        {"mean": 0.004, "stdDev": 0.002},
+    ]
+    # Total: means sum, independent stds add in quadrature
+    assert result["betaEffective"]["mean"] == pytest.approx(0.007)
+    assert result["betaEffective"]["stdDev"] == pytest.approx((0.001**2 + 0.002**2) ** 0.5)
+    assert result["keff"] == {"mean": 1.01, "stdDev": 0.002}
+
+
+def test_read_kinetics_openmc_no_ifp_raises(monkeypatch):
+    params = type("P", (), {"generation_time": None, "beta_effective": None})()
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_statepoint(params))
+    with pytest.raises(output_readers.OutputReaderError, match="No IFP tallies found"):
+        output_readers._read_kinetics_openmc("ignored.h5")
+
+
+def test_read_kinetics_openmc_keff_failure_is_ignored(monkeypatch):
+    """A failing sp.keff access degrades to keff=None instead of raising."""
+    params = type(
+        "P", (), {"generation_time": None, "beta_effective": [_FakeUfloat(0.005, 0.001)]}
+    )()
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_statepoint(params, keff_raises=True))
+
+    result = output_readers._read_kinetics_openmc("ignored.h5")
+
+    assert result["keff"] is None
+    assert result["generationTime"] is None
+    assert result["betaEffective"]["mean"] == pytest.approx(0.005)
+
+
+def test_read_kinetics_openmc_import_error_returns_none(monkeypatch):
+    monkeypatch.setitem(sys.modules, "openmc", None)
+    assert output_readers._read_kinetics_openmc("ignored.h5") is None

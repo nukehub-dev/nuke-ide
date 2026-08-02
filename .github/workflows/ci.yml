@@ -109,13 +109,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - name: Setup Python (conda-forge, full test profile)
+        uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: '3.13'
+          channels: conda-forge
+          channel-priority: strict
+          activate-environment: test
+          cache-environment: true
 
       - name: Install test dependencies
-        run: pip install -r requirements-dev.txt
+        # Full-dependency profile: openmc is conda-forge-only (not PyPI), and
+        # h5py/vtk unblock the importorskip integration tests, so the coverage
+        # ratchet measures the real test profile (matching local full runs).
+        run: |
+          conda install -y -c conda-forge openmc h5py vtk
+          pip install -r requirements-dev.txt
 
       - name: Run Python tests with coverage
         # Logic-layer coverage is ratcheted (fail_under in .coveragerc);
@@ -170,6 +179,11 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-scripts
+
+      # vitest imports compiled sibling packages (nuke-core/lib/...); --ignore-scripts skips the
+      # lerna prepare build, so extensions must be compiled explicitly before running tests.
+      - name: Compile extensions
+        run: npx lerna run build
 
       - name: Run vitest
         run: yarn test:ts

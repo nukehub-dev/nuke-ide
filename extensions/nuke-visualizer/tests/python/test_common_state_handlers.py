@@ -926,3 +926,243 @@ def test_create_main_content_builds_toggle_and_view_widget(monkeypatch):
     assert toggle.kwargs["icon"] == "mdi-chevron-right"
     assert toggle.kwargs["size"] == "small"
     assert vuetify.by_tag("VIcon") == []
+
+
+# ---------------------------------------------------------------------------
+# StateHandlers error paths and remaining branches
+# ---------------------------------------------------------------------------
+
+
+def _raising_display():
+    """A display that raises on any attribute set / method call."""
+
+    class _Display:
+        def __setattr__(self, name, value):
+            raise RuntimeError("display broken")
+
+        def __getattr__(self, name):
+            if name.startswith("_"):
+                raise AttributeError(name)
+            return lambda *a, **k: (_ for _ in ()).throw(RuntimeError("display broken"))
+
+    return _Display()
+
+
+def test_representation_handler_error_is_reported(capsys):
+    """A failing display logs the representation error instead of raising."""
+    handler = StateHandlers.create_representation_handler(
+        {"display": _raising_display()}, SimpleNamespace(appearance_update=0)
+    )
+    handler("Surface")
+    assert "Error updating representation" in capsys.readouterr().out
+
+
+def test_background_handler_error_is_reported(capsys):
+    """A failing view logs the background error instead of raising."""
+    handler = StateHandlers.create_background_handler({"view": _raising_display()})
+    handler("#ff0000")
+    assert "Error updating background" in capsys.readouterr().out
+
+
+def test_color_by_handler_error_is_reported(capsys):
+    """A failing display logs the color-by error instead of raising."""
+    handler = StateHandlers.create_color_by_handler(
+        {"display": _raising_display(), "view": object()},
+        SimpleNamespace(color_map="viridis"),
+        SimpleNamespace(),
+    )
+    handler("Solid Color")
+    assert "Error updating color by" in capsys.readouterr().out
+
+
+def test_color_map_handler_cell_branch_and_error(capsys):
+    """Cell: color-by resolves the array name; a failing LUT logs the error."""
+    state = SimpleNamespace(color_by="Cell: cell_id")
+    lut = SimpleNamespace(ApplyPreset=lambda cmap, opaque: None)
+    simple = SimpleNamespace(GetColorTransferFunction=lambda name: lut)
+    handler = StateHandlers.create_color_map_handler({}, state, simple)
+    handler("magma")  # no raise — Cell branch applies the preset
+
+    broken_simple = SimpleNamespace(
+        GetColorTransferFunction=lambda name: (_ for _ in ()).throw(RuntimeError("no lut"))
+    )
+    handler = StateHandlers.create_color_map_handler({}, state, broken_simple)
+    handler("magma")
+    assert "Error updating color map" in capsys.readouterr().out
+
+
+def test_scalar_bar_handler_shows_bar_and_error(capsys):
+    """Point: color-by makes the scalar bar visible; a failing view logs the error."""
+    scalar_bar = SimpleNamespace(Visibility=False)
+    simple = SimpleNamespace(
+        GetColorTransferFunction=lambda name: ("lut", name),
+        GetScalarBar=lambda lut, view: scalar_bar,
+    )
+    state = SimpleNamespace(color_by="Point: energy")
+    handler = StateHandlers.create_scalar_bar_handler({"view": object()}, state, simple)
+    handler(True)
+    assert scalar_bar.Visibility is True
+
+    broken_simple = SimpleNamespace(
+        GetColorTransferFunction=lambda name: (_ for _ in ()).throw(RuntimeError("no lut"))
+    )
+    handler = StateHandlers.create_scalar_bar_handler({"view": object()}, state, broken_simple)
+    handler(True)
+    assert "Error updating scalar bar" in capsys.readouterr().out
+
+
+def test_small_handlers_error_paths(capsys):
+    """orientation-axes / point-size / line-width / ambient errors are logged, not raised."""
+    handler = StateHandlers.create_orientation_axes_handler({"view": _raising_display()})
+    handler(True)
+    handler = StateHandlers.create_point_size_handler({"display": _raising_display()})
+    handler(2.0)
+    handler = StateHandlers.create_line_width_handler({"display": _raising_display()})
+    handler(3.0)
+    handler = StateHandlers.create_ambient_light_handler({"display": _raising_display()})
+    handler(0.5)
+    out = capsys.readouterr().out
+    assert "Error updating orientation axes" in out
+    assert "Error updating point size" in out
+    assert "Error updating line width" in out
+    assert "Error updating ambient light" in out
+
+
+def test_parallel_projection_handler_success_and_error(capsys):
+    """Toggling projection bumps the counter; a failing view logs the error."""
+    state = SimpleNamespace(camera_update_counter=0)
+    view = SimpleNamespace(CameraParallelProjection=0)
+    handler = StateHandlers.create_parallel_projection_handler({"view": view}, state)
+    handler(True)
+    assert view.CameraParallelProjection == 1
+    assert state.camera_update_counter == 1
+
+    handler = StateHandlers.create_parallel_projection_handler(
+        {"view": _raising_display()}, SimpleNamespace(camera_update_counter=0)
+    )
+    handler(True)
+    assert "Error updating projection mode" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Camera controllers
+# ---------------------------------------------------------------------------
+
+
+def test_set_camera_view_success(monkeypatch):
+    """A successful set-camera-view resets and renders via paraview.simple."""
+    calls = []
+    fake_simple = types.ModuleType("paraview.simple")
+    fake_simple.ResetCamera = lambda view: calls.append("reset")
+    fake_simple.Render = lambda view: calls.append("render")
+    fake_paraview = types.ModuleType("paraview")
+    fake_paraview.simple = fake_simple
+    monkeypatch.setitem(sys.modules, "paraview", fake_paraview)
+    monkeypatch.setitem(sys.modules, "paraview.simple", fake_simple)
+
+    view = SimpleNamespace(CameraPosition=None, CameraFocalPoint=None, CameraViewUp=None)
+    pipeline = {"view": view, "source": None}
+    updates = []
+    set_view = create_set_camera_view_controller(
+        pipeline, SimpleNamespace(), lambda **kw: updates.append(kw)
+    )
+
+    assert set_view("iso") is True
+    assert calls == ["reset", "render"]
+    assert updates == [{"push_camera": True}]
+
+
+def test_pan_camera_error_returns_false(capsys):
+    """A failing update function converts to a logged error + False."""
+    view = SimpleNamespace(
+        CameraPosition=(1, 0, 0), CameraFocalPoint=(0, 0, 0), CameraViewUp=(0, 0, 1)
+    )
+
+    def bad_update(**kwargs):
+        raise RuntimeError("push failed")
+
+    pan = create_pan_camera_controller({"view": view}, bad_update)
+    assert pan("up") is False
+    assert "Pan error" in capsys.readouterr().out
+
+
+def test_zoom_camera_projection_branches_and_error(capsys):
+    """Parallel scales the projection; perspective dollies; failures return False."""
+    updates = []
+    parallel_view = SimpleNamespace(CameraParallelProjection=1, CameraParallelScale=1.0)
+    zoom = create_zoom_camera_controller({"view": parallel_view}, lambda **kw: updates.append(kw))
+    assert zoom(2.0) is True
+    assert parallel_view.CameraParallelScale == 2.0
+
+    persp_view = SimpleNamespace(
+        CameraParallelProjection=0, CameraPosition=(2, 0, 0), CameraFocalPoint=(0, 0, 0)
+    )
+    zoom = create_zoom_camera_controller({"view": persp_view}, lambda **kw: updates.append(kw))
+    assert zoom(2.0) is True
+    assert persp_view.CameraPosition == [4.0, 0.0, 0.0]
+
+    def bad_update(**kwargs):
+        raise RuntimeError("push failed")
+
+    zoom = create_zoom_camera_controller({"view": persp_view}, bad_update)
+    assert zoom(2.0) is False
+    assert "Zoom error" in capsys.readouterr().out
+
+
+def test_capture_screenshot_success(monkeypatch, tmp_path):
+    """Screenshot renders, saves via paraview.simple, and returns base64 png data."""
+    out_file = tmp_path / "shot.png"
+
+    def save_screenshot(filename, view, **kwargs):
+        with open(filename, "wb") as f:
+            f.write(b"png-bytes")
+
+    fake_simple = types.ModuleType("paraview.simple")
+    fake_simple.Render = lambda view: None
+    fake_simple.SaveScreenshot = save_screenshot
+    fake_paraview = types.ModuleType("paraview")
+    fake_paraview.simple = fake_simple
+    monkeypatch.setitem(sys.modules, "paraview", fake_paraview)
+    monkeypatch.setitem(sys.modules, "paraview.simple", fake_simple)
+
+    view = SimpleNamespace(Background=[1, 1, 1], ViewSize=[800, 600])
+    capture = create_capture_screenshot_controller({"view": view})
+    result = capture(filename=str(out_file), width=1024, height=768, transparent=True)
+
+    import base64
+
+    assert result["success"] is True
+    assert base64.b64decode(result["data"]) == b"png-bytes"
+    assert result["format"] == "png"
+    # View state restored afterwards
+    assert view.Background == [1, 1, 1]
+    assert view.ViewSize == [800, 600]
+
+    # No filename → a temp file is created and reported
+    result = capture()
+    assert result["success"] is True
+    assert result["filename"].endswith(".png")
+
+
+def test_capture_screenshot_no_view_returns_error():
+    capture = create_capture_screenshot_controller({})
+    result = capture()
+    assert result["success"] is False
+    assert "No view available" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Install hints
+# ---------------------------------------------------------------------------
+
+
+def test_install_hint_variants():
+    from plugins.base.lib.common import _install_hint
+
+    assert _install_hint({"name": "vtk", "installCommand": "custom cmd"}) == "custom cmd"
+    assert _install_hint({"name": "vtk", "condaOnly": True}) == "conda install -c conda-forge vtk"
+    assert (
+        _install_hint({"name": "pkg", "extraIndexUrl": "https://idx"})
+        == "pip install --extra-index-url https://idx pkg"
+    )
+    assert _install_hint({"name": "pkg"}) == "pip install pkg"

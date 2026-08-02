@@ -238,6 +238,10 @@ class TestOpenMCIntegration:
     def test_plot_classes_accept_script_arguments(self):
         """The openmc plot classes accept the constructor args the script passes."""
         openmc = pytest.importorskip("openmc")
+        if not hasattr(openmc, "SlicePlot"):
+            # Typed plot classes (SlicePlot/ray-trace) are post-0.15.3 additions;
+            # release 0.15.3 only has the legacy openmc.Plot API.
+            pytest.skip("typed plot classes require post-0.15.3 OpenMC")
 
         slice_plot = openmc.SlicePlot(plot_id=1, name="test")
         slice_plot.basis = "xy"
@@ -257,3 +261,164 @@ class TestOpenMCIntegration:
         assert slice_plot.id == 1
         assert solid.id == 2
         assert wireframe.id == 3
+
+
+class TestLoadDomains:
+    def test_material_color_by_resolves_from_materials(self, fake_openmc_module):
+        """colorBy=material resolves wireframe IDs against the materials list."""
+        mats = [_FakeMaterial(1), _FakeMaterial(2)]
+        domains = generate_plots._load_domains(
+            {"wireframeIds": [2], "colorBy": "material"}, _FakeGeometry(), mats
+        )
+        assert domains == [mats[1]]
+
+    def test_missing_domains_fall_back_to_id_stubs(self, fake_openmc_module):
+        """Unresolvable IDs fall back to throw-away domains carrying just the ID."""
+        domains = generate_plots._load_domains(
+            {"wireframeIds": [99], "colorBy": "cell"}, _FakeGeometry(), []
+        )
+        assert len(domains) == 1
+        assert domains[0].id == 99
+
+
+class TestBuildPlotEdges:
+    def test_voxel_without_bounds_uses_origin_and_default_width(self, fake_openmc_module):
+        """Voxel config without lower/upper bounds uses origin + 10cm default width."""
+        plot = generate_plots.build_plot(
+            {"id": 5, "type": "voxel", "origin": [1, 1, 1], "voxels": [5, 5, 5]},
+            _FakeGeometry(),
+            [],
+        )
+        assert plot.origin == (1, 1, 1)
+        assert plot.width == (10, 10, 10)
+
+    def test_raytrace_up_vector_is_applied(self, fake_openmc_module):
+        """The optional up vector is set on ray-trace plots."""
+        plot = generate_plots.build_plot(
+            {"id": 6, "type": "solid-raytrace", "up": [0, 0, 1]},
+            _FakeGeometry(),
+            [],
+        )
+        assert plot.up == (0, 0, 1)
+
+
+class _FakePlots:
+    """Records the exported plot list."""
+
+    exported = None
+
+    def __init__(self, plots):
+        _FakePlots.exported = plots
+
+    def export_to_xml(self):
+        pass
+
+
+def _fake_openmc_full(tmp_path):
+    """Fake openmc for run_generate_plots: writes output files on plot_geometry."""
+    fake = _fake_openmc()
+    fake.Materials = types.SimpleNamespace(from_xml=lambda path: [])
+    fake.Geometry = types.SimpleNamespace(from_xml=lambda path, mats: _FakeGeometry())
+    fake.Plots = _FakePlots
+
+    def plot_geometry(cwd):
+        (tmp_path / "plot_1.png").write_text("png")
+        (tmp_path / "plot_2.h5").write_text("h5")
+
+    def voxel_to_vtk(h5_path, output):
+        output.write_text("vti")
+
+    fake.plot_geometry = plot_geometry
+    fake.voxel_to_vtk = voxel_to_vtk
+    return fake
+
+
+class TestRunGeneratePlots:
+    def test_collects_png_and_converts_voxel_to_vti(self, monkeypatch, tmp_path):
+        """Full flow: plots exported, run executed, png + h5 + converted vti collected."""
+        monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_full(tmp_path))
+        config = tmp_path / "plots.json"
+        config.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "type": "slice", "colorBy": "cell"},
+                    {"id": 2, "type": "voxel", "colorBy": "material"},
+                ]
+            )
+        )
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=True
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        kinds = {(f["plotId"], f["kind"]) for f in result["files"]}
+        assert kinds == {(1, "png"), (2, "h5"), (2, "vti")}
+        # Both plots were exported in one plots.xml
+        assert len(_FakePlots.exported) == 2
+
+    def test_missing_outputs_are_not_listed(self, monkeypatch, tmp_path):
+        """Plots whose output files were not produced are skipped silently."""
+        fake = _fake_openmc_full(tmp_path)
+        fake.plot_geometry = lambda cwd: None  # produces nothing
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        config = tmp_path / "plots.json"
+        config.write_text(json.dumps([{"id": 1, "type": "slice"}]))
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        assert result["files"] == []
+
+    def test_empty_config_array_raises(self, monkeypatch, tmp_path):
+        """An empty JSON array is a clear ValueError before any openmc work."""
+        monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_full(tmp_path))
+        config = tmp_path / "plots.json"
+        config.write_text("[]")
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        with pytest.raises(ValueError, match="non-empty JSON array"):
+            generate_plots.run_generate_plots(args)
+
+
+class TestMainErrorPaths:
+    def test_import_error_returns_missing_dependency_json(self, monkeypatch, capsys, tmp_path):
+        """Forced openmc absence yields the missing-dependency JSON, exit 0."""
+        monkeypatch.setitem(sys.modules, "openmc", None)
+        config = tmp_path / "plots.json"
+        config.write_text('[{"id": 1, "type": "slice"}]')
+        monkeypatch.setattr(
+            sys, "argv", ["generate_plots.py", str(tmp_path), "--plots-config", str(config)]
+        )
+        with pytest.raises(SystemExit) as exc:
+            generate_plots.main()
+        assert exc.value.code == 0
+        result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert result["success"] is False
+        assert "Missing dependency" in result["error"]
+
+    def test_generic_error_returns_traceback_json(self, monkeypatch, capsys, tmp_path):
+        """A run failure yields the error JSON with a traceback, exit 0."""
+
+        def boom(args):
+            raise RuntimeError("plot failed")
+
+        monkeypatch.setattr(generate_plots, "run_generate_plots", boom)
+        config = tmp_path / "plots.json"
+        config.write_text('[{"id": 1, "type": "slice"}]')
+        monkeypatch.setattr(
+            sys, "argv", ["generate_plots.py", str(tmp_path), "--plots-config", str(config)]
+        )
+        with pytest.raises(SystemExit) as exc:
+            generate_plots.main()
+        assert exc.value.code == 0
+        result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert result["success"] is False
+        assert result["error"] == "plot failed"
+        assert "traceback" in result

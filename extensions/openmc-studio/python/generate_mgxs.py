@@ -115,6 +115,28 @@ def load_model(working_dir: Path):
     return materials, geometry, settings
 
 
+def _call_with_supported_kwargs(fn, **kwargs):
+    """Call fn with only the kwargs its signature accepts (version tolerance).
+
+    Post-0.15.3 ``convert_to_multigroup`` gained ``temperatures`` and
+    ``overwrite_mgxs_library``; release 0.15.3 rejects them. Dropped keys are
+    reported instead of crashing on old versions.
+    """
+    import inspect
+
+    params = inspect.signature(fn).parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+        return fn(**kwargs)
+    supported = {p.name for p in params}
+    accepted = {key: value for key, value in kwargs.items() if key in supported}
+    dropped = sorted(set(kwargs) - set(accepted))
+    if dropped:
+        log_progress(
+            f"Note: this OpenMC version ignores unsupported convert kwargs: {', '.join(dropped)}"
+        )
+    return fn(**accepted)
+
+
 def run_generate_mgxs(args):
     """Generate the MGXS library (and optionally convert to random ray).
 
@@ -155,7 +177,7 @@ def run_generate_mgxs(args):
         f"Generating MGXS library: method={args.method}, groups={args.groups}, output={args.output}"
     )
     log_progress("This runs continuous-energy Monte Carlo simulations and may take a while...")
-    model.convert_to_multigroup(**convert_kwargs)
+    _call_with_supported_kwargs(model.convert_to_multigroup, **convert_kwargs)
     log_progress(f"MGXS library written to {args.output}")
 
     random_ray_applied = False

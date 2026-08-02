@@ -1,5 +1,8 @@
 """Tests for plugins.openmc.lib.geometry_parser — OpenMC geometry.xml parsing."""
 
+import sys
+import types
+
 import pytest
 from plugins.openmc.lib.geometry_parser import (
     OpenMCGeometryParser,
@@ -217,3 +220,98 @@ def test_response_structure_keys(tmp_path):
     ):
         assert key in result
     assert result["filePath"] == str(geom)
+
+
+# ---------------------------------------------------------------------------
+# Python model files (_parse_python_model)
+# ---------------------------------------------------------------------------
+
+_MINIMAL_GEOMETRY_XML = """<?xml version="1.0"?>
+<geometry>
+  <surface id="1" type="sphere" coeffs="0 0 0 5" boundary="vacuum"/>
+  <cell id="1" name="pin" material="1" region="-1" universe="1"/>
+</geometry>
+"""
+
+_MINIMAL_MATERIALS_XML = """<?xml version="1.0"?>
+<materials>
+  <material id="1" name="UO2">
+    <density value="10.0" units="g/cm3"/>
+    <nuclide name="U235" wo="1.0"/>
+  </material>
+</materials>
+"""
+
+
+def _fake_openmc_with_geometry(with_materials=False):
+    """Fake openmc whose Geometry exports minimal XML (and optionally materials)."""
+    fake = types.ModuleType("openmc")
+
+    class _Geometry:
+        def export_to_xml(self, directory):
+            from pathlib import Path as _Path
+
+            _Path(directory, "geometry.xml").write_text(_MINIMAL_GEOMETRY_XML)
+            if with_materials:
+                _Path(directory, "materials.xml").write_text(_MINIMAL_MATERIALS_XML)
+
+    fake.Geometry = _Geometry
+    return fake
+
+
+def test_parse_python_model_success(tmp_path, monkeypatch):
+    """A .py model is exec'd, its Geometry exported, and parsed like geometry.xml."""
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_with_geometry())
+    model = _write(tmp_path, "model.py", "geometry = openmc.Geometry()\n")
+
+    result = OpenMCGeometryParser().parse(str(model))
+
+    assert "error" not in result
+    assert result["totalSurfaces"] == 1
+    assert result["totalCells"] == 1
+    cells = [c for u in result["universes"] for c in u["cells"]]
+    assert cells[0]["name"] == "pin"
+
+
+def test_parse_python_model_merges_materials(tmp_path, monkeypatch):
+    """A materials.xml next to the exported geometry feeds material names."""
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_with_geometry(with_materials=True))
+    model = _write(tmp_path, "model.py", "geometry = openmc.Geometry()\n")
+
+    result = OpenMCGeometryParser().parse(str(model))
+
+    assert "error" not in result
+    cells = [c for u in result["universes"] for c in u["cells"]]
+    assert cells[0]["materialName"] == "UO2"
+
+
+def test_parse_python_model_no_geometry_object(tmp_path, monkeypatch):
+    """A .py file that creates no Geometry is a clear error, not a crash."""
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_with_geometry())
+    model = _write(tmp_path, "model.py", "x = 1\n")
+
+    result = OpenMCGeometryParser().parse(str(model))
+
+    assert result["error"] == "No Geometry object found in Python file"
+
+
+def test_parse_python_model_without_openmc(tmp_path, monkeypatch):
+    """Forced openmc absence returns the install guidance error."""
+    monkeypatch.setitem(sys.modules, "openmc", None)
+    model = _write(tmp_path, "model.py", "geometry = openmc.Geometry()\n")
+
+    result = OpenMCGeometryParser().parse(str(model))
+
+    assert "OpenMC Python API not available" in result["error"]
+    assert "fallback" in result
+
+
+def test_parse_python_model_execution_error(tmp_path, monkeypatch):
+    """A model that raises during exec surfaces the failure with details."""
+    monkeypatch.setitem(sys.modules, "openmc", _fake_openmc_with_geometry())
+    model = _write(tmp_path, "model.py", "raise RuntimeError('bad model')\n")
+
+    result = OpenMCGeometryParser().parse(str(model))
+
+    assert "Failed to parse Python model: bad model" in result["error"]
+    assert "details" in result
