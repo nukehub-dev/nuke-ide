@@ -109,27 +109,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup Python (conda-forge, full test profile)
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Cache test env
+        uses: actions/cache@v6
+        id: test-env-cache
         with:
-          python-version: '3.13'
-          channels: conda-forge
-          channel-priority: strict
-          activate-environment: test
-          cache-environment: true
+          path: /usr/share/miniconda3/envs/nuke-test
+          key: nuke-test-env-${{ runner.os }}-v1
 
-      - name: Install test dependencies
-        # Full-dependency profile: openmc is conda-forge-only (not PyPI), and
-        # h5py/vtk unblock the importorskip integration tests, so the coverage
-        # ratchet measures the real test profile (matching local full runs).
-        run: |
-          conda install -y -c conda-forge openmc h5py vtk
-          pip install -r requirements-dev.txt
+      # Full-dependency profile: openmc is conda-forge-only (not PyPI), and
+      # h5py/vtk unblock the importorskip integration tests, so the coverage
+      # ratchet measures the real test profile (matching local full runs).
+      # python is pinned explicitly — openmc 0.15.3 supports up to 3.13.
+      - name: Create full test env (conda-forge)
+        if: steps.test-env-cache.outputs.cache-hit != 'true'
+        run: conda create -y -n nuke-test -c conda-forge --strict-channel-priority python=3.13 openmc h5py vtk pytest pytest-cov numpy
 
       - name: Run Python tests with coverage
         # Logic-layer coverage is ratcheted (fail_under in .coveragerc);
         # the rendering layer is excluded by design (see .coveragerc).
-        run: python -m pytest --cov --cov-report=term-missing --cov-report=xml
+        run: conda run -n nuke-test python -m pytest --cov --cov-report=term-missing --cov-report=xml
 
       - name: Coverage summary
         if: always()
