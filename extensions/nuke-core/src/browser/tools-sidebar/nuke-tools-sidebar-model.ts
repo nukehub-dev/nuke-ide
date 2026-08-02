@@ -103,11 +103,15 @@ export function groupItems(items: NukeToolsItem[], query?: string): Map<Category
             const label = path[i];
             const key = label.toLowerCase();
             if (!currentMap.has(key)) {
-                currentMap.set(key, { label, items: [], subcategories: new Map(), order: item.categoryOrder });
+                const order = i === 0 ? item.sectionOrder : i === path.length - 1 ? item.categoryOrder : undefined;
+                currentMap.set(key, { label, items: [], subcategories: new Map(), order });
             }
             const category = currentMap.get(key)!;
-            if (category.order === undefined && item.categoryOrder !== undefined) {
-                category.order = item.categoryOrder;
+            if (category.order === undefined) {
+                const fallbackOrder = i === 0 ? item.sectionOrder : i === path.length - 1 ? item.categoryOrder : undefined;
+                if (fallbackOrder !== undefined) {
+                    category.order = fallbackOrder;
+                }
             }
             if (i === path.length - 1) {
                 category.items.push(item);

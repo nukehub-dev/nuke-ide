@@ -44,6 +44,11 @@ test.describe('nuke tools sidebar', () => {
         await expect(widget.locator('.nuke-tools-category-label', { hasText: 'Environment' })).toBeVisible();
         await expect(widget.locator('.nuke-tools-category-label', { hasText: 'Health & Diagnostics' })).toBeVisible();
 
+        const topLevelLabels = await widget
+            .locator('.nuke-tools-content > .nuke-tools-category > .nuke-tools-category-header > .nuke-tools-category-label')
+            .allTextContents();
+        expect(topLevelLabels).toEqual(['Environment', 'Health & Diagnostics', 'OpenMC Studio', 'Visualizer']);
+
         expect(errors, `console/page errors while opening sidebar:\n${errors.join('\n')}`).toEqual([]);
     });
 });

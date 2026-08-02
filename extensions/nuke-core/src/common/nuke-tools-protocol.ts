@@ -57,7 +57,10 @@ export interface NukeToolsItem {
     /** Lexicographic ordering within the deepest category. */
     order?: string;
 
-    /** Lexicographic ordering for the containing category relative to its siblings. */
+    /** Lexicographic ordering for the top-level section relative to other sections. */
+    sectionOrder?: string;
+
+    /** Lexicographic ordering for the containing (deepest) category relative to its siblings. */
     categoryOrder?: string;
 
     /** Codicon class (e.g. `codicon-play-circle`) for the item row. */

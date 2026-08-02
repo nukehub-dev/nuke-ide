@@ -45,6 +45,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Switch Environment',
             commandId: NukeCoreCommands.SWITCH_ENVIRONMENT.id,
             category: ['Environment'],
+            sectionOrder: 'a',
             order: 'a',
             icon: 'server-environment',
             description: 'Switch the active Python environment used by Nuke.'
@@ -55,6 +56,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Create Environment',
             commandId: NukeCoreCommands.CREATE_ENVIRONMENT.id,
             category: ['Environment'],
+            sectionOrder: 'a',
             order: 'b',
             icon: 'add',
             description: 'Create a new conda or virtualenv Python environment.'
@@ -65,6 +67,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Environment Actions',
             commandId: NukeCoreCommands.ENVIRONMENT_ACTIONS.id,
             category: ['Environment'],
+            sectionOrder: 'a',
             order: 'c',
             icon: 'list-unordered',
             description: 'Open the environment actions picker for an existing environment.'
@@ -75,6 +78,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Delete Environment',
             commandId: NukeCoreCommands.DELETE_ENVIRONMENT.id,
             category: ['Environment'],
+            sectionOrder: 'a',
             order: 'd',
             icon: 'trash',
             description: 'Delete an existing Python environment with typed confirmation.'
@@ -85,6 +89,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Install Package',
             commandId: NukeCoreCommands.INSTALL_PACKAGE.id,
             category: ['Environment'],
+            sectionOrder: 'a',
             order: 'e',
             icon: 'package',
             description: 'Install Python packages into the active environment with pip/uv or conda.'
@@ -95,6 +100,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Run Health Check',
             commandId: NukeCoreCommands.HEALTH_CHECK.id,
             category: ['Health & Diagnostics'],
+            sectionOrder: 'b',
             order: 'a',
             icon: 'pass',
             description: 'Run a full health check across Nuke Core subsystems.'
@@ -105,6 +111,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Validate Configuration',
             commandId: NukeCoreCommands.VALIDATE_CONFIG.id,
             category: ['Health & Diagnostics'],
+            sectionOrder: 'b',
             order: 'b',
             icon: 'checklist',
             description: 'Validate the current Nuke Core configuration and report errors or warnings.'
@@ -115,6 +122,7 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             label: 'Show Diagnostics',
             commandId: NukeCoreCommands.DIAGNOSTICS.id,
             category: ['Health & Diagnostics'],
+            sectionOrder: 'b',
             order: 'c',
             icon: 'output',
             description: 'Display detailed runtime diagnostics in the output panel.'

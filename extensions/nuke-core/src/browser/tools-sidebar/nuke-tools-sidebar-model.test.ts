@@ -151,4 +151,26 @@ describe('groupItems', () => {
         expect(groups.get('top')!.subcategories.get('aaa')!.order).toBe('a');
         expect(groups.get('top')!.subcategories.get('zoo')!.order).toBe('b');
     });
+
+    it('records section order for top-level categories', () => {
+        const items = [
+            item({ id: 'b', label: 'B', commandId: 'cmd.b', category: ['Zoo'], sectionOrder: 'b' }),
+            item({ id: 'a', label: 'A', commandId: 'cmd.a', category: ['Aaa'], sectionOrder: 'a' })
+        ];
+        const groups = groupItems(items);
+        expect(groups.get('aaa')!.order).toBe('a');
+        expect(groups.get('zoo')!.order).toBe('b');
+    });
+
+    it('keeps section order independent of nested category order', () => {
+        const items = [
+            item({ id: 'b', label: 'B', commandId: 'cmd.b', category: ['Zoo', 'Nested'], sectionOrder: 'b', categoryOrder: 'a' }),
+            item({ id: 'a', label: 'A', commandId: 'cmd.a', category: ['Aaa', 'Nested'], sectionOrder: 'a', categoryOrder: 'a' })
+        ];
+        const groups = groupItems(items);
+        expect(groups.get('aaa')!.order).toBe('a');
+        expect(groups.get('zoo')!.order).toBe('b');
+        expect(groups.get('aaa')!.subcategories.get('nested')!.order).toBe('a');
+        expect(groups.get('zoo')!.subcategories.get('nested')!.order).toBe('a');
+    });
 });
