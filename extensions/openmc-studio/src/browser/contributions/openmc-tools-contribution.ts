@@ -33,243 +33,268 @@
  * @module openmc-studio/browser/contributions
  */
 
-import { injectable } from '@theia/core/shared/inversify';
-import { NukeToolsContribution, NukeToolsRegistry } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { injectable, inject } from '@theia/core/shared/inversify';
+import { NukeToolsContribution, NukeToolsRegistry, NukeToolsItem } from 'nuke-core/lib/common/nuke-tools-protocol';
 import { OpenMCProjectCommands, OpenMCSimulationCommands, OpenMCViewCommands, OpenMCEnvironmentCommands } from '../commands';
+import { OpenMCStateManager } from '../openmc-state-manager';
 
 @injectable()
 export class OpenMCToolsContribution implements NukeToolsContribution {
+    @inject(OpenMCStateManager)
+    protected readonly stateManager: OpenMCStateManager;
+
     registerTools(registry: NukeToolsRegistry): void {
+        const projectEnabled = () => this.stateManager.projectPath !== undefined;
+
+        const item = (def: Omit<NukeToolsItem, 'enabled' | 'onDidChangeEnabled'> & { requiresProject?: boolean }): void => {
+            registry.registerItem({
+                ...def,
+                enabled: def.requiresProject ? projectEnabled : undefined,
+                onDidChangeEnabled: def.requiresProject ? this.stateManager.onProjectPathChange : undefined
+            });
+        };
+
         // Project
-        registry.registerItem({
+        item({
             id: 'openmc.project.new',
             label: 'New Project',
             commandId: OpenMCProjectCommands.NEW_PROJECT.id,
             category: ['OpenMC Studio', 'Project'],
+            categoryOrder: 'a',
             order: 'a',
             icon: 'new-file',
             description: 'Create a new OpenMC Studio project.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.project.open',
             label: 'Open Project...',
             commandId: OpenMCProjectCommands.OPEN_PROJECT.id,
             category: ['OpenMC Studio', 'Project'],
+            categoryOrder: 'a',
             order: 'b',
             icon: 'folder-opened',
             description: 'Open an existing OpenMC Studio project.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.project.save',
             label: 'Save Project',
             commandId: OpenMCProjectCommands.SAVE_PROJECT.id,
             category: ['OpenMC Studio', 'Project'],
+            categoryOrder: 'a',
             order: 'c',
             icon: 'save',
-            description: 'Save the current OpenMC Studio project.'
+            description: 'Save the current OpenMC Studio project.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.project.saveAs',
             label: 'Save Project As...',
             commandId: OpenMCProjectCommands.SAVE_PROJECT_AS.id,
             category: ['OpenMC Studio', 'Project'],
+            categoryOrder: 'a',
             order: 'd',
             icon: 'save-as',
             description: 'Save the current project under a new name.'
         });
 
-        // Simulation
-        registry.registerItem({
-            id: 'openmc.simulation.dashboard',
-            label: 'Simulation Dashboard',
-            commandId: OpenMCViewCommands.OPEN_SIMULATION_DASHBOARD.id,
-            category: ['OpenMC Studio', 'Simulation'],
-            order: '0',
-            icon: 'dashboard',
-            description: 'Open the simulation dashboard.'
-        });
-
-        registry.registerItem({
-            id: 'openmc.simulation.run',
-            label: 'Run Simulation',
-            commandId: OpenMCSimulationCommands.RUN_SIMULATION.id,
-            category: ['OpenMC Studio', 'Simulation'],
-            order: 'a',
-            icon: 'play-circle',
-            description: 'Run the current OpenMC simulation.'
-        });
-
-        registry.registerItem({
-            id: 'openmc.simulation.stop',
-            label: 'Stop Simulation',
-            commandId: OpenMCSimulationCommands.STOP_SIMULATION.id,
-            category: ['OpenMC Studio', 'Simulation'],
-            order: 'b',
-            icon: 'debug-stop',
-            description: 'Stop the running OpenMC simulation.'
-        });
-
-        registry.registerItem({
-            id: 'openmc.simulation.validate',
-            label: 'Validate Model',
-            commandId: OpenMCSimulationCommands.VALIDATE_MODEL.id,
-            category: ['OpenMC Studio', 'Simulation'],
-            order: 'c',
-            icon: 'check',
-            description: 'Validate the current OpenMC model.'
-        });
-
-        registry.registerItem({
-            id: 'openmc.simulation.generateXML',
-            label: 'Generate XML Files',
-            commandId: OpenMCSimulationCommands.GENERATE_XML.id,
-            category: ['OpenMC Studio', 'XML Configuration'],
-            order: 'a',
-            icon: 'file-code',
-            description: 'Generate OpenMC XML input files from the project.'
-        });
-
-        registry.registerItem({
-            id: 'openmc.simulation.importXML',
-            label: 'Import from XML...',
-            commandId: OpenMCSimulationCommands.IMPORT_XML.id,
-            category: ['OpenMC Studio', 'XML Configuration'],
-            order: 'b',
-            icon: 'file-symlink-file',
-            description: 'Import an OpenMC project from existing XML files.'
-        });
-
         // Geometry
-        registry.registerItem({
+        item({
             id: 'openmc.geometry.csgBuilder',
             label: 'CSG Builder',
             commandId: OpenMCViewCommands.OPEN_CSG_BUILDER.id,
             category: ['OpenMC Studio', 'Geometry'],
+            categoryOrder: 'b',
             order: 'a',
             icon: 'layout',
             description: 'Open the constructive solid geometry builder.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.geometry.dagmcEditor',
             label: 'DAGMC Editor',
             commandId: OpenMCViewCommands.OPEN_DAGMC_EDITOR.id,
             category: ['OpenMC Studio', 'Geometry'],
+            categoryOrder: 'b',
             order: 'b',
             icon: 'server-process',
             description: 'Open the DAGMC geometry editor.'
         });
 
+        // Simulation
+        item({
+            id: 'openmc.simulation.dashboard',
+            label: 'Simulation Dashboard',
+            commandId: OpenMCViewCommands.OPEN_SIMULATION_DASHBOARD.id,
+            category: ['OpenMC Studio', 'Simulation'],
+            categoryOrder: 'c',
+            order: 'a',
+            icon: 'dashboard',
+            description: 'Open the simulation dashboard.'
+        });
+
+        item({
+            id: 'openmc.simulation.validate',
+            label: 'Validate Model',
+            commandId: OpenMCSimulationCommands.VALIDATE_MODEL.id,
+            category: ['OpenMC Studio', 'Simulation'],
+            categoryOrder: 'c',
+            order: 'b',
+            icon: 'check',
+            description: 'Validate the current OpenMC model.',
+            requiresProject: true
+        });
+
+        // XML Configuration
+        item({
+            id: 'openmc.simulation.generateXML',
+            label: 'Generate XML Files',
+            commandId: OpenMCSimulationCommands.GENERATE_XML.id,
+            category: ['OpenMC Studio', 'XML Configuration'],
+            categoryOrder: 'd',
+            order: 'a',
+            icon: 'file-code',
+            description: 'Generate OpenMC XML input files from the project.',
+            requiresProject: true
+        });
+
+        item({
+            id: 'openmc.simulation.importXML',
+            label: 'Import from XML...',
+            commandId: OpenMCSimulationCommands.IMPORT_XML.id,
+            category: ['OpenMC Studio', 'XML Configuration'],
+            categoryOrder: 'd',
+            order: 'b',
+            icon: 'file-symlink-file',
+            description: 'Import an OpenMC project from existing XML files.'
+        });
+
         // Advanced
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.tallyConfigurator',
             label: 'Tally Configurator',
             commandId: OpenMCViewCommands.OPEN_TALLY_CONFIGURATOR.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'a',
             icon: 'checklist',
-            description: 'Configure simulation tallies.'
+            description: 'Configure simulation tallies.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.depletion',
             label: 'Depletion Dashboard',
             commandId: OpenMCViewCommands.OPEN_DEPLETION.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'b',
             icon: 'history',
-            description: 'Open the depletion analysis dashboard.'
+            description: 'Open the depletion analysis dashboard.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.varianceReduction',
             label: 'Variance Reduction',
             commandId: OpenMCViewCommands.OPEN_VARIANCE_REDUCTION.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'c',
             icon: 'filter',
-            description: 'Configure variance reduction settings.'
+            description: 'Configure variance reduction settings.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.scriptGenerator',
             label: 'Generate Python Script',
             commandId: OpenMCViewCommands.OPEN_SCRIPT_GENERATOR.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'd',
             icon: 'code',
-            description: 'Generate a Python script from the current project.'
+            description: 'Generate a Python script from the current project.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.optimization',
             label: 'Optimization Study',
             commandId: OpenMCViewCommands.OPEN_OPTIMIZATION.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'e',
             icon: 'rocket',
             description: 'Open the optimization study widget.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.volumeCalc',
             label: 'Volume Calculation',
             commandId: OpenMCViewCommands.OPEN_VOLUME_CALC.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'f',
             icon: 'symbol-ruler',
-            description: 'Open the stochastic volume calculation widget.'
+            description: 'Open the stochastic volume calculation widget.',
+            requiresProject: true
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.nativePlotting',
             label: 'Native Plotting',
             commandId: OpenMCViewCommands.OPEN_NATIVE_PLOTTING.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'g',
             icon: 'graph',
             description: 'Open the native OpenMC plotting widget.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.advanced.mgxsGenerator',
             label: 'MGXS Generator',
             commandId: OpenMCViewCommands.OPEN_MGXS_GENERATOR.id,
             category: ['OpenMC Studio', 'Advanced'],
+            categoryOrder: 'e',
             order: 'h',
             icon: 'circuit-board',
-            description: 'Open the multi-group cross-section generator.'
+            description: 'Open the multi-group cross-section generator.',
+            requiresProject: true
         });
 
         // Environment
-        registry.registerItem({
+        item({
             id: 'openmc.environment.checkHealth',
             label: 'Run Health Check',
             commandId: OpenMCEnvironmentCommands.CHECK_HEALTH.id,
             category: ['OpenMC Studio', 'Environment'],
+            categoryOrder: 'f',
             order: 'a',
             icon: 'pass',
             description: 'Run an OpenMC environment health check.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.environment.installOpenMC',
             label: 'Install OpenMC',
             commandId: OpenMCEnvironmentCommands.INSTALL_OPENMC.id,
             category: ['OpenMC Studio', 'Environment'],
+            categoryOrder: 'f',
             order: 'b',
             icon: 'cloud-download',
             description: 'Install OpenMC into the active environment.'
         });
 
-        registry.registerItem({
+        item({
             id: 'openmc.environment.installDAGMC',
             label: 'Install DAGMC Tools',
             commandId: OpenMCEnvironmentCommands.INSTALL_DAGMC.id,
             category: ['OpenMC Studio', 'Environment'],
+            categoryOrder: 'f',
             order: 'c',
             icon: 'tools',
             description: 'Install DAGMC tools into the active environment.'

@@ -173,5 +173,6 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - `applications/AGENTS.md` — browser/Electron/Docker IDE shells, generated frontend code, packaging.
 - `docs/AGENTS.md` — product documentation conventions and the in-IDE docs widget contract.
 - `extensions/AGENTS.md` — shared Theia extension conventions (layout, DI, RPC, build, docs).
+  - `extensions/nuke-core/AGENTS.md` — shared services, environment subsystem, and the Nuke Tools sidebar.
   - `extensions/nuke-visualizer/AGENTS.md` — visualization plugin framework and its Python backend.
   - `extensions/openmc-studio/AGENTS.md` — OpenMC workspace extension and its Python backend.

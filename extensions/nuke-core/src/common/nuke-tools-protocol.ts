@@ -36,6 +36,7 @@
  */
 
 import { MaybePromise } from '@theia/core/lib/common/types';
+import { Event } from '@theia/core/lib/common/event';
 
 /**
  * A single entry shown in the Nuke Tools sidebar.
@@ -56,6 +57,9 @@ export interface NukeToolsItem {
     /** Lexicographic ordering within the deepest category. */
     order?: string;
 
+    /** Lexicographic ordering for the containing category relative to its siblings. */
+    categoryOrder?: string;
+
     /** Codicon class (e.g. `codicon-play-circle`) for the item row. */
     icon?: string;
 
@@ -64,6 +68,19 @@ export interface NukeToolsItem {
 
     /** Optional search keywords in addition to label and description. */
     keywords?: string[];
+
+    /**
+     * Optional predicate that returns whether the item is currently enabled.
+     * Disabled items are visually dimmed and do not execute their command.
+     */
+    enabled?: () => boolean;
+
+    /**
+     * Optional event that fires when the result of {@link enabled} may have changed.
+     * The sidebar widget listens to this to refresh the item's disabled state.
+     * The event payload is ignored, so any emitter can be wired here.
+     */
+    onDidChangeEnabled?: Event<unknown>;
 }
 
 /**

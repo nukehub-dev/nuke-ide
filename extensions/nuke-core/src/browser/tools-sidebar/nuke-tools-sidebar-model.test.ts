@@ -109,6 +109,18 @@ describe('groupItems', () => {
         expect(groups.get('health')!.items).toHaveLength(1);
     });
 
+    it('nests items under subcategories', () => {
+        const items = [
+            item({ id: 'a', label: 'A', commandId: 'cmd.a', category: ['OpenMC Studio', 'Project'] }),
+            item({ id: 'b', label: 'B', commandId: 'cmd.b', category: ['OpenMC Studio', 'Geometry'] })
+        ];
+        const groups = groupItems(items);
+        const openmc = groups.get('openmc studio')!;
+        expect(openmc.items).toHaveLength(0);
+        expect(openmc.subcategories.get('project')!.items.map((i) => i.id)).toEqual(['a']);
+        expect(openmc.subcategories.get('geometry')!.items.map((i) => i.id)).toEqual(['b']);
+    });
+
     it('uses "Other" for items without a category', () => {
         const items = [item({ id: 'x', label: 'X', commandId: 'cmd.x', category: [] })];
         const groups = groupItems(items);
@@ -128,5 +140,15 @@ describe('groupItems', () => {
         const items = [item({ id: 'a', label: 'Alpha', commandId: 'cmd.a', category: ['Cat'] })];
         const groups = groupItems(items, 'zzz');
         expect(groups.size).toBe(0);
+    });
+
+    it('records category order from items', () => {
+        const items = [
+            item({ id: 'b', label: 'B', commandId: 'cmd.b', category: ['Top', 'Zoo'], categoryOrder: 'b' }),
+            item({ id: 'a', label: 'A', commandId: 'cmd.a', category: ['Top', 'Aaa'], categoryOrder: 'a' })
+        ];
+        const groups = groupItems(items);
+        expect(groups.get('top')!.subcategories.get('aaa')!.order).toBe('a');
+        expect(groups.get('top')!.subcategories.get('zoo')!.order).toBe('b');
     });
 });

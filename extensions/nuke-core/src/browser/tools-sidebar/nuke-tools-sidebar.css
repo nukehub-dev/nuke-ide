@@ -89,6 +89,18 @@
     flex-direction: column;
 }
 
+.nuke-tools-category-items > .nuke-tools-category > .nuke-tools-category-header {
+    padding-left: 24px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    background: transparent;
+}
+
+.nuke-tools-category-items > .nuke-tools-category > .nuke-tools-category-items > .nuke-tools-item {
+    padding-left: 40px;
+}
+
 .nuke-tools-item {
     display: flex;
     align-items: center;
@@ -115,6 +127,17 @@
     font-size: 14px;
     color: var(--theia-icon-foreground);
     flex-shrink: 0;
+}
+
+.nuke-tools-item-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.nuke-tools-item-disabled:hover,
+.nuke-tools-item-disabled:focus {
+    background: transparent;
+    color: var(--theia-foreground);
 }
 
 .nuke-tools-item-label {

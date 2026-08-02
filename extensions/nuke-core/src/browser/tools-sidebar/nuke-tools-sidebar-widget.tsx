@@ -40,10 +40,11 @@ import { injectable, inject, named, postConstruct } from '@theia/core/shared/inv
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService } from '@theia/core/lib/common/command';
 import { ContributionProvider } from '@theia/core/lib/common/contribution-provider';
+import { DisposableCollection } from '@theia/core/lib/common/disposable';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@theia/core/lib/browser/widgets/widget';
 import { NukeToolsContribution, NukeToolsItem, NukeToolsRegistry } from '../../common/nuke-tools-protocol';
-import { CategoryKey, groupItems, sortItems } from './nuke-tools-sidebar-model';
+import { CategoryKey, groupItems, NukeToolsCategory, sortItems } from './nuke-tools-sidebar-model';
 import './nuke-tools-sidebar.css';
 
 /** Storage key for persisted section expansion state. */
@@ -69,6 +70,7 @@ export class NukeToolsSidebarWidget extends ReactWidget {
 
     protected readonly state: NukeToolsSidebarState;
     protected searchDebounce: ReturnType<typeof setTimeout> | undefined;
+    protected readonly enabledListeners = new DisposableCollection();
 
     constructor() {
         super();
@@ -100,9 +102,13 @@ export class NukeToolsSidebarWidget extends ReactWidget {
      * Collect tool items from every registered contribution.
      */
     protected async loadItems(): Promise<void> {
+        this.enabledListeners.dispose();
         const registry: NukeToolsRegistry = {
             registerItem: (item: NukeToolsItem) => {
                 this.state.items.push(item);
+                if (item.onDidChangeEnabled) {
+                    this.enabledListeners.push(item.onDidChangeEnabled(() => this.update()));
+                }
             }
         };
 
@@ -155,9 +161,9 @@ export class NukeToolsSidebarWidget extends ReactWidget {
     }
 
     /**
-     * Build a map of categories to their visible items.
+     * Build a nested tree of categories to their visible items.
      */
-    protected getGroupedItems(): Map<CategoryKey, { label: string; items: NukeToolsItem[] }> {
+    protected getGroupedItems(): Map<CategoryKey, NukeToolsCategory> {
         return groupItems(this.state.items, this.state.query);
     }
 
@@ -181,9 +187,19 @@ export class NukeToolsSidebarWidget extends ReactWidget {
         }
     }
 
+    protected sortCategoryKeys(map: Map<CategoryKey, NukeToolsCategory>): CategoryKey[] {
+        return Array.from(map.keys()).sort((a, b) => {
+            const catA = map.get(a)!;
+            const catB = map.get(b)!;
+            const orderA = catA.order ?? catA.label;
+            const orderB = catB.order ?? catB.label;
+            return orderA.localeCompare(orderB);
+        });
+    }
+
     protected render(): React.ReactNode {
         const groups = this.getGroupedItems();
-        const groupKeys = Array.from(groups.keys()).sort();
+        const groupKeys = this.sortCategoryKeys(groups);
 
         return (
             <div className="nuke-tools-sidebar-container">
@@ -200,16 +216,18 @@ export class NukeToolsSidebarWidget extends ReactWidget {
                     {groupKeys.length === 0 ? (
                         <div className="nuke-tools-empty">No tools found.</div>
                     ) : (
-                        groupKeys.map((key) => this.renderCategory(key, groups.get(key)!))
+                        groupKeys.map((key) => this.renderCategory([key], groups.get(key)!))
                     )}
                 </div>
             </div>
         );
     }
 
-    protected renderCategory(key: CategoryKey, group: { label: string; items: NukeToolsItem[] }): React.ReactNode {
+    protected renderCategory(path: CategoryKey[], group: NukeToolsCategory): React.ReactNode {
+        const key = path.join('/');
         const expanded = this.state.expanded.has(key);
         const toggleIcon = expanded ? codicon('chevron-down') : codicon('chevron-right');
+        const subcategoryKeys = this.sortCategoryKeys(group.subcategories);
 
         return (
             <div key={key} className="nuke-tools-category" role="group" aria-expanded={expanded}>
@@ -228,24 +246,36 @@ export class NukeToolsSidebarWidget extends ReactWidget {
                     <span className={`nuke-tools-category-toggle ${toggleIcon}`} />
                     <span className="nuke-tools-category-label">{group.label}</span>
                 </div>
-                {expanded && <div className="nuke-tools-category-items">{group.items.map((item) => this.renderItem(item))}</div>}
+                {expanded && (
+                    <div className="nuke-tools-category-items">
+                        {group.items.map((item) => this.renderItem(item))}
+                        {subcategoryKeys.map((subKey) => this.renderCategory([...path, subKey], group.subcategories.get(subKey)!))}
+                    </div>
+                )}
             </div>
         );
     }
 
     protected renderItem(item: NukeToolsItem): React.ReactNode {
         const iconClass = item.icon ? codicon(item.icon) : codicon('circle-small');
+        const disabled = item.enabled ? !item.enabled() : false;
+        const className = `nuke-tools-item${disabled ? ' nuke-tools-item-disabled' : ''}`;
 
         return (
             <div
                 key={`${item.commandId}:${item.id}`}
-                className="nuke-tools-item"
+                className={className}
                 role="treeitem"
+                aria-disabled={disabled}
                 title={item.description ?? item.label}
-                onClick={() => this.executeItem(item)}
-                tabIndex={0}
+                onClick={() => {
+                    if (!disabled) {
+                        this.executeItem(item);
+                    }
+                }}
+                tabIndex={disabled ? -1 : 0}
                 onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
                         e.preventDefault();
                         this.executeItem(item);
                     }

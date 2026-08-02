@@ -154,6 +154,11 @@ export class OpenMCStateManager {
     /** Public event stream for dirty-state notifications. */
     readonly onDirtyChange: Event<boolean> = this._onDirtyChange.event;
 
+    /** Fires when the project file path changes (load, save-as, reset, etc.). */
+    private readonly _onProjectPathChange = new Emitter<string | undefined>();
+    /** Public event stream for project-path notifications. */
+    readonly onProjectPathChange: Event<string | undefined> = this._onProjectPathChange.event;
+
     // ============================================================================
     // State Accessors
     // ============================================================================
@@ -832,6 +837,7 @@ export class OpenMCStateManager {
      */
     setProjectPath(path: string): void {
         this._projectPath = path;
+        this._onProjectPathChange.fire(path);
     }
 
     /**
@@ -839,6 +845,7 @@ export class OpenMCStateManager {
      */
     clearProjectPath(): void {
         this._projectPath = undefined;
+        this._onProjectPathChange.fire(undefined);
     }
 
     /**
@@ -862,6 +869,7 @@ export class OpenMCStateManager {
         this._projectPath = undefined;
         this._onStateReload.fire(this.getState());
         this._onDirtyChange.fire(false);
+        this._onProjectPathChange.fire(undefined);
     }
 
     // ============================================================================

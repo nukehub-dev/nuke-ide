@@ -41,7 +41,6 @@ describe('NukeCoreToolsContribution', () => {
 
         const categories = new Set(items.map((i) => i.category[0]));
         expect(categories).toContain('Environment');
-        expect(categories).toContain('Packages');
         expect(categories).toContain('Health & Diagnostics');
         expect(items).toHaveLength(8);
     });

@@ -39,10 +39,12 @@ import { NukeToolsItem } from '../../common/nuke-tools-protocol';
 /** Composite key used for grouping. */
 export type CategoryKey = string;
 
-/** A grouped category with its visible items. */
+/** A grouped category with its visible items and nested subcategories. */
 export interface NukeToolsCategory {
     label: string;
     items: NukeToolsItem[];
+    subcategories: Map<CategoryKey, NukeToolsCategory>;
+    order?: string;
 }
 
 /**
@@ -77,11 +79,14 @@ export function matchesQuery(item: NukeToolsItem, query: string): boolean {
 }
 
 /**
- * Group items by top-level category, optionally filtering by query.
+ * Group items into a nested category tree, optionally filtering by query.
+ *
+ * Items are placed at the deepest category level specified by their
+ * {@link NukeToolsItem.category} path. Intermediate nodes contain no items.
  *
  * @param items - All registered items.
  * @param query - Optional lowercase search query.
- * @returns A map from category key to category data, in insertion order.
+ * @returns A map from top-level category key to category data, in insertion order.
  */
 export function groupItems(items: NukeToolsItem[], query?: string): Map<CategoryKey, NukeToolsCategory> {
     const groups = new Map<CategoryKey, NukeToolsCategory>();
@@ -92,12 +97,24 @@ export function groupItems(items: NukeToolsItem[], query?: string): Map<Category
             continue;
         }
 
-        const topCategory = item.category[0] ?? 'Other';
-        const key = topCategory.toLowerCase();
-        if (!groups.has(key)) {
-            groups.set(key, { label: topCategory, items: [] });
+        const path = item.category.length > 0 ? item.category : ['Other'];
+        let currentMap = groups;
+        for (let i = 0; i < path.length; i++) {
+            const label = path[i];
+            const key = label.toLowerCase();
+            if (!currentMap.has(key)) {
+                currentMap.set(key, { label, items: [], subcategories: new Map(), order: item.categoryOrder });
+            }
+            const category = currentMap.get(key)!;
+            if (category.order === undefined && item.categoryOrder !== undefined) {
+                category.order = item.categoryOrder;
+            }
+            if (i === path.length - 1) {
+                category.items.push(item);
+            } else {
+                currentMap = category.subcategories;
+            }
         }
-        groups.get(key)!.items.push(item);
     }
 
     return groups;

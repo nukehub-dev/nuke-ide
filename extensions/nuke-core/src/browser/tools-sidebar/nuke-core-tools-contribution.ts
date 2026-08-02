@@ -84,8 +84,8 @@ export class NukeCoreToolsContribution implements NukeToolsContribution {
             id: 'installPackage',
             label: 'Install Package',
             commandId: NukeCoreCommands.INSTALL_PACKAGE.id,
-            category: ['Packages'],
-            order: 'a',
+            category: ['Environment'],
+            order: 'e',
             icon: 'package',
             description: 'Install Python packages into the active environment with pip/uv or conda.'
         });
