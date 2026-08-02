@@ -36,7 +36,7 @@
  */
 
 import * as React from '@theia/core/shared/react';
-import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { injectable, inject, named, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService } from '@theia/core/lib/common/command';
 import { ContributionProvider } from '@theia/core/lib/common/contribution-provider';
@@ -64,6 +64,7 @@ export class NukeToolsSidebarWidget extends ReactWidget {
     protected readonly commandService: CommandService;
 
     @inject(ContributionProvider)
+    @named(NukeToolsContribution)
     protected readonly contributionProvider: ContributionProvider<NukeToolsContribution>;
 
     protected readonly state: NukeToolsSidebarState;

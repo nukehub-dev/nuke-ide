@@ -132,6 +132,7 @@ export default new ContainerModule(
             }))
             .inSingletonScope();
         bindViewContribution(bind, NukeToolsSidebarContribution);
+        bind(FrontendApplicationContribution).toService(NukeToolsSidebarContribution);
 
         console.log('[NukeCore] Frontend module initialized');
     }

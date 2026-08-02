@@ -35,7 +35,7 @@
  */
 
 import { injectable } from '@theia/core/shared/inversify';
-import { AbstractViewContribution } from '@theia/core/lib/browser';
+import { AbstractViewContribution, FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { NukeToolsSidebarWidget } from './nuke-tools-sidebar-widget';
 
@@ -46,17 +46,23 @@ export namespace NukeToolsSidebarCommands {
     };
 }
 
+/** Storage key tracking that the sidebar has been added to the layout once. */
+const SIDEBAR_ADDED_KEY = 'nuke-tools-sidebar:added';
+
 @injectable()
-export class NukeToolsSidebarContribution extends AbstractViewContribution<NukeToolsSidebarWidget> {
+export class NukeToolsSidebarContribution
+    extends AbstractViewContribution<NukeToolsSidebarWidget>
+    implements FrontendApplicationContribution
+{
     constructor() {
         super({
             widgetId: NukeToolsSidebarWidget.ID,
             widgetName: NukeToolsSidebarWidget.LABEL,
             defaultWidgetOptions: {
                 area: 'left',
-                rank: 200
-            },
-            toggleCommandId: NukeToolsSidebarCommands.FOCUS.id
+                // Place the Nuke Tools icon between Source Control (Theia rank 300) and Extensions (Theia rank 500).
+                rank: 400
+            }
         });
     }
 
@@ -65,5 +71,37 @@ export class NukeToolsSidebarContribution extends AbstractViewContribution<NukeT
         commands.registerCommand(NukeToolsSidebarCommands.FOCUS, {
             execute: () => this.openView({ activate: true })
         });
+    }
+
+    async initializeLayout(app: FrontendApplication): Promise<void> {
+        const widget = await this.widget;
+        if (!widget.isAttached) {
+            app.shell.addWidget(widget, this.defaultViewOptions);
+            this.markSidebarAdded();
+        }
+    }
+
+    async onDidInitializeLayout(app: FrontendApplication): Promise<void> {
+        const widget = await this.widget;
+        if (!widget.isAttached && !this.hasSidebarBeenAdded()) {
+            app.shell.addWidget(widget, this.defaultViewOptions);
+            this.markSidebarAdded();
+        }
+    }
+
+    protected markSidebarAdded(): void {
+        try {
+            localStorage.setItem(SIDEBAR_ADDED_KEY, 'true');
+        } catch {
+            // Ignore storage errors (e.g. private browsing).
+        }
+    }
+
+    protected hasSidebarBeenAdded(): boolean {
+        try {
+            return localStorage.getItem(SIDEBAR_ADDED_KEY) === 'true';
+        } catch {
+            return false;
+        }
     }
 }
