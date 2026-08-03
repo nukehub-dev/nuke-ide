@@ -262,6 +262,8 @@ After a run, the Simulation tab surfaces one-click open actions for files OpenMC
 - **Open Tracks** — appears when the run produced particle tracks. Track files (`tracks.h5` for serial runs, `tracks_p<N>.h5` for MPI runs) are moved into a `tracks/` subfolder inside the working directory to keep the top level tidy.
 - **Open Weight Windows** — appears when the run produced `weight_windows.h5` (for example, from a **Weight Window Generator** or a FW-CADIS/random-ray workflow).
 
+Lost-particle restart files (`particle_<batch>_<id>.h5`) are also moved into a `particles/` subfolder after a run. The file currently selected as the simulation restart file is left in place so re-running from it keeps working.
+
 ### Kinetics (IFP)
 
 Enable iterated fission probability kinetics (eigenvalue mode only): IFP generations (must not exceed inactive batches), precursor group count for β_eff, and toggles for β_eff and Λ_eff (generation time). The required IFP tallies are auto-generated on export and badged **auto** in the Tallies tab; results appear in the Statepoint Viewer's Kinetics (IFP) tab.

@@ -92,10 +92,12 @@ Phase 9: hardening + workflow unification.
 - openmc-studio: output-control settings (statepoint/sourcepoint batches, track
   files, collision tracks), photon physics (`electron_treatment`,
   `atomic_relaxation`), Shannon entropy mesh, and restart-from-statepoint runs.
-- openmc-studio: particle track files (`tracks.h5`, `tracks_p<N>.h5`) are moved
-  into a `tracks/` subfolder after a run, and `weight_windows.h5` is surfaced
-  as an 'Open Weight Windows' action alongside 'Open Tracks' in the Simulation
-  Dashboard.
+- openmc-studio: particle track files (`tracks.h5`, `tracks_p<N>.h5`) and
+  lost-particle restart files (`particle_<batch>_<id>.h5`) are moved into
+  `tracks/` and `particles/` subfolders after a run, keeping the working
+  directory clean when many particles are written. `weight_windows.h5` is
+  surfaced as an 'Open Weight Windows' action alongside 'Open Tracks' in the
+  Simulation Dashboard.
 - openmc-studio: complete tally score catalog (79 scores incl. photon,
   particle-production, and IFP kinetics scores) and descriptor-driven filter
   editors for all 23 supported filter types.

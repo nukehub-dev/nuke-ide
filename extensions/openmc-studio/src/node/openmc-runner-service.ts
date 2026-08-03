@@ -632,8 +632,8 @@ export class OpenMCRunnerService {
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
-                // Tidy particle track files into a dedicated subfolder
-                this.organizeTracksFiles(request.workingDirectory);
+                // Tidy particle track and particle-restart files into subfolders
+                this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
 
                 // Get output files
                 const outputFiles = this.detectOutputFiles(request.workingDirectory);
@@ -838,8 +838,8 @@ export class OpenMCRunnerService {
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
-                // Tidy particle track files into a dedicated subfolder
-                this.organizeTracksFiles(request.workingDirectory);
+                // Tidy particle track and particle-restart files into subfolders
+                this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
 
                 // Get output files
                 const outputFiles = this.detectOutputFiles(request.workingDirectory);
@@ -1494,13 +1494,19 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Move OpenMC particle track files (`tracks.h5`, `tracks_p<N>.h5`) from the
-     * working directory into a `tracks/` subfolder so the cwd/output directory
-     * stays tidy. Non-blocking: failures are logged but do not fail the run.
+     * Move OpenMC particle track files (`tracks.h5`, `tracks_p<N>.h5`) and
+     * lost-particle restart files (`particle_<batch>_<id>.h5`) from the working
+     * directory into dedicated `tracks/` and `particles/` subfolders so the
+     * cwd/output directory stays tidy. The current restart file (if it lives in
+     * the cwd) is left untouched so a re-run from the same file still works.
+     * Non-blocking: failures are logged but do not fail the run.
      * @param workingDirectory - Directory to organize
+     * @param restartFile - Optional restart file path to preserve in place
      */
-    private organizeTracksFiles(workingDirectory: string): void {
+    private organizeRunOutputFiles(workingDirectory: string, restartFile?: string): void {
         const fs = require('fs');
+
+        const restartBase = restartFile ? path.basename(restartFile) : undefined;
 
         try {
             const tracksDir = path.join(workingDirectory, 'tracks');
@@ -1508,8 +1514,14 @@ export class OpenMCRunnerService {
                 fs.mkdirSync(tracksDir, { recursive: true });
             }
 
+            const particlesDir = path.join(workingDirectory, 'particles');
+            if (!fs.existsSync(particlesDir)) {
+                fs.mkdirSync(particlesDir, { recursive: true });
+            }
+
             const files = fs.readdirSync(workingDirectory);
             for (const file of files) {
+                // Particle tracks
                 if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
                     const source = path.join(workingDirectory, file);
                     const destination = path.join(tracksDir, file);
@@ -1520,9 +1532,20 @@ export class OpenMCRunnerService {
                         this.log(`Track file already exists in tracks/: ${file}`);
                     }
                 }
+                // Lost-particle restart files; leave the actively selected restart file alone
+                else if (/^particle_\d+_\d+\.h5$/.test(file) && file !== restartBase) {
+                    const source = path.join(workingDirectory, file);
+                    const destination = path.join(particlesDir, file);
+                    if (!fs.existsSync(destination)) {
+                        fs.renameSync(source, destination);
+                        this.log(`Moved particle restart file into particles/: ${file}`);
+                    } else {
+                        this.log(`Particle restart file already exists in particles/: ${file}`);
+                    }
+                }
             }
         } catch (error) {
-            this.log(`Warning: failed to organize track files: ${error}`);
+            this.log(`Warning: failed to organize run output files: ${error}`);
         }
     }
 
@@ -1581,6 +1604,17 @@ export class OpenMCRunnerService {
                 for (const file of trackFiles) {
                     if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
                         outputFiles.push(path.join(tracksDir, file));
+                    }
+                }
+            }
+
+            // Lost-particle restart files are moved into a particles/ subfolder
+            const particlesDir = path.join(workingDirectory, 'particles');
+            if (fs.existsSync(particlesDir)) {
+                const particleFiles = fs.readdirSync(particlesDir);
+                for (const file of particleFiles) {
+                    if (/^particle_\d+_\d+\.h5$/.test(file)) {
+                        outputFiles.push(path.join(particlesDir, file));
                     }
                 }
             }
