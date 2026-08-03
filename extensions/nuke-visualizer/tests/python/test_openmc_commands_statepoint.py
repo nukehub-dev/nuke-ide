@@ -481,8 +481,8 @@ def test_k_generation_success(fake_h5py, capsys):
 def test_k_generation_missing_dataset(fake_h5py, capsys):
     fake_h5py["file"] = _FakeFile({})
     args = _parse(statepoint_cmds.cmd_k_generation, ["sp.h5"])
-    assert statepoint_cmds.cmd_k_generation(args) == 1
-    assert "No k_generation data" in _stdout_json(capsys)["error"]
+    assert statepoint_cmds.cmd_k_generation(args) == 0
+    assert _stdout_json(capsys) is None
 
 
 def test_k_generation_unreadable_file(fake_h5py, capsys):

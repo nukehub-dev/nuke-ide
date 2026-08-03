@@ -457,7 +457,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
             await this.openmcService.loadStatepointFull(uri);
             const info = this.openmcService.getCurrentStatepointFull();
             const tallies = this.openmcService.getCurrentTallies();
-            const kData = info?.runMode === 'eigenvalue' ? await this.openmcService.getKGenerationData(uri) : null;
+            const kData = info?.runMode === 'eigenvalue' && info?.kCombined ? await this.openmcService.getKGenerationData(uri) : null;
             if (info) {
                 this.setStatepoint(uri, info, tallies, kData);
             }
@@ -623,7 +623,14 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     }
 
     private renderOverview(): React.ReactNode {
-        const info = this.statepointInfo!;
+        const info = this.statepointInfo;
+        if (!info) {
+            return (
+                <div className="tab-content">
+                    <EmptyState icon="database" message="No statepoint loaded. Open a statepoint file to view the simulation overview." />
+                </div>
+            );
+        }
 
         const activeBatches = info.nBatches - info.nInactive;
         const totalParticles = info.nParticles * activeBatches;

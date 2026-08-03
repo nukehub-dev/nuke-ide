@@ -463,8 +463,10 @@ def cmd_k_generation(args):
     try:
         with h5py.File(args.statepoint, "r") as f:
             if "k_generation" not in f:
-                print(json.dumps({"error": "No k_generation data in statepoint"}))
-                return 1
+                # Missing k_generation is normal for fixed-source/restart statepoints;
+                # the viewer simply omits the convergence plot when data is absent.
+                print(json.dumps(None))
+                return 0
 
             k_gen = f["k_generation"][...]
             batches = list(range(1, len(k_gen) + 1))

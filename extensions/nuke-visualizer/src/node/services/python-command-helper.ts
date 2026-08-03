@@ -187,7 +187,7 @@ export class PythonCommandHelper {
         const result = await this.executeScript(scriptPath, args, options);
 
         if (result.status !== 0) {
-            const errMsg = result.stderr || `Script exited with code ${result.status}`;
+            const errMsg = result.stderr || result.stdout || `Script exited with code ${result.status}`;
             throw new Error(errMsg);
         }
 
