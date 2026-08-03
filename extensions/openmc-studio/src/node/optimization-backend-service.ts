@@ -41,7 +41,7 @@ import { ILogger } from '@theia/core/lib/common/logger';
 import { ProcessManager } from '@theia/process/lib/node/process-manager';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 
 import {
     StartOptimizationRequest,
@@ -799,21 +799,53 @@ export class OptimizationBackendService {
         const pythonDir = path.dirname(detectionResult.command);
         const isWindows = process.platform === 'win32';
         const openmcName = isWindows ? 'openmc.exe' : 'openmc';
+        const candidates: string[] = [];
 
-        let openmcExe = path.join(pythonDir, openmcName);
+        // 1. OPENMC_ROOT explicit install root.
+        if (process.env.OPENMC_ROOT) {
+            candidates.push(path.join(process.env.OPENMC_ROOT, 'bin', openmcName));
+        }
 
-        if (!fs.existsSync(openmcExe)) {
-            const parentDir = path.dirname(pythonDir);
-            const binDirs = isWindows
-                ? [path.join(parentDir, 'Scripts'), path.join(parentDir, 'bin')]
-                : [path.join(parentDir, 'bin'), path.join(parentDir, 'Scripts')];
+        // 2. Resolve via PATH, making sure the Python bin dir and OPENMC_ROOT/bin are searched.
+        const pathSegments: string[] = [pythonDir];
+        if (process.env.OPENMC_ROOT) {
+            pathSegments.push(path.join(process.env.OPENMC_ROOT, 'bin'));
+        }
+        const currentPath = process.env.PATH || '';
+        const separator = isWindows ? ';' : ':';
+        const searchPath = [...pathSegments, currentPath].join(separator);
+        try {
+            const whichCmd = isWindows ? 'where' : 'which';
+            const resolved = execSync(`"${whichCmd}" ${openmcName}`, {
+                env: { ...process.env, PATH: searchPath },
+                encoding: 'utf-8'
+            })
+                .trim()
+                .split('\n')[0];
+            if (resolved) {
+                candidates.push(resolved);
+            }
+        } catch {
+            // PATH lookup failed; continue with explicit candidates.
+        }
 
-            for (const binDir of binDirs) {
-                const openmcPath = path.join(binDir, openmcName);
-                if (fs.existsSync(openmcPath)) {
-                    openmcExe = openmcPath;
-                    break;
-                }
+        // 3. Same directory as the Python interpreter.
+        candidates.push(path.join(pythonDir, openmcName));
+
+        // 4. Sibling bin / Scripts directory.
+        const parentDir = path.dirname(pythonDir);
+        const binDirs = isWindows
+            ? [path.join(parentDir, 'Scripts'), path.join(parentDir, 'bin')]
+            : [path.join(parentDir, 'bin'), path.join(parentDir, 'Scripts')];
+        for (const binDir of binDirs) {
+            candidates.push(path.join(binDir, openmcName));
+        }
+
+        let openmcExe = candidates[0];
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                openmcExe = candidate;
+                break;
             }
         }
 

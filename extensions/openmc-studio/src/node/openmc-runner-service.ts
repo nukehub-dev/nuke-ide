@@ -343,41 +343,76 @@ export class OpenMCRunnerService {
 
     /**
      * Find the OpenMC executable corresponding to the given Python.
+     *
+     * Resolution order:
+     * 1. ``$OPENMC_ROOT/bin/openmc`` if the ``OPENMC_ROOT`` environment variable is set.
+     * 2. ``openmc`` resolved on ``PATH`` (with the Python directory and ``$OPENMC_ROOT/bin``
+     *    prepended so common layouts are found).
+     * 3. Next to the Python interpreter.
+     * 4. In a sibling ``bin`` / ``Scripts`` directory.
+     *
      * @param pythonPath - Path to Python executable
      * @returns Path to openmc executable
      */
     protected async findOpenMCExecutable(pythonPath: string): Promise<string> {
         const path = await import('path');
         const fs = await import('fs');
+        const { execSync } = await import('child_process');
 
-        // Get the directory containing Python
         const pythonDir = path.dirname(pythonPath);
         const isWindows = process.platform === 'win32';
-
-        // Look for openmc executable in the same directory
         const openmcName = isWindows ? 'openmc.exe' : 'openmc';
-        const openmcInSameDir = path.join(pythonDir, openmcName);
+        const candidates: string[] = [];
 
-        if (fs.existsSync(openmcInSameDir)) {
-            return openmcInSameDir;
+        // 1. OPENMC_ROOT explicit install root.
+        if (process.env.OPENMC_ROOT) {
+            candidates.push(path.join(process.env.OPENMC_ROOT, 'bin', openmcName));
         }
 
-        // Also check if Python is in a 'bin' or 'Scripts' directory
+        // 2. Resolve via PATH, making sure the Python bin dir and OPENMC_ROOT/bin are searched.
+        const pathSegments: string[] = [pythonDir];
+        if (process.env.OPENMC_ROOT) {
+            pathSegments.push(path.join(process.env.OPENMC_ROOT, 'bin'));
+        }
+        const currentPath = process.env.PATH || '';
+        const separator = isWindows ? ';' : ':';
+        const searchPath = [...pathSegments, currentPath].join(separator);
+        try {
+            const whichCmd = isWindows ? 'where' : 'which';
+            const resolved = execSync(`"${whichCmd}" ${openmcName}`, {
+                env: { ...process.env, PATH: searchPath },
+                encoding: 'utf-8'
+            })
+                .trim()
+                .split('\n')[0];
+            if (resolved) {
+                candidates.push(resolved);
+            }
+        } catch {
+            // PATH lookup failed; continue with explicit candidates.
+        }
+
+        // 3. Same directory as the Python interpreter.
+        candidates.push(path.join(pythonDir, openmcName));
+
+        // 4. Sibling bin / Scripts directory.
         const parentDir = path.dirname(pythonDir);
         const binDirs = isWindows
             ? [path.join(parentDir, 'Scripts'), path.join(parentDir, 'bin')]
             : [path.join(parentDir, 'bin'), path.join(parentDir, 'Scripts')];
-
         for (const binDir of binDirs) {
-            const openmcPath = path.join(binDir, openmcName);
-            if (fs.existsSync(openmcPath)) {
-                return openmcPath;
+            candidates.push(path.join(binDir, openmcName));
+        }
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
             }
         }
 
-        // Last resort: assume it's in the same directory as Python
-        this.log(`Warning: Could not find openmc executable, assuming it's in: ${openmcInSameDir}`);
-        return openmcInSameDir;
+        // Last resort: return the first candidate so spawn errors are meaningful.
+        this.log(`Warning: Could not find openmc executable, expected at: ${candidates[0]}`);
+        return candidates[0];
     }
 
     // ============================================================================
@@ -513,11 +548,20 @@ export class OpenMCRunnerService {
         this.log(`Environment PATH includes: ${pythonBinDir}`);
 
         return new Promise((resolve, reject) => {
-            const env = {
+            const env: NodeJS.ProcessEnv = {
                 ...process.env,
                 PATH: newPath,
                 ...request.env
             };
+
+            // Ensure backend environment variables are available even when the
+            // frontend process cannot read the shell environment.
+            if (!env.OPENMC_CROSS_SECTIONS && process.env.OPENMC_CROSS_SECTIONS) {
+                env.OPENMC_CROSS_SECTIONS = process.env.OPENMC_CROSS_SECTIONS;
+            }
+            if (!env.OPENMC_CHAIN_FILE && process.env.OPENMC_CHAIN_FILE) {
+                env.OPENMC_CHAIN_FILE = process.env.OPENMC_CHAIN_FILE;
+            }
 
             // Create log file path
             const logDir = path.join(request.workingDirectory, 'logs');
