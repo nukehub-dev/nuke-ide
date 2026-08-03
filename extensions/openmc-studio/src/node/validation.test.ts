@@ -240,4 +240,98 @@ describe('validateState random ray (multi-group) restrictions', () => {
 
         expect(result.issues.some((i) => i.message.includes('random ray'))).toBe(false);
     });
+
+    it('errors when multi-group mode has nuclide-decomposed materials', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('Multi-group mode requires macroscopic materials'))
+        ).toBe(true);
+    });
+
+    it('accepts multi-group mode with macroscopic materials', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+        (state.materials[0] as any).macroscopic = { name: 'Water' };
+        (state.materials[0] as any).nuclides = [];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('macroscopic materials'))).toBe(false);
+    });
+
+    it('errors when a fixed-source random ray source is not domain-constrained', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'box', lowerLeft: [0, 0, 0], upperRight: [10, 10, 10] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) =>
+                    i.severity === 'error' &&
+                    i.message.includes('Fixed-source random ray requires') &&
+                    i.message.includes('constrained to a domain')
+            )
+        ).toBe(true);
+    });
+
+    it('accepts a point source in fixed-source random ray mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('Fixed-source random ray requires'))).toBe(false);
+    });
+
+    it('accepts a domain-constrained source in fixed-source random ray mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'box', lowerLeft: [0, 0, 0], upperRight: [10, 10, 10] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' },
+                constraints: { domainType: 'material', domainIds: [1] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('Fixed-source random ray requires'))).toBe(false);
+    });
 });

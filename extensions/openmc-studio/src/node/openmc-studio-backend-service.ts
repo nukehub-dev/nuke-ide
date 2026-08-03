@@ -2188,6 +2188,24 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
+        // Multi-group mode requires macroscopic materials; nuclide-decomposed
+        // materials with an MGXS library reference produce "Could not find nuclide"
+        // errors because the library contains cross-section sets, not isotopes.
+        if (settings.energyMode === 'multigroup') {
+            const nonMacroscopic = materials.filter((m) => !m.macroscopic && m.nuclides && m.nuclides.length > 0);
+            if (nonMacroscopic.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'materials',
+                    message: `Multi-group mode requires macroscopic materials, but ${nonMacroscopic
+                        .map((m) => m.name || `material ${m.id}`)
+                        .join(', ')} ${nonMacroscopic.length === 1 ? 'still contains nuclides' : 'still contain nuclides'}`,
+                    suggestion:
+                        'Convert the project to multi-group in the Random Ray tab (Convert to Multi-group button), or switch the model back to continuous-energy in the Simulation tab'
+                });
+            }
+        }
+
         // CMFD acceleration: eigenvalue-only, valid mesh required
         if (settings.cmfd?.enabled) {
             if (settings.run.mode !== 'eigenvalue') {
@@ -2282,6 +2300,26 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         message: 'Cannot verify ray source coverage: no geometry defined',
                         suggestion: 'Define geometry before relying on the ray source box'
                     });
+                }
+            }
+
+            // Fixed-source random ray requires each source to be constrained to a
+            // domain (cell, material, or universe) or be a point source.
+            if (settings.run.mode === 'fixed source') {
+                for (const source of settings.sources) {
+                    const spatial = (source as OpenMCIndependentSource).spatial;
+                    const isPointSource = spatial?.type === 'point';
+                    const hasDomainConstraint =
+                        source.constraints?.domainType && source.constraints.domainIds && source.constraints.domainIds.length > 0;
+                    if (!isPointSource && !hasDomainConstraint) {
+                        issues.push({
+                            severity: 'error',
+                            category: 'settings',
+                            message: `Fixed-source random ray requires the source "${source.id ?? 'source'}" to be a point source or constrained to a domain`,
+                            suggestion:
+                                'Add a domain constraint (cell, material, or universe) to the source in the Sources tab, or switch to a point source'
+                        });
+                    }
                 }
             }
         }
