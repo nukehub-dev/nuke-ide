@@ -30,3 +30,5 @@ export type { LogoProps } from './logo';
 export { Tooltip, useTooltip } from './tooltip';
 export { ColorPicker } from './color-picker';
 export type { ColorPickerProps } from './color-picker';
+export { SearchableMultiSelect } from './searchable-multi-select';
+export type { SearchableMultiSelectProps, SearchableMultiSelectOption } from './searchable-multi-select';

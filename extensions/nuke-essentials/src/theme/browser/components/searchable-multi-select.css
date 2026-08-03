@@ -1,0 +1,175 @@
+/* ============================================================================
+   NukeIDE Searchable Multi-Select (dropdown)
+   ============================================================================ */
+
+.nuke-searchable-multi-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border);
+    border-radius: var(--nuke-radius-md);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    cursor: pointer;
+    transition:
+        border-color var(--nuke-transition-fast),
+        box-shadow var(--nuke-transition-fast);
+}
+
+.nuke-searchable-multi-select-trigger:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-searchable-multi-select-trigger:focus-visible {
+    outline: none;
+    box-shadow: var(--nuke-focus-glow);
+}
+
+.nuke-searchable-multi-select-trigger-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-searchable-multi-select-trigger .codicon {
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--theia-descriptionForeground);
+}
+
+.nuke-searchable-multi-select-dropdown {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-md);
+    background: var(--theia-editorWidget-background);
+    box-shadow: var(--nuke-shadow-lg);
+    overflow: hidden;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.nuke-searchable-multi-select-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-editorWidget-background);
+}
+
+.nuke-searchable-multi-select-input .codicon-search {
+    color: var(--theia-descriptionForeground);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.nuke-searchable-multi-select-input input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    padding: 0;
+}
+
+.nuke-searchable-multi-select-input input:focus {
+    outline: none;
+}
+
+.nuke-searchable-multi-select-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    padding: 2px;
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+    border-radius: var(--nuke-radius-sm);
+    flex-shrink: 0;
+}
+
+.nuke-searchable-multi-select-clear:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+    color: var(--theia-foreground);
+}
+
+.nuke-searchable-multi-select-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    overflow-y: auto;
+    min-height: 80px;
+}
+
+.nuke-searchable-multi-select-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--nuke-radius-sm);
+    cursor: pointer;
+    transition: background-color var(--nuke-transition-fast);
+    user-select: none;
+}
+
+.nuke-searchable-multi-select-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-searchable-multi-select-item.selected {
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 85%);
+}
+
+.nuke-searchable-multi-select-item.selected:hover {
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 75%);
+}
+
+.nuke-searchable-multi-select-item input[type='checkbox'] {
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+}
+
+.nuke-searchable-multi-select-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--theia-foreground);
+}
+
+.nuke-searchable-multi-select-id {
+    flex-shrink: 0;
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: color-mix(in srgb, var(--theia-descriptionForeground), transparent 90%);
+    padding: 1px 6px;
+    border-radius: 10px;
+}
+
+.nuke-searchable-multi-select-empty {
+    padding: 16px 8px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.nuke-searchable-multi-select-footer {
+    padding: 6px 10px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    text-align: right;
+    background: color-mix(in srgb, var(--theia-foreground), transparent 95%);
+}

@@ -31,6 +31,7 @@ import { ThemeContribution } from './theme-contribution';
 
 // Import global styles
 import './global-styles.css';
+import './components/searchable-multi-select.css';
 
 export default new ContainerModule((bind) => {
     bind(ThemeContribution).toSelf().inSingletonScope();

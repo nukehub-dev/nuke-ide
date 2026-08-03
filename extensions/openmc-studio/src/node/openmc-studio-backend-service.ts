@@ -84,6 +84,7 @@ import {
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
 import { getMeshElementCount } from '../common/mesh-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
+import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -2326,37 +2327,80 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                             category: 'settings',
                             message: `Fixed-source random ray requires the source "${source.id ?? 'source'}" to be a point source or constrained to a domain`,
                             suggestion:
-                                'Add a domain constraint (cell, material, or universe) to the source in the Sources tab, or switch to a point source'
+                                'Add a domain constraint (cell, material, or universe) to the source in the Sources tab, use the Random Ray tab helper, or switch to a point source'
                         });
                     }
                 }
             }
         }
 
-        // For DAGMC: validate source is within geometry bounds
-        if (settings.dagmcFile && settings.dagmcInfo?.boundingBox && settings.sources.length > 0) {
-            const geomBounds = settings.dagmcInfo.boundingBox;
+        // Source/geometry overlap check: warn when independent sources are placed
+        // outside the verifiable geometry bounds. This catches point sources in void
+        // and source boxes that do not overlap the model.
+        const geomBounds = calculateGeometryBounds(request.state);
+        if (geomBounds && settings.sources.length > 0) {
+            const materialIds = new Set(materials.map((m) => m.id));
+            const cellIds = new Set(request.state.geometry.cells.map((c) => c.id));
+            const universeIds = new Set(request.state.geometry.universes.map((u) => u.id));
+            // DAGMC volumes are also valid cell IDs for domain constraints
+            for (const vol of settings.dagmcInfo?.volumes ?? []) {
+                cellIds.add(vol.id);
+            }
+
             for (const source of settings.sources) {
                 const spatial = (source as OpenMCIndependentSource).spatial as any;
-                if (spatial.type === 'box' && spatial.lowerLeft && spatial.upperRight) {
-                    // Check if source box extends beyond geometry bounds
-                    const sourceExtendsBeyond =
-                        spatial.lowerLeft[0] < geomBounds.min[0] ||
-                        spatial.lowerLeft[1] < geomBounds.min[1] ||
-                        spatial.lowerLeft[2] < geomBounds.min[2] ||
-                        spatial.upperRight[0] > geomBounds.max[0] ||
-                        spatial.upperRight[1] > geomBounds.max[1] ||
-                        spatial.upperRight[2] > geomBounds.max[2];
+                if (!spatial) {
+                    continue;
+                }
 
-                    if (sourceExtendsBeyond) {
+                if (spatial.type === 'point' && spatial.origin) {
+                    if (!pointInBounds(spatial.origin as [number, number, number], geomBounds)) {
                         issues.push({
                             severity: 'warning',
                             category: 'settings',
-                            message: `Source extends beyond DAGMC geometry bounds`,
+                            message: `Point source "${source.id ?? 'source'}" is outside the geometry bounds`,
                             suggestion:
-                                `Source box [${spatial.lowerLeft.join(',')}] to [${spatial.upperRight.join(',')}] ` +
-                                `extends beyond geometry [${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
-                                `Particles born outside volumes will be lost. Use "Snap to Geometry" to fix.`
+                                `Origin [${spatial.origin.join(',')}] lies outside [${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
+                                'Move the source inside the model or constrain it to a material/cell/universe domain.'
+                        });
+                    }
+                } else if (spatial.type === 'box' && spatial.lowerLeft && spatial.upperRight) {
+                    if (
+                        !boxOverlapsBounds(
+                            {
+                                lowerLeft: spatial.lowerLeft as [number, number, number],
+                                upperRight: spatial.upperRight as [number, number, number]
+                            },
+                            geomBounds
+                        )
+                    ) {
+                        issues.push({
+                            severity: 'warning',
+                            category: 'settings',
+                            message: `Source box "${source.id ?? 'source'}" does not overlap the geometry`,
+                            suggestion:
+                                `Box [${spatial.lowerLeft.join(',')}] to [${spatial.upperRight.join(',')}] does not overlap ` +
+                                `[${geomBounds.min.join(',')}] to [${geomBounds.max.join(',')}]. ` +
+                                'Snap the source to the geometry bounds or constrain it to a domain.'
+                        });
+                    }
+                }
+
+                // Validate domain constraint IDs exist in the model
+                if (source.constraints?.domainType && source.constraints.domainIds && source.constraints.domainIds.length > 0) {
+                    const idSet =
+                        source.constraints.domainType === 'material'
+                            ? materialIds
+                            : source.constraints.domainType === 'cell'
+                              ? cellIds
+                              : universeIds;
+                    const invalidIds = source.constraints.domainIds.filter((id) => !idSet.has(id));
+                    if (invalidIds.length > 0) {
+                        issues.push({
+                            severity: 'error',
+                            category: 'settings',
+                            message: `Source "${source.id ?? 'source'}" references unknown ${source.constraints.domainType} IDs: ${invalidIds.join(', ')}`,
+                            suggestion: `Check the ${source.constraints.domainType} IDs in the Sources tab or Random Ray tab helper.`
                         });
                     }
                 }

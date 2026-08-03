@@ -30,7 +30,7 @@ import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, SearchableMultiSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCRandomRaySettings, OpenMCRegularMesh } from '../../../../common/openmc-state-schema';
 import { OpenMCCompat, MgConversionResult } from '../../../../common/openmc-studio-protocol';
 import { MGXS_GROUP_STRUCTURES, computeMgConversion, computeMgRevert } from '../../../../common/mg-conversion';
@@ -62,6 +62,10 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     private mgConvertResult?: MgConversionResult;
     private mgAppliedSummary = '';
     private mgApplyBusy = false;
+
+    // Fixed-source domain-constraint helper state
+    private sourceConstraintDomainType: 'material' | 'cell' | 'universe' = 'material';
+    private sourceConstraintDomainIds: number[] = [];
 
     /**
      * Render the Multi-Group Conversion section: the one-click CE → MG
@@ -425,6 +429,214 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     }
 
     /**
+     * Apply a domain constraint to every independent source in fixed-source mode.
+     * @param host - Simulation dashboard widget host.
+     * @param state - Current OpenMC simulation state.
+     */
+    private applySourceDomainConstraint(host: SimulationDashboardWidget, state: OpenMCState): void {
+        const domainIds = this.sourceConstraintDomainIds;
+        if (domainIds.length === 0) {
+            host.messageService.warn('Select at least one domain ID');
+            return;
+        }
+        const settings = host.stateManager.getState().settings;
+        const newSources = settings.sources.map((source) => {
+            if ((source as any).spatial === undefined) {
+                return source;
+            }
+            return {
+                ...source,
+                constraints: {
+                    ...source.constraints,
+                    domainType: this.sourceConstraintDomainType,
+                    domainIds
+                }
+            };
+        });
+        host.stateManager.updateSettings({ sources: newSources });
+        host.messageService.info(
+            `Constrained ${newSources.length} source(s) to ${this.sourceConstraintDomainType} ID(s) ${domainIds.join(', ')}`
+        );
+        host.update();
+    }
+
+    /**
+     * Render the fixed-source domain-constraint helper. Only shown when random
+     * ray is enabled and the run mode is fixed source.
+     * @param host - Simulation dashboard widget host.
+     * @param state - Current OpenMC simulation state.
+     * @returns React node for the constraint helper, or undefined.
+     */
+    private renderFixedSourceConstraints(host: SimulationDashboardWidget, state: OpenMCState): React.ReactNode {
+        const settings = state.settings;
+        if (settings.run.mode !== 'fixed source' || !settings.randomRay) {
+            return undefined;
+        }
+
+        const independentSources = settings.sources.filter((s) => (s as any).spatial !== undefined);
+        if (independentSources.length === 0) {
+            return (
+                <div className="depletion-warning-box">
+                    <i className="codicon codicon-warning"></i>
+                    <div className="warning-content">
+                        <strong>No independent sources defined</strong>
+                        <p>Fixed-source random ray needs at least one independent source. Add one in the Sources tab.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        const unconstrained = independentSources.filter((s) => {
+            const spatial = (s as any).spatial;
+            const isPoint = spatial?.type === 'point';
+            const hasDomain = s.constraints?.domainType && s.constraints.domainIds && s.constraints.domainIds.length > 0;
+            return !isPoint && !hasDomain;
+        });
+
+        const materialOptions = state.materials.map((m) => ({ id: m.id, label: `${m.name} (id ${m.id})` }));
+        const cellOptions = [
+            ...state.geometry.cells.map((c) => ({ id: c.id, label: `${c.name ?? 'Cell'} ${c.id}` })),
+            ...(settings.dagmcInfo?.volumes ?? []).map((v) => ({ id: v.id, label: `${v.material} volume ${v.id}` }))
+        ];
+        const universeOptions = state.geometry.universes.map((u) => ({ id: u.id, label: `${u.name ?? 'Universe'} ${u.id}` }));
+
+        const currentOptions =
+            this.sourceConstraintDomainType === 'material'
+                ? materialOptions
+                : this.sourceConstraintDomainType === 'cell'
+                  ? cellOptions
+                  : universeOptions;
+
+        const hasSelection = this.sourceConstraintDomainIds.length > 0;
+
+        return (
+            <div className="settings-section">
+                <h4>
+                    <i className="codicon codicon-lock"></i> Fixed-Source Domain Constraint
+                </h4>
+                {unconstrained.length > 0 && (
+                    <div className="depletion-warning-box">
+                        <i className="codicon codicon-warning"></i>
+                        <div className="warning-content">
+                            <strong>{unconstrained.length} source(s) must be constrained</strong>
+                            <p>
+                                Fixed-source random ray requires every source to be a point source or constrained to a cell, material, or
+                                universe domain. Unconstrained sources will raise a validation error.
+                            </p>
+                        </div>
+                    </div>
+                )}
+                <ul className="source-list">
+                    {independentSources.map((s, i) => {
+                        const spatial = (s as any).spatial;
+                        const isPoint = spatial?.type === 'point';
+                        const hasDomain = s.constraints?.domainType && s.constraints.domainIds && s.constraints.domainIds.length > 0;
+                        const status = isPoint
+                            ? 'point source'
+                            : hasDomain
+                              ? `constrained to ${s.constraints!.domainType} ${s.constraints!.domainIds!.join(', ')}`
+                              : 'unconstrained';
+                        return (
+                            <li key={i} className={isPoint || hasDomain ? 'ok' : 'warn'}>
+                                <i className={`codicon codicon-${isPoint || hasDomain ? 'check' : 'warning'}`}></i>
+                                Source {i + 1}: {status}
+                            </li>
+                        );
+                    })}
+                </ul>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Domain Type</label>
+                        <select
+                            value={this.sourceConstraintDomainType}
+                            onChange={(e) => {
+                                this.sourceConstraintDomainType = e.target.value as 'material' | 'cell' | 'universe';
+                                this.sourceConstraintDomainIds = [];
+                                host.update();
+                            }}
+                        >
+                            <option value="material">Material</option>
+                            <option value="cell">Cell / DAGMC Volume</option>
+                            <option value="universe">Universe</option>
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Domain IDs</label>
+                        <SearchableMultiSelect
+                            options={currentOptions}
+                            selectedIds={this.sourceConstraintDomainIds}
+                            onChange={(ids) => {
+                                this.sourceConstraintDomainIds = ids as number[];
+                                host.update();
+                            }}
+                            searchPlaceholder={`Search ${this.sourceConstraintDomainType}…`}
+                            emptyMessage={`No ${this.sourceConstraintDomainType}s match`}
+                            maxHeight={160}
+                        />
+                        <span className="form-hint">
+                            {this.sourceConstraintDomainType === 'material'
+                                ? 'Constrain source sites to a material (e.g., the plasma/fuel material)'
+                                : this.sourceConstraintDomainType === 'cell'
+                                  ? 'Constrain source sites to a CSG cell or DAGMC volume'
+                                  : 'Constrain source sites to a universe'}
+                        </span>
+                    </div>
+                </div>
+                <div className="rr-actions-row">
+                    <Tooltip content="Apply the domain constraint to every independent source" position="bottom">
+                        <button className="theia-button primary small" onClick={() => this.applySourceDomainConstraint(host, state)}>
+                            <i className="codicon codicon-check"></i> Apply to All Sources
+                        </button>
+                    </Tooltip>
+                    {this.sourceConstraintDomainType === 'material' && hasSelection && (
+                        <Tooltip
+                            content="Auto-fill the fuel/source material (lowest density, or name suggesting fuel/plasma/fissile)"
+                            position="bottom"
+                        >
+                            <button
+                                className="theia-button secondary small"
+                                onClick={() => {
+                                    const fuel = this.guessFuelMaterial(state);
+                                    if (fuel) {
+                                        this.sourceConstraintDomainIds = [fuel.id];
+                                        host.update();
+                                    } else {
+                                        host.messageService.warn('No fuel-like material found');
+                                    }
+                                }}
+                            >
+                                <i className="codicon codicon-lightbulb"></i> Guess Fuel
+                            </button>
+                        </Tooltip>
+                    )}
+                </div>
+                <span className="form-hint">
+                    Domain constraints tell OpenMC to reject source sites outside the chosen domain. Constrain to the fuel/source material
+                    or volume so neutrons are born in the right region.
+                </span>
+            </div>
+        );
+    }
+
+    /**
+     * Heuristic: pick the material most likely to be the fuel/source region.
+     * Prefers names suggesting fuel/plasma/fissile material, then falls back to
+     * the lowest-density material.
+     * @param state - Current OpenMC simulation state.
+     * @returns The guessed material, or undefined.
+     */
+    private guessFuelMaterial(state: OpenMCState): { id: number; name: string } | undefined {
+        const nameHint =
+            /fuel|plasma|u235|u-235|uranium|plutonium|pu239|pu-239|enriched|fissile|tritium|deuterium|dt|d-t|li6|li-6|breeder/i;
+        const byName = state.materials.find((m) => nameHint.test(m.name));
+        if (byName) {
+            return { id: byName.id, name: byName.name };
+        }
+        const sorted = [...state.materials].sort((a, b) => a.density - b.density);
+        return sorted.length > 0 ? { id: sorted[0].id, name: sorted[0].name } : undefined;
+    }
+
+    /**
      * Render the Random Ray tab.
      * @param host - Simulation dashboard widget host.
      * @param state - Current OpenMC simulation state.
@@ -553,6 +765,8 @@ export class RandomRayTabContribution implements DashboardTabContribution {
 
                     {randomRay && (
                         <>
+                            {this.renderFixedSourceConstraints(host, state)}
+
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Inactive Distance (cm)</label>

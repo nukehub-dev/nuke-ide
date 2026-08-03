@@ -334,4 +334,87 @@ describe('validateState random ray (multi-group) restrictions', () => {
 
         expect(result.issues.some((i) => i.message.includes('Fixed-source random ray requires'))).toBe(false);
     });
+
+    it('warns when a point source is outside the geometry bounds', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [100, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'warning' && i.message.includes('outside the geometry bounds'))).toBe(true);
+    });
+
+    it('warns when a box source does not overlap the geometry', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'box', lowerLeft: [50, 0, 0], upperRight: [60, 10, 10] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' },
+                constraints: { domainType: 'material', domainIds: [1] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'warning' && i.message.includes('does not overlap the geometry'))).toBe(true);
+    });
+
+    it('errors when a source domain constraint references an unknown material ID', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'box', lowerLeft: [0, 0, 0], upperRight: [10, 10, 10] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' },
+                constraints: { domainType: 'material', domainIds: [999] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('unknown material IDs: 999'))).toBe(true);
+    });
+
+    it('accepts a source domain constraint with a valid material ID', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.run.mode = 'fixed source';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'box', lowerLeft: [0, 0, 0], upperRight: [10, 10, 10] },
+                energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
+                angle: { type: 'isotropic' },
+                constraints: { domainType: 'material', domainIds: [1] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('unknown material IDs'))).toBe(false);
+    });
 });

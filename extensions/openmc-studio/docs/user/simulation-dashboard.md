@@ -213,6 +213,21 @@ The ray source is a uniform box (Auto-detect from Geometry, or explicit lower-le
 
 Restrict the random ray source to a mesh-defined region: pick a regular mesh from the Tally Configurator and a domain type (cells, materials, or universes) with IDs.
 
+### Fixed-Source Domain Constraint
+
+When the run mode is **Fixed Source**, every independent source must either be a **point source** or constrained to a domain (cell, material, or universe). OpenMC rejects unconstrained box/sphere/cylinder sources in random ray mode.
+
+The Random Ray tab shows a **Fixed-Source Domain Constraint** panel when random ray is enabled:
+
+- A status list shows whether each source is a point source, already constrained, or still unconstrained.
+- Choose a **Domain Type** (`Material`, `Cell / DAGMC Volume`, or `Universe`) and enter one or more IDs.
+- Click **Apply to All Sources** to add the domain constraint to every independent source at once.
+- For tokamak/plasma models, the **Guess Plasma** button auto-fills the lowest-density material (or one whose name suggests fuel/plasma).
+
+For DAGMC models, constraining the source to the plasma **material** or **volume** ensures fusion neutrons are born inside the plasma instead of in void, which prevents the runtime `Too few source sites satisfied the constraints` error.
+
+> **Tip:** The validator also warns if a point source lies outside the geometry bounds or if a source box does not overlap the geometry. Use the domain constraint rather than guessing coordinates — it lets OpenMC resample until a valid site is found.
+
 ---
 
 ## Simulation Tab
