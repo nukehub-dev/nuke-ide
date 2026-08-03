@@ -2,7 +2,7 @@
 
 The frontend and backend communicate via **JSON-RPC over WebSocket**, using Theia's `JsonRpcConnectionHandler`. Protocol files in `src/common/` define the contract: TypeScript interfaces that both sides import.
 
-For the full protocol definition, see [`src/common/openmc-studio-protocol.ts`](../../src/common/openmc-studio-protocol.ts).
+For the full protocol definition, see [`src/common/openmc-studio-protocol.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/common/openmc-studio-protocol.ts).
 
 ---
 
@@ -260,4 +260,4 @@ The protocol file defines granular types for every operation. Rather than listin
 | Optimization start        | `StartOptimizationRequest`  | `StartOptimizationResult`     |
 | Optimization stop         | `StopOptimizationRequest`   | `StopOptimizationResult`      |
 
-For field-level documentation, refer to the JSDoc comments in [`src/common/openmc-studio-protocol.ts`](../../src/common/openmc-studio-protocol.ts).
+For field-level documentation, refer to the JSDoc comments in [`src/common/openmc-studio-protocol.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/common/openmc-studio-protocol.ts).

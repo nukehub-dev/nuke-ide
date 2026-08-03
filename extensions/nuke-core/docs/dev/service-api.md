@@ -2,7 +2,7 @@
 
 This guide shows how to use **nuke-core** from another Theia extension. All examples are in TypeScript and assume you are using Theia's Inversify dependency injection container.
 
-> **Source of truth**: The definitive types and JSDoc are in [`src/common/nuke-core-protocol.ts`](../../src/common/nuke-core-protocol.ts) and [`src/browser/services/nuke-core-service.ts`](../../src/browser/services/nuke-core-service.ts).
+> **Source of truth**: The definitive types and JSDoc are in [`src/common/nuke-core-protocol.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/common/nuke-core-protocol.ts) and [`src/browser/services/nuke-core-service.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/browser/services/nuke-core-service.ts).
 
 ---
 

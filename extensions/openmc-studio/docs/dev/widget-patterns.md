@@ -248,7 +248,7 @@ bind(MyCommands).toSelf().inSingletonScope();
 this.myCommands.registerCommands(registry);
 ```
 
-See [`openmc-command-contribution.ts`](../../src/browser/contributions/openmc-command-contribution.ts) for the aggregator pattern.
+See [`openmc-command-contribution.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/browser/contributions/openmc-command-contribution.ts) for the aggregator pattern.
 
 ---
 
@@ -299,7 +299,7 @@ export class OpenMCToolbarContribution implements TabBarToolbarContribution {
 }
 ```
 
-See [`openmc-toolbar-contribution.ts`](../../src/browser/contributions/openmc-toolbar-contribution.ts).
+See [`openmc-toolbar-contribution.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/browser/contributions/openmc-toolbar-contribution.ts).
 
 ---
 

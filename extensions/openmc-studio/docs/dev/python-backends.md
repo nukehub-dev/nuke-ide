@@ -116,7 +116,7 @@ class NumpyEncoder(json.JSONEncoder):
 print(json.dumps(result, cls=NumpyEncoder))
 ```
 
-See [`statepoint_reader.py`](../../python/statepoint_reader.py) for the full implementation.
+See [`statepoint_reader.py`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/python/statepoint_reader.py) for the full implementation.
 
 ---
 

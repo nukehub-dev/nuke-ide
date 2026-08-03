@@ -116,9 +116,9 @@ The sidebar searches item labels, descriptions, keywords, and category paths. Qu
 
 ## Source files
 
-| File                                                                                                                           | Purpose                                                                      |
-| ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| [`src/common/nuke-tools-protocol.ts`](../../src/common/nuke-tools-protocol.ts)                                                 | `NukeToolsItem`, `NukeToolsContribution`, and `NukeToolsRegistry` contracts. |
-| [`src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx`](../../src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx)     | React widget that renders the sidebar.                                       |
-| [`src/browser/tools-sidebar/nuke-tools-sidebar-model.ts`](../../src/browser/tools-sidebar/nuke-tools-sidebar-model.ts)         | Pure grouping/filtering/sorting helpers.                                     |
-| [`src/browser/tools-sidebar/nuke-core-tools-contribution.ts`](../../src/browser/tools-sidebar/nuke-core-tools-contribution.ts) | Nuke Core's own tool registrations.                                          |
+| File                                                                                                                                                                                            | Purpose                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`src/common/nuke-tools-protocol.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/common/nuke-tools-protocol.ts)                                                 | `NukeToolsItem`, `NukeToolsContribution`, and `NukeToolsRegistry` contracts. |
+| [`src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/browser/tools-sidebar/nuke-tools-sidebar-widget.tsx)     | React widget that renders the sidebar.                                       |
+| [`src/browser/tools-sidebar/nuke-tools-sidebar-model.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/browser/tools-sidebar/nuke-tools-sidebar-model.ts)         | Pure grouping/filtering/sorting helpers.                                     |
+| [`src/browser/tools-sidebar/nuke-core-tools-contribution.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/nuke-core/src/browser/tools-sidebar/nuke-core-tools-contribution.ts) | Nuke Core's own tool registrations.                                          |

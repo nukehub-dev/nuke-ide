@@ -2,7 +2,7 @@
 
 `OpenMCState` is the central data model for the no-code simulation builder. It is a plain JSON object that completely describes an OpenMC simulation — geometry, materials, settings, tallies, meshes, variance reduction, depletion, and optimization parameters. The state is reactive: widgets read from it and mutate it through `OpenMCStateManager`, which emits change events on every modification.
 
-For the full schema definition, see [`src/common/openmc-state-schema.ts`](../../src/common/openmc-state-schema.ts).
+For the full schema definition, see [`src/common/openmc-state-schema.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/common/openmc-state-schema.ts).
 
 ---
 

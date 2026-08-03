@@ -4,8 +4,8 @@
 
 For the full module definitions, see:
 
-- Frontend: [`src/browser/openmc-studio-frontend-module.ts`](../../src/browser/openmc-studio-frontend-module.ts)
-- Backend: [`src/node/openmc-studio-backend-module.ts`](../../src/node/openmc-studio-backend-module.ts)
+- Frontend: [`src/browser/openmc-studio-frontend-module.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/browser/openmc-studio-frontend-module.ts)
+- Backend: [`src/node/openmc-studio-backend-module.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/node/openmc-studio-backend-module.ts)
 
 ---
 

@@ -37,11 +37,11 @@ OpenMC Studio maintains a single source of truth — `OpenMCState` — and gener
 
 **Key files:**
 
-| File                                                                                                               | Role                                                                    |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [`src/browser/xml-generator/xml-generation-service.ts`](../../src/browser/xml-generator/xml-generation-service.ts) | Frontend service: validates, formats request, shows toast messages      |
-| [`src/node/xml-generation-service.ts`](../../src/node/xml-generation-service.ts)                                   | Backend service: generates XML strings from `OpenMCState`               |
-| [`src/common/openmc-studio-protocol.ts`](../../src/common/openmc-studio-protocol.ts)                               | `XMLGenerationRequest`, `XMLGenerationResult`, `XMLImportRequest` types |
+| File                                                                                                                                                                                    | Role                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [`src/browser/xml-generator/xml-generation-service.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/browser/xml-generator/xml-generation-service.ts) | Frontend service: validates, formats request, shows toast messages      |
+| [`src/node/xml-generation-service.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/node/xml-generation-service.ts)                                   | Backend service: generates XML strings from `OpenMCState`               |
+| [`src/common/openmc-studio-protocol.ts`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/common/openmc-studio-protocol.ts)                               | `XMLGenerationRequest`, `XMLGenerationResult`, `XMLImportRequest` types |
 
 ---
 
@@ -247,7 +247,7 @@ Maps `OpenMCState.plots` → `<plots>`. Generated only when `request.files.plots
 
 ## XML Import
 
-OpenMC Studio can parse existing OpenMC XML files back into `OpenMCState`. This is implemented in [`OpenMCStudioBackendServiceImpl.importXML()`](../../src/node/openmc-studio-backend-service.ts).
+OpenMC Studio can parse existing OpenMC XML files back into `OpenMCState`. This is implemented in [`OpenMCStudioBackendServiceImpl.importXML()`](https://github.com/nukehub-dev/nuke-ide/blob/main/extensions/openmc-studio/src/node/openmc-studio-backend-service.ts).
 
 ### Import Pipeline
 
