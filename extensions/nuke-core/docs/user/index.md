@@ -9,6 +9,7 @@ End-user guides for the Nuke Core extension, the foundational Python environment
 | [**Getting Started**](getting-started.md)               | First-time setup, configure Python, run a health check, set OpenMC cross-sections           |
 | [**Environment Management**](environment-management.md) | Auto-detection, switching, creating, and deleting environments; workspace auto-detect       |
 | [**Package Installation**](package-installation.md)     | Install packages with pip, uv, or conda; custom channels and indexes; live terminal output  |
+| [**Nuke Tools Sidebar**](tools-sidebar.md)              | Discover and run commands across all NukeIDE extensions from one searchable panel           |
 | [**Troubleshooting**](troubleshooting.md)               | Fixes for common issues: missing Python, failed installs, status bar, cross-sections errors |
 
 ## Quick Commands Reference

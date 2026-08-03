@@ -53,6 +53,7 @@ yarn start:electron
 
 - **Configure Python**: Use the status bar or command palette (`Nuke: Switch Environment`) to select your Python environment.
 - **Run a Health Check**: Press `Ctrl+Shift+P` (or `Cmd+Shift+P`) and type `Nuke: Run Health Check`.
+- **Open Nuke Tools**: Click the tools icon in the left activity bar (or run `Nuke: Focus Tools Sidebar`) to browse and search every NukeIDE command.
 - **Explore Extensions**: Open the Explorer sidebar and look for the NukeIDE panels contributed by your installed extensions.
 
 ## Learn More

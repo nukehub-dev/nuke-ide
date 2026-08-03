@@ -15,6 +15,8 @@ Phase 9: hardening + workflow unification.
 
 ### Added
 
+- nuke-core: **Nuke Tools sidebar** — a searchable, categorized left-panel view that aggregates every Nuke command across extensions. Extensions contribute items via `NukeToolsContribution`, with support for nested categories, section/category ordering, and state-aware enabled/disabled items.
+- openmc-studio: element symbols (e.g. `U`, `O`) in materials are expanded to their natural nuclide compositions on XML export and script generation, so hand-edited element shorthand round-trips correctly through OpenMC.
 - openmc-studio: one-click **CE ↔ Multi-Group conversion** (Random Ray tab) —
   generates MGXS from the current CE model, converts matched materials to
   macroscopic with the correct XS data names, and stashes the original materials
