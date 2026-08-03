@@ -254,7 +254,13 @@ When the restart file is a particle restart file (`particle_restart.h5` or `part
 
 - **Capture Track for Restarted Particle** — enables a one-particle track for the restarted particle.
 - **Preview Restart File** — opens the particle restart viewer.
-- **Open Tracks** — appears when the last run produced a tracks file.
+
+### Run Output Actions
+
+After a run, the Simulation tab surfaces one-click open actions for files OpenMC wrote:
+
+- **Open Tracks** — appears when the run produced particle tracks. Track files (`tracks.h5` for serial runs, `tracks_p<N>.h5` for MPI runs) are moved into a `tracks/` subfolder inside the working directory to keep the top level tidy.
+- **Open Weight Windows** — appears when the run produced `weight_windows.h5` (for example, from a **Weight Window Generator** or a FW-CADIS/random-ray workflow).
 
 ### Kinetics (IFP)
 

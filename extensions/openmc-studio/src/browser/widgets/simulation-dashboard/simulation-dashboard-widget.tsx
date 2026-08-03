@@ -135,6 +135,8 @@ export class SimulationDashboardWidget extends ReactWidget {
     public consolePanelRef = React.createRef<HTMLDivElement>();
     /** tracks.h5 produced by the last completed run (surfaced as 'Open Tracks') */
     public producedTracksUri?: URI;
+    /** weight_windows.h5 produced by the last completed run (surfaced as 'Open Weight Windows') */
+    public producedWeightWindowsUri?: URI;
     /** Whether the current/last run is expected to write a tracks file */
     private expectTracksFile = false;
 
@@ -190,6 +192,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.logToConsole('Simulation completed successfully');
                 this.stopLogPolling();
                 this.detectProducedTracks();
+                this.detectProducedWeightWindows();
             } else if (event.status === 'failed') {
                 const errorMsg = event.result?.error || `Exit code: ${event.result?.exitCode}`;
                 this.logToConsole(`Simulation failed: ${errorMsg}`, 'error');
@@ -1005,6 +1008,7 @@ export class SimulationDashboardWidget extends ReactWidget {
             }
             this.expectTracksFile = captureEnabled && (args.length > 0 || !isParticleRestartFile(restartFile));
             this.producedTracksUri = undefined;
+            this.producedWeightWindowsUri = undefined;
 
             // Note: runSimulation returns immediately, completion handled by events
             this.simulationRunner.runSimulation({
@@ -1052,7 +1056,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     /**
-     * After a completed run, check the working directory for a track file
+     * After a completed run, check the `tracks/` subfolder for a track file
      * (`tracks.h5`, or `tracks_p0.h5` for MPI runs) and surface it as an
      * 'Open Tracks' action in the simulation tab.
      */
@@ -1061,13 +1065,30 @@ export class SimulationDashboardWidget extends ReactWidget {
             return;
         }
         for (const name of ['tracks.h5', 'tracks_p0.h5']) {
-            const uri = new URI(`${this.lastSimulationDirectory}/${name}`);
+            const uri = new URI(`${this.lastSimulationDirectory}/tracks/${name}`);
             if (await this.fileService.exists(uri)) {
                 this.producedTracksUri = uri;
-                this.logToConsole(`Track file written: ${name} — use 'Open Tracks' to view it`);
+                this.logToConsole(`Track file written: tracks/${name} — use 'Open Tracks' to view it`);
                 this.update();
                 return;
             }
+        }
+    }
+
+    /**
+     * After a completed run, check the working directory for a weight windows
+     * file (`weight_windows.h5`) and surface it as an 'Open Weight Windows'
+     * action in the simulation tab.
+     */
+    protected async detectProducedWeightWindows(): Promise<void> {
+        if (!this.lastSimulationDirectory) {
+            return;
+        }
+        const uri = new URI(`${this.lastSimulationDirectory}/weight_windows.h5`);
+        if (await this.fileService.exists(uri)) {
+            this.producedWeightWindowsUri = uri;
+            this.logToConsole('Weight windows file written: weight_windows.h5 — use Open Weight Windows to view it');
+            this.update();
         }
     }
 

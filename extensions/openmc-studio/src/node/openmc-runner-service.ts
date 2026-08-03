@@ -632,6 +632,9 @@ export class OpenMCRunnerService {
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
+                // Tidy particle track files into a dedicated subfolder
+                this.organizeTracksFiles(request.workingDirectory);
+
                 // Get output files
                 const outputFiles = this.detectOutputFiles(request.workingDirectory);
 
@@ -834,6 +837,9 @@ export class OpenMCRunnerService {
 
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
+
+                // Tidy particle track files into a dedicated subfolder
+                this.organizeTracksFiles(request.workingDirectory);
 
                 // Get output files
                 const outputFiles = this.detectOutputFiles(request.workingDirectory);
@@ -1488,6 +1494,39 @@ export class OpenMCRunnerService {
     }
 
     /**
+     * Move OpenMC particle track files (`tracks.h5`, `tracks_p<N>.h5`) from the
+     * working directory into a `tracks/` subfolder so the cwd/output directory
+     * stays tidy. Non-blocking: failures are logged but do not fail the run.
+     * @param workingDirectory - Directory to organize
+     */
+    private organizeTracksFiles(workingDirectory: string): void {
+        const fs = require('fs');
+
+        try {
+            const tracksDir = path.join(workingDirectory, 'tracks');
+            if (!fs.existsSync(tracksDir)) {
+                fs.mkdirSync(tracksDir, { recursive: true });
+            }
+
+            const files = fs.readdirSync(workingDirectory);
+            for (const file of files) {
+                if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
+                    const source = path.join(workingDirectory, file);
+                    const destination = path.join(tracksDir, file);
+                    if (!fs.existsSync(destination)) {
+                        fs.renameSync(source, destination);
+                        this.log(`Moved track file into tracks/: ${file}`);
+                    } else {
+                        this.log(`Track file already exists in tracks/: ${file}`);
+                    }
+                }
+            }
+        } catch (error) {
+            this.log(`Warning: failed to organize track files: ${error}`);
+        }
+    }
+
+    /**
      * Detect output files in the working directory.
      * @param workingDirectory - Directory to scan
      * @returns List of output file paths
@@ -1528,6 +1567,21 @@ export class OpenMCRunnerService {
                 // Check for OpenMC simulation output (from depletion)
                 else if (file === 'openmc_simulation.h5') {
                     outputFiles.push(path.join(workingDirectory, file));
+                }
+                // Check for weight windows output
+                else if (file === 'weight_windows.h5') {
+                    outputFiles.push(path.join(workingDirectory, file));
+                }
+            }
+
+            // Track files are moved into a tracks/ subfolder; surface them too
+            const tracksDir = path.join(workingDirectory, 'tracks');
+            if (fs.existsSync(tracksDir)) {
+                const trackFiles = fs.readdirSync(tracksDir);
+                for (const file of trackFiles) {
+                    if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
+                        outputFiles.push(path.join(tracksDir, file));
+                    }
                 }
             }
         } catch (error) {

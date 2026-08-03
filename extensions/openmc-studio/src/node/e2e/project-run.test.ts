@@ -199,7 +199,7 @@ describe('project-file e2e (real OpenMC)', () => {
 
             runOpenMC(dir);
 
-            const tracks = path.join(dir, 'tracks.h5');
+            const tracks = path.join(dir, 'tracks', 'tracks.h5');
             expect(fs.existsSync(tracks)).toBe(true);
             expect(fs.statSync(tracks).size).toBeGreaterThan(0);
         },

@@ -162,6 +162,17 @@ export class SimulationTabContribution implements DashboardTabContribution {
                     </div>
                 )}
 
+                {host.producedWeightWindowsUri && (
+                    <div className="restart-option">
+                        <Tooltip content="Open the weight windows file written by the last run in the weight windows viewer">
+                            <button className="theia-button secondary" onClick={() => host.openFile(host.producedWeightWindowsUri!)}>
+                                <i className="codicon codicon-graph"></i>
+                                Open Weight Windows
+                            </button>
+                        </Tooltip>
+                    </div>
+                )}
+
                 {this.renderKineticsSection(host, state)}
 
                 <div className="simulation-actions">
