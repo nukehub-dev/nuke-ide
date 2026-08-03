@@ -138,6 +138,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void> {
         await this.runnerService.setPythonConfig(config);
+        this.dagmcEditorService.setPythonConfig(config);
     }
 
     /**
@@ -439,16 +440,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     material.densityUnit = mat.density.$.units as any;
                 }
 
-                // Parse nuclides
-                if (mat.nuclide) {
-                    const nuclides = Array.isArray(mat.nuclide) ? mat.nuclide : [mat.nuclide];
-                    for (const nuc of nuclides) {
-                        material.nuclides.push({
-                            name: nuc.$.name,
-                            fraction: parseFloat(nuc.$.ao || nuc.$.wo || '1.0'),
-                            fractionType: nuc.$.ao ? 'ao' : 'wo'
-                        });
-                    }
+                // Parse nuclides and elements
+                const materialNuclides = [
+                    ...(Array.isArray(mat.nuclide) ? mat.nuclide : mat.nuclide ? [mat.nuclide] : []),
+                    ...(Array.isArray(mat.element) ? mat.element : mat.element ? [mat.element] : [])
+                ];
+                for (const nuc of materialNuclides) {
+                    material.nuclides.push({
+                        name: nuc.$.name,
+                        fraction: parseFloat(nuc.$.ao || nuc.$.wo || '1.0'),
+                        fractionType: nuc.$.ao ? 'ao' : 'wo'
+                    });
                 }
 
                 // Parse S(alpha,beta)

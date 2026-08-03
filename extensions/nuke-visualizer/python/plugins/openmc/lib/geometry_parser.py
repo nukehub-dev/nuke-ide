@@ -567,7 +567,52 @@ def parse_geometry(file_path: str) -> dict[str, Any]:
     return parser.parse(file_path)
 
 
-def convert_summary_to_xml(summary_path: str, out_dir: str) -> str:
+def _resolve_dagmc_path(filename: str | None, reference_dir: str) -> str | None:
+    """Find an existing DAGMC file referenced from a converted geometry.xml.
+
+    ``openmc.Summary.export_to_xml`` preserves relative DAGMC filenames, but the
+    conversion writes ``geometry.xml`` into a temporary directory. This helper
+    resolves the filename against the original summary/model directory so the
+    viewer's error messages and downstream path handling point at the user's
+    actual project file.
+
+    If the explicit filename cannot be found, common fallback names
+    (``geometry.h5m``, ``dagmc.h5m``) in the reference directory (and its parent,
+    to handle ``summary.h5`` files written to an ``output/`` subdirectory) are
+    tried.
+    """
+    if not filename:
+        return None
+
+    search_dirs = [reference_dir]
+    parent_dir = os.path.dirname(reference_dir)
+    if parent_dir and parent_dir != reference_dir:
+        search_dirs.append(parent_dir)
+
+    if os.path.isabs(filename):
+        if os.path.isfile(filename):
+            return filename
+        # Absolute but missing: still fall back to the reference directory so
+        # error messages point next to the summary file rather than a stale cwd.
+        candidates = [os.path.join(d, os.path.basename(filename)) for d in search_dirs]
+    else:
+        candidates = [os.path.join(d, filename) for d in search_dirs]
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+
+    for search_dir in search_dirs:
+        for fallback in (os.path.basename(filename), "geometry.h5m", "dagmc.h5m"):
+            alt = os.path.join(search_dir, fallback)
+            if os.path.isfile(alt):
+                return os.path.abspath(alt)
+
+    # Nothing exists; return the first resolved candidate so error messages are useful.
+    return os.path.abspath(candidates[0])
+
+
+def convert_summary_to_xml(summary_path: str, out_dir: str, original_dir: str | None = None) -> str:
     """Convert an OpenMC summary.h5 to geometry.xml + materials.xml.
 
     summary.h5 carries the full CSG geometry and material definitions but the
@@ -577,6 +622,8 @@ def convert_summary_to_xml(summary_path: str, out_dir: str) -> str:
     Args:
         summary_path: Path to summary.h5
         out_dir: Directory to write geometry.xml / materials.xml into
+        original_dir: Directory to use when resolving relative DAGMC filenames.
+            Defaults to the directory containing ``summary_path``.
 
     Returns:
         Path to the directory containing the exported XML files (suitable for
@@ -605,6 +652,24 @@ def convert_summary_to_xml(summary_path: str, out_dir: str) -> str:
     summary.geometry.export_to_xml(os.path.join(out_dir, "geometry.xml"))
     if summary.materials:
         summary.materials.export_to_xml(os.path.join(out_dir, "materials.xml"))
+
+    # Re-anchor any relative DAGMC reference to the original model directory.
+    if original_dir is None:
+        original_dir = os.path.dirname(os.path.abspath(summary_path))
+    geometry_xml = os.path.join(out_dir, "geometry.xml")
+    try:
+        tree = ET.parse(geometry_xml)
+        root = tree.getroot()
+        dagmc_elem = root.find(".//dagmc_universe")
+        if dagmc_elem is not None:
+            resolved = _resolve_dagmc_path(dagmc_elem.get("filename"), original_dir)
+            if resolved is not None:
+                dagmc_elem.set("filename", resolved)
+                tree.write(geometry_xml, encoding="utf-8", xml_declaration=True)
+    except Exception:
+        # Conversion output is still usable even if DAGMC re-anchoring fails.
+        pass
+
     return out_dir
 
 

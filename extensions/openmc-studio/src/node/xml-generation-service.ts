@@ -40,6 +40,7 @@ import * as fs from 'fs';
 import { XMLGenerationRequest, XMLGenerationResult, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { resolveMgxsLibrary } from '../common/mgxs-library';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+import { expandMaterialNuclides } from '../common/material-utils';
 
 import {
     OpenMCState,
@@ -109,10 +110,25 @@ export class XMLGenerationService {
                 fs.mkdirSync(request.outputDirectory, { recursive: true });
             }
 
+            // OpenMC writes summary/statepoint/tallies files under settings.output.path
+            // but does not create the directory itself, so pre-create it here.
+            if (request.state.settings.output?.path) {
+                const outputSubdir = path.isAbsolute(request.state.settings.output.path)
+                    ? request.state.settings.output.path
+                    : path.join(request.outputDirectory, request.state.settings.output.path);
+                if (!fs.existsSync(outputSubdir)) {
+                    fs.mkdirSync(outputSubdir, { recursive: true });
+                }
+            }
+
+            // Load available neutron nuclides from the data library so element
+            // expansion only emits isotopes that OpenMC can actually resolve.
+            const availableNuclides = request.crossSectionsPath ? this.loadAvailableNuclides(request.crossSectionsPath) : undefined;
+
             // Generate materials.xml
             if (request.files.materials) {
                 const materialsPath = path.join(request.outputDirectory, 'materials.xml');
-                const materialsXml = this.generateMaterialsXML(request.state, request.outputDirectory);
+                const materialsXml = this.generateMaterialsXML(request.state, request.outputDirectory, availableNuclides);
                 fs.writeFileSync(materialsPath, materialsXml);
                 generatedFiles.push(materialsPath);
                 this.log(`Generated materials.xml`);
@@ -147,15 +163,19 @@ export class XMLGenerationService {
 
             // Copy DAGMC file to output directory as geometry.h5m (required by OpenMC)
             if (request.state.settings.dagmcFile) {
-                const dagmcSource = request.state.settings.dagmcFile;
                 const dagmcDest = path.join(request.outputDirectory, 'geometry.h5m');
-                try {
-                    fs.copyFileSync(dagmcSource, dagmcDest);
-                    generatedFiles.push(dagmcDest);
-                    this.log(`Copied DAGMC file to geometry.h5m`);
-                } catch (err) {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    this.log(`Warning: Failed to copy DAGMC file: ${msg}`);
+                const dagmcSource = this.resolveDagmcSourcePath(request.state, request.outputDirectory);
+                if (dagmcSource) {
+                    try {
+                        fs.copyFileSync(dagmcSource, dagmcDest);
+                        generatedFiles.push(dagmcDest);
+                        this.log(`Copied DAGMC file from ${dagmcSource} to geometry.h5m`);
+                    } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        this.log(`Warning: Failed to copy DAGMC file: ${msg}`);
+                    }
+                } else {
+                    this.log(`Warning: Could not locate DAGMC file ${request.state.settings.dagmcFile}`);
                 }
             }
 
@@ -232,7 +252,37 @@ export class XMLGenerationService {
         return `${raw.replace(/[\\/]+$/, '')}/mgxs.h5`;
     }
 
-    private generateMaterialsXML(state: OpenMCState, outputDirectory?: string): string {
+    /**
+     * Parse a cross_sections.xml file and return the set of available neutron
+     * nuclide names. Falls back to an empty set if the file cannot be read.
+     */
+    private loadAvailableNuclides(crossSectionsPath: string): Set<string> | undefined {
+        const fs = require('fs');
+        try {
+            const xml = fs.readFileSync(crossSectionsPath, 'utf-8');
+            const available = new Set<string>();
+            // Match <library materials="X" ... type="neutron" />
+            const regex = /<library\s+[^>]*?materials="([^"]+)"[^>]*?type="neutron"[^>]*\/>/gi;
+            let match: RegExpExecArray | null;
+            while ((match = regex.exec(xml)) !== null) {
+                match[1].split(/\s+/).forEach((name) => {
+                    if (name) {
+                        available.add(name);
+                    }
+                });
+            }
+            if (available.size > 0) {
+                this.log(`Loaded ${available.size} available neutron nuclides from ${crossSectionsPath}`);
+                return available;
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.log(`Warning: Could not read cross-sections library ${crossSectionsPath}: ${msg}`);
+        }
+        return undefined;
+    }
+
+    private generateMaterialsXML(state: OpenMCState, outputDirectory?: string, availableNuclides?: Set<string>): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<materials>', ''];
 
         // Multi-group cross sections library reference (openmc.Materials.cross_sections
@@ -261,7 +311,7 @@ export class XMLGenerationService {
 
         // Add user-defined materials
         for (const material of state.materials) {
-            lines.push(this.generateMaterialElement(material));
+            lines.push(this.generateMaterialElement(material, availableNuclides));
         }
 
         // For DAGMC mode: check for missing materials (user must create them)
@@ -290,7 +340,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateMaterialElement(material: OpenMCMaterial): string {
+    private generateMaterialElement(material: OpenMCMaterial, availableNuclides?: Set<string>): string {
         const lines: string[] = [];
 
         const depletableAttr = material.isDepletable ? ' depletable="true"' : '';
@@ -304,8 +354,13 @@ export class XMLGenerationService {
             // Macroscopic (multigroup) material: no nuclide decomposition (openmc/material.py:1823)
             lines.push(`    <macroscopic name="${this.escapeXml(material.macroscopic.name)}"/>`);
         } else {
-            // Add nuclides
-            for (const nuclide of material.nuclides) {
+            // Expand bare element symbols (Fe, Pb, W) to their natural isotopes.
+            // The OpenMC binary XML reader no longer accepts the <element> tag,
+            // so elements must be expanded before emission. When a cross-sections
+            // library is known, only emit isotopes present in that library and
+            // renormalize the remaining abundances.
+            const expanded = expandMaterialNuclides(material.nuclides, availableNuclides);
+            for (const nuclide of expanded) {
                 lines.push(`    <nuclide ao="${nuclide.fraction}" name="${nuclide.name}"/>`);
             }
 
@@ -369,6 +424,43 @@ export class XMLGenerationService {
 <geometry>
   <dagmc_universe filename="geometry.h5m" id="1"${autoGeomAttr}${autoMatAttr} />
 </geometry>`;
+    }
+
+    /**
+     * Locate the source DAGMC .h5m file. Tries, in order:
+     * 1. The absolute path stored in dagmcInfo.filePath
+     * 2. dagmcFile as an absolute path
+     * 3. dagmcFile relative to the output directory's parent (typical when the
+     *    output folder is a sub-directory of the project)
+     * 4. dagmcFile relative to the output directory
+     */
+    private resolveDagmcSourcePath(state: OpenMCState, outputDirectory: string): string | undefined {
+        const fs = require('fs');
+        const path = require('path');
+        const dagmcFile = state.settings.dagmcFile;
+        if (!dagmcFile) {
+            return undefined;
+        }
+
+        const candidates: string[] = [];
+        if (state.settings.dagmcInfo?.filePath) {
+            candidates.push(state.settings.dagmcInfo.filePath);
+        }
+        candidates.push(dagmcFile);
+        candidates.push(path.resolve(outputDirectory, '..', dagmcFile));
+        candidates.push(path.resolve(outputDirectory, dagmcFile));
+
+        for (const candidate of candidates) {
+            try {
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        return undefined;
     }
 
     private generateSurfaceElement(surface: OpenMCSurface): string {

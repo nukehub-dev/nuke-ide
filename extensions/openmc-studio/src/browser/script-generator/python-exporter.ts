@@ -68,6 +68,7 @@ import {
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
+import { isElementName } from '../../common/material-utils';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -626,12 +627,10 @@ export class OpenMCPythonExporter {
         // Add nuclides and elements
         for (const nuclide of material.nuclides) {
             const percentType = nuclide.fractionType === 'wo' ? 'wo' : 'ao';
-            // Simple heuristic to distinguish between nuclide (e.g., U235) and element (e.g., U)
-            // Nuclides usually have numbers at the end
-            if (/\d+$/.test(nuclide.name)) {
-                lines.push(`${varName}.add_nuclide("${nuclide.name}", ${nuclide.fraction}, percent_type="${percentType}")`);
-            } else {
+            if (isElementName(nuclide.name)) {
                 lines.push(`${varName}.add_element("${nuclide.name}", ${nuclide.fraction}, percent_type="${percentType}")`);
+            } else {
+                lines.push(`${varName}.add_nuclide("${nuclide.name}", ${nuclide.fraction}, percent_type="${percentType}")`);
             }
         }
 

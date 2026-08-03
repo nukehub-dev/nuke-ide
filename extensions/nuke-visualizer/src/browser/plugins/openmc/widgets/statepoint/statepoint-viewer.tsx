@@ -457,7 +457,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
             await this.openmcService.loadStatepointFull(uri);
             const info = this.openmcService.getCurrentStatepointFull();
             const tallies = this.openmcService.getCurrentTallies();
-            const kData = await this.openmcService.getKGenerationData(uri);
+            const kData = info?.runMode === 'eigenvalue' ? await this.openmcService.getKGenerationData(uri) : null;
             if (info) {
                 this.setStatepoint(uri, info, tallies, kData);
             }
@@ -787,26 +787,26 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                     </div>
 
                     {/* k-Estimators */}
-                    {(info.kColAbs !== undefined || info.kColTra !== undefined || info.kAbsTra !== undefined) && (
+                    {(info.kColAbs != null || info.kColTra != null || info.kAbsTra != null) && (
                         <div className="overview-section">
                             <div className="overview-section-header">
                                 <i className={codicon('math-formula')}></i>
                                 <h3>k-Estimators</h3>
                             </div>
                             <div className="overview-estimators">
-                                {info.kColAbs !== undefined && (
+                                {info.kColAbs != null && (
                                     <div className="overview-estimator-item">
                                         <span className="overview-estimator-name">Collision/Absorption</span>
                                         <span className="overview-estimator-value">{info.kColAbs.toFixed(5)}</span>
                                     </div>
                                 )}
-                                {info.kColTra !== undefined && (
+                                {info.kColTra != null && (
                                     <div className="overview-estimator-item">
                                         <span className="overview-estimator-name">Collision/Transport</span>
                                         <span className="overview-estimator-value">{info.kColTra.toFixed(5)}</span>
                                     </div>
                                 )}
-                                {info.kAbsTra !== undefined && (
+                                {info.kAbsTra != null && (
                                     <div className="overview-estimator-item">
                                         <span className="overview-estimator-name">Absorption/Transport</span>
                                         <span className="overview-estimator-value">{info.kAbsTra.toFixed(5)}</span>
@@ -866,7 +866,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                         )}
 
                         {/* k-Estimators */}
-                        {(info.kColAbs !== undefined || info.kColTra !== undefined || info.kAbsTra !== undefined) && (
+                        {(info.kColAbs != null || info.kColTra != null || info.kAbsTra != null) && (
                             <div className="kinetics-section">
                                 <div className="kinetics-section-header">
                                     <i className={codicon('math-formula')}></i>

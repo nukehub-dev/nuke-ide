@@ -172,6 +172,21 @@ export class DAGMCEditorService {
     }
 
     /**
+     * Update the Python configuration and force re-detection on the next operation.
+     * Called when the user changes nuke.pythonPath/nuke.condaEnv preferences.
+     * @param config - New Python path and/or conda environment
+     */
+    setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): void {
+        // Drop the cached interpreter so the next load/refacet operation
+        // re-detects against the updated configuration.
+        if (config.pythonPath || config.condaEnv) {
+            console.log(`[DAGMC Editor] Python config changed, will re-detect (was: ${this.pythonPath ?? 'unset'})`);
+            this.pythonPath = undefined;
+            this.scriptPath = undefined;
+        }
+    }
+
+    /**
      * Load a DAGMC file and return model information.
      * @param filePath - Path to DAGMC .h5m file
      * @returns Model data with volumes, materials, and groups

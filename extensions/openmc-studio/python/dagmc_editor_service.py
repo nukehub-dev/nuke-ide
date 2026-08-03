@@ -806,6 +806,17 @@ def _step_to_dagmc_ocp(
             continue
         mb.tag_set_data(tag_sense, sset, sense_data)
 
+    # The OpenCASCADE-based refacet creates independent surface shells per
+    # volume, so every surface is effectively an exterior surface. Tag them
+    # all as boundary:vacuum so OpenMC has a boundary condition to apply.
+    boundary_group = mb.create_meshset()
+    mb.tag_set_data(tag_cat, boundary_group, "Group")
+    mb.tag_set_data(tag_gdim, boundary_group, 4)
+    mb.tag_set_data(tag_name, boundary_group, "boundary:vacuum")
+    mb.tag_set_data(tag_gid, boundary_group, int(vol_id + 1))
+    for sset in surface_sets.values():
+        mb.add_entity(boundary_group, sset)
+
     root = mb.get_root_set()
     mb.tag_set_data(tag_facet_tol, root, float(tolerance))
     mb.write_file(h5m_path)

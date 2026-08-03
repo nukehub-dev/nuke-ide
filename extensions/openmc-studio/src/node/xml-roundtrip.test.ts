@@ -1415,6 +1415,116 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.materials).toEqual(state.materials);
     });
 
+    it('expands element symbols to natural nuclides in materials.xml', async () => {
+        const state = buildTestState();
+        state.materials = [
+            {
+                id: 1,
+                name: 'Steel',
+                density: 8.0,
+                densityUnit: 'g/cm3',
+                nuclides: [
+                    { name: 'Fe', fraction: 0.68, fractionType: 'ao' },
+                    { name: 'Cr', fraction: 0.19, fractionType: 'ao' },
+                    { name: 'Ni', fraction: 0.11, fractionType: 'ao' },
+                    { name: 'Mo', fraction: 0.02, fractionType: 'ao' }
+                ],
+                thermalScattering: []
+            },
+            {
+                id: 2,
+                name: 'DT Plasma',
+                density: 1e-5,
+                densityUnit: 'g/cm3',
+                nuclides: [
+                    { name: 'H2', fraction: 0.5, fractionType: 'ao' },
+                    { name: 'H3', fraction: 0.5, fractionType: 'ao' }
+                ],
+                thermalScattering: []
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: false, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        // OpenMC's binary XML reader no longer accepts <element>, so everything
+        // must be emitted as <nuclide>.
+        expect(xml).not.toContain('<element');
+        // Steel components expanded to natural isotopes.
+        expect(xml).toContain('name="Fe54"');
+        expect(xml).toContain('name="Fe56"');
+        expect(xml).toContain('name="Cr52"');
+        expect(xml).toContain('name="Ni58"');
+        expect(xml).toContain('name="Mo98"');
+        // Plasma nuclides pass through unchanged.
+        expect(xml).toContain('name="H2"');
+        expect(xml).toContain('name="H3"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        // Import faithfully represents the emitted XML: elements are already
+        // expanded to nuclides, so the imported state contains the isotopes.
+        const steel = imported.state!.materials.find((m) => m.name === 'Steel')!;
+        expect(steel.nuclides.some((n) => n.name === 'Fe54')).toBe(true);
+        expect(steel.nuclides.some((n) => n.name === 'Fe56')).toBe(true);
+        expect(steel.nuclides.some((n) => n.name === 'Cr52')).toBe(true);
+        expect(steel.nuclides.some((n) => n.name === 'Ni58')).toBe(true);
+        expect(steel.nuclides.some((n) => n.name === 'Mo98')).toBe(true);
+
+        const plasma = imported.state!.materials.find((m) => m.name === 'DT Plasma')!;
+        expect(plasma.nuclides).toContainEqual({ name: 'H2', fraction: 0.5, fractionType: 'ao' });
+        expect(plasma.nuclides).toContainEqual({ name: 'H3', fraction: 0.5, fractionType: 'ao' });
+    });
+
+    it('filters element expansion to isotopes available in the cross-sections library', async () => {
+        // Simulate a truncated library that has O16/O17 but not O18.
+        const xsPath = path.join(tempDir, 'cross_sections_test.xml');
+        fs.writeFileSync(
+            xsPath,
+            '<?xml version="1.0"?>\n<cross_sections>\n' +
+                '  <library materials="O16" path="O16.h5" type="neutron" />\n' +
+                '  <library materials="O17" path="O17.h5" type="neutron" />\n' +
+                '  <library materials="H1 H2" path="H.h5" type="neutron" />\n' +
+                '</cross_sections>\n'
+        );
+
+        const state = buildTestState();
+        state.materials = [
+            {
+                id: 1,
+                name: 'Water',
+                density: 1.0,
+                densityUnit: 'g/cm3',
+                nuclides: [
+                    { name: 'H2', fraction: 2.0, fractionType: 'ao' },
+                    { name: 'O', fraction: 1.0, fractionType: 'ao' }
+                ],
+                thermalScattering: []
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: false, tallies: false, plots: false },
+            crossSectionsPath: xsPath
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(xml).toContain('name="O16"');
+        expect(xml).toContain('name="O17"');
+        expect(xml).not.toContain('name="O18"');
+        // Explicit nuclides are never filtered.
+        expect(xml).toContain('name="H2"');
+    });
+
     it('round-trips random ray settings, energy mode, and fixed-source inactive', async () => {
         const state = buildTestState();
         state.settings.run = { mode: 'fixed source', particles: 10000, batches: 50, inactive: 10 };

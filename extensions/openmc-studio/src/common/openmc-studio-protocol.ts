@@ -358,6 +358,12 @@ export interface XMLGenerationRequest {
      * form ({@link DEFAULT_OPENMC_COMPAT}) when unspecified.
      */
     randomRayCompat?: OpenMCCompat;
+    /**
+     * Path to the neutron cross_sections.xml library. When provided, element
+     * symbols in materials are expanded only to isotopes present in the library,
+     * and abundances are renormalized to exclude missing isotopes.
+     */
+    crossSectionsPath?: string;
 }
 
 /**

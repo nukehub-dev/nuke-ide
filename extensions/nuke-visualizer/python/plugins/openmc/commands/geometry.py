@@ -3,6 +3,7 @@ Geometry analysis and visualization commands.
 """
 
 import json
+import os
 import sys
 
 from nuke_viz.plugin import arg, command
@@ -36,7 +37,10 @@ def _resolve_geometry_path(file_path: str) -> str:
 
         from plugins.openmc.lib.geometry_parser import convert_summary_to_xml
 
-        return convert_summary_to_xml(file_path, tempfile.mkdtemp(prefix="nuke-summary-"))
+        original_dir = os.path.dirname(os.path.abspath(file_path))
+        return convert_summary_to_xml(
+            file_path, tempfile.mkdtemp(prefix="nuke-summary-"), original_dir=original_dir
+        )
     return file_path
 
 

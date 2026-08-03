@@ -802,7 +802,8 @@ export class SimulationDashboardWidget extends ReactWidget {
                     geometry: hasCSG || hasDagmc, // Generate for DAGMC too (needs dagmc_universe reference)
                     tallies: state.tallies.length > 0,
                     plots: false
-                }
+                },
+                crossSectionsPath: this.nukeCoreService.getCrossSectionsPath()
             });
 
             if (result.success) {
@@ -957,7 +958,8 @@ export class SimulationDashboardWidget extends ReactWidget {
                     geometry: simHasCSG || simHasDagmc, // Generate for DAGMC too (needs dagmc_universe reference)
                     tallies: simState.tallies.length > 0,
                     plots: false
-                }
+                },
+                crossSectionsPath: this.nukeCoreService.getCrossSectionsPath()
             });
 
             if (!xmlResult.success) {

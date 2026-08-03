@@ -232,7 +232,7 @@ export class OpenMCStatepointContribution {
     async openStatepointViewer(statepointUri: URI): Promise<void> {
         const info = this.openmcService.getCurrentStatepointFull();
         const tallies = this.openmcService.getCurrentTallies();
-        const kData = await this.openmcService.getKGenerationData(statepointUri);
+        const kData = info?.runMode === 'eigenvalue' ? await this.openmcService.getKGenerationData(statepointUri) : undefined;
 
         if (!info) {
             this.messageService.error('Failed to load statepoint information');
