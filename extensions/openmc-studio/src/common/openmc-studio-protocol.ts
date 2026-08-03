@@ -208,6 +208,13 @@ export interface MgConversionResult {
     output?: string;
 }
 
+/** Result of reading the XS-data mapping from an existing MGXS library */
+export interface MgxsDataNamesResult {
+    success: boolean;
+    xsDataNames?: MgXsDataMapping[];
+    error?: string;
+}
+
 /** Fine-grained MGXS library generation request (python/generate_mgxs_library.py) */
 export interface MgxsLibraryGenerationRequest {
     /** Working directory containing the model XML files */
@@ -884,6 +891,9 @@ export interface OpenMCStudioBackendService {
 
     /** Convert a CE project to multi-group: MGXS generation + material/XS-data mapping (blocking) */
     convertToMultigroupProject(request: MgConversionRequest): Promise<MgConversionResult>;
+
+    /** Read the material/XS-data mapping from an existing MGXS library without regenerating it */
+    getMgxsDataNames(mgxsPath: string): Promise<MgxsDataNamesResult>;
 
     /** Build a custom depletion chain XML (subset or ENDF mode, blocking) */
     buildChain(request: ChainBuildRequest): Promise<ChainBuildResult>;

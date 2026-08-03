@@ -1865,6 +1865,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return this.runnerService.convertToMultigroupProject(request);
     }
 
+    /**
+     * Read the material/XS-data mapping from an existing MGXS library.
+     * @param mgxsPath - Path to the MGXS library HDF5 file
+     * @returns Result with the list of material-name / XS-data-name mappings
+     */
+    async getMgxsDataNames(mgxsPath: string): Promise<import('../common/openmc-studio-protocol').MgxsDataNamesResult> {
+        return this.runnerService.getMgxsDataNames(mgxsPath);
+    }
+
     // ============================================================================
     // Validation
     // ============================================================================

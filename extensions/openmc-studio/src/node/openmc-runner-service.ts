@@ -56,6 +56,7 @@ import {
     MgxsGenerationResult,
     MgConversionRequest,
     MgConversionResult,
+    MgxsDataNamesResult,
     ChainBuildRequest,
     ChainBuildResult,
     MgxsLibraryGenerationRequest,
@@ -1709,6 +1710,22 @@ export class OpenMCRunnerService {
         }
 
         return this.executePythonScriptJson<MgConversionResult>(args, request.workingDirectory);
+    }
+
+    /**
+     * Read the material/XS-data mapping from an existing MGXS library.
+     * @param mgxsPath - Path to the MGXS library HDF5 file
+     * @returns Result with the list of material-name / XS-data-name mappings
+     */
+    async getMgxsDataNames(mgxsPath: string): Promise<MgxsDataNamesResult> {
+        this.log(`Reading MGXS data names from ${mgxsPath}`);
+
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'read_mgxs_data_names.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: read_mgxs_data_names.py' };
+        }
+
+        return this.executePythonScriptJson<MgxsDataNamesResult>([scriptPath, mgxsPath], path.dirname(scriptPath));
     }
 
     /**

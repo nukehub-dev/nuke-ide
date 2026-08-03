@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
@@ -60,6 +61,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     private mgConvertBusy = false;
     private mgConvertResult?: MgConversionResult;
     private mgAppliedSummary = '';
+    private mgApplyBusy = false;
 
     /**
      * Render the Multi-Group Conversion section: the one-click CE → MG
@@ -102,7 +104,44 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         }
 
         if (isMultiGroup) {
-            return undefined;
+            const nonMacroscopicMaterials = state.materials.filter((m) => !m.macroscopic && m.nuclides && m.nuclides.length > 0);
+            if (nonMacroscopicMaterials.length === 0) {
+                return undefined;
+            }
+            return (
+                <div className="settings-section">
+                    <h3>
+                        <i className="codicon codicon-arrow-swap"></i> Multi-Group Conversion
+                    </h3>
+                    <div className="depletion-warning-box">
+                        <i className="codicon codicon-warning"></i>
+                        <div className="warning-content">
+                            <strong>Project is multi-group but materials are still nuclide-decomposed</strong>
+                            <p>
+                                {nonMacroscopicMaterials.length} material(s) need to be switched to macroscopic:{' '}
+                                {nonMacroscopicMaterials.map((m) => m.name || `material ${m.id}`).join(', ')}.
+                            </p>
+                        </div>
+                    </div>
+                    {state.settings.mgxsLibrary ? (
+                        <div className="rr-actions-row">
+                            <button
+                                className="theia-button primary"
+                                disabled={this.mgApplyBusy}
+                                onClick={() => this.applyExistingMgConversion(host)}
+                            >
+                                <i className="codicon codicon-check"></i>
+                                {this.mgApplyBusy ? 'Applying…' : 'Apply MGXS Library'}
+                            </button>
+                        </div>
+                    ) : (
+                        <span className="form-hint">
+                            No MGXS library is configured. Generate one with the MGXS Generator window first, then return here to apply it.
+                        </span>
+                    )}
+                    {this.mgAppliedSummary && <span className="form-hint">{this.mgAppliedSummary}</span>}
+                </div>
+            );
         }
 
         return (
@@ -300,6 +339,49 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         this.mgAppliedSummary = `Converted ${updates.convertedNames.length} material(s) to macroscopic (${updates.convertedNames.join(', ')}). Library: ${result.mgxsPath}`;
         this.mgConvertResult = undefined;
         host.update();
+    }
+
+    /**
+     * Apply an existing MGXS library to a project that is already marked
+     * multi-group but still has nuclide-decomposed materials. Reads the library's
+     * XS data set names and switches the matching materials to macroscopic.
+     * @param host - Simulation dashboard widget host.
+     */
+    private async applyExistingMgConversion(host: SimulationDashboardWidget): Promise<void> {
+        this.mgApplyBusy = true;
+        this.mgAppliedSummary = '';
+        host.update();
+        try {
+            const state = host.stateManager.getState();
+            const rawMgxsPath = state.settings.mgxsLibrary;
+            if (!rawMgxsPath) {
+                this.mgAppliedSummary = 'No MGXS library path is configured.';
+                return;
+            }
+            const projectPath = host.stateManager.projectPath;
+            const projectDir = projectPath ? path.dirname(projectPath) : undefined;
+            const mgxsPath = path.isAbsolute(rawMgxsPath) || !projectDir ? rawMgxsPath : path.join(projectDir, rawMgxsPath);
+
+            const backend = host.studioService.getBackendService();
+            const result = await backend.getMgxsDataNames(mgxsPath);
+            if (!result.success) {
+                this.mgAppliedSummary = result.error || 'Failed to read MGXS library';
+                return;
+            }
+            const updates = computeMgConversion(state, result.xsDataNames ?? [], mgxsPath);
+            for (const material of updates.materials) {
+                host.stateManager.updateMaterial(material.id, material);
+            }
+            host.stateManager.updateSettings(updates.settings);
+            host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
+            this.mgAppliedSummary = `Converted ${updates.convertedNames.length} material(s) to macroscopic (${updates.convertedNames.join(', ')}). Library: ${mgxsPath}`;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.mgAppliedSummary = `Failed to apply MGXS library: ${msg}`;
+        } finally {
+            this.mgApplyBusy = false;
+            host.update();
+        }
     }
 
     /**
