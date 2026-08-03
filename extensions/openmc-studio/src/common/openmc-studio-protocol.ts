@@ -1249,7 +1249,13 @@ export interface CADImportResult {
         cellsCreated: number;
         approximationsMade: number;
     };
-    /** DAGMC model information (when importing .h5m files) */
+    /** Whether NURBS were detected and DAGMC fallback was used */
+    dagmc?: boolean;
+    /** Path to generated DAGMC file when DAGMC fallback is used */
+    dagmcFile?: string;
+    /** Whether NURBS surfaces were detected in the source CAD */
+    nurbsDetected?: boolean;
+    /** DAGMC model information (when importing .h5m files or DAGMC fallback) */
     dagmcInfo?: DAGMCInfo;
 }
 

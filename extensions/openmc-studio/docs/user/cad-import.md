@@ -192,6 +192,8 @@ For models that cannot be expressed in pure CSG, OpenMC Studio supports DAGMC `.
 
 When the importer detects NURBS, B-Spline, or Bezier surfaces that cannot be expressed as OpenMC CSG primitives, it **automatically converts the model to DAGMC `.h5m` format** instead of failing or producing poor approximations. You will see a notification in the CAD Import output channel when this happens.
 
+The project is switched to DAGMC mode automatically: the generated `.h5m` path is saved as the project's DAGMC file, and the DAGMC info is populated from the converted mesh. This means a subsequent project save references the faceted `.h5m` geometry rather than the original STEP/IGES file.
+
 The DAGMC conversion uses a **native H5M writer** built on `pymoab`. This writer handles:
 
 - Tessellation via **OpenCASCADE BRepMesh_IncrementalMesh** with user-defined linear deflection

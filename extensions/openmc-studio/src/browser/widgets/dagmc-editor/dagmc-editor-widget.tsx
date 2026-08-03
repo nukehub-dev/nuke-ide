@@ -2081,6 +2081,46 @@ export class DAGMCEditorWidget extends ReactWidget {
                     }
                 };
                 this.messageService.info(`Loaded ${result.data.volumeCount} volumes from ${result.data.fileName}`);
+
+                // If this file differs from the project's current DAGMC file, update the project.
+                const currentDagmcFile = this.stateManager.getState().settings.dagmcFile;
+                if (filePath !== currentDagmcFile) {
+                    const volumes = result.data.volumes.map((v) => ({
+                        id: v.id,
+                        material: v.material || 'void',
+                        numTriangles: v.numTriangles,
+                        boundingBox: {
+                            min: v.boundingBox.min as [number, number, number],
+                            max: v.boundingBox.max as [number, number, number]
+                        }
+                    }));
+                    const materials: DAGMCInfo['materials'] = {};
+                    for (const [name, data] of Object.entries(result.data.materials)) {
+                        materials[name] = {
+                            volumeCount: data.volumeCount,
+                            totalTriangles: data.volumes
+                                .map((id) => volumes.find((v) => v.id === id)?.numTriangles || 0)
+                                .reduce((sum, n) => sum + n, 0)
+                        };
+                    }
+                    const dagmcInfo: DAGMCInfo = {
+                        filePath,
+                        fileName: result.data.fileName,
+                        volumeCount: result.data.volumeCount,
+                        surfaceCount: result.data.surfaceCount,
+                        vertices: result.data.vertices,
+                        materials,
+                        volumes,
+                        boundingBox: {
+                            min: result.data.boundingBox.min as [number, number, number],
+                            max: result.data.boundingBox.max as [number, number, number]
+                        },
+                        fileSizeMB: result.data.fileSizeMB
+                    };
+                    this.stateManager.updateSettings({ dagmcFile: filePath, dagmcInfo });
+                    this.messageService.info('Project DAGMC file reference updated.');
+                }
+
                 this.loadFacetingParams();
                 this.autoDetectSourceCad();
             } else {

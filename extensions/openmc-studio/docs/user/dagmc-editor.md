@@ -157,6 +157,10 @@ For large models, use **"View in 3D"** from a volume modal to load only the sele
 
 ---
 
+## Switching Files
+
+Click **Open...** in the header to load a different `.h5m` file. When the newly loaded file differs from the one stored in the project, the project's DAGMC reference (`dagmcFile` and `dagmcInfo`) is updated automatically so the new geometry is used for simulation.
+
 ## Saving
 
 Click **Save As** in the header to save a copy of the current `.h5m` under a new name or location. This is useful for creating checkpoints before bulk edits.

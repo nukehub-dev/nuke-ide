@@ -2358,10 +2358,13 @@ export class CSGBuilderWidget extends ReactWidget {
                 `DAGMC file loaded: ${dagmcInfo.volumeCount} volumes, ` + `${dagmcInfo.surfaceCount} surfaces, ` + `${matCount} materials`
             );
 
-            // Store DAGMC file path AND dagmcInfo in settings for use in simulation
-            if (filePath) {
+            // Store DAGMC file path AND dagmcInfo in settings for use in simulation.
+            // When a STEP/IGES file was converted to DAGMC, use the generated .h5m
+            // path rather than the original CAD path.
+            const dagmcFilePath = result.dagmcFile || filePath;
+            if (dagmcFilePath) {
                 const state = this.stateManager.getState();
-                state.settings.dagmcFile = filePath;
+                state.settings.dagmcFile = dagmcFilePath;
                 state.settings.dagmcInfo = dagmcInfo;
                 this.stateManager.setState(state);
                 this.messageService.info('DAGMC geometry will be used for simulation. ' + 'Settings updated with DAGMC file path.');
