@@ -112,6 +112,61 @@ class TestCallWithSupportedKwargs:
         assert "ignores unsupported" not in capsys.readouterr().err
 
 
+class TestFixDagmcCategoryTags:
+    def test_mirrors_dense_category_to_sparse_layout(self, tmp_path):
+        """New MOAB dense CATEGORY tags are mirrored to OpenMC's expected sparse path."""
+        h5py = pytest.importorskip("h5py")
+        np = pytest.importorskip("numpy")
+
+        h5m_path = tmp_path / "geometry.h5m"
+        with h5py.File(h5m_path, "w") as f:
+            # Minimal new-format DAGMC file: CATEGORY is a dense set tag.
+            f.create_dataset(
+                "tstt/sets/list", data=np.array([[1, 0, 0, 0], [2, 0, 0, 0]], dtype=np.int64)
+            )
+            f.create_dataset(
+                "tstt/sets/tags/CATEGORY",
+                data=np.array([b"Volume", b"Surface"], dtype="S32"),
+            )
+            f.create_group("tstt/tags/CATEGORY/type")
+
+        (tmp_path / "geometry.xml").write_text(
+            '<?xml version="1.0"?><geometry><dagmc_universe filename="geometry.h5m"/></geometry>'
+        )
+
+        generate_mgxs._fix_dagmc_category_tags(tmp_path)
+
+        with h5py.File(h5m_path, "r") as f:
+            assert "tstt/tags/CATEGORY/id_list" in f
+            assert "tstt/tags/CATEGORY/values" in f
+            assert f["tstt/tags/CATEGORY/id_list"][()].tolist() == [1, 2]
+            assert f["tstt/tags/CATEGORY/values"].shape == (2,)
+
+    def test_leaves_existing_sparse_layout_untouched(self, tmp_path):
+        """Files already using the sparse CATEGORY layout are not modified."""
+        h5py = pytest.importorskip("h5py")
+        np = pytest.importorskip("numpy")
+
+        h5m_path = tmp_path / "geometry.h5m"
+        with h5py.File(h5m_path, "w") as f:
+            f.create_dataset("tstt/tags/CATEGORY/id_list", data=np.array([1, 2], dtype=np.uint64))
+            f.create_dataset(
+                "tstt/tags/CATEGORY/values",
+                data=np.array([b"Volume", b"Surface"], dtype="S32"),
+            )
+
+        (tmp_path / "geometry.xml").write_text(
+            '<?xml version="1.0"?><geometry><dagmc_universe filename="geometry.h5m"/></geometry>'
+        )
+
+        generate_mgxs._fix_dagmc_category_tags(tmp_path)
+
+        with h5py.File(h5m_path, "r") as f:
+            assert "tstt/tags/CATEGORY/id_list" in f
+            assert "tstt/tags/CATEGORY/values" in f
+            assert "tstt/sets/tags/CATEGORY" not in f
+
+
 class TestReadModelCompatibility:
     def test_missing_files_are_compatible(self, tmp_path):
         """No XML files → nothing to object to (the load step reports it)."""

@@ -123,7 +123,10 @@ export class XMLGenerationService {
 
             // Load available neutron nuclides from the data library so element
             // expansion only emits isotopes that OpenMC can actually resolve.
-            const availableNuclides = request.crossSectionsPath ? this.loadAvailableNuclides(request.crossSectionsPath) : undefined;
+            // Fall back to the environment variable in case the frontend did not
+            // pass an explicit path.
+            const crossSectionsPath = request.crossSectionsPath || process.env.OPENMC_CROSS_SECTIONS;
+            const availableNuclides = crossSectionsPath ? this.loadAvailableNuclides(crossSectionsPath) : undefined;
 
             // Generate materials.xml
             if (request.files.materials) {

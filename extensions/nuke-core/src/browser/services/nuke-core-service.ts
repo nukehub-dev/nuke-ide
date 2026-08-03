@@ -170,11 +170,15 @@ export class NukeCoreService {
         const inspectEnv = this.preferences.inspect<string>('nuke.condaEnv');
         const inspectChannels = this.preferences.inspect<string>('nuke.condaChannels');
         const inspectIndex = this.preferences.inspect<string>('nuke.pipExtraIndexUrl');
+        const inspectCrossSections = this.preferences.inspect<string>('nuke.openmcCrossSections');
+        const inspectChainFile = this.preferences.inspect<string>('nuke.openmcChainFile');
 
         let pythonPath: string | undefined;
         let condaEnv: string | undefined;
         let condaChannels: string | undefined;
         let pipExtraIndexUrl: string | undefined;
+        let openmcCrossSections: string | undefined;
+        let openmcChainFile: string | undefined;
 
         // Only use values if they are explicitly set (non-empty)
         // Priority: workspaceFolderValue > workspaceValue > globalValue (user)
@@ -196,6 +200,8 @@ export class NukeCoreService {
         condaEnv = pickValue(inspectEnv);
         condaChannels = pickValue(inspectChannels);
         pipExtraIndexUrl = pickValue(inspectIndex);
+        openmcCrossSections = pickValue(inspectCrossSections);
+        openmcChainFile = pickValue(inspectChainFile);
 
         // CRITICAL: If preferences are empty but we already have a valid config, DON'T OVERWRITE IT
         // This handles the case where workspace scope returns "" while user scope has the real value
@@ -212,7 +218,9 @@ export class NukeCoreService {
             pythonPath === this.currentConfig.pythonPath &&
             condaEnv === this.currentConfig.condaEnv &&
             condaChannels === this.currentConfig.condaChannels &&
-            pipExtraIndexUrl === this.currentConfig.pipExtraIndexUrl
+            pipExtraIndexUrl === this.currentConfig.pipExtraIndexUrl &&
+            openmcCrossSections === this.currentConfig.openmcCrossSections &&
+            openmcChainFile === this.currentConfig.openmcChainFile
         ) {
             return;
         }
@@ -221,7 +229,9 @@ export class NukeCoreService {
             pythonPath: pythonPath || undefined,
             condaEnv: condaEnv || undefined,
             condaChannels: condaChannels || undefined,
-            pipExtraIndexUrl: pipExtraIndexUrl || undefined
+            pipExtraIndexUrl: pipExtraIndexUrl || undefined,
+            openmcCrossSections: openmcCrossSections || undefined,
+            openmcChainFile: openmcChainFile || undefined
         };
 
         await this.setConfig(newConfig);
@@ -267,7 +277,9 @@ export class NukeCoreService {
             previous.pythonPath === config.pythonPath &&
             previous.condaEnv === config.condaEnv &&
             previous.condaChannels === config.condaChannels &&
-            previous.pipExtraIndexUrl === config.pipExtraIndexUrl
+            previous.pipExtraIndexUrl === config.pipExtraIndexUrl &&
+            previous.openmcCrossSections === config.openmcCrossSections &&
+            previous.openmcChainFile === config.openmcChainFile
         ) {
             return;
         }

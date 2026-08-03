@@ -52,6 +52,10 @@ export interface PythonConfig {
     condaChannels?: string;
     /** Extra pip index URL for private packages */
     pipExtraIndexUrl?: string;
+    /** Absolute path to the OpenMC cross_sections.xml file */
+    openmcCrossSections?: string;
+    /** Absolute path to the OpenMC depletion chain XML file */
+    openmcChainFile?: string;
 }
 
 /** Information about a Nuke environment */

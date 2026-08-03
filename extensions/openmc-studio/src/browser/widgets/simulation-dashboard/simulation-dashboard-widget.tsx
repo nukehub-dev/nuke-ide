@@ -89,7 +89,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     protected readonly healthService!: OpenMCHealthService;
 
     @inject(OpenMCXMLGenerationService)
-    protected readonly xmlService!: OpenMCXMLGenerationService;
+    public readonly xmlService!: OpenMCXMLGenerationService;
 
     @inject(OpenMCSimulationRunner)
     protected readonly simulationRunner!: OpenMCSimulationRunner;

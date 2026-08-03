@@ -35,6 +35,7 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { NukeCoreService } from 'nuke-core/lib/common';
 
 import { OpenMCState } from '../../common/openmc-state-schema';
 import {
@@ -61,6 +62,9 @@ export class OpenMCXMLGenerationService {
 
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
+
+    @inject(NukeCoreService)
+    protected readonly nukeCoreService: NukeCoreService;
 
     /**
      * Generate XML files from the current state using a request object.
@@ -101,6 +105,16 @@ export class OpenMCXMLGenerationService {
         }
 
         try {
+            // Pass the configured neutron cross-sections library to the backend
+            // so element expansion can filter isotopes that are not present in
+            // the data library (e.g. O18 missing from some NNDC distributions).
+            if (!request.crossSectionsPath) {
+                const crossSectionsPath = this.nukeCoreService.getCrossSectionsPath();
+                if (crossSectionsPath) {
+                    request = { ...request, crossSectionsPath };
+                }
+            }
+
             const result = await this.backendService.generateXML(request);
 
             if (result.success) {

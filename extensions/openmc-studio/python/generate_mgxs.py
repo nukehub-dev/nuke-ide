@@ -75,6 +75,78 @@ def read_model_compatibility(working_dir: Path):
     return None
 
 
+def _resolve_dagmc_file(working_dir: Path) -> Path | None:
+    """Find the DAGMC .h5m file referenced by geometry.xml, if any.
+
+    Args:
+        working_dir: Directory containing geometry.xml.
+
+    Returns:
+        Path to the referenced .h5m file, or None if no DAGMC geometry is used.
+    """
+    geometry_path = working_dir / "geometry.xml"
+    if not geometry_path.exists():
+        return None
+    try:
+        root = ET.parse(geometry_path).getroot()
+        dagmc_elem = root.find(".//dagmc_universe")
+        if dagmc_elem is not None:
+            filename = dagmc_elem.get("filename")
+            if filename:
+                return working_dir / filename
+    except Exception:
+        pass
+    return None
+
+
+def _fix_dagmc_category_tags(working_dir: Path) -> None:
+    """Work around OpenMC 0.15.x reading old MOAB sparse tag layout.
+
+    Some newer MOAB versions store the CATEGORY tag as a dense set tag
+    (``tstt/sets/tags/CATEGORY``) instead of the sparse tag layout OpenMC
+    0.15.3's ``dagmc.py`` expects (``tstt/tags/CATEGORY/{id_list,values}``).
+    When the latter is missing, ``model.convert_to_multigroup()`` fails with
+    ``KeyError: Unable to synchronously open object (object 'values' doesn't
+    exist)``. This helper mirrors the dense tag back to the sparse path so
+    OpenMC can introspect the DAGMC model.
+
+    Args:
+        working_dir: Directory containing geometry.xml and the DAGMC .h5m file.
+    """
+    dagmc_path = _resolve_dagmc_file(working_dir)
+    if dagmc_path is None or not dagmc_path.exists():
+        return
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        # h5py/numpy may not be installed in minimal test environments.
+        return
+
+    try:
+        with h5py.File(dagmc_path, "a") as f:
+            # Already has the layout OpenMC expects.
+            if "tstt/tags/CATEGORY/values" in f:
+                return
+
+            # No dense CATEGORY tag to mirror.
+            if "tstt/sets/tags/CATEGORY" not in f:
+                return
+
+            sets_list = f["tstt/sets/list"][()]
+            set_ids = sets_list[:, 0].astype(np.uint64)
+            cat_values = f["tstt/sets/tags/CATEGORY"][()]
+
+            cat_group = f["tstt/tags/CATEGORY"]
+            cat_group.create_dataset("id_list", data=set_ids)
+            cat_group.create_dataset("values", data=cat_values)
+
+            log_progress(f"Mirrored dense CATEGORY tag to sparse layout in {dagmc_path.name}")
+    except Exception as e:
+        log_progress(f"Warning: Could not fix DAGMC CATEGORY tags: {e}")
+
+
 def load_model(working_dir: Path):
     """Load materials, geometry, and settings from XML files in the working directory.
 
@@ -85,6 +157,8 @@ def load_model(working_dir: Path):
         Tuple of (materials, geometry, settings).
     """
     import openmc
+
+    _fix_dagmc_category_tags(working_dir)
 
     materials = openmc.Materials.from_xml("materials.xml")
     geometry = openmc.Geometry.from_xml("geometry.xml", materials)

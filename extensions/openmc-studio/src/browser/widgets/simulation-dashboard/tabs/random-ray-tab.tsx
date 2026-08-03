@@ -250,7 +250,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         try {
             const backend = host.studioService.getBackendService();
             const state = host.stateManager.getState();
-            const xml = await backend.generateXML({
+            const xml = await host.xmlService.generateXML({
                 state,
                 outputDirectory: this.mgConvertDir,
                 files: {

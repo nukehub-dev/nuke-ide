@@ -91,6 +91,15 @@ export class EnvironmentService {
     setConfig(config: PythonConfig): void {
         this.config = { ...config };
         this.clearCache();
+
+        // Propagate OpenMC data-library paths from the frontend preferences to the
+        // backend process environment so spawned OpenMC/Python subprocesses see them.
+        if (config.openmcCrossSections) {
+            process.env.OPENMC_CROSS_SECTIONS = config.openmcCrossSections;
+        }
+        if (config.openmcChainFile) {
+            process.env.OPENMC_CHAIN_FILE = config.openmcChainFile;
+        }
     }
 
     /**

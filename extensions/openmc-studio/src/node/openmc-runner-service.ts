@@ -292,7 +292,10 @@ export class OpenMCRunnerService {
      */
     async setPythonConfig(config: { pythonPath?: string; condaEnv?: string }): Promise<void> {
         console.log(`[OpenMC Runner] Python config: ${JSON.stringify(config)}`);
-        await this.nukeCoreService.setConfig(config);
+        // Merge with the current nuke-core config so OpenMC data-library paths
+        // (cross sections / chain file) set via Nuke Utils preferences are preserved.
+        const current = await this.nukeCoreService.getConfig();
+        await this.nukeCoreService.setConfig({ ...current, ...config });
     }
 
     /**
