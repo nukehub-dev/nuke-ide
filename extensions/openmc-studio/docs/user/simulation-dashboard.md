@@ -259,10 +259,10 @@ When the restart file is a particle restart file (`particle_restart.h5` or `part
 
 After a run, the Simulation tab surfaces one-click open actions for files OpenMC wrote:
 
-- **Open Tracks** — appears when the run produced particle tracks. Track files (`tracks.h5` for serial runs, `tracks_p<N>.h5` for MPI runs) are moved into a `tracks/` subfolder inside the working directory to keep the top level tidy.
+- **Open Tracks** — appears when the run produced particle tracks. Track files (`tracks.h5` for serial runs, `tracks_p<N>.h5` for MPI runs) are moved into a `tracks/` subfolder (or `output/tracks/` when Settings → Output → Path is set) to keep the top level tidy.
 - **Open Weight Windows** — appears when the run produced `weight_windows.h5` (for example, from a **Weight Window Generator** or a FW-CADIS/random-ray workflow).
 
-Lost-particle restart files (`particle_<batch>_<id>.h5`) are also moved into a `particles/` subfolder after a run. The file currently selected as the simulation restart file is left in place so re-running from it keeps working.
+Lost-particle restart files (`particle_<batch>_<id>.h5`) are also moved into a `particles/` subfolder (or `output/particles/`) after a run. The file currently selected as the simulation restart file is left in place so re-running from it keeps working.
 
 ### Kinetics (IFP)
 

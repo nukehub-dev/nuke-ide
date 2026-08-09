@@ -37,6 +37,7 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileStat } from '@theia/filesystem/lib/common/files';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import URI from '@theia/core/lib/common/uri';
+import * as path from 'path';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
@@ -1056,7 +1057,8 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     /**
-     * After a completed run, check the `tracks/` subfolder for a track file
+     * After a completed run, check the `tracks/` subfolder (and the tracks
+     * subfolder under the configured OpenMC output path) for a track file
      * (`tracks.h5`, or `tracks_p0.h5` for MPI runs) and surface it as an
      * 'Open Tracks' action in the simulation tab.
      */
@@ -1064,13 +1066,23 @@ export class SimulationDashboardWidget extends ReactWidget {
         if (!this.expectTracksFile || !this.lastSimulationDirectory) {
             return;
         }
-        for (const name of ['tracks.h5', 'tracks_p0.h5']) {
-            const uri = new URI(`${this.lastSimulationDirectory}/tracks/${name}`);
-            if (await this.fileService.exists(uri)) {
-                this.producedTracksUri = uri;
-                this.logToConsole(`Track file written: tracks/${name} — use 'Open Tracks' to view it`);
-                this.update();
-                return;
+        const outputPath = this.stateManager.getState().settings.output?.path;
+        const candidates: string[] = [`${this.lastSimulationDirectory}/tracks`];
+        if (outputPath) {
+            const outputDir = path.isAbsolute(outputPath) ? outputPath : `${this.lastSimulationDirectory}/${outputPath}`;
+            candidates.push(`${outputDir}/tracks`);
+        }
+        for (const dir of candidates) {
+            for (const name of ['tracks.h5', 'tracks_p0.h5']) {
+                const uri = new URI(`${dir}/${name}`);
+                if (await this.fileService.exists(uri)) {
+                    this.producedTracksUri = uri;
+                    this.logToConsole(
+                        `Track file written: ${path.relative(this.lastSimulationDirectory!, dir)}/${name} — use 'Open Tracks' to view it`
+                    );
+                    this.update();
+                    return;
+                }
             }
         }
     }

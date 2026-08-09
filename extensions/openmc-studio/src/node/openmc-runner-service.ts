@@ -617,7 +617,7 @@ export class OpenMCRunnerService {
             });
 
             // Handle process exit
-            childProcess.on('close', (code: number | null) => {
+            childProcess.on('close', async (code: number | null) => {
                 // Close log stream
                 logStream.end();
 
@@ -633,10 +633,10 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Tidy particle track and particle-restart files into subfolders
-                this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
+                await this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
 
                 // Get output files
-                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                const outputFiles = await this.detectOutputFiles(request.workingDirectory);
 
                 const success = code === 0;
                 let error: string | undefined;
@@ -823,7 +823,7 @@ export class OpenMCRunnerService {
             });
 
             // Handle process exit
-            childProcess.on('close', (code: number | null) => {
+            childProcess.on('close', async (code: number | null) => {
                 // Close log stream
                 logStream.end();
 
@@ -839,10 +839,10 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Tidy particle track and particle-restart files into subfolders
-                this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
+                await this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
 
                 // Get output files
-                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                const outputFiles = await this.detectOutputFiles(request.workingDirectory);
 
                 const success = code === 0;
                 let error: string | undefined;
@@ -1057,7 +1057,7 @@ export class OpenMCRunnerService {
             });
 
             // Handle process exit
-            childProcess.on('close', (code: number | null) => {
+            childProcess.on('close', async (code: number | null) => {
                 // Close log stream
                 logStream.end();
 
@@ -1073,7 +1073,7 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Get output files including depletion results
-                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                const outputFiles = await this.detectOutputFiles(request.workingDirectory);
 
                 const success = code === 0;
                 let error: string | undefined;
@@ -1261,7 +1261,7 @@ export class OpenMCRunnerService {
             });
 
             // Handle process exit
-            childProcess.on('close', (code: number | null) => {
+            childProcess.on('close', async (code: number | null) => {
                 // Close log stream
                 logStream.end();
 
@@ -1277,7 +1277,7 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Get output files including the statepoint
-                const outputFiles = this.detectOutputFiles(request.workingDirectory);
+                const outputFiles = await this.detectOutputFiles(request.workingDirectory);
 
                 const success = code === 0;
                 let error: string | undefined;
@@ -1494,132 +1494,171 @@ export class OpenMCRunnerService {
     }
 
     /**
+     * Read the effective OpenMC output directory from settings.xml.
+     * Falls back to the working directory when settings.xml is missing or has
+     * no <output><path> element.
+     * @param workingDirectory - Directory containing settings.xml
+     * @returns Effective output directory
+     */
+    private async getOutputDirectory(workingDirectory: string): Promise<string> {
+        const settingsPath = path.join(workingDirectory, 'settings.xml');
+        try {
+            const content = await fs.promises.readFile(settingsPath, 'utf-8');
+            const match = content.match(/<output>\s*[\s\S]*?<path>([^<]+)<\/path>[\s\S]*?<\/output>/);
+            if (match && match[1]) {
+                const outputPath = match[1].trim();
+                if (path.isAbsolute(outputPath)) {
+                    return outputPath;
+                }
+                return path.resolve(workingDirectory, outputPath);
+            }
+        } catch {
+            // ignore and fall back
+        }
+        return workingDirectory;
+    }
+
+    /**
      * Move OpenMC particle track files (`tracks.h5`, `tracks_p<N>.h5`) and
-     * lost-particle restart files (`particle_<batch>_<id>.h5`) from the working
-     * directory into dedicated `tracks/` and `particles/` subfolders so the
-     * cwd/output directory stays tidy. The current restart file (if it lives in
-     * the cwd) is left untouched so a re-run from the same file still works.
+     * lost-particle restart files (`particle_<batch>_<id>.h5`) from both the
+     * working directory and the configured OpenMC output directory into
+     * dedicated `tracks/` and `particles/` subfolders. This keeps both the cwd
+     * and `settings.output.path` tidy. The currently selected restart file is
+     * left untouched so a re-run from it still works.
      * Non-blocking: failures are logged but do not fail the run.
      * @param workingDirectory - Directory to organize
      * @param restartFile - Optional restart file path to preserve in place
      */
-    private organizeRunOutputFiles(workingDirectory: string, restartFile?: string): void {
-        const fs = require('fs');
-
+    private async organizeRunOutputFiles(workingDirectory: string, restartFile?: string): Promise<void> {
         const restartBase = restartFile ? path.basename(restartFile) : undefined;
+        const outputDirectory = await this.getOutputDirectory(workingDirectory);
+        const directories = [workingDirectory];
+        if (outputDirectory !== workingDirectory) {
+            directories.push(outputDirectory);
+        }
 
-        try {
-            const tracksDir = path.join(workingDirectory, 'tracks');
-            if (!fs.existsSync(tracksDir)) {
-                fs.mkdirSync(tracksDir, { recursive: true });
-            }
+        for (const dir of directories) {
+            try {
+                const tracksDir = path.join(dir, 'tracks');
+                await fs.promises.mkdir(tracksDir, { recursive: true });
 
-            const particlesDir = path.join(workingDirectory, 'particles');
-            if (!fs.existsSync(particlesDir)) {
-                fs.mkdirSync(particlesDir, { recursive: true });
-            }
+                const particlesDir = path.join(dir, 'particles');
+                await fs.promises.mkdir(particlesDir, { recursive: true });
 
-            const files = fs.readdirSync(workingDirectory);
-            for (const file of files) {
-                // Particle tracks
-                if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
-                    const source = path.join(workingDirectory, file);
-                    const destination = path.join(tracksDir, file);
-                    if (!fs.existsSync(destination)) {
-                        fs.renameSync(source, destination);
-                        this.log(`Moved track file into tracks/: ${file}`);
-                    } else {
-                        this.log(`Track file already exists in tracks/: ${file}`);
+                const files = await fs.promises.readdir(dir);
+                for (const file of files) {
+                    // Particle tracks
+                    if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
+                        const source = path.join(dir, file);
+                        const destination = path.join(tracksDir, file);
+                        try {
+                            await fs.promises.access(destination);
+                            this.log(`Track file already exists in ${path.relative(workingDirectory, tracksDir)}/: ${file}`);
+                        } catch {
+                            await fs.promises.rename(source, destination);
+                            this.log(`Moved track file into ${path.relative(workingDirectory, tracksDir)}/: ${file}`);
+                        }
+                    }
+                    // Lost-particle restart files; leave the actively selected restart file alone
+                    else if (/^particle_\d+_\d+\.h5$/.test(file) && file !== restartBase) {
+                        const source = path.join(dir, file);
+                        const destination = path.join(particlesDir, file);
+                        try {
+                            await fs.promises.access(destination);
+                            this.log(`Particle restart file already exists in ${path.relative(workingDirectory, particlesDir)}/: ${file}`);
+                        } catch {
+                            await fs.promises.rename(source, destination);
+                            this.log(`Moved particle restart file into ${path.relative(workingDirectory, particlesDir)}/: ${file}`);
+                        }
                     }
                 }
-                // Lost-particle restart files; leave the actively selected restart file alone
-                else if (/^particle_\d+_\d+\.h5$/.test(file) && file !== restartBase) {
-                    const source = path.join(workingDirectory, file);
-                    const destination = path.join(particlesDir, file);
-                    if (!fs.existsSync(destination)) {
-                        fs.renameSync(source, destination);
-                        this.log(`Moved particle restart file into particles/: ${file}`);
-                    } else {
-                        this.log(`Particle restart file already exists in particles/: ${file}`);
-                    }
-                }
+            } catch (error) {
+                this.log(`Warning: failed to organize run output files in ${dir}: ${error}`);
             }
-        } catch (error) {
-            this.log(`Warning: failed to organize run output files: ${error}`);
         }
     }
 
     /**
-     * Detect output files in the working directory.
+     * Detect output files in the working directory and the configured output
+     * directory (including organized subfolders).
      * @param workingDirectory - Directory to scan
      * @returns List of output file paths
      */
-    private detectOutputFiles(workingDirectory: string): string[] {
-        const fs = require('fs');
-
+    private async detectOutputFiles(workingDirectory: string): Promise<string[]> {
         const outputFiles: string[] = [];
+        const outputDirectory = await this.getOutputDirectory(workingDirectory);
+        const directories = [workingDirectory];
+        if (outputDirectory !== workingDirectory) {
+            directories.push(outputDirectory);
+        }
 
-        try {
-            const files = fs.readdirSync(workingDirectory);
+        for (const dir of directories) {
+            try {
+                const files = await fs.promises.readdir(dir);
 
-            for (const file of files) {
-                // Check for statepoint files
-                if (file.startsWith('statepoint') && file.endsWith('.h5')) {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for summary file
-                else if (file === 'summary.h5') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for source file
-                else if (file === 'source.h5') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for tally output
-                else if (file.startsWith('tally') && file.endsWith('.out')) {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for depletion results
-                else if (file === 'depletion_results.h5') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for depletion summary
-                else if (file === 'depletion_summary.json') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for OpenMC simulation output (from depletion)
-                else if (file === 'openmc_simulation.h5') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-                // Check for weight windows output
-                else if (file === 'weight_windows.h5') {
-                    outputFiles.push(path.join(workingDirectory, file));
-                }
-            }
-
-            // Track files are moved into a tracks/ subfolder; surface them too
-            const tracksDir = path.join(workingDirectory, 'tracks');
-            if (fs.existsSync(tracksDir)) {
-                const trackFiles = fs.readdirSync(tracksDir);
-                for (const file of trackFiles) {
-                    if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
-                        outputFiles.push(path.join(tracksDir, file));
+                for (const file of files) {
+                    // Check for statepoint files
+                    if (file.startsWith('statepoint') && file.endsWith('.h5')) {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for summary file
+                    else if (file === 'summary.h5') {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for source file
+                    else if (file === 'source.h5') {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for tally output
+                    else if (file.startsWith('tally') && file.endsWith('.out')) {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for depletion results
+                    else if (file === 'depletion_results.h5') {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for depletion summary
+                    else if (file === 'depletion_summary.json') {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for OpenMC simulation output (from depletion)
+                    else if (file === 'openmc_simulation.h5') {
+                        outputFiles.push(path.join(dir, file));
+                    }
+                    // Check for weight windows output
+                    else if (file === 'weight_windows.h5') {
+                        outputFiles.push(path.join(dir, file));
                     }
                 }
-            }
 
-            // Lost-particle restart files are moved into a particles/ subfolder
-            const particlesDir = path.join(workingDirectory, 'particles');
-            if (fs.existsSync(particlesDir)) {
-                const particleFiles = fs.readdirSync(particlesDir);
-                for (const file of particleFiles) {
-                    if (/^particle_\d+_\d+\.h5$/.test(file)) {
-                        outputFiles.push(path.join(particlesDir, file));
+                // Track files are moved into a tracks/ subfolder; surface them too
+                const tracksDir = path.join(dir, 'tracks');
+                try {
+                    const trackFiles = await fs.promises.readdir(tracksDir);
+                    for (const file of trackFiles) {
+                        if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
+                            outputFiles.push(path.join(tracksDir, file));
+                        }
                     }
+                } catch {
+                    // tracks/ does not exist or is unreadable
                 }
+
+                // Lost-particle restart files are moved into a particles/ subfolder
+                const particlesDir = path.join(dir, 'particles');
+                try {
+                    const particleFiles = await fs.promises.readdir(particlesDir);
+                    for (const file of particleFiles) {
+                        if (/^particle_\d+_\d+\.h5$/.test(file)) {
+                            outputFiles.push(path.join(particlesDir, file));
+                        }
+                    }
+                } catch {
+                    // particles/ does not exist or is unreadable
+                }
+            } catch (error) {
+                this.log(`Error detecting output files in ${dir}: ${error}`);
             }
-        } catch (error) {
-            this.log(`Error detecting output files: ${error}`);
         }
 
         return outputFiles;
