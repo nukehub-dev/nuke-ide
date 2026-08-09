@@ -270,9 +270,6 @@ export class CSGBuilderWidget extends ReactWidget {
     private saveOutputPath?: string;
     private autoSaveDebounceTimer?: number;
 
-    // DAGMC info from imported file
-    private dagmcInfo?: DAGMCInfo;
-
     // CAD import loading state
     private isImportingCAD = false;
 
@@ -578,7 +575,7 @@ export class CSGBuilderWidget extends ReactWidget {
      * @returns DAGMC surfaces tab React node.
      */
     private renderDAGMCSurfacesTab(state: OpenMCState, dagmcFile: string): React.ReactNode {
-        const info = this.dagmcInfo;
+        const info = state.settings.dagmcInfo;
         const fileName = info?.fileName || dagmcFile.split('/').pop() || dagmcFile;
 
         return (
@@ -693,7 +690,6 @@ export class CSGBuilderWidget extends ReactWidget {
         const state = this.stateManager.getState();
         delete state.settings.dagmcFile;
         delete state.settings.dagmcInfo;
-        this.dagmcInfo = undefined;
         this.stateManager.setState(state);
         this.messageService.info('DAGMC file cleared. Switched to CSG mode.');
         this.update();
@@ -946,8 +942,7 @@ export class CSGBuilderWidget extends ReactWidget {
      * @returns DAGMC cells tab React node.
      */
     private renderDAGMCCellsTab(state: OpenMCState): React.ReactNode {
-        // Use dagmcInfo from state if available, otherwise fall back to local
-        const info = state.settings.dagmcInfo || this.dagmcInfo;
+        const info = state.settings.dagmcInfo;
 
         // If no detailed info available, show a simplified view
         if (!info) {
@@ -1581,7 +1576,7 @@ export class CSGBuilderWidget extends ReactWidget {
      * DAGMC uses an implicit universe structure - volumes are in universe 0 by default.
      */
     private renderDAGMCUniversesTab(state: OpenMCState): React.ReactNode {
-        const info = this.dagmcInfo;
+        const info = state.settings.dagmcInfo;
         const volumeCount = info?.volumeCount || 0;
 
         return (
@@ -2350,23 +2345,17 @@ export class CSGBuilderWidget extends ReactWidget {
                 totalSurfaceArea: result.fileInfo.totalSurfaceArea
             };
 
-            // Store rich DAGMC info for display (local cache)
-            this.dagmcInfo = dagmcInfo;
-
             const matCount = Object.keys(dagmcInfo.materials).length;
             this.messageService.info(
                 `DAGMC file loaded: ${dagmcInfo.volumeCount} volumes, ` + `${dagmcInfo.surfaceCount} surfaces, ` + `${matCount} materials`
             );
 
-            // Store DAGMC file path AND dagmcInfo in settings for use in simulation.
+            // Store DAGMC file path AND dagmcInfo in shared state for use in simulation.
             // When a STEP/IGES file was converted to DAGMC, use the generated .h5m
             // path rather than the original CAD path.
             const dagmcFilePath = result.dagmcFile || filePath;
             if (dagmcFilePath) {
-                const state = this.stateManager.getState();
-                state.settings.dagmcFile = dagmcFilePath;
-                state.settings.dagmcInfo = dagmcInfo;
-                this.stateManager.setState(state);
+                this.stateManager.updateSettings({ dagmcFile: dagmcFilePath, dagmcInfo });
                 this.messageService.info('DAGMC geometry will be used for simulation. ' + 'Settings updated with DAGMC file path.');
             }
 

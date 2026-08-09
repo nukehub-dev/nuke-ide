@@ -447,7 +447,14 @@ export class XMLGenerationService {
 
         const candidates: string[] = [];
         if (state.settings.dagmcInfo?.filePath) {
-            candidates.push(state.settings.dagmcInfo.filePath);
+            const infoPath = state.settings.dagmcInfo.filePath;
+            if (path.isAbsolute(infoPath)) {
+                candidates.push(infoPath);
+            } else {
+                // Project-relative path: try project dir first, then output dir.
+                candidates.push(path.resolve(outputDirectory, '..', infoPath));
+                candidates.push(path.resolve(outputDirectory, infoPath));
+            }
         }
         candidates.push(dagmcFile);
         candidates.push(path.resolve(outputDirectory, '..', dagmcFile));

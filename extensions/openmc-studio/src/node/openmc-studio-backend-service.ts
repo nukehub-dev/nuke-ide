@@ -2684,12 +2684,31 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         try {
             const fs = await import('fs');
+            const path = await import('path');
             const content = fs.readFileSync(projectPath, 'utf-8');
             const parsed: OpenMCProjectFile = JSON.parse(content);
             const { project, migratedFrom } = migrateProjectFile(parsed);
 
             if (migratedFrom) {
                 this.log(`Migrated project from schema ${migratedFrom} to ${OPENMC_STATE_SCHEMA_VERSION}`);
+            }
+
+            // Resolve project-relative paths back to absolute paths.
+            const projectDir = path.dirname(projectPath);
+            if (project.state.settings.dagmcInfo?.filePath && !path.isAbsolute(project.state.settings.dagmcInfo.filePath)) {
+                project.state.settings.dagmcInfo.filePath = path.resolve(projectDir, project.state.settings.dagmcInfo.filePath);
+            }
+            if (project.state.settings.dagmcFile && !path.isAbsolute(project.state.settings.dagmcFile)) {
+                project.state.settings.dagmcFile = path.resolve(projectDir, project.state.settings.dagmcFile);
+            }
+            if (project.state.settings.mgxsLibrary && !path.isAbsolute(project.state.settings.mgxsLibrary)) {
+                project.state.settings.mgxsLibrary = path.resolve(projectDir, project.state.settings.mgxsLibrary);
+            }
+            if (project.state.settings.randomRay?.mgxsLibraryPath && !path.isAbsolute(project.state.settings.randomRay.mgxsLibraryPath)) {
+                project.state.settings.randomRay.mgxsLibraryPath = path.resolve(
+                    projectDir,
+                    project.state.settings.randomRay.mgxsLibraryPath
+                );
             }
 
             return {
@@ -2715,10 +2734,44 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         try {
             const fs = await import('fs');
+            const path = await import('path');
+
+            // Deep-copy state so serialization changes do not mutate the live IDE state.
+            const projectDir = path.dirname(request.projectPath);
+            const stateToSave: OpenMCState = JSON.parse(JSON.stringify(request.state));
+
+            // Convert absolute, existing DAGMC/MGXS paths to project-relative for portability.
+            if (stateToSave.settings.dagmcInfo?.filePath && path.isAbsolute(stateToSave.settings.dagmcInfo.filePath)) {
+                try {
+                    if (fs.existsSync(stateToSave.settings.dagmcInfo.filePath)) {
+                        stateToSave.settings.dagmcInfo.filePath = path.relative(projectDir, stateToSave.settings.dagmcInfo.filePath);
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+            if (stateToSave.settings.dagmcFile && path.isAbsolute(stateToSave.settings.dagmcFile)) {
+                try {
+                    if (fs.existsSync(stateToSave.settings.dagmcFile)) {
+                        stateToSave.settings.dagmcFile = path.relative(projectDir, stateToSave.settings.dagmcFile);
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+            if (stateToSave.settings.mgxsLibrary && path.isAbsolute(stateToSave.settings.mgxsLibrary)) {
+                try {
+                    if (fs.existsSync(stateToSave.settings.mgxsLibrary)) {
+                        stateToSave.settings.mgxsLibrary = path.relative(projectDir, stateToSave.settings.mgxsLibrary);
+                    }
+                } catch {
+                    // ignore
+                }
+            }
 
             const projectFile: OpenMCProjectFile = {
                 version: OPENMC_STATE_SCHEMA_VERSION,
-                state: request.state
+                state: stateToSave
             };
 
             fs.writeFileSync(request.projectPath, JSON.stringify(projectFile, null, 2));

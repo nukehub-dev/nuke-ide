@@ -40,6 +40,8 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common/nuke-core-protocol';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 import { CAD_PACKAGES, DAGMC_PACKAGES } from '../common/packages';
 
@@ -287,8 +289,25 @@ export class OpenMCCADImportService {
                         nurbsDetected: parsed.nurbsDetected ?? false
                     };
 
-                    // If DAGMC fallback was used, populate dagmcInfo from the generated file
+                    // If DAGMC fallback was used, copy the generated file out of any
+                    // temp directory so it survives temp cleanup, then populate dagmcInfo.
                     if (result.dagmc && result.dagmcFile && fs.existsSync(result.dagmcFile)) {
+                        const dagmcFile = result.dagmcFile;
+                        const dagmcDir = path.dirname(dagmcFile);
+                        const tmpRoots = [os.tmpdir(), '/tmp'].filter((v, i, a) => a.indexOf(v) === i);
+                        const isInTemp = tmpRoots.some((root) => dagmcDir === root || dagmcFile.startsWith(root + path.sep));
+                        if (isInTemp) {
+                            const sourceDir = path.dirname(request.filePath);
+                            const destPath = path.join(sourceDir, path.basename(dagmcFile));
+                            try {
+                                fs.copyFileSync(dagmcFile, destPath);
+                                result.dagmcFile = destPath;
+                            } catch (err) {
+                                const msg = err instanceof Error ? err.message : String(err);
+                                result.warnings = result.warnings || [];
+                                result.warnings.push(`Could not copy DAGMC file next to source CAD file: ${msg}`);
+                            }
+                        }
                         try {
                             const dagmcResult = await this.importDAGMC(result.dagmcFile);
                             if (dagmcResult.success && dagmcResult.dagmcInfo) {
