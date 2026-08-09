@@ -50,8 +50,9 @@ import { OpenMCStudioService } from '../../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { DAGMCInfo, DAGMCVolume } from '../../../common/openmc-state-schema';
-import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+import { OpenMCStudioBackendService, CADImportResult } from '../../../common/openmc-studio-protocol';
 
 // Import from nuke-visualizer for 3D preview
 import { VisualizerWidget } from 'nuke-visualizer/lib/browser/visualizer-widget';
@@ -149,6 +150,9 @@ export class DAGMCEditorWidget extends ReactWidget {
 
     @inject(FileService)
     protected readonly fileService!: FileService;
+
+    @inject(PreferenceService)
+    protected readonly preferences!: PreferenceService;
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService!: NukeCoreService;
@@ -416,6 +420,12 @@ export class DAGMCEditorWidget extends ReactWidget {
                             {this.modelData ? 'Open...' : 'Open File'}
                         </button>
                     </Tooltip>
+                    <Tooltip content="Import CAD file (STEP/IGES/BREP/STL)" position="bottom">
+                        <button className="theia-button secondary" onClick={() => this.importCADFile()}>
+                            <i className="codicon codicon-file-add"></i>
+                            Import CAD
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
         );
@@ -499,6 +509,9 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </p>
                     <button className="theia-button primary" onClick={() => this.openFile()}>
                         <i className="codicon codicon-folder-opened"></i> Open DAGMC File
+                    </button>
+                    <button className="theia-button secondary" onClick={() => this.importCADFile()}>
+                        <i className="codicon codicon-file-add"></i> Import CAD File
                     </button>
                 </div>
             );
@@ -2038,6 +2051,73 @@ export class DAGMCEditorWidget extends ReactWidget {
      */
     async loadFile(filePath: string): Promise<void> {
         await this.loadDagmcFile(filePath);
+    }
+
+    /**
+     * Import a CAD file (STEP/IGES/BREP/STL) and load the resulting DAGMC file.
+     */
+    private async importCADFile(): Promise<void> {
+        const support = await this.backendService.checkCADSupport();
+
+        if (!support.available) {
+            this.messageService.warn(
+                'CAD import requires gmsh or OpenCASCADE. ' + 'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
+            );
+        }
+
+        const uri = await this.fileDialogService.showOpenDialog({
+            title: 'Import CAD File (STEP/IGES/BREP/STL)',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m'],
+                'STEP Files': ['step', 'stp'],
+                'IGES Files': ['iges', 'igs'],
+                'BREP Files': ['brep'],
+                'STL Files': ['stl'],
+                'DAGMC Files': ['h5m']
+            }
+        });
+
+        if (!uri) {
+            return;
+        }
+
+        const filePath = uri.path.toString();
+
+        // Read user preferences for faceting tolerance
+        const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
+        const autoAdjust = this.preferences.get('openmcStudio.autoAdjustFacetingTolerance', true);
+
+        this.isLoading = true;
+        this.update();
+
+        try {
+            const result: CADImportResult = await this.backendService.importCAD({
+                filePath: filePath,
+                options: {
+                    tolerance: tolerance,
+                    units: 'cm',
+                    scale: 1.0,
+                    autoAdjustTolerance: autoAdjust
+                }
+            });
+
+            if (result.success) {
+                this.messageService.info('CAD import complete');
+                if (result.dagmcFile) {
+                    await this.loadFile(result.dagmcFile);
+                }
+            } else {
+                this.messageService.error(`CAD import failed: ${result.error}`);
+            }
+        } catch (error) {
+            this.messageService.error(`Error importing CAD: ${error}`);
+        } finally {
+            this.isLoading = false;
+            this.update();
+        }
     }
 
     /**

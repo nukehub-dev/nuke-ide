@@ -2249,12 +2249,12 @@ export class CSGBuilderWidget extends ReactWidget {
             canSelectFolders: false,
             canSelectMany: false,
             filters: {
+                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m'],
                 'STEP Files': ['step', 'stp'],
                 'IGES Files': ['iges', 'igs'],
                 'BREP Files': ['brep'],
                 'STL Files': ['stl'],
-                'DAGMC Files': ['h5m'],
-                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m']
+                'DAGMC Files': ['h5m']
             }
         });
 
