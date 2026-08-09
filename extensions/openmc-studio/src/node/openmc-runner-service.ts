@@ -100,6 +100,7 @@ export class OpenMCRunnerService {
     private runningSimulations = new Map<string, RunningSimulation>();
     private completedSimulations = new Map<string, { workingDirectory: string; logFilePath: string }>();
     private client?: OpenMCStudioClient;
+    private runOutputWatchers = new Map<string, NodeJS.Timeout>();
 
     /**
      * Check if depletion is enabled in the working directory by looking for
@@ -551,6 +552,10 @@ export class OpenMCRunnerService {
 
         this.log(`Environment PATH includes: ${pythonBinDir}`);
 
+        // Resolve the effective output directory once so the run-output watcher
+        // and the final cleanup agree on where files land.
+        const outputDirectory = await this.getOutputDirectory(request.workingDirectory);
+
         return new Promise((resolve, reject) => {
             const env: NodeJS.ProcessEnv = {
                 ...process.env,
@@ -595,6 +600,9 @@ export class OpenMCRunnerService {
                 logStream
             });
 
+            // Keep the output directory tidy while the run produces files
+            this.startRunOutputWatcher(processId, request.workingDirectory, outputDirectory, request.restartFile);
+
             // Handle stdout
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
@@ -618,6 +626,9 @@ export class OpenMCRunnerService {
 
             // Handle process exit
             childProcess.on('close', async (code: number | null) => {
+                // Stop the live watcher and do a final tidy pass
+                this.stopRunOutputWatcher(processId);
+
                 // Close log stream
                 logStream.end();
 
@@ -633,7 +644,7 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Tidy particle track and particle-restart files into subfolders
-                await this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
+                await this.moveRunOutputFiles(request.workingDirectory, outputDirectory, request.restartFile);
 
                 // Get output files
                 const outputFiles = await this.detectOutputFiles(request.workingDirectory);
@@ -762,6 +773,10 @@ export class OpenMCRunnerService {
 
         this.log(`Environment PATH includes: ${pythonBinDir}`);
 
+        // Resolve the effective output directory once so the run-output watcher
+        // and the final cleanup agree on where files land.
+        const outputDirectory = await this.getOutputDirectory(request.workingDirectory);
+
         try {
             const env = {
                 ...process.env,
@@ -797,6 +812,9 @@ export class OpenMCRunnerService {
                 logStream
             });
 
+            // Keep the output directory tidy while the run produces files
+            this.startRunOutputWatcher(processId, request.workingDirectory, outputDirectory, request.restartFile);
+
             // Notify client that simulation is starting
             this.safeSendStatus({
                 processId,
@@ -824,6 +842,9 @@ export class OpenMCRunnerService {
 
             // Handle process exit
             childProcess.on('close', async (code: number | null) => {
+                // Stop the live watcher and do a final tidy pass
+                this.stopRunOutputWatcher(processId);
+
                 // Close log stream
                 logStream.end();
 
@@ -839,7 +860,7 @@ export class OpenMCRunnerService {
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
 
                 // Tidy particle track and particle-restart files into subfolders
-                await this.organizeRunOutputFiles(request.workingDirectory, request.restartFile);
+                await this.moveRunOutputFiles(request.workingDirectory, outputDirectory, request.restartFile);
 
                 // Get output files
                 const outputFiles = await this.detectOutputFiles(request.workingDirectory);
@@ -999,6 +1020,10 @@ export class OpenMCRunnerService {
         const currentPath = process.env.PATH || '';
         const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
 
+        // Resolve the effective output directory once so the run-output watcher
+        // and the final cleanup agree on where files land.
+        const outputDirectory = await this.getOutputDirectory(request.workingDirectory);
+
         try {
             const env = {
                 ...process.env,
@@ -1034,6 +1059,9 @@ export class OpenMCRunnerService {
                 logStream
             });
 
+            // Keep the output directory tidy while the run produces files
+            this.startRunOutputWatcher(processId, request.workingDirectory, outputDirectory, request.restartFile);
+
             // Notify client that simulation is starting
             this.safeSendStatus({
                 processId,
@@ -1058,6 +1086,9 @@ export class OpenMCRunnerService {
 
             // Handle process exit
             childProcess.on('close', async (code: number | null) => {
+                // Stop the live watcher and do a final tidy pass
+                this.stopRunOutputWatcher(processId);
+
                 // Close log stream
                 logStream.end();
 
@@ -1071,6 +1102,9 @@ export class OpenMCRunnerService {
 
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
+
+                // Tidy particle track and particle-restart files into subfolders
+                await this.moveRunOutputFiles(request.workingDirectory, outputDirectory, request.restartFile);
 
                 // Get output files including depletion results
                 const outputFiles = await this.detectOutputFiles(request.workingDirectory);
@@ -1202,6 +1236,10 @@ export class OpenMCRunnerService {
         const currentPath = process.env.PATH || '';
         const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
 
+        // Resolve the effective output directory once so the run-output watcher
+        // and the final cleanup agree on where files land.
+        const outputDirectory = await this.getOutputDirectory(request.workingDirectory);
+
         try {
             const env = {
                 ...process.env,
@@ -1237,6 +1275,9 @@ export class OpenMCRunnerService {
                 logStream
             });
 
+            // Keep the output directory tidy while the run produces files
+            this.startRunOutputWatcher(processId, request.workingDirectory, outputDirectory, request.restartFile);
+
             // Notify client that simulation is starting
             this.safeSendStatus({
                 processId,
@@ -1262,6 +1303,9 @@ export class OpenMCRunnerService {
 
             // Handle process exit
             childProcess.on('close', async (code: number | null) => {
+                // Stop the live watcher and do a final tidy pass
+                this.stopRunOutputWatcher(processId);
+
                 // Close log stream
                 logStream.end();
 
@@ -1275,6 +1319,9 @@ export class OpenMCRunnerService {
 
                 const endTime = new Date();
                 const duration = (endTime.getTime() - startTime.getTime()) / 1000;
+
+                // Tidy particle track and particle-restart files into subfolders
+                await this.moveRunOutputFiles(request.workingDirectory, outputDirectory, request.restartFile);
 
                 // Get output files including the statepoint
                 const outputFiles = await this.detectOutputFiles(request.workingDirectory);
@@ -1522,16 +1569,17 @@ export class OpenMCRunnerService {
      * Move OpenMC particle track files (`tracks.h5`, `tracks_p<N>.h5`) and
      * lost-particle restart files (`particle_<batch>_<id>.h5`) from both the
      * working directory and the configured OpenMC output directory into
-     * dedicated `tracks/` and `particles/` subfolders. This keeps both the cwd
-     * and `settings.output.path` tidy. The currently selected restart file is
-     * left untouched so a re-run from it still works.
+     * dedicated `tracks/` and `particles/` subfolders. Used both during a run
+     * (by the watcher) and at the end of a run. This keeps both the cwd and
+     * `settings.output.path` tidy. The currently selected restart file is left
+     * untouched so a re-run from it still works.
      * Non-blocking: failures are logged but do not fail the run.
-     * @param workingDirectory - Directory to organize
+     * @param workingDirectory - Base working directory (used for relative logs)
+     * @param outputDirectory - Effective OpenMC output directory, if different
      * @param restartFile - Optional restart file path to preserve in place
      */
-    private async organizeRunOutputFiles(workingDirectory: string, restartFile?: string): Promise<void> {
+    private async moveRunOutputFiles(workingDirectory: string, outputDirectory: string, restartFile?: string): Promise<void> {
         const restartBase = restartFile ? path.basename(restartFile) : undefined;
-        const outputDirectory = await this.getOutputDirectory(workingDirectory);
         const directories = [workingDirectory];
         if (outputDirectory !== workingDirectory) {
             directories.push(outputDirectory);
@@ -1575,6 +1623,42 @@ export class OpenMCRunnerService {
             } catch (error) {
                 this.log(`Warning: failed to organize run output files in ${dir}: ${error}`);
             }
+        }
+    }
+
+    /**
+     * Start a periodic watcher that moves particle restart files and track
+     * files into their subfolders while a simulation is still running. This
+     * prevents OpenMC's per-lost-particle files from accumulating in the
+     * output directory and lagging the file manager.
+     * @param processId - Simulation process id
+     * @param workingDirectory - Simulation working directory
+     * @param outputDirectory - Effective OpenMC output directory
+     * @param restartFile - Optional restart file path to preserve in place
+     */
+    private startRunOutputWatcher(
+        processId: string,
+        workingDirectory: string,
+        outputDirectory: string,
+        restartFile?: string,
+        intervalMs: number = 3000
+    ): void {
+        this.stopRunOutputWatcher(processId);
+        const watcher = setInterval(async () => {
+            await this.moveRunOutputFiles(workingDirectory, outputDirectory, restartFile);
+        }, intervalMs);
+        this.runOutputWatchers.set(processId, watcher);
+    }
+
+    /**
+     * Stop the run-output watcher for a simulation.
+     * @param processId - Simulation process id
+     */
+    private stopRunOutputWatcher(processId: string): void {
+        const watcher = this.runOutputWatchers.get(processId);
+        if (watcher) {
+            clearInterval(watcher);
+            this.runOutputWatchers.delete(processId);
         }
     }
 
@@ -1678,6 +1762,10 @@ export class OpenMCRunnerService {
             } catch (error) {
                 // Ignore errors during cleanup
             }
+        }
+
+        for (const processId of this.runOutputWatchers.keys()) {
+            this.stopRunOutputWatcher(processId);
         }
 
         this.runningSimulations.clear();
