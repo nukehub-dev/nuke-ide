@@ -206,6 +206,7 @@ describe('XML generation DAGMC path resolution', () => {
 
         const state = buildState();
         state.settings.dagmcFile = 'tokamak.h5m';
+        state.settings.copyDagmcToRunDirectory = true;
         state.settings.dagmcInfo = {
             filePath: 'tokamak.h5m',
             fileName: 'tokamak.h5m',
@@ -238,6 +239,7 @@ describe('XML generation DAGMC path resolution', () => {
 
         const state = buildState();
         state.settings.dagmcFile = dagmcPath;
+        state.settings.copyDagmcToRunDirectory = true;
         state.settings.dagmcInfo = {
             filePath: dagmcPath,
             fileName: 'tokamak.h5m',
@@ -258,5 +260,67 @@ describe('XML generation DAGMC path resolution', () => {
 
         expect(result.success).toBe(true);
         expect(fs.existsSync(path.join(outputDir, 'geometry.h5m'))).toBe(true);
+    });
+
+    it('uses a relative DAGMC path in geometry.xml when copyDagmcToRunDirectory is false', async () => {
+        const dagmcPath = path.join(projectDir, 'tokamak.h5m');
+        fs.writeFileSync(dagmcPath, 'dummy');
+
+        const state = buildState();
+        state.settings.dagmcFile = 'tokamak.h5m';
+        state.settings.copyDagmcToRunDirectory = false;
+        state.settings.dagmcInfo = {
+            filePath: 'tokamak.h5m',
+            fileName: 'tokamak.h5m',
+            volumeCount: 1,
+            surfaceCount: 1,
+            vertices: 1,
+            materials: {},
+            volumes: [],
+            boundingBox: { min: [0, 0, 0], max: [1, 1, 1] }
+        };
+
+        const outputDir = path.join(projectDir, 'run');
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: outputDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        expect(result.success).toBe(true);
+        expect(fs.existsSync(path.join(outputDir, 'geometry.h5m'))).toBe(false);
+        const geometryXml = fs.readFileSync(path.join(outputDir, 'geometry.xml'), 'utf-8');
+        expect(geometryXml).toContain('<dagmc_universe filename="../tokamak.h5m"');
+    });
+
+    it('copies DAGMC file to run directory when copyDagmcToRunDirectory is true', async () => {
+        const dagmcPath = path.join(projectDir, 'tokamak.h5m');
+        fs.writeFileSync(dagmcPath, 'dummy');
+
+        const state = buildState();
+        state.settings.dagmcFile = 'tokamak.h5m';
+        state.settings.copyDagmcToRunDirectory = true;
+        state.settings.dagmcInfo = {
+            filePath: 'tokamak.h5m',
+            fileName: 'tokamak.h5m',
+            volumeCount: 1,
+            surfaceCount: 1,
+            vertices: 1,
+            materials: {},
+            volumes: [],
+            boundingBox: { min: [0, 0, 0], max: [1, 1, 1] }
+        };
+
+        const outputDir = path.join(projectDir, 'run');
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: outputDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+
+        expect(result.success).toBe(true);
+        expect(fs.existsSync(path.join(outputDir, 'geometry.h5m'))).toBe(true);
+        const geometryXml = fs.readFileSync(path.join(outputDir, 'geometry.xml'), 'utf-8');
+        expect(geometryXml).toContain('<dagmc_universe filename="geometry.h5m"');
     });
 });

@@ -969,6 +969,11 @@ export interface OpenMCSettings {
     dagmcFile?: string;
     /** DAGMC model information (populated when importing DAGMC file) */
     dagmcInfo?: DAGMCInfo;
+    /**
+     * Copy DAGMC .h5m into each run directory as geometry.h5m; when false,
+     * geometry.xml references the original file with a relative path.
+     */
+    copyDagmcToRunDirectory?: boolean;
     /** Resonance scattering settings */
     resonanceScattering?: {
         enable?: boolean;

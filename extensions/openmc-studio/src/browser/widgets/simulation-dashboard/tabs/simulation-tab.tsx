@@ -436,10 +436,28 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                 <span>Faceted Mesh (DAGMC)</span>
                             </div>
                         </div>
-                        <div className="info-footer dagmc-note">
-                            <i className="codicon codicon-info"></i>
-                            <span>DAGMC geometry is used directly. No CSG surfaces/cells needed.</span>
+                        <div className="info-item dagmc-copy-row">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={state.settings.copyDagmcToRunDirectory ?? false}
+                                    onChange={(e) => host.stateManager.updateSettings({ copyDagmcToRunDirectory: e.target.checked })}
+                                />
+                                Copy DAGMC file into run directory
+                            </label>
                         </div>
+                        {!state.settings.copyDagmcToRunDirectory && (
+                            <div className="info-footer dagmc-note">
+                                <i className="codicon codicon-info"></i>
+                                <span>Uses relative path to the original file; run directory is not self-contained.</span>
+                            </div>
+                        )}
+                        {state.settings.copyDagmcToRunDirectory && (
+                            <div className="info-footer dagmc-note">
+                                <i className="codicon codicon-info"></i>
+                                <span>DAGMC geometry is used directly. No CSG surfaces/cells needed.</span>
+                            </div>
+                        )}
                     </div>
                 )}
 

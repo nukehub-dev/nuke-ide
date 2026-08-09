@@ -1749,6 +1749,29 @@
     color: var(--theia-focusBorder);
 }
 
+.simulation-dashboard .info-item.dagmc-copy-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .info-item.dagmc-copy-row label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--theia-editor-foreground);
+}
+
+.simulation-dashboard .info-item.dagmc-copy-row input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
 /* ============================================================================
    DAGMC Materials Panel in Materials Tab
    ============================================================================ */

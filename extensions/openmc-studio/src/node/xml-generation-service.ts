@@ -137,15 +137,32 @@ export class XMLGenerationService {
                 this.log(`Generated materials.xml`);
             }
 
+            // Resolve DAGMC source path and decide whether to copy or reference relatively.
+            let dagmcFilename = 'geometry.h5m';
+            let dagmcSource: string | undefined;
+            if (request.state.settings.dagmcFile) {
+                dagmcSource = this.resolveDagmcSourcePath(request.state, request.outputDirectory);
+                if (dagmcSource && request.state.settings.copyDagmcToRunDirectory !== true) {
+                    const relativeDagmc = path.relative(request.outputDirectory, dagmcSource).replace(/\\/g, '/');
+                    if (relativeDagmc && !path.isAbsolute(relativeDagmc)) {
+                        dagmcFilename = relativeDagmc;
+                    } else {
+                        this.log(`Warning: Could not compute relative DAGMC path; copying file instead`);
+                    }
+                } else if (request.state.settings.copyDagmcToRunDirectory === true) {
+                    this.log(`Copying DAGMC file because copyDagmcToRunDirectory is enabled`);
+                }
+            }
+
             // Generate geometry.xml (empty for DAGMC - geometry is in the .h5m file)
             if (request.files.geometry) {
                 const geometryPath = path.join(request.outputDirectory, 'geometry.xml');
                 if (request.state.settings.dagmcFile) {
                     // DAGMC mode: generate geometry.xml with dagmc_universe reference
-                    const dagmcGeometryXml = this.generateDAGMCGeometryXML(request.state);
+                    const dagmcGeometryXml = this.generateDAGMCGeometryXML(request.state, dagmcFilename);
                     fs.writeFileSync(geometryPath, dagmcGeometryXml);
                     generatedFiles.push(geometryPath);
-                    this.log(`Generated geometry.xml with DAGMC reference`);
+                    this.log(`Generated geometry.xml with DAGMC reference to ${dagmcFilename}`);
                 } else {
                     // CSG mode: generate full geometry.xml
                     const geometryXml = this.generateGeometryXML(request.state);
@@ -164,11 +181,10 @@ export class XMLGenerationService {
                 this.log(`Generated settings.xml`);
             }
 
-            // Copy DAGMC file to output directory as geometry.h5m (required by OpenMC)
+            // Copy DAGMC file to output directory when requested or when a relative reference is not possible.
             if (request.state.settings.dagmcFile) {
-                const dagmcDest = path.join(request.outputDirectory, 'geometry.h5m');
-                const dagmcSource = this.resolveDagmcSourcePath(request.state, request.outputDirectory);
-                if (dagmcSource) {
+                if (dagmcSource && dagmcFilename === 'geometry.h5m') {
+                    const dagmcDest = path.join(request.outputDirectory, 'geometry.h5m');
                     try {
                         fs.copyFileSync(dagmcSource, dagmcDest);
                         generatedFiles.push(dagmcDest);
@@ -177,7 +193,7 @@ export class XMLGenerationService {
                         const msg = err instanceof Error ? err.message : String(err);
                         this.log(`Warning: Failed to copy DAGMC file: ${msg}`);
                     }
-                } else {
+                } else if (!dagmcSource) {
                     this.log(`Warning: Could not locate DAGMC file ${request.state.settings.dagmcFile}`);
                 }
             }
@@ -419,13 +435,14 @@ export class XMLGenerationService {
      * Contains a dagmc_universe element referencing the DAGMC file,
      * with auto_geom_ids/auto_mat_ids attributes when enabled.
      * @param state - Simulation state (uses settings.dagmcInfo for the ID flags)
+     * @param dagmcFilename - Filename to reference in the dagmc_universe element (default: geometry.h5m)
      */
-    private generateDAGMCGeometryXML(state: OpenMCState): string {
+    private generateDAGMCGeometryXML(state: OpenMCState, dagmcFilename = 'geometry.h5m'): string {
         const autoGeomAttr = state.settings.dagmcInfo?.autoGeomIds ? ' auto_geom_ids="true"' : '';
         const autoMatAttr = state.settings.dagmcInfo?.autoMatIds ? ' auto_mat_ids="true"' : '';
         return `<?xml version="1.0"?>
 <geometry>
-  <dagmc_universe filename="geometry.h5m" id="1"${autoGeomAttr}${autoMatAttr} />
+  <dagmc_universe filename="${dagmcFilename}" id="1"${autoGeomAttr}${autoMatAttr} />
 </geometry>`;
     }
 
