@@ -58,6 +58,11 @@ export interface CADImportRequest {
     filePath: string;
     /** File format (auto-detected if not specified) */
     format?: CADFileFormat;
+    /**
+     * Explicit output path for the generated DAGMC .h5m file.
+     * When omitted the Python backend writes a tempfile.
+     */
+    dagmcOutput?: string;
     /** Import options */
     options?: {
         /**
@@ -237,6 +242,10 @@ export class OpenMCCADImportService {
                 '--output-json'
             ];
 
+            if (request.dagmcOutput) {
+                args.push('--dagmc-output', request.dagmcOutput);
+            }
+
             if (materialId !== undefined) {
                 args.push('--material-id', materialId.toString());
             }
@@ -298,7 +307,8 @@ export class OpenMCCADImportService {
                         const isInTemp = tmpRoots.some((root) => dagmcDir === root || dagmcFile.startsWith(root + path.sep));
                         if (isInTemp) {
                             const sourceDir = path.dirname(request.filePath);
-                            const destPath = path.join(sourceDir, path.basename(dagmcFile));
+                            const sourceName = path.basename(request.filePath, path.extname(request.filePath));
+                            const destPath = path.join(sourceDir, `${sourceName}.h5m`);
                             try {
                                 fs.copyFileSync(dagmcFile, destPath);
                                 result.dagmcFile = destPath;

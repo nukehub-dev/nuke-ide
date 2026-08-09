@@ -1180,6 +1180,11 @@ export interface CADImportRequest {
     filePath: string;
     /** File format (auto-detected if not specified) */
     format?: CADFileFormat;
+    /**
+     * Explicit output path for the generated DAGMC .h5m file.
+     * When omitted the Python backend writes a tempfile.
+     */
+    dagmcOutput?: string;
     /** Import options */
     options?: {
         /** Tolerance for surface approximation in cm (default: 0.001) */

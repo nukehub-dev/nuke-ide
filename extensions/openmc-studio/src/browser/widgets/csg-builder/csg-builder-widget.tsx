@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import * as path from 'path';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
@@ -2268,12 +2269,17 @@ export class CSGBuilderWidget extends ReactWidget {
         const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
         const autoAdjust = this.preferences.get('openmcStudio.autoAdjustFacetingTolerance', true);
 
+        // For CAD → DAGMC conversion, place the generated .h5m next to the source
+        // file with the same base name instead of a temp name.
+        const dagmcOutput = path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)) + '.h5m');
+
         this.isImportingCAD = true;
         this.update();
 
         try {
             const result = await this.backendService.importCAD({
                 filePath: filePath,
+                dagmcOutput: dagmcOutput,
                 options: {
                     tolerance: tolerance,
                     units: 'cm',
