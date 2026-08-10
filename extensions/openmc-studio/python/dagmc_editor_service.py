@@ -302,6 +302,14 @@ def create_graveyard_box(
 
         model = Model(file_path)
 
+        # Remove any existing graveyard volume and its surfaces so we don't
+        # create duplicate sentinels or leave orphaned triangles behind.
+        for vol in list(model.volumes):
+            if vol.material and vol.material.lower() == "graveyard":
+                for surf in list(vol.surfaces):
+                    surf.delete()
+                vol.delete()
+
         mn, mx = _model_bounding_box(model)
         center = (mn + mx) * 0.5
         size = float((mx - mn).max())

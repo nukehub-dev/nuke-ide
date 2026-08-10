@@ -1587,16 +1587,28 @@ export class OpenMCRunnerService {
 
         for (const dir of directories) {
             try {
-                const tracksDir = path.join(dir, 'tracks');
-                await fs.promises.mkdir(tracksDir, { recursive: true });
-
-                const particlesDir = path.join(dir, 'particles');
-                await fs.promises.mkdir(particlesDir, { recursive: true });
-
                 const files = await fs.promises.readdir(dir);
+                const tracksFiles: string[] = [];
+                const particlesFiles: string[] = [];
+
                 for (const file of files) {
-                    // Particle tracks
                     if (file === 'tracks.h5' || /^tracks_p\d+\.h5$/.test(file)) {
+                        tracksFiles.push(file);
+                    } else if (/^particle_\d+_\d+\.h5$/.test(file) && file !== restartBase) {
+                        particlesFiles.push(file);
+                    }
+                }
+
+                if (tracksFiles.length === 0 && particlesFiles.length === 0) {
+                    continue;
+                }
+
+                const tracksDir = path.join(dir, 'tracks');
+                const particlesDir = path.join(dir, 'particles');
+
+                if (tracksFiles.length > 0) {
+                    await fs.promises.mkdir(tracksDir, { recursive: true });
+                    for (const file of tracksFiles) {
                         const source = path.join(dir, file);
                         const destination = path.join(tracksDir, file);
                         try {
@@ -1607,8 +1619,11 @@ export class OpenMCRunnerService {
                             this.log(`Moved track file into ${path.relative(workingDirectory, tracksDir)}/: ${file}`);
                         }
                     }
-                    // Lost-particle restart files; leave the actively selected restart file alone
-                    else if (/^particle_\d+_\d+\.h5$/.test(file) && file !== restartBase) {
+                }
+
+                if (particlesFiles.length > 0) {
+                    await fs.promises.mkdir(particlesDir, { recursive: true });
+                    for (const file of particlesFiles) {
                         const source = path.join(dir, file);
                         const destination = path.join(particlesDir, file);
                         try {
