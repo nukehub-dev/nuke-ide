@@ -56,7 +56,7 @@
     "@theia/collaboration": "1.73.1",
     "@theia/console": "1.73.1",
     "@theia/core": "1.73.1",
-    "@theia/debug": "1.73.1",
+    "@theia/debug": "1.74.1",
     "@theia/dev-container": "1.73.1",
     "@theia/editor": "1.73.1",
     "@theia/editor-preview": "1.73.1",

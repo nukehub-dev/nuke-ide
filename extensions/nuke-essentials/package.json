@@ -24,7 +24,7 @@
   ],
   "dependencies": {
     "@theia/core": "1.73.1",
-    "@theia/debug": "1.73.1",
+    "@theia/debug": "1.74.1",
     "@theia/editor": "1.73.1",
     "@theia/filesystem": "1.73.1",
     "@theia/keymaps": "1.73.1",
