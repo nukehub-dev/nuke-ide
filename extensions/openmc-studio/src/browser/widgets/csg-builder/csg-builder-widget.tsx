@@ -2280,6 +2280,7 @@ export class CSGBuilderWidget extends ReactWidget {
             const result = await this.backendService.importCAD({
                 filePath: filePath,
                 dagmcOutput: dagmcOutput,
+                addGraveyard: true,
                 options: {
                     tolerance: tolerance,
                     units: 'cm',

@@ -63,6 +63,11 @@ export interface CADImportRequest {
      * When omitted the Python backend writes a tempfile.
      */
     dagmcOutput?: string;
+    /**
+     * Whether to auto-create a mat:graveyard bounding volume when converting
+     * CAD to DAGMC. Defaults to true.
+     */
+    addGraveyard?: boolean;
     /** Import options */
     options?: {
         /**
@@ -244,6 +249,10 @@ export class OpenMCCADImportService {
 
             if (request.dagmcOutput) {
                 args.push('--dagmc-output', request.dagmcOutput);
+            }
+
+            if (request.addGraveyard === false) {
+                args.push('--no-graveyard');
             }
 
             if (materialId !== undefined) {

@@ -196,8 +196,15 @@ class TestConvertToDagmc:
         self._install_ocp_probes(monkeypatch)
         seen = {}
 
-        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust):
-            seen.update(file=file_path, h5m=h5m_path, tol=tol, scale=scale, auto=auto_adjust)
+        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust, add_graveyard):
+            seen.update(
+                file=file_path,
+                h5m=h5m_path,
+                tol=tol,
+                scale=scale,
+                auto=auto_adjust,
+                add_graveyard=add_graveyard,
+            )
             warnings.append("done")
             return True
 
@@ -214,12 +221,29 @@ class TestConvertToDagmc:
         assert seen["tol"] == 0.05
         assert seen["scale"] == 2.0
         assert seen["auto"] is False
+        assert seen["add_graveyard"] is True
+
+    def test_add_graveyard_can_be_disabled(self, monkeypatch):
+        """convert_to_dagmc passes add_graveyard=False when requested."""
+        self._install_ocp_probes(monkeypatch)
+        seen = {}
+
+        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust, add_graveyard):
+            seen["add_graveyard"] = add_graveyard
+            return True
+
+        monkeypatch.setattr(nurbs_handler, "_native_dagmc_conversion", fake_native)
+
+        result = nurbs_handler.convert_to_dagmc("model.step", add_graveyard=False)
+
+        assert result["success"] is True
+        assert seen["add_graveyard"] is False
 
     def test_failure_reports_actual_reason(self, monkeypatch, tmp_path):
         """A failed native conversion surfaces the underlying warning, not a generic hint."""
         self._install_ocp_probes(monkeypatch)
 
-        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust):
+        def fake_native(file_path, h5m_path, tol, scale, warnings, auto_adjust, add_graveyard):
             warnings.append("Failed to read CAD file, status=0")
             return False
 
@@ -651,3 +675,153 @@ class TestNativeDagmcConversion:
         assert any(
             "Missing or incompatible dependency for fast DAGMC conversion" in w for w in warnings
         )
+
+
+# ---------------------------------------------------------------------------
+# Graveyard handling
+# ---------------------------------------------------------------------------
+
+
+class TestGraveyardHandling:
+    def test_graveyard_logic_skipped_by_default(self, monkeypatch, tmp_path):
+        """Without add_graveyard=True the helper is never invoked."""
+        _install_native_fakes(monkeypatch, _two_volume_registry())
+        warnings = []
+
+        def fake_maybe(*args, **kwargs):
+            raise AssertionError("_maybe_add_graveyard should not be called")
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings
+        )
+
+        assert ok is True
+
+    def test_existing_graveyard_detected_warning(self, monkeypatch, tmp_path):
+        """If a graveyard is detected, a skip warning is appended."""
+        _install_native_fakes(monkeypatch, _two_volume_registry())
+        warnings = []
+
+        def fake_maybe(shape, file_path, ext, warns):
+            warns.append("Existing graveyard volume detected; skipping auto-creation.")
+            return shape, set()
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings, add_graveyard=True
+        )
+
+        assert ok is True
+        assert any("Existing graveyard volume detected" in w for w in warnings)
+
+    def test_existing_graveyard_tagged_mat_graveyard(self, monkeypatch, tmp_path):
+        """An existing graveyard solid is re-tagged mat:graveyard in the output."""
+        shared_tshape = object()
+        face_a = _FakeOccFace(_FakeTriangulation())
+        face_b = _FakeOccFace(_FakeTriangulation(), tshape=shared_tshape)
+        face_b2 = _FakeOccFace(_FakeTriangulation(), tshape=shared_tshape)
+        face_c = _FakeOccFace(_FakeTriangulation())
+        solid1, solid2 = object(), object()
+        registry = {
+            (id("SHAPE"), "SOLID"): [solid1, solid2],
+            (id(solid1), "FACE"): [face_a, face_b],
+            (id(solid2), "FACE"): [face_b2, face_c],
+        }
+        _install_native_fakes(monkeypatch, registry)
+        warnings = []
+
+        def fake_maybe(shape, file_path, ext, warns):
+            warns.append("Existing graveyard volume detected; skipping auto-creation.")
+            # Mark the second solid (vol_id 2) as the existing graveyard.
+            return shape, {2}
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings, add_graveyard=True
+        )
+
+        assert ok is True
+        mb = _FakeMoabCore.instances[0]
+        name_tags = {data for tag, handle, data in mb.tag_calls if tag[1] == "NAME_TAG_NAME"}
+        assert "mat:graveyard" in name_tags
+        assert "mat:mat_0" in name_tags
+        assert "mat:mat_1" not in name_tags
+
+    def test_auto_graveyard_adds_warning(self, monkeypatch, tmp_path):
+        """If no graveyard exists, a graveyard is auto-added and a warning emitted."""
+        _install_native_fakes(monkeypatch, _two_volume_registry())
+        warnings = []
+
+        def fake_maybe(shape, file_path, ext, warns):
+            warns.append("Auto-created graveyard volume around model (mat:graveyard).")
+            return shape, set()
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings, add_graveyard=True
+        )
+
+        assert ok is True
+        assert any("Auto-created graveyard" in w for w in warnings)
+
+    def test_graveyard_failure_warns_and_continues(self, monkeypatch, tmp_path):
+        """A failed graveyard construction warns but conversion continues."""
+        _install_native_fakes(monkeypatch, _two_volume_registry())
+        warnings = []
+
+        def fake_maybe(shape, file_path, ext, warns):
+            warns.append(
+                "Could not auto-create graveyard: boolean cut failed. "
+                "Add one in your CAD workflow if needed."
+            )
+            return shape, set()
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings, add_graveyard=True
+        )
+
+        assert ok is True
+        assert any("Could not auto-create graveyard" in w for w in warnings)
+
+    def test_auto_graveyard_volume_tagged_mat_graveyard(self, monkeypatch, tmp_path):
+        """An auto-added graveyard volume is written with the mat:graveyard group."""
+        shared_tshape = object()
+        face_a = _FakeOccFace(_FakeTriangulation())
+        face_b = _FakeOccFace(_FakeTriangulation(), tshape=shared_tshape)
+        face_b2 = _FakeOccFace(_FakeTriangulation(), tshape=shared_tshape)
+        face_c = _FakeOccFace(_FakeTriangulation())
+        solid1, solid2, gy_solid = object(), object(), object()
+        registry = {
+            (id("SHAPE"), "SOLID"): [solid1, solid2],
+            (id("GY_SHAPE"), "SOLID"): [solid1, solid2, gy_solid],
+            (id(solid1), "FACE"): [face_a, face_b],
+            (id(solid2), "FACE"): [face_b2, face_c],
+            (id(gy_solid), "FACE"): [_FakeOccFace(_FakeTriangulation())],
+        }
+        _install_native_fakes(monkeypatch, registry)
+        warnings = []
+
+        def fake_maybe(shape, file_path, ext, warns):
+            warns.append("Auto-created graveyard volume around model (mat:graveyard).")
+            # The third volume (vol_id 3) is the auto-added graveyard.
+            return "GY_SHAPE", {3}
+
+        monkeypatch.setattr(nurbs_handler, "_maybe_add_graveyard", fake_maybe)
+
+        ok = nurbs_handler._native_dagmc_conversion(
+            "model.step", str(tmp_path / "out.h5m"), 0.01, 1.0, warnings, add_graveyard=True
+        )
+
+        assert ok is True
+        mb = _FakeMoabCore.instances[0]
+        name_tags = {data for tag, handle, data in mb.tag_calls if tag[1] == "NAME_TAG_NAME"}
+        assert "mat:graveyard" in name_tags
+        assert "mat:mat_0" in name_tags
+        assert "mat:mat_1" in name_tags

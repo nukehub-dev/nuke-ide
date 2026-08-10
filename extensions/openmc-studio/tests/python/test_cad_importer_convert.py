@@ -64,11 +64,13 @@ class TestDagmcFallback:
     def test_nurbs_triggers_dagmc_fallback(self, fake_gmsh, monkeypatch):
         """Detected NURBS route to DAGMC conversion with file info and bbox."""
         monkeypatch.setattr(cad_importer.nurbs_handler, "has_nurbs_surfaces", lambda p: True)
-        monkeypatch.setattr(
-            cad_importer.nurbs_handler,
-            "convert_to_dagmc",
-            lambda *a, **k: {"success": True, "output_path": "/tmp/out.h5m", "warnings": ["dw"]},
-        )
+        captured = {}
+
+        def fake_convert_to_dagmc(*a, **k):
+            captured.update(k)
+            return {"success": True, "output_path": "/tmp/out.h5m", "warnings": ["dw"]}
+
+        monkeypatch.setattr(cad_importer.nurbs_handler, "convert_to_dagmc", fake_convert_to_dagmc)
         monkeypatch.setattr(
             cad_importer.gmsh_utils,
             "get_all_entities",
@@ -95,17 +97,20 @@ class TestDagmcFallback:
         assert result["boundingBox"] == {"min": [0, 0, 0], "max": [20, 40, 60]}
         assert "NURBS or free-form surfaces detected" in result["warnings"][0]
         assert "dw" in result["warnings"]
+        assert captured.get("add_graveyard") is True
         assert fake_gmsh.calls[0] == "initialize"
         assert fake_gmsh.calls[-1] == "finalize"
 
     def test_force_dagmc_without_nurbs(self, fake_gmsh, monkeypatch):
         """force_dagmc routes to DAGMC even when no NURBS are found."""
         monkeypatch.setattr(cad_importer.nurbs_handler, "has_nurbs_surfaces", lambda p: False)
-        monkeypatch.setattr(
-            cad_importer.nurbs_handler,
-            "convert_to_dagmc",
-            lambda *a, **k: {"success": True, "output_path": "/tmp/out.h5m", "warnings": []},
-        )
+        captured = {}
+
+        def fake_convert_to_dagmc(*a, **k):
+            captured.update(k)
+            return {"success": True, "output_path": "/tmp/out.h5m", "warnings": []}
+
+        monkeypatch.setattr(cad_importer.nurbs_handler, "convert_to_dagmc", fake_convert_to_dagmc)
         monkeypatch.setattr(cad_importer.gmsh_utils, "get_all_entities", lambda: [])
         monkeypatch.setattr(
             cad_importer.gmsh_utils, "get_bounding_box", lambda d, t: (0, 0, 0, 1, 1, 1)
@@ -116,6 +121,23 @@ class TestDagmcFallback:
         assert result["success"] is True
         assert result["dagmc"] is True
         assert result["nurbsDetected"] is False
+        assert captured.get("add_graveyard") is True
+
+    def test_add_graveyard_can_be_disabled(self, fake_gmsh, monkeypatch):
+        """add_graveyard=False is forwarded to the DAGMC converter."""
+        monkeypatch.setattr(cad_importer.nurbs_handler, "has_nurbs_surfaces", lambda p: True)
+        captured = {}
+
+        def fake_convert_to_dagmc(*a, **k):
+            captured.update(k)
+            return {"success": True, "output_path": "/tmp/out.h5m", "warnings": []}
+
+        monkeypatch.setattr(cad_importer.nurbs_handler, "convert_to_dagmc", fake_convert_to_dagmc)
+
+        result = cad_importer.convert_cad_to_openmc("model.step", add_graveyard=False)
+
+        assert result["success"] is True
+        assert captured.get("add_graveyard") is False
 
     def test_force_csg_skips_nurbs_detection(self, fake_gmsh, monkeypatch):
         """force_csg never calls the NURBS detector and takes the CSG path."""
@@ -401,6 +423,33 @@ class TestMain:
         assert captured["auto_adjust_tolerance"] is False
         assert captured["force_dagmc"] is False
         assert captured["force_csg"] is False
+        assert captured["add_graveyard"] is True
+
+    def test_no_graveyard_cli_flag(self, monkeypatch, capsys):
+        """--no-graveyard sets add_graveyard=False on the conversion."""
+        captured = {}
+
+        def fake_convert(file_path, **kwargs):
+            captured.update(kwargs)
+            return self._success_result()
+
+        monkeypatch.setattr(cad_importer, "convert_cad_to_openmc", fake_convert)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "cad_importer.py",
+                "in.step",
+                "--no-graveyard",
+                "--output-json",
+            ],
+        )
+
+        cad_importer.main()
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["success"] is True
+        assert captured["add_graveyard"] is False
 
     def test_pretty_success_output(self, monkeypatch, capsys):
         """The default output prints a success summary."""

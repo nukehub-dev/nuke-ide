@@ -1185,6 +1185,11 @@ export interface CADImportRequest {
      * When omitted the Python backend writes a tempfile.
      */
     dagmcOutput?: string;
+    /**
+     * Whether to auto-create a mat:graveyard bounding volume when converting
+     * CAD to DAGMC. Defaults to true.
+     */
+    addGraveyard?: boolean;
     /** Import options */
     options?: {
         /** Tolerance for surface approximation in cm (default: 0.001) */

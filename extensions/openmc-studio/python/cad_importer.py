@@ -19,6 +19,7 @@ Options:
     --force-csg             Force CSG conversion even if NURBS detected
     --dagmc-output PATH     Output path for DAGMC .h5m (default: auto)
     --faceting-tol TOL      Faceting tolerance for DAGMC fallback (default: 0.001)
+    --no-graveyard          Do not auto-create a mat:graveyard bounding volume
 """
 
 import argparse
@@ -102,6 +103,7 @@ def convert_cad_to_openmc(
     dagmc_output: str = None,
     faceting_tolerance: float = 0.001,
     auto_adjust_tolerance: bool = True,
+    add_graveyard: bool = True,
 ) -> dict:
     """Convert a CAD file to OpenMC geometry.
 
@@ -151,6 +153,7 @@ def convert_cad_to_openmc(
             faceting_tolerance=faceting_tolerance,
             length_scale=unit_factor,
             auto_adjust_tolerance=auto_adjust_tolerance,
+            add_graveyard=add_graveyard,
         )
         if dagmc_res["success"]:
             result["dagmc"] = True
@@ -337,6 +340,11 @@ def main():
         action="store_true",
         help="Disable automatic faceting tolerance adjustment for large models",
     )
+    parser.add_argument(
+        "--no-graveyard",
+        action="store_true",
+        help="Disable automatic creation of a mat:graveyard bounding volume",
+    )
 
     args = parser.parse_args()
     total_scale = args.unit_factor * args.scale
@@ -352,6 +360,7 @@ def main():
         dagmc_output=args.dagmc_output,
         faceting_tolerance=args.faceting_tol,
         auto_adjust_tolerance=not args.no_auto_adjust_tol,
+        add_graveyard=not args.no_graveyard,
     )
 
     if args.output_json:

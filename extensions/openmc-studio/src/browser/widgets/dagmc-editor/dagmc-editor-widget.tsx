@@ -2102,6 +2102,7 @@ export class DAGMCEditorWidget extends ReactWidget {
             const result: CADImportResult = await this.backendService.importCAD({
                 filePath: filePath,
                 dagmcOutput: dagmcOutput,
+                addGraveyard: true,
                 options: {
                     tolerance: tolerance,
                     units: 'cm',
