@@ -1112,8 +1112,8 @@ class TestStepToDagmcOcp:
         assert sense_lists[1][1] != 0
         assert sense_lists[2][1] == 0
 
-        # 1 meshset per surface (3) + per volume (2) + per group (2).
-        assert mb.meshsets == 7
+        # 1 meshset per surface (3) + per volume (2) + per group (3: 2 materials + boundary:vacuum).
+        assert mb.meshsets == 8
         # 3 surface meshsets receive one triangle each... shared face meshed once.
         assert len(mb.elements) == 3
 

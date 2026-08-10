@@ -341,6 +341,11 @@ export class XMLGenerationService {
             const missingMaterials: string[] = [];
 
             for (const dagmcMaterialName of Object.keys(dagmcMaterials)) {
+                // "graveyard" is a DAGMC sentinel material; OpenMC kills particles
+                // that enter it and does not require a matching <material> element.
+                if (dagmcMaterialName.toLowerCase() === 'graveyard') {
+                    continue;
+                }
                 if (!existingMaterialNames.has(dagmcMaterialName.toLowerCase())) {
                     missingMaterials.push(dagmcMaterialName);
                 }

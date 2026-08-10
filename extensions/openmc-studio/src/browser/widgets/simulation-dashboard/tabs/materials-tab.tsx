@@ -215,25 +215,32 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                             use.
                         </p>
                         <div className="dagmc-materials-grid">
-                            {Object.entries(dagmcMaterials).map(([name, data]) => (
-                                <div key={name} className="dagmc-material-card">
-                                    <div className="dagmc-mat-name">{name}</div>
-                                    <div className="dagmc-mat-stats">
-                                        {data.volumeCount} volume{(data.volumeCount || 0) !== 1 ? 's' : ''},{' '}
-                                        {(data.totalTriangles || 0).toLocaleString()} triangles
+                            {Object.entries(dagmcMaterials).map(([name, data]) => {
+                                const isGraveyard = name.toLowerCase() === 'graveyard';
+                                const isMatched = state.materials.some((m) => m.name.toLowerCase() === name.toLowerCase());
+                                return (
+                                    <div key={name} className="dagmc-material-card">
+                                        <div className="dagmc-mat-name">{name}</div>
+                                        <div className="dagmc-mat-stats">
+                                            {data.volumeCount} volume{(data.volumeCount || 0) !== 1 ? 's' : ''},{' '}
+                                            {(data.totalTriangles || 0).toLocaleString()} triangles
+                                        </div>
+                                        {isGraveyard ? (
+                                            <span className="dagmc-mat-status sentinel">
+                                                <i className="codicon codicon-pass"></i> Auto-handled
+                                            </span>
+                                        ) : isMatched ? (
+                                            <span className="dagmc-mat-status matched">
+                                                <i className="codicon codicon-check"></i> Matched
+                                            </span>
+                                        ) : (
+                                            <span className="dagmc-mat-status missing">
+                                                <i className="codicon codicon-warning"></i> No match
+                                            </span>
+                                        )}
                                     </div>
-                                    {/* Check if matching material exists */}
-                                    {state.materials.some((m) => m.name.toLowerCase() === name.toLowerCase()) ? (
-                                        <span className="dagmc-mat-status matched">
-                                            <i className="codicon codicon-check"></i> Matched
-                                        </span>
-                                    ) : (
-                                        <span className="dagmc-mat-status missing">
-                                            <i className="codicon codicon-warning"></i> No match
-                                        </span>
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 )}

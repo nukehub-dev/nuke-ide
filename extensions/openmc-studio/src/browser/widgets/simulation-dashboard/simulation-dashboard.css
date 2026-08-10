@@ -1869,6 +1869,11 @@
     color: var(--theia-inputValidation-warningBorder);
 }
 
+.simulation-dashboard .dagmc-mat-status.sentinel {
+    background: var(--theia-inputValidation-infoBackground);
+    color: var(--theia-inputValidation-infoBorder);
+}
+
 /* ============================================================================
    Tallies Tab
    ============================================================================ */

@@ -68,6 +68,339 @@ def _read_faceting_tolerance(model) -> float:
     return 0.001
 
 
+def _volume_bounding_box(vol) -> tuple[list[float], list[float]] | tuple[None, None]:
+    """Compute the axis-aligned bounding box of a pydagmc Volume.
+
+    Returns (min, max) corner coordinates, or (None, None) if the volume
+    has no readable geometry.
+    """
+    all_coords = []
+    for surf in vol.surfaces:
+        try:
+            conn, coords = surf.get_triangle_conn_and_coords()
+            if coords is not None and len(coords) > 0:
+                arr = np.asarray(coords)
+                if arr.ndim == 2:
+                    all_coords.append(arr)
+        except Exception:
+            continue
+    if not all_coords:
+        return None, None
+    stacked = np.vstack(all_coords)
+    return stacked.min(axis=0).tolist(), stacked.max(axis=0).tolist()
+
+
+def _bbox_contains(
+    outer: tuple[list[float], list[float]],
+    inner: tuple[list[float], list[float]],
+    padding: float = 1e-3,
+) -> bool:
+    """Check whether ``outer`` bounds fully enclose ``inner`` bounds."""
+    omin, omax = outer
+    imin, imax = inner
+    return (
+        omin[0] <= imin[0] + padding
+        and omin[1] <= imin[1] + padding
+        and omin[2] <= imin[2] + padding
+        and omax[0] >= imax[0] - padding
+        and omax[1] >= imax[1] - padding
+        and omax[2] >= imax[2] - padding
+    )
+
+
+def detect_graveyard(file_path: str) -> dict:
+    """Detect whether a DAGMC file has a properly tagged graveyard.
+
+    Three outcomes are distinguished:
+
+    1. A volume is already tagged ``mat:graveyard`` → no action needed.
+    2. No graveyard exists and no enclosing candidate is found → the caller
+       can safely create a new bounding-box graveyard.
+    3. An existing volume encloses the model but is not tagged graveyard →
+       the caller may create a new bounding-box graveyard (preferred) or
+       re-tag the enclosing volume (destroys its original material).
+
+    Args:
+        file_path: Path to the DAGMC .h5m file.
+
+    Returns:
+        Dictionary with ``success``, ``needsTag``, ``canCreate``, optional
+        ``volumeId`` / ``material``, and model ``bounds`` when creation is
+        possible.
+    """
+    try:
+        model = Model(file_path)
+
+        # Already properly tagged?
+        for vol in model.volumes:
+            if vol.material and vol.material.lower() == "graveyard":
+                return {
+                    "success": True,
+                    "needsTag": False,
+                    "canCreate": False,
+                    "message": "A graveyard volume is already present.",
+                }
+        if "mat:graveyard" in model.group_names:
+            return {
+                "success": True,
+                "needsTag": False,
+                "canCreate": False,
+                "message": "A graveyard group is already present.",
+            }
+
+        try:
+            mn, mx = _model_bounding_box(model)
+            model_bounds = {"min": mn.tolist(), "max": mx.tolist()}
+        except Exception:
+            model_bounds = None
+
+        bboxes = {}
+        for vol in model.volumes:
+            mn, mx = _volume_bounding_box(vol)
+            if mn is not None:
+                bboxes[vol.id] = (mn, mx)
+
+        candidate_id = None
+        candidate_material = None
+        if len(bboxes) >= 2:
+            for outer_id, outer_bbox in bboxes.items():
+                if all(
+                    _bbox_contains(outer_bbox, bboxes[inner_id])
+                    for inner_id in bboxes
+                    if inner_id != outer_id
+                ):
+                    candidate_id = outer_id
+                    candidate_material = model.volumes_by_id[outer_id].material
+                    break
+
+        if candidate_id is not None:
+            return {
+                "success": True,
+                "needsTag": True,
+                "canCreate": True,
+                "volumeId": int(candidate_id),
+                "material": candidate_material,
+                "bounds": model_bounds,
+                "suggestedPadding": 0.1,
+                "message": (
+                    f"Volume {candidate_id} encloses the model but is not tagged as graveyard. "
+                    "Tagging it will turn that volume into a particle sink."
+                ),
+            }
+
+        if model_bounds is None:
+            return {
+                "success": True,
+                "needsTag": False,
+                "canCreate": False,
+                "message": "Could not read model geometry; a graveyard cannot be created.",
+            }
+
+        return {
+            "success": True,
+            "needsTag": False,
+            "canCreate": True,
+            "bounds": model_bounds,
+            "suggestedPadding": 0.1,
+            "message": "No graveyard found. You can create a bounding-box graveyard.",
+        }
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
+def tag_graveyard(file_path: str, volume_id: int | None = None) -> dict:
+    """Tag a volume as the DAGMC graveyard.
+
+    If ``volume_id`` is omitted, the enclosing volume is auto-detected.
+    The volume's material is set to ``graveyard`` and the file is saved.
+
+    Args:
+        file_path: Path to the DAGMC .h5m file.
+        volume_id: Optional volume ID to tag. If None, auto-detect.
+
+    Returns:
+        Operation result with the tagged volume ID.
+    """
+    try:
+        model = Model(file_path)
+
+        if volume_id is None:
+            detect = detect_graveyard(file_path)
+            if not detect["success"]:
+                return detect
+            if not detect.get("needsTag"):
+                return {
+                    "success": True,
+                    "message": detect.get("message", "No graveyard tag needed."),
+                }
+            volume_id = detect["volumeId"]
+
+        volume = model.volumes_by_id.get(volume_id)
+        if volume is None:
+            return {"success": False, "error": f"Volume {volume_id} not found"}
+
+        old_material = volume.material
+        volume.material = "graveyard"
+        model.mb.write_file(file_path)
+
+        return {
+            "success": True,
+            "volumeId": int(volume_id),
+            "oldMaterial": old_material,
+            "message": f'Re-tagged existing volume {volume_id} as graveyard (was "{old_material}").',
+        }
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
+def _model_bounding_box(model) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the axis-aligned bounding box of all triangles in a model."""
+    all_coords = []
+    for vol in model.volumes:
+        for surf in vol.surfaces:
+            try:
+                conn, coords = surf.get_triangle_conn_and_coords()
+                if coords is not None and len(coords) > 0:
+                    arr = np.asarray(coords)
+                    if arr.ndim == 2:
+                        all_coords.append(arr)
+            except Exception:
+                continue
+    if not all_coords:
+        raise ValueError("Model has no readable triangle coordinates")
+    stacked = np.vstack(all_coords)
+    return stacked.min(axis=0), stacked.max(axis=0)
+
+
+def create_graveyard_box(
+    file_path: str, padding: float = 0.1, output_path: str | None = None
+) -> dict:
+    """Create a new axis-aligned hollow-shell graveyard volume.
+
+    A proper DAGMC graveyard is a finite-thickness shell around the model: the
+    space between an inner box (just outside the model) and an outer box. The
+    inner box separates the model world from the graveyard; the outer box
+    separates the graveyard from external void. All shell surfaces are oriented
+    so the graveyard volume is their forward sense.
+
+    Args:
+        file_path: Path to the input DAGMC .h5m file.
+        padding: Fraction of the largest model dimension to add as total shell
+            thickness. The inner wall is placed at ``padding/2`` and the outer
+            wall at ``padding`` beyond the model bbox.
+        output_path: Optional output path. Defaults to overwriting ``file_path``.
+
+    Returns:
+        Operation result with the created volume ID and bounding box.
+    """
+    try:
+        from pymoab import types
+
+        model = Model(file_path)
+
+        mn, mx = _model_bounding_box(model)
+        center = (mn + mx) * 0.5
+        size = float((mx - mn).max())
+        if size <= 0.0:
+            size = 1.0
+
+        # Inner wall just clears the model; outer wall forms the external boundary.
+        inner_half = size * (1.0 + padding * 0.5) * 0.5
+        outer_half = size * (1.0 + padding) * 0.5
+        inner_min = center - inner_half
+        inner_max = center + inner_half
+        outer_min = center - outer_half
+        outer_max = center + outer_half
+
+        def make_box_vertices(bmin, bmax):
+            return np.array(
+                [
+                    [bmin[0], bmin[1], bmin[2]],  # 0
+                    [bmax[0], bmin[1], bmin[2]],  # 1
+                    [bmax[0], bmax[1], bmin[2]],  # 2
+                    [bmin[0], bmax[1], bmin[2]],  # 3
+                    [bmin[0], bmin[1], bmax[2]],  # 4
+                    [bmax[0], bmin[1], bmax[2]],  # 5
+                    [bmax[0], bmax[1], bmax[2]],  # 6
+                    [bmin[0], bmax[1], bmax[2]],  # 7
+                ],
+                dtype=np.float64,
+            )
+
+        inner_verts = model.mb.create_vertices(make_box_vertices(inner_min, inner_max))
+        outer_verts = model.mb.create_vertices(make_box_vertices(outer_min, outer_max))
+
+        # For each box face (corner indices in CCW order when viewed from outside),
+        # split into two triangles.
+        outer_face_ccw = [
+            [(0, 1, 2), (0, 2, 3)],  # bottom (z=min)
+            [(4, 5, 6), (4, 6, 7)],  # top (z=max)
+            [(0, 1, 5), (0, 5, 4)],  # front (y=min)
+            [(2, 3, 7), (2, 7, 6)],  # back (y=max)
+            [(0, 3, 7), (0, 7, 4)],  # left (x=min)
+            [(1, 2, 6), (1, 6, 5)],  # right (x=max)
+        ]
+        # The inner box uses the same corner indexing but its normals must point
+        # outward (toward the graveyard), so CCW winding is used directly.
+        inner_face_ccw = outer_face_ccw
+        # The outer box normals must point inward (toward the graveyard), so its
+        # faces are wound clockwise (reverse of CCW).
+        outer_face_cw = [
+            [(0, 3, 2), (0, 2, 1)],  # bottom
+            [(4, 7, 6), (4, 6, 5)],  # top
+            [(0, 4, 5), (0, 5, 1)],  # front
+            [(2, 6, 7), (2, 7, 3)],  # back
+            [(0, 7, 3), (0, 4, 7)],  # left
+            [(1, 5, 6), (1, 6, 2)],  # right
+        ]
+
+        max_surf_id = max((s.id for s in model.surfaces), default=0)
+        max_vol_id = max((v.id for v in model.volumes), default=0)
+
+        graveyard_vol = model.create_volume(global_id=max_vol_id + 1)
+
+        surf_id = max_surf_id + 1
+
+        def add_surface(verts, tri_indices, global_id):
+            surf = model.create_surface(global_id=global_id)
+            for tri in tri_indices:
+                tri_verts = (verts[tri[0]], verts[tri[1]], verts[tri[2]])
+                mb_tri = model.mb.create_element(types.MBTRI, tri_verts)
+                model.mb.add_entity(surf.handle, mb_tri)
+            surf.senses = [graveyard_vol, None]
+            return surf
+
+        # Inner shell surfaces: normals point outward -> forward = graveyard.
+        for tri_indices in inner_face_ccw:
+            add_surface(inner_verts, tri_indices, surf_id)
+            surf_id += 1
+
+        # Outer shell surfaces: normals point inward -> forward = graveyard.
+        for tri_indices in outer_face_cw:
+            add_surface(outer_verts, tri_indices, surf_id)
+            surf_id += 1
+
+        graveyard_vol.material = "graveyard"
+
+        out_path = output_path or file_path
+        model.write_file(out_path)
+
+        return {
+            "success": True,
+            "volumeId": int(graveyard_vol.id),
+            "message": f"Created graveyard shell (volume {graveyard_vol.id}).",
+            "bounds": {"min": outer_min.tolist(), "max": outer_max.tolist()},
+        }
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
 def load_model(file_path: str) -> dict:
     """Load a DAGMC file and return structured model information.
 
@@ -916,6 +1249,31 @@ def main():
             print(json.dumps({"success": False, "error": "No file path specified"}))
             sys.exit(1)
         result = load_model(sys.argv[2])
+        print(json.dumps(result))
+
+    elif command == "detect_graveyard":
+        if len(sys.argv) < 3:
+            print(json.dumps({"success": False, "error": "No file path specified"}))
+            sys.exit(1)
+        result = detect_graveyard(sys.argv[2])
+        print(json.dumps(result))
+
+    elif command == "tag_graveyard":
+        if len(sys.argv) < 3:
+            print(json.dumps({"success": False, "error": "No file path specified"}))
+            sys.exit(1)
+        file_path = sys.argv[2]
+        volume_id = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+        result = tag_graveyard(file_path, volume_id)
+        print(json.dumps(result))
+
+    elif command == "create_graveyard":
+        if len(sys.argv) < 3:
+            print(json.dumps({"success": False, "error": "No file path specified"}))
+            sys.exit(1)
+        file_path = sys.argv[2]
+        padding = float(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else 0.1
+        result = create_graveyard_box(file_path, padding=padding)
         print(json.dumps(result))
 
     elif command == "assign_material":

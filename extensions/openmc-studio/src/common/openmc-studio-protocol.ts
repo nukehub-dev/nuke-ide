@@ -828,6 +828,15 @@ export interface WWINPExportResult {
  * @see {@link OpenMCStudioBackendService}
  */
 
+/** Result of creating a new bounding-box graveyard volume */
+export interface DAGMCCreateGraveyardResult {
+    success: boolean;
+    volumeId?: number;
+    message?: string;
+    bounds?: { min: number[]; max: number[] };
+    error?: string;
+}
+
 /** Backend service interface for OpenMC Studio */
 export interface OpenMCStudioBackendService {
     // === Configuration ===
@@ -1064,6 +1073,34 @@ export interface OpenMCStudioBackendService {
         message?: string;
         error?: string;
     }>;
+
+    /** Detect whether a DAGMC file has a properly tagged graveyard volume */
+    dagmcDetectGraveyard(filePath: string): Promise<{
+        success: boolean;
+        needsTag?: boolean;
+        canCreate?: boolean;
+        volumeId?: number;
+        material?: string;
+        message?: string;
+        bounds?: { min: number[]; max: number[] };
+        suggestedPadding?: number;
+        error?: string;
+    }>;
+
+    /** Tag a volume as the DAGMC graveyard (auto-detects if volumeId is omitted) */
+    dagmcTagGraveyard(
+        filePath: string,
+        volumeId?: number
+    ): Promise<{
+        success: boolean;
+        volumeId?: number;
+        oldMaterial?: string;
+        message?: string;
+        error?: string;
+    }>;
+
+    /** Create a new axis-aligned bounding-box graveyard volume */
+    dagmcCreateGraveyard(filePath: string, padding?: number): Promise<DAGMCCreateGraveyardResult>;
 
     /** Synchronize DAGMC universes for depletion (rewrites geometry.xml with per-cell material overrides) */
     dagmcSyncForDepletion(workingDirectory: string): Promise<{

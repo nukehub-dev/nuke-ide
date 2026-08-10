@@ -112,6 +112,31 @@ export interface DAGMCRefacetResult {
     error?: string;
 }
 
+export interface DAGMCDetectGraveyardResult {
+    success: boolean;
+    needsTag?: boolean;
+    volumeId?: number;
+    material?: string;
+    message?: string;
+    error?: string;
+}
+
+export interface DAGMCTagGraveyardResult {
+    success: boolean;
+    volumeId?: number;
+    oldMaterial?: string;
+    message?: string;
+    error?: string;
+}
+
+export interface DAGMCCreateGraveyardResult {
+    success: boolean;
+    volumeId?: number;
+    message?: string;
+    bounds?: { min: number[]; max: number[] };
+    error?: string;
+}
+
 /** Child process reference for active re-faceting operation */
 export interface RefacetJob {
     process: any;
@@ -368,6 +393,179 @@ export class DAGMCEditorService {
 
                     const result = JSON.parse(jsonLine);
                     resolve(result as DAGMCEditorOperationResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Detect whether a DAGMC file has a properly tagged graveyard volume.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Detection result with candidate volume ID when applicable
+     */
+    async detectGraveyard(filePath: string): Promise<DAGMCDetectGraveyardResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'detect_graveyard', filePath];
+
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                if (code !== 0) {
+                    resolve({ success: false, error: `Process exited with code ${code}` });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCDetectGraveyardResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Tag a volume as the DAGMC graveyard.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param volumeId - Optional volume ID to tag; auto-detected if omitted
+     * @returns Operation result with tagged volume ID
+     */
+    async tagGraveyard(filePath: string, volumeId?: number): Promise<DAGMCTagGraveyardResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'tag_graveyard', filePath];
+            if (volumeId !== undefined) {
+                args.push(String(volumeId));
+            }
+
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                if (code !== 0) {
+                    resolve({ success: false, error: `Process exited with code ${code}` });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCTagGraveyardResult);
+                } catch (error) {
+                    resolve({ success: false, error: `Failed to parse output: ${error}` });
+                }
+            });
+
+            childProcess.on('error', (error: Error) => {
+                resolve({ success: false, error: `Process error: ${error.message}` });
+            });
+        });
+    }
+
+    /**
+     * Create a new axis-aligned bounding-box graveyard volume.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param padding - Optional clearance fraction (default 0.1)
+     * @returns Operation result with created volume ID and bounding box
+     */
+    async createGraveyardBox(filePath: string, padding?: number): Promise<DAGMCCreateGraveyardResult> {
+        if (!this.pythonPath || !this.scriptPath) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                return { success: false, error: 'DAGMC Editor service not initialized' };
+            }
+        }
+
+        return new Promise((resolve) => {
+            const args = [this.scriptPath!, 'create_graveyard', filePath];
+            if (padding !== undefined) {
+                args.push(String(padding));
+            }
+
+            const childProcess = cp.spawn(this.pythonPath!, args, {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            childProcess.on('close', (code: number) => {
+                if (code !== 0) {
+                    resolve({ success: false, error: `Process exited with code ${code}` });
+                    return;
+                }
+
+                try {
+                    const lines = stdout.split('\n');
+                    const jsonLine = lines.reverse().find((l) => l.trim().startsWith('{'));
+
+                    if (!jsonLine) {
+                        resolve({ success: false, error: 'No JSON output found' });
+                        return;
+                    }
+
+                    const result = JSON.parse(jsonLine);
+                    resolve(result as DAGMCCreateGraveyardResult);
                 } catch (error) {
                     resolve({ success: false, error: `Failed to parse output: ${error}` });
                 }

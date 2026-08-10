@@ -199,6 +199,10 @@ export class DAGMCEditorWidget extends ReactWidget {
     private isRefaceting = false;
     private refacetError?: string;
 
+    // Graveyard detection state
+    private graveyardStatus: 'unknown' | 'ok' | 'needs-create' | 'needs-tag' | 'creating' | 'tagging' = 'unknown';
+    private graveyardCandidate?: { volumeId: number; material?: string };
+
     /**
      * Initialize widget id, title, and state change listeners.
      */
@@ -353,9 +357,76 @@ export class DAGMCEditorWidget extends ReactWidget {
         return (
             <div className="dagmc-editor">
                 {this.renderHeader()}
+                {this.renderGraveyardBanner()}
                 {this.modelData && this.renderTabs()}
                 {this.renderContent()}
                 {selectedVolume && this.renderVolumeModal(selectedVolume)}
+            </div>
+        );
+    }
+
+    /**
+     * Render a banner when the loaded DAGMC file lacks a graveyard.
+     *
+     * The primary action creates a new bounding-box graveyard volume.
+     * When an enclosing candidate volume is detected, a secondary action
+     * allows re-tagging that existing volume with a clear warning.
+     * @returns Banner React node, or undefined if no action is needed.
+     */
+    private renderGraveyardBanner(): React.ReactNode {
+        if (this.graveyardStatus === 'ok' || this.graveyardStatus === 'unknown') {
+            return undefined;
+        }
+
+        const isBusy = this.graveyardStatus === 'creating' || this.graveyardStatus === 'tagging';
+
+        let title = 'No graveyard detected';
+        let message: React.ReactNode = (
+            <span>No graveyard volume found. OpenMC needs a graveyard to kill particles that escape the model.</span>
+        );
+        let secondaryAction: React.ReactNode = undefined;
+
+        if (this.graveyardStatus === 'needs-tag' && this.graveyardCandidate) {
+            const { volumeId, material } = this.graveyardCandidate;
+            title = 'No graveyard detected';
+            message = (
+                <span>
+                    Volume {volumeId} encloses the model but is tagged &quot;{material || 'none'}&quot;. The safe choice is to create a new
+                    bounding-box graveyard; re-tagging the existing volume will turn it into a particle sink.
+                </span>
+            );
+            secondaryAction = (
+                <button className="theia-button secondary graveyard-tag-existing" disabled={isBusy} onClick={() => this.tagGraveyard()}>
+                    {isBusy ? <i className="codicon codicon-loading codicon-modifier-spin"></i> : <i className="codicon codicon-tag"></i>}
+                    Tag existing volume {volumeId} instead
+                </button>
+            );
+        }
+
+        return (
+            <div className="dagmc-graveyard-banner">
+                <div className="graveyard-banner-content">
+                    <i className="codicon codicon-warning"></i>
+                    <div className="graveyard-banner-text">
+                        <strong>{title}</strong>
+                        {message}
+                    </div>
+                </div>
+                <div className="graveyard-banner-actions">
+                    <button
+                        className="theia-button primary graveyard-create-box"
+                        disabled={isBusy}
+                        onClick={() => this.createGraveyardBox()}
+                    >
+                        {isBusy ? (
+                            <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                        ) : (
+                            <i className="codicon codicon-add"></i>
+                        )}
+                        {this.graveyardStatus === 'tagging' ? 'Tagging…' : 'Create Graveyard Box'}
+                    </button>
+                    {secondaryAction}
+                </div>
             </div>
         );
     }
@@ -2169,47 +2240,51 @@ export class DAGMCEditorWidget extends ReactWidget {
                 };
                 this.messageService.info(`Loaded ${result.data.volumeCount} volumes from ${result.data.fileName}`);
 
-                // If this file differs from the project's current DAGMC file, update the project.
-                const currentDagmcFile = this.stateManager.getState().settings.dagmcFile;
-                if (filePath !== currentDagmcFile) {
-                    const volumes = result.data.volumes.map((v) => ({
-                        id: v.id,
-                        material: v.material || 'void',
-                        numTriangles: v.numTriangles,
-                        boundingBox: {
-                            min: v.boundingBox.min as [number, number, number],
-                            max: v.boundingBox.max as [number, number, number]
-                        }
-                    }));
-                    const materials: DAGMCInfo['materials'] = {};
-                    for (const [name, data] of Object.entries(result.data.materials)) {
-                        materials[name] = {
-                            volumeCount: data.volumeCount,
-                            totalTriangles: data.volumes
-                                .map((id) => volumes.find((v) => v.id === id)?.numTriangles || 0)
-                                .reduce((sum, n) => sum + n, 0)
-                        };
+                // Sync the loaded DAGMC metadata back to shared project state so the
+                // CSG builder, simulation dashboard, and XML generator all see the
+                // latest file reference and volume/material inventory. This is
+                // essential after in-place edits like graveyard creation/tagging.
+                const volumes = result.data.volumes.map((v) => ({
+                    id: v.id,
+                    material: v.material || 'void',
+                    numTriangles: v.numTriangles,
+                    boundingBox: {
+                        min: v.boundingBox.min as [number, number, number],
+                        max: v.boundingBox.max as [number, number, number]
                     }
-                    const dagmcInfo: DAGMCInfo = {
-                        filePath,
-                        fileName: result.data.fileName,
-                        volumeCount: result.data.volumeCount,
-                        surfaceCount: result.data.surfaceCount,
-                        vertices: result.data.vertices,
-                        materials,
-                        volumes,
-                        boundingBox: {
-                            min: result.data.boundingBox.min as [number, number, number],
-                            max: result.data.boundingBox.max as [number, number, number]
-                        },
-                        fileSizeMB: result.data.fileSizeMB
+                }));
+                const materials: DAGMCInfo['materials'] = {};
+                for (const [name, data] of Object.entries(result.data.materials)) {
+                    materials[name] = {
+                        volumeCount: data.volumeCount,
+                        totalTriangles: data.volumes
+                            .map((id) => volumes.find((v) => v.id === id)?.numTriangles || 0)
+                            .reduce((sum, n) => sum + n, 0)
                     };
-                    this.stateManager.updateSettings({ dagmcFile: filePath, dagmcInfo });
+                }
+                const dagmcInfo: DAGMCInfo = {
+                    filePath,
+                    fileName: result.data.fileName,
+                    volumeCount: result.data.volumeCount,
+                    surfaceCount: result.data.surfaceCount,
+                    vertices: result.data.vertices,
+                    materials,
+                    volumes,
+                    boundingBox: {
+                        min: result.data.boundingBox.min as [number, number, number],
+                        max: result.data.boundingBox.max as [number, number, number]
+                    },
+                    fileSizeMB: result.data.fileSizeMB
+                };
+                const currentDagmcFile = this.stateManager.getState().settings.dagmcFile;
+                this.stateManager.updateSettings({ dagmcFile: filePath, dagmcInfo });
+                if (filePath !== currentDagmcFile) {
                     this.messageService.info('Project DAGMC file reference updated.');
                 }
 
                 this.loadFacetingParams();
                 this.autoDetectSourceCad();
+                await this.checkGraveyardStatus(filePath);
             } else {
                 // If we already have model data from state, show a warning instead
                 // of blocking the entire UI with an error page.
@@ -2231,6 +2306,90 @@ export class DAGMCEditorWidget extends ReactWidget {
             } else {
                 this.error = `Failed to load DAGMC file: ${error}`;
             }
+            this.update();
+        }
+    }
+
+    /**
+     * Check whether the loaded DAGMC file has a properly tagged graveyard.
+     * @param filePath - Path to the DAGMC file.
+     */
+    private async checkGraveyardStatus(filePath: string): Promise<void> {
+        try {
+            const result = await this.backendService.dagmcDetectGraveyard(filePath);
+            if (!result.success) {
+                this.graveyardStatus = 'unknown';
+                this.graveyardCandidate = undefined;
+                return;
+            }
+            if (result.canCreate) {
+                if (result.needsTag && result.volumeId !== undefined) {
+                    this.graveyardStatus = 'needs-tag';
+                    this.graveyardCandidate = { volumeId: result.volumeId, material: result.material };
+                } else {
+                    this.graveyardStatus = 'needs-create';
+                    this.graveyardCandidate = undefined;
+                }
+            } else {
+                this.graveyardStatus = 'ok';
+                this.graveyardCandidate = undefined;
+            }
+        } catch {
+            this.graveyardStatus = 'unknown';
+            this.graveyardCandidate = undefined;
+        }
+    }
+
+    /**
+     * Tag the candidate volume as the DAGMC graveyard and reload the model.
+     */
+    private async tagGraveyard(): Promise<void> {
+        if (!this.modelData || !this.graveyardCandidate) return;
+
+        this.graveyardStatus = 'tagging';
+        this.update();
+
+        try {
+            const result = await this.backendService.dagmcTagGraveyard(this.modelData.filePath, this.graveyardCandidate.volumeId);
+
+            if (result.success) {
+                this.messageService.info(result.message || `Tagged volume ${result.volumeId} as graveyard`);
+                await this.loadDagmcFile(this.modelData.filePath);
+            } else {
+                this.graveyardStatus = 'needs-tag';
+                this.messageService.error(result.error || 'Failed to tag graveyard');
+                this.update();
+            }
+        } catch (error) {
+            this.graveyardStatus = 'needs-tag';
+            this.messageService.error(`Failed to tag graveyard: ${error}`);
+            this.update();
+        }
+    }
+
+    /**
+     * Create a new bounding-box graveyard volume and reload the model.
+     */
+    private async createGraveyardBox(): Promise<void> {
+        if (!this.modelData) return;
+
+        this.graveyardStatus = 'creating';
+        this.update();
+
+        try {
+            const result = await this.backendService.dagmcCreateGraveyard(this.modelData.filePath);
+
+            if (result.success) {
+                this.messageService.info(result.message || `Created graveyard volume ${result.volumeId}`);
+                await this.loadDagmcFile(this.modelData.filePath);
+            } else {
+                this.graveyardStatus = this.graveyardCandidate ? 'needs-tag' : 'needs-create';
+                this.messageService.error(result.error || 'Failed to create graveyard box');
+                this.update();
+            }
+        } catch (error) {
+            this.graveyardStatus = this.graveyardCandidate ? 'needs-tag' : 'needs-create';
+            this.messageService.error(`Failed to create graveyard box: ${error}`);
             this.update();
         }
     }

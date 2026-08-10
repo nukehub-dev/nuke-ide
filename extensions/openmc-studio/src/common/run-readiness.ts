@@ -69,7 +69,9 @@ export interface ReadinessResult {
 export function computeMaterialsItem(state: OpenMCState): ChecklistItem {
     const openMCMaterialCount = state.materials.length;
     const dagmcMaterials = state.settings.dagmcInfo?.materials;
-    const dagmcMaterialCount = dagmcMaterials ? Object.keys(dagmcMaterials).length : 0;
+    // "graveyard" is a DAGMC sentinel material and does not need a matching OpenMC material.
+    const dagmcMaterialNames = dagmcMaterials ? Object.keys(dagmcMaterials).filter((name) => name.toLowerCase() !== 'graveyard') : [];
+    const dagmcMaterialCount = dagmcMaterialNames.length;
 
     if (state.settings.dagmcFile) {
         if (dagmcMaterialCount === 0) {
@@ -90,7 +92,7 @@ export function computeMaterialsItem(state: OpenMCState): ChecklistItem {
             };
         }
         const openMCMaterialNames = new Set(state.materials.map((m) => m.name.toLowerCase()));
-        const missingCount = Object.keys(dagmcMaterials!).filter((dm) => !openMCMaterialNames.has(dm.toLowerCase())).length;
+        const missingCount = dagmcMaterialNames.filter((dm) => !openMCMaterialNames.has(dm.toLowerCase())).length;
         const done = missingCount === 0;
         return {
             id: 'materials',

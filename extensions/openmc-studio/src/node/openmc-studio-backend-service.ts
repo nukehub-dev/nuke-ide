@@ -41,6 +41,7 @@ import { BackendApplicationContribution } from '@theia/core/lib/node';
 import {
     OpenMCStudioBackendService,
     OpenMCStudioClient,
+    DAGMCCreateGraveyardResult,
     XMLGenerationRequest,
     XMLGenerationResult,
     XMLImportRequest,
@@ -1995,9 +1996,10 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
-        // For DAGMC: check that OpenMC materials match DAGMC material names
+        // For DAGMC: check that OpenMC materials match DAGMC material names.
+        // "graveyard" is a DAGMC sentinel material and is excluded from matching.
         if (settings.dagmcFile && dagmcMaterials) {
-            const dagmcMaterialNames = Object.keys(dagmcMaterials);
+            const dagmcMaterialNames = Object.keys(dagmcMaterials).filter((name) => name.toLowerCase() !== 'graveyard');
 
             if (dagmcMaterialNames.length === 0) {
                 // DAGMC file has no materials - this might be an issue with the export
@@ -3101,6 +3103,57 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }> {
         this.log(`Replacing material "${oldName}" with "${newName}" in ${filePath}`);
         return this.dagmcEditorService.replaceMaterial(filePath, oldName, newName);
+    }
+
+    /**
+     * Detect whether a DAGMC file has a properly tagged graveyard volume.
+     * @param filePath - Path to DAGMC .h5m file
+     * @returns Detection result with candidate volume ID when applicable
+     */
+    async dagmcDetectGraveyard(filePath: string): Promise<{
+        success: boolean;
+        needsTag?: boolean;
+        canCreate?: boolean;
+        volumeId?: number;
+        material?: string;
+        message?: string;
+        bounds?: { min: number[]; max: number[] };
+        suggestedPadding?: number;
+        error?: string;
+    }> {
+        this.log(`Detecting graveyard in ${filePath}`);
+        return this.dagmcEditorService.detectGraveyard(filePath);
+    }
+
+    /**
+     * Tag a volume as the DAGMC graveyard.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param volumeId - Optional volume ID to tag; auto-detected if omitted
+     * @returns Operation result with tagged volume ID
+     */
+    async dagmcTagGraveyard(
+        filePath: string,
+        volumeId?: number
+    ): Promise<{
+        success: boolean;
+        volumeId?: number;
+        oldMaterial?: string;
+        message?: string;
+        error?: string;
+    }> {
+        this.log(`Tagging graveyard in ${filePath}${volumeId !== undefined ? ` (volume ${volumeId})` : ''}`);
+        return this.dagmcEditorService.tagGraveyard(filePath, volumeId);
+    }
+
+    /**
+     * Create a new axis-aligned bounding-box graveyard volume.
+     * @param filePath - Path to DAGMC .h5m file
+     * @param padding - Optional clearance fraction (default 0.1)
+     * @returns Operation result with created volume ID and bounding box
+     */
+    async dagmcCreateGraveyard(filePath: string, padding?: number): Promise<DAGMCCreateGraveyardResult> {
+        this.log(`Creating graveyard bounding box in ${filePath}${padding !== undefined ? ` (padding ${padding})` : ''}`);
+        return this.dagmcEditorService.createGraveyardBox(filePath, padding);
     }
 
     /**
