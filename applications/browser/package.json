@@ -71,7 +71,7 @@
     "@theia/navigator": "1.73.1",
     "@theia/notebook": "1.73.1",
     "@theia/outline-view": "1.73.1",
-    "@theia/output": "1.73.1",
+    "@theia/output": "1.74.1",
     "@theia/plugin-dev": "1.73.1",
     "@theia/plugin-ext": "1.73.1",
     "@theia/plugin-ext-headless": "1.73.1",
