@@ -117,7 +117,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                     <h3>
                         <i className="codicon codicon-arrow-swap"></i> Multi-Group Conversion
                     </h3>
-                    <div className="depletion-warning-box">
+                    <div className="openmc-warning-box">
                         <i className="codicon codicon-warning"></i>
                         <div className="warning-content">
                             <strong>Project is multi-group but materials are still nuclide-decomposed</strong>
@@ -247,7 +247,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                     set. Apply to switch them to macroscopic and enter multi-group mode.
                                 </span>
                             ) : (
-                                <div className="depletion-warning-box">
+                                <div className="openmc-warning-box">
                                     <i className="codicon codicon-error"></i>
                                     <div className="warning-content">
                                         <strong>Conversion failed</strong>
@@ -476,7 +476,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         const independentSources = settings.sources.filter((s) => (s as any).spatial !== undefined);
         if (independentSources.length === 0) {
             return (
-                <div className="depletion-warning-box">
+                <div className="openmc-warning-box">
                     <i className="codicon codicon-warning"></i>
                     <div className="warning-content">
                         <strong>No independent sources defined</strong>
@@ -515,7 +515,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                     <i className="codicon codicon-lock"></i> Fixed-Source Domain Constraint
                 </h4>
                 {unconstrained.length > 0 && (
-                    <div className="depletion-warning-box">
+                    <div className="openmc-warning-box">
                         <i className="codicon codicon-warning"></i>
                         <div className="warning-content">
                             <strong>{unconstrained.length} source(s) must be constrained</strong>
@@ -679,7 +679,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                         </div>
                     </div>
                     {isMultiGroup && (
-                        <div className="depletion-warning-box">
+                        <div className="openmc-warning-box">
                             <i className="codicon codicon-warning"></i>
                             <div className="warning-content">
                                 <strong>Multi-group mode affects the whole model</strong>

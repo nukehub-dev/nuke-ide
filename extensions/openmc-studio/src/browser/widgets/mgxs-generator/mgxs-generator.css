@@ -100,3 +100,8 @@
 .mgxs-generator-widget .xs-types-grid + .form-hint {
     margin-top: 8px;
 }
+
+/* Warning box lives inside the body padding; keep consistent section spacing */
+.mgxs-generator-widget .openmc-warning-box {
+    margin-bottom: 16px;
+}

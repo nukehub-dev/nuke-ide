@@ -207,7 +207,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             </h3>
 
                             {!hasDepletableMaterials ? (
-                                <div className="depletion-warning-box">
+                                <div className="openmc-warning-box">
                                     <i className="codicon codicon-warning"></i>
                                     <div className="warning-content">
                                         <strong>No Depletable Materials Configured</strong>
@@ -228,7 +228,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             ) : (
                                 <>
                                     {state.materials.some((m) => m.isDepletable && m.macroscopic) && (
-                                        <div className="depletion-warning-box">
+                                        <div className="openmc-warning-box">
                                             <i className="codicon codicon-warning"></i>
                                             <div className="warning-content">
                                                 <strong>Macroscopic materials cannot deplete</strong>
@@ -406,7 +406,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             </div>
                         </div>
                     ) : (
-                        <div className="depletion-warning-box">
+                        <div className="openmc-warning-box">
                             <i className="codicon codicon-error"></i>
                             <div className="warning-content">
                                 <strong>Chain build failed</strong>
@@ -623,7 +623,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                         </div>
                         {!depletion.generateFromModel &&
                             (depletableMaterials.length === 0 ? (
-                                <div className="depletion-warning-box">
+                                <div className="openmc-warning-box">
                                     <i className="codicon codicon-warning"></i>
                                     <div className="warning-content">
                                         <strong>No depletable materials</strong>
@@ -831,7 +831,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
                         />
                         Distinguish burnable materials with identical compositions (diff_burnable_mats)
                     </label>
-                    <div className="depletion-warning-box">
+                    <div className="openmc-warning-box">
                         <i className="codicon codicon-warning"></i>
                         <div className="warning-content">
                             <strong>Higher memory and runtime cost</strong>

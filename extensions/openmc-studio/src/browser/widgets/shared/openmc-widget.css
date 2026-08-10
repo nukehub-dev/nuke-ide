@@ -376,7 +376,7 @@
 /* ============================================================================
    Warning Box (consistent vertical spacing across tabs)
    ============================================================================ */
-:is(.simulation-dashboard, .openmc-widget) .depletion-warning-box {
+:is(.simulation-dashboard, .openmc-widget) .openmc-warning-box {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -387,7 +387,7 @@
     border-radius: 8px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .depletion-warning-box > i {
+:is(.simulation-dashboard, .openmc-widget) .openmc-warning-box > i {
     font-size: 32px;
     color: var(--theia-inputValidation-warningBorder);
     flex-shrink: 0;

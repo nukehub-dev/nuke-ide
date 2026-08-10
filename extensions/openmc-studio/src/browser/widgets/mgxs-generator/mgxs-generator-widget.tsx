@@ -35,6 +35,8 @@ import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+import { computeMgRevert } from '../../../common/mg-conversion';
+import { OpenMCState } from '../../../common/openmc-state-schema';
 
 /** Predefined energy group structures accepted by openmc.mgxs.EnergyGroups */
 const GROUP_STRUCTURES = [
@@ -177,14 +179,28 @@ export class MgxsGeneratorWidget extends ReactWidget {
 
         try {
             const state = this.stateManager.getState();
+            // MGXS generation runs continuous-energy Monte Carlo; strip solver-specific
+            // settings (random ray, FW-CADIS/variance reduction, source constraints,
+            // project tallies) and force CE mode so OpenMC does not reject the input.
+            const sanitizedState: OpenMCState = {
+                ...state,
+                settings: {
+                    ...state.settings,
+                    energyMode: 'continuous-energy',
+                    randomRay: undefined,
+                    sourceRejectionFraction: undefined,
+                    sources: state.settings.sources.map((source) => ({ ...source, constraints: undefined }))
+                },
+                varianceReduction: undefined
+            };
             const xmlResult = await this.xmlService.generateXML({
-                state,
+                state: sanitizedState,
                 outputDirectory: workingDirectory,
                 files: {
                     materials: true,
                     settings: true,
                     geometry: true,
-                    tallies: state.tallies.length > 0,
+                    tallies: false,
                     plots: false
                 }
             });
@@ -547,6 +563,40 @@ export class MgxsGeneratorWidget extends ReactWidget {
     }
 
     /**
+     * One-click fix for MGXS generation compatibility: switch to continuous-energy
+     * mode and restore pre-conversion materials from the MG backup when available.
+     */
+    private autoFixCompatibility(): void {
+        const state = this.stateManager.getState();
+        const macroscopicNames = state.materials.filter((m) => m.macroscopic).map((m) => m.name);
+        const needsEnergySwitch = state.settings.energyMode === 'multigroup';
+        const needsMaterialRestore = macroscopicNames.length > 0;
+
+        if (needsEnergySwitch) {
+            this.stateManager.updateSettings({ energyMode: 'continuous-energy' });
+        }
+
+        if (needsMaterialRestore) {
+            const updates = computeMgRevert(state);
+            if (updates) {
+                for (const material of updates.materials) {
+                    this.stateManager.updateMaterial(material.id, material);
+                }
+                // The energy mode was already switched to continuous-energy above if needed;
+                // keep it as CE because MGXS generation requires continuous-energy mode.
+                this.stateManager.updateMetadata({ mgBackup: undefined });
+            } else {
+                this.messageService.warn(
+                    'Cannot automatically restore nuclide-decomposed materials: no pre-conversion backup exists. Recreate the materials manually or load a CE project copy.'
+                );
+                return;
+            }
+        }
+
+        this.messageService.info('Model is now compatible with MGXS generation.');
+    }
+
+    /**
      * Render the MGXS generator window.
      * @returns The React element tree for the widget.
      */
@@ -556,11 +606,16 @@ export class MgxsGeneratorWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const isMultiGroup = state.settings.energyMode === 'multigroup';
         const macroscopicNames = state.materials.filter((m) => m.macroscopic).map((m) => m.name);
-        const incompatibleReason = isMultiGroup
-            ? 'this project is multi-group'
-            : macroscopicNames.length > 0
-              ? `macroscopic materials: ${macroscopicNames.join(', ')}`
-              : undefined;
+        const issues: string[] = [];
+        if (isMultiGroup) {
+            issues.push('Project is in multi-group energy mode.');
+        }
+        if (macroscopicNames.length > 0) {
+            issues.push(`Materials are macroscopic: ${macroscopicNames.join(', ')}.`);
+        }
+        const isIncompatible = issues.length > 0;
+        const canRestoreMaterials = macroscopicNames.length === 0 || state.metadata.mgBackup !== undefined;
+        const needsOnlyEnergySwitch = isMultiGroup && macroscopicNames.length === 0;
 
         return (
             <div className="mgxs-generator-widget openmc-widget">
@@ -574,13 +629,15 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     </div>
                     <div className="header-actions">
                         <Tooltip
-                            content={incompatibleReason ?? (this.isRunning ? 'Generation in progress' : 'Generate the MGXS library')}
+                            content={
+                                isIncompatible ? issues.join(' ') : this.isRunning ? 'Generation in progress' : 'Generate the MGXS library'
+                            }
                             position="bottom"
                         >
                             <button
                                 className="theia-button primary large"
                                 onClick={() => this.generate()}
-                                disabled={this.isRunning || incompatibleReason !== undefined}
+                                disabled={this.isRunning || isIncompatible}
                             >
                                 <i className="codicon codicon-play"></i>
                                 {this.isRunning ? 'Generating...' : 'Generate MGXS Library'}
@@ -589,21 +646,35 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     </div>
                 </div>
 
-                {incompatibleReason && (
-                    <div className="depletion-warning-box">
-                        <i className="codicon codicon-warning"></i>
-                        <div className="warning-content">
-                            <strong>MGXS generation requires a continuous-energy model with nuclide-decomposed materials</strong>
-                            <p>
-                                Incompatible: {incompatibleReason}. Generation runs continuous-energy transport solves with per-nuclide
-                                tallies — switch the model to continuous-energy with nuclide-decomposed materials (or generate the library
-                                from a separate CE project).
-                            </p>
-                        </div>
-                    </div>
-                )}
-
                 <div className="mgxs-body">
+                    {isIncompatible && (
+                        <div className="openmc-warning-box">
+                            <i className="codicon codicon-warning"></i>
+                            <div className="warning-content">
+                                <strong>MGXS generation requires a continuous-energy model with nuclide-decomposed materials</strong>
+                                <ul>
+                                    {issues.map((issue, index) => (
+                                        <li key={index}>{issue}</li>
+                                    ))}
+                                </ul>
+                                <button
+                                    className="theia-button primary"
+                                    onClick={() => this.autoFixCompatibility()}
+                                    disabled={!canRestoreMaterials}
+                                >
+                                    <i className="codicon codicon-arrow-swap"></i>
+                                    {needsOnlyEnergySwitch
+                                        ? 'Switch to Continuous Energy'
+                                        : 'Switch to Continuous Energy & Restore Materials'}
+                                </button>
+                                {!canRestoreMaterials && (
+                                    <span className="form-hint">
+                                        Cannot automatically restore nuclide-decomposed materials: no pre-conversion backup exists.
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div className="mgxs-mode-row">
                         <div className="segmented-control">
                             {(['convert', 'library'] as const).map((m) => (

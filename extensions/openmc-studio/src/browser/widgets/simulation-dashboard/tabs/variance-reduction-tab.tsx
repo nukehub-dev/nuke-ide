@@ -382,7 +382,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="depletion-warning-box">
+                                    <div className="openmc-warning-box">
                                         <i className="codicon codicon-warning"></i>
                                         <div className="warning-content">
                                             <strong>FW-CADIS requires multi-group mode</strong>
