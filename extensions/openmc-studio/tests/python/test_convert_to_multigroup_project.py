@@ -100,6 +100,28 @@ class TestConvertProject:
         assert result["success"] is False
         assert "continuous-energy" in result["error"]
 
+    def test_nuclide_wise_returns_nuclide_mapping(self, monkeypatch, tmp_path, h5py):
+        """--nuclide-wise forwards the flag and maps nuclides, not materials."""
+        _write_model(tmp_path)
+        lib = _write_library(tmp_path, ["Fe56", "Cr52"], h5py)
+        forwarded = {}
+
+        def fake_generate(args):
+            forwarded["args"] = args
+            return {"success": True, "mgxsPath": str(lib)}
+
+        monkeypatch.setattr(convert.generate_mgxs, "run_generate_mgxs", fake_generate)
+
+        result = convert.convert_project(_args(tmp_path, nuclide_wise=True))
+
+        assert result["success"] is True
+        assert result["libraryType"] == "nuclide"
+        assert result["xsDataNames"] == [
+            {"nuclideName": "Cr52", "xsDataName": "Cr52"},
+            {"nuclideName": "Fe56", "xsDataName": "Fe56"},
+        ]
+        assert forwarded["args"].nuclide_wise is True
+
 
 class TestMain:
     def test_missing_working_directory_exits_1(self, monkeypatch, capsys):

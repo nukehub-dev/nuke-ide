@@ -160,6 +160,12 @@ export interface MgxsGenerationRequest {
     output?: string;
     /** Also convert the model to random ray */
     randomRay?: boolean;
+    /**
+     * Generate a nuclide-wise library (one micro XSdata set per nuclide;
+     * materials stay nuclide-decomposed). Required for random ray on DAGMC
+     * geometries. The method option does not apply in this mode.
+     */
+    nuclideWise?: boolean;
 }
 
 /** MGXS library generation result */
@@ -169,6 +175,10 @@ export interface MgxsGenerationResult {
     mgxsPath?: string;
     /** Whether random ray conversion was applied */
     randomRayApplied?: boolean;
+    /** Library decomposition: one macro set per material or one micro set per nuclide */
+    libraryType?: 'material' | 'nuclide';
+    /** Nuclide names exported (nuclide-wise libraries only) */
+    nuclides?: string[];
     error?: string;
     /** Captured script output (progress lines) */
     output?: string;
@@ -178,6 +188,14 @@ export interface MgxsGenerationResult {
 export interface MgXsDataMapping {
     /** Material name in the project */
     materialName: string;
+    /** XS data set (group) name in mgxs.h5 */
+    xsDataName: string;
+}
+
+/** Nuclide name → XS data set name in a nuclide-wise library */
+export interface MgXsNuclideMapping {
+    /** Nuclide name (e.g. 'Fe56') */
+    nuclideName: string;
     /** XS data set (group) name in mgxs.h5 */
     xsDataName: string;
 }
@@ -194,6 +212,11 @@ export interface MgConversionRequest {
     particles?: number;
     /** Output library filename (default mgxs.h5) */
     output?: string;
+    /**
+     * Nuclide-wise conversion: generate a nuclide-wise library and keep
+     * materials nuclide-decomposed (required for DAGMC random ray).
+     */
+    nuclideWise?: boolean;
 }
 
 /** CE → multi-group project conversion result */
@@ -203,6 +226,10 @@ export interface MgConversionResult {
     mgxsPath?: string;
     /** Material → XS data set mapping (materials with a library group) */
     xsDataNames?: MgXsDataMapping[];
+    /** Nuclide → XS data set mapping (nuclide-wise conversions only) */
+    xsNuclideNames?: MgXsNuclideMapping[];
+    /** Library decomposition produced by the conversion */
+    libraryType?: 'material' | 'nuclide';
     error?: string;
     /** Captured script output (progress lines) */
     output?: string;
@@ -212,6 +239,8 @@ export interface MgConversionResult {
 export interface MgxsDataNamesResult {
     success: boolean;
     xsDataNames?: MgXsDataMapping[];
+    /** Detected library decomposition (from the data set names) */
+    type?: 'material' | 'nuclide';
     error?: string;
 }
 
@@ -229,6 +258,13 @@ export interface MgxsLibraryGenerationRequest {
     domainIds?: number[];
     /** Compute cross sections per nuclide in each domain */
     byNuclide?: boolean;
+    /**
+     * Export one micro XSdata set per nuclide (named after the nuclide)
+     * instead of one macro set per domain — the library form nuclide-decomposed
+     * multi-group materials need (DAGMC random ray). Implies byNuclide;
+     * requires material domains.
+     */
+    nuclideWise?: boolean;
     /** Legendre order for scattering matrices */
     legendreOrder?: number;
     /** Tally estimator override */
@@ -254,6 +290,12 @@ export interface MgxsLibraryGenerationResult {
     domainIds?: number[];
     /** Whether by-nuclide decomposition was used */
     byNuclide?: boolean;
+    /** Whether a nuclide-wise library was exported */
+    nuclideWise?: boolean;
+    /** Library decomposition produced */
+    libraryType?: 'material' | 'nuclide';
+    /** Nuclide names exported (nuclide-wise libraries only) */
+    nuclides?: string[];
     /** Statepoint used for post-processing */
     statepoint?: string;
     error?: string;

@@ -98,3 +98,71 @@ def test_library_mode_mgxs_and_mg_run(pincell_dir):
 
     # CASMO-2 on a leakage-free reflected pincell: condensation error is small
     assert 1.0 < mg_keff < 1.8
+
+
+@pytest.mark.e2e
+def test_nuclide_wise_library_and_mg_run(pincell_dir):
+    """Nuclide-wise libraries hold one micro XSdata set per nuclide and support
+    a real multi-group run with materials STILL nuclide-decomposed — the DAGMC
+    random-ray material form (no macroscopic elements anywhere).
+    """
+    import generate_mgxs_library
+
+    # Step 1: generate a nuclide-wise library (implies by-nuclide tallies)
+    args = SimpleNamespace(
+        working_directory=str(pincell_dir),
+        groups="CASMO-2",
+        mgxs_types=None,
+        domain_type="material",
+        domain_ids=None,
+        by_nuclide=False,
+        nuclide_wise=True,
+        legendre_order=0,
+        estimator=None,
+        correction="none",
+        particles=300,
+        output="mgxs.h5",
+    )
+    result = generate_mgxs_library.run_generate_mgxs_library(args)
+
+    assert result["success"] is True
+    assert result["libraryType"] == "nuclide"
+    assert result["byNuclide"] is True
+
+    # Step 2: every top-level group is a nuclide name — no material names
+    import h5py
+
+    with h5py.File(result["mgxsPath"], "r") as f:
+        names = set(f.keys())
+    assert {"U235", "U238", "O16"} <= names
+    assert not {"fuel", "clad", "moderator"} & names
+    assert set(result["nuclides"]) == names
+
+    # Step 3: real multi-group run against the library with the materials
+    # unchanged (nuclide-decomposed). The moderator's S(a,b) table is dropped:
+    # nuclide-wise generation does not produce thermal scattering data.
+    settings_tree = ET.parse(pincell_dir / "settings.xml")
+    ET.SubElement(settings_tree.getroot(), "energy_mode").text = "multi-group"
+    settings_tree.write(pincell_dir / "settings.xml")
+    materials_tree = ET.parse(pincell_dir / "materials.xml")
+    root = materials_tree.getroot()
+    for mat in root.findall("material"):
+        for sab in list(mat.findall("sab")):
+            mat.remove(sab)
+    cross_sections = ET.Element("cross_sections")
+    cross_sections.text = result["mgxsPath"]
+    root.insert(0, cross_sections)
+    materials_tree.write(pincell_dir / "materials.xml")
+    model_xml = pincell_dir / "model.xml"
+    if model_xml.exists():
+        model_xml.unlink()
+
+    os.environ["OPENMC_MG_CROSS_SECTIONS"] = result["mgxsPath"]
+    openmc.run(cwd=pincell_dir)
+    statepoints = sorted(pincell_dir.glob("statepoint*.h5"), key=lambda p: p.stat().st_mtime)
+    assert statepoints, "multi-group nuclide-material run wrote no statepoint"
+    with openmc.StatePoint(str(statepoints[-1])) as sp:
+        mg_keff = sp.keff.n
+
+    # Same reflected pincell, nuclide-condensed CASMO-2: comparable k-eff
+    assert 1.0 < mg_keff < 1.8

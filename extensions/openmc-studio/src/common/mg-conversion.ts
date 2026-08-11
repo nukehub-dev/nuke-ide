@@ -36,7 +36,8 @@
  */
 
 import { OpenMCMaterial, OpenMCProjectMetadata, OpenMCSettings, OpenMCState } from './openmc-state-schema';
-import { MgXsDataMapping } from './openmc-studio-protocol';
+import { expandMaterialNuclides } from './material-utils';
+import { MgXsDataMapping, MgXsNuclideMapping } from './openmc-studio-protocol';
 
 /** Energy group structures accepted by openmc.mgxs.EnergyGroups (UI lists). */
 export const MGXS_GROUP_STRUCTURES = [
@@ -70,8 +71,8 @@ export interface MgConversionUpdates {
     convertedNames: string[];
     /** Pre-conversion snapshot to stash in project metadata */
     mgBackup: NonNullable<OpenMCProjectMetadata['mgBackup']>;
-    /** Settings updates: multi-group mode + library path */
-    settings: Pick<OpenMCSettings, 'energyMode' | 'mgxsLibrary'>;
+    /** Settings updates: multi-group mode + library path (clears the nuclide-wise flag) */
+    settings: Pick<OpenMCSettings, 'energyMode' | 'mgxsLibrary' | 'nuclideWiseMgxs'>;
 }
 
 /**
@@ -105,7 +106,71 @@ export function computeMgConversion(state: OpenMCState, xsDataNames: MgXsDataMap
             materials: state.materials.map((m) => ({ ...m })),
             energyMode: state.settings.energyMode
         },
-        settings: { energyMode: 'multigroup', mgxsLibrary: mgxsPath }
+        settings: { energyMode: 'multigroup', mgxsLibrary: mgxsPath, nuclideWiseMgxs: false }
+    };
+}
+
+/** State updates for applying a nuclide-wise multi-group conversion. */
+export interface NuclideWiseMgConversionUpdates {
+    /** Materials, unchanged — nuclide-wise conversion keeps them nuclide-decomposed */
+    materials: OpenMCMaterial[];
+    /** Nuclide names (after element expansion) covered by the library */
+    coveredNuclides: string[];
+    /** Nuclide names the materials need but the library does not provide */
+    missingNuclides: string[];
+    /** Pre-conversion snapshot to stash in project metadata */
+    mgBackup: NonNullable<OpenMCProjectMetadata['mgBackup']>;
+    /** Settings updates: multi-group mode + library path + nuclide-wise flag */
+    settings: Pick<OpenMCSettings, 'energyMode' | 'mgxsLibrary' | 'nuclideWiseMgxs'>;
+}
+
+/**
+ * Compute the state updates for applying a successful nuclide-wise conversion.
+ * Unlike the material-wise conversion, no material is modified: materials stay
+ * nuclide-decomposed and resolve each `<nuclide>` against a same-named XS data
+ * set in the library. Element constituents (e.g. 'Fe') are checked against the
+ * library after natural-isotope expansion — the same expansion XML emission
+ * performs, so the two sides stay consistent.
+ * @param state - Current (continuous-energy) project state.
+ * @param xsNuclideNames - Nuclide → XS-data-name mapping from the backend job.
+ * @param mgxsPath - Absolute path of the generated mgxs.h5 library.
+ * @returns Unchanged materials, library coverage, the backup, and settings updates.
+ */
+export function computeNuclideWiseMgConversion(
+    state: OpenMCState,
+    xsNuclideNames: MgXsNuclideMapping[],
+    mgxsPath: string
+): NuclideWiseMgConversionUpdates {
+    const libraryNuclides = new Set(xsNuclideNames.map((m) => m.xsDataName));
+    const required = new Set<string>();
+    for (const material of state.materials) {
+        if (material.macroscopic) {
+            continue;
+        }
+        let expanded: { name: string }[];
+        try {
+            expanded = expandMaterialNuclides(material.nuclides ?? []);
+        } catch {
+            // Unknown element names — fall back to the raw names so coverage is
+            // still reported (XML emission surfaces the real error later).
+            expanded = (material.nuclides ?? []).map((n) => ({ name: n.name }));
+        }
+        for (const nuclide of expanded) {
+            required.add(nuclide.name);
+        }
+    }
+    const coveredNuclides = [...required].filter((name) => libraryNuclides.has(name)).sort();
+    const missingNuclides = [...required].filter((name) => !libraryNuclides.has(name)).sort();
+
+    return {
+        materials: state.materials.map((m) => ({ ...m })),
+        coveredNuclides,
+        missingNuclides,
+        mgBackup: {
+            materials: state.materials.map((m) => ({ ...m })),
+            energyMode: state.settings.energyMode
+        },
+        settings: { energyMode: 'multigroup', mgxsLibrary: mgxsPath, nuclideWiseMgxs: true }
     };
 }
 

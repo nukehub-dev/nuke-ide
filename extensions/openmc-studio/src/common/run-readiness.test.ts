@@ -212,4 +212,42 @@ describe('computeReadiness', () => {
         expect(result.ready).toBe(false);
         expect(result.missing).toEqual(['MGXS Library']);
     });
+
+    it('requires nuclide-wise MGXS for DAGMC random ray', () => {
+        const base = {
+            materials: [material],
+            settings: {
+                run: { mode: 'eigenvalue', particles: 1, inactive: 1, batches: 1 },
+                sources: [source],
+                dagmcFile: '/data/geom.h5m',
+                energyMode: 'multigroup' as const,
+                mgxsLibrary: '/data/mgxs.h5',
+                randomRay: { distanceInactive: 500, distanceActive: 1000 }
+            }
+        };
+        const notReady = computeReadiness(buildState(base));
+        expect(notReady.ready).toBe(false);
+        expect(notReady.missing).toEqual(['Nuclide-wise MGXS (DAGMC random ray)']);
+
+        const ready = computeReadiness(buildState({ ...base, settings: { ...base.settings, nuclideWiseMgxs: true } }));
+        expect(ready.ready).toBe(true);
+    });
+
+    it('adds a nuclide-wise MGXS checklist item for DAGMC random ray', () => {
+        const items = computeSetupChecklist(
+            buildState({
+                materials: [material],
+                settings: {
+                    run: { mode: 'eigenvalue', particles: 1, inactive: 1, batches: 1 },
+                    sources: [source],
+                    dagmcFile: '/data/geom.h5m',
+                    randomRay: { distanceInactive: 500, distanceActive: 1000 }
+                }
+            })
+        );
+        expect(items.find((i) => i.id === 'nuclide-wise-mgxs')?.status).toBe('missing');
+
+        // No DAGMC random ray — no item
+        expect(computeSetupChecklist(buildState()).find((i) => i.id === 'nuclide-wise-mgxs')).toBeUndefined();
+    });
 });

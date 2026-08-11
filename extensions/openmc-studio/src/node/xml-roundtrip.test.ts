@@ -1415,6 +1415,49 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.materials).toEqual(state.materials);
     });
 
+    it('nuclide-wise multi-group mode emits <nuclide> elements, never <macroscopic>', async () => {
+        const state = buildTestState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.nuclideWiseMgxs = true;
+        state.settings.mgxsLibrary = path.join(tempDir, 'mgxs.h5');
+        state.materials = [
+            {
+                id: 1,
+                name: 'Steel',
+                density: 8.0,
+                densityUnit: 'g/cm3',
+                nuclides: [{ name: 'Fe', fraction: 1.0, fractionType: 'ao' }],
+                thermalScattering: []
+            },
+            {
+                // A stale macroscopic flag must be ignored in nuclide-wise mode
+                id: 2,
+                name: 'Water',
+                density: 1.0,
+                densityUnit: 'g/cm3',
+                nuclides: [{ name: 'H1', fraction: 1.0, fractionType: 'ao' }],
+                thermalScattering: [],
+                macroscopic: { name: 'Water' }
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: false, settings: false, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'materials.xml'), 'utf-8');
+        expect(xml).not.toContain('<macroscopic');
+        // Elements expand to natural isotopes (matches the nuclide-wise library names)
+        expect(xml).toContain('<nuclide ao=');
+        expect(xml).toContain('name="Fe56"');
+        expect(xml).toContain('name="H1"');
+        // The MGXS library reference is still emitted
+        expect(xml).toContain('<cross_sections>');
+    });
+
     it('expands element symbols to natural nuclides in materials.xml', async () => {
         const state = buildTestState();
         state.materials = [

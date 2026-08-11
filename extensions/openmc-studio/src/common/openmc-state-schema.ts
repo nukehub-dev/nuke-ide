@@ -902,6 +902,13 @@ export interface OpenMCSettings {
     randomRay?: OpenMCRandomRaySettings;
     /** Path to the MGXS library file (mgxs.h5) for multi-group runs */
     mgxsLibrary?: string;
+    /**
+     * Nuclide-wise multi-group mode: the MGXS library holds one micro XSdata
+     * set per nuclide and materials stay nuclide-decomposed (no `macroscopic`).
+     * Required for random ray on DAGMC geometries, which reject macroscopic
+     * multi-group materials. Undefined/false = material-wise macroscopic mode.
+     */
+    nuclideWiseMgxs?: boolean;
     /** Photon transport toggle */
     photonTransport?: boolean;
     /** Electron treatment for photon transport: 'led' (local energy deposition) or 'ttb' (thick-target bremsstrahlung) */

@@ -346,9 +346,12 @@ export class XMLGenerationService {
             }
         }
 
-        // Add user-defined materials
+        // Add user-defined materials. Nuclide-wise multi-group mode never emits
+        // <macroscopic>: materials stay nuclide-decomposed and resolve each
+        // nuclide against a same-named micro XSdata set in the library.
+        const nuclideWiseMg = state.settings.energyMode === 'multigroup' && state.settings.nuclideWiseMgxs === true;
         for (const material of state.materials) {
-            lines.push(this.generateMaterialElement(material, availableNuclides));
+            lines.push(this.generateMaterialElement(material, availableNuclides, nuclideWiseMg));
         }
 
         // For DAGMC mode: check for missing materials (user must create them)
@@ -382,7 +385,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateMaterialElement(material: OpenMCMaterial, availableNuclides?: Set<string>): string {
+    private generateMaterialElement(material: OpenMCMaterial, availableNuclides?: Set<string>, forceNuclides = false): string {
         const lines: string[] = [];
 
         const depletableAttr = material.isDepletable ? ' depletable="true"' : '';
@@ -392,7 +395,7 @@ export class XMLGenerationService {
         lines.push(`  <material id="${material.id}" name="${this.escapeXml(material.name)}"${depletableAttr}${volumeAttr}${tempAttr}>`);
         lines.push(`    <density units="${material.densityUnit}" value="${material.density}"/>`);
 
-        if (material.macroscopic) {
+        if (material.macroscopic && !forceNuclides) {
             // Macroscopic (multigroup) material: no nuclide decomposition (openmc/material.py:1823)
             lines.push(`    <macroscopic name="${this.escapeXml(material.macroscopic.name)}"/>`);
         } else {

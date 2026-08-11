@@ -16,6 +16,9 @@ Options:
     --groups GROUPS     Energy group structure name (default CASMO-2)
     --particles N       Particles for the generation runs
     --output PATH       Output MGXS library path (default mgxs.h5)
+    --nuclide-wise      Generate a nuclide-wise library and return a
+                        nuclide -> XS-data-name mapping instead of the
+                        material-wise mapping; materials stay nuclide-decomposed
 """
 
 import argparse
@@ -83,6 +86,7 @@ def convert_project(args):
         Dictionary with success, mgxsPath, and xsDataNames mapping.
     """
     working_dir = Path(args.working_directory).absolute()
+    nuclide_wise = getattr(args, "nuclide_wise", False)
 
     log_progress("Step 1/2: generating the MGXS library from the CE model...")
     mgxs_args = SimpleNamespace(
@@ -94,6 +98,7 @@ def convert_project(args):
         temperatures=None,
         output=args.output,
         random_ray=False,
+        nuclide_wise=nuclide_wise,
     )
     result = generate_mgxs.run_generate_mgxs(mgxs_args)
     if not result.get("success"):
@@ -101,6 +106,18 @@ def convert_project(args):
 
     log_progress("Step 2/2: reading the library's XS data sets...")
     xs_names = set(read_xs_data_names(result["mgxsPath"]))
+
+    if nuclide_wise:
+        # Nuclide-wise generation names each XS data set after its nuclide;
+        # materials stay nuclide-decomposed, so there is no material mapping
+        xs_data_names = [{"nuclideName": name, "xsDataName": name} for name in sorted(xs_names)]
+        return {
+            "success": True,
+            "mgxsPath": result["mgxsPath"],
+            "libraryType": "nuclide",
+            "xsDataNames": xs_data_names,
+        }
+
     material_names = read_material_names(working_dir)
     # Material-wise generation names each XS data set after its material
     xs_data_names = [
@@ -115,6 +132,7 @@ def convert_project(args):
     return {
         "success": True,
         "mgxsPath": result["mgxsPath"],
+        "libraryType": "material",
         "xsDataNames": xs_data_names,
     }
 
@@ -132,6 +150,12 @@ def main():
     parser.add_argument("--groups", default="CASMO-2", help="Energy group structure name")
     parser.add_argument("--particles", type=int, help="Particles for the generation runs")
     parser.add_argument("--output", default="mgxs.h5", help="Output MGXS library path")
+    parser.add_argument(
+        "--nuclide-wise",
+        action="store_true",
+        help="Generate a nuclide-wise library and return the nuclide mapping "
+        "(materials stay nuclide-decomposed)",
+    )
 
     args = parser.parse_args()
 

@@ -307,6 +307,82 @@ class TestRunGenerateMgxs:
         assert _FakeModel.last_instance.settings.exported is True
 
 
+class TestNuclideWise:
+    def test_delegates_to_generate_mgxs_library(self, monkeypatch, tmp_path):
+        """--nuclide-wise forwards to the openmc.mgxs.Library path, untouched by openmc."""
+        import generate_mgxs_library
+
+        forwarded = {}
+
+        def fake_run(args):
+            forwarded["args"] = args
+            return {
+                "success": True,
+                "mgxsPath": str(tmp_path / "mgxs.h5"),
+                "nuclides": ["Cr52", "Fe56"],
+            }
+
+        monkeypatch.setattr(generate_mgxs_library, "run_generate_mgxs_library", fake_run)
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path),
+            method="material_wise",
+            groups="XMAS-172",
+            particles=1000,
+            correction="P0",
+            temperatures=None,
+            output="mgxs.h5",
+            random_ray=False,
+            nuclide_wise=True,
+        )
+
+        result = generate_mgxs.run_generate_mgxs(args)
+
+        assert result["success"] is True
+        assert result["libraryType"] == "nuclide"
+        assert result["nuclideWise"] is True
+        assert result["nuclides"] == ["Cr52", "Fe56"]
+        assert result["method"] == "nuclide_wise"
+        assert result["randomRayApplied"] is False
+        delegated = forwarded["args"]
+        assert delegated.nuclide_wise is True
+        assert delegated.by_nuclide is True
+        assert delegated.domain_type == "material"
+        assert delegated.groups == "XMAS-172"
+        assert delegated.correction == "P0"
+        assert delegated.particles == 1000
+        assert delegated.output == "mgxs.h5"
+
+    def test_nuclide_wise_random_ray_converts_and_exports(
+        self, fake_openmc_module, monkeypatch, tmp_path
+    ):
+        """--nuclide-wise --random-ray converts the reloaded model after generation."""
+        import generate_mgxs_library
+
+        _write_model_xml(tmp_path)
+        monkeypatch.setattr(
+            generate_mgxs_library,
+            "run_generate_mgxs_library",
+            lambda args: {"success": True, "mgxsPath": str(tmp_path / "mgxs.h5"), "nuclides": []},
+        )
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path),
+            method="material_wise",
+            groups="CASMO-2",
+            particles=None,
+            correction="none",
+            temperatures=None,
+            output="mgxs.h5",
+            random_ray=True,
+            nuclide_wise=True,
+        )
+
+        result = generate_mgxs.run_generate_mgxs(args)
+
+        assert result["randomRayApplied"] is True
+        assert _FakeModel.last_instance.random_ray_calls == 1
+        assert _FakeModel.last_instance.settings.exported is True
+
+
 class TestMainArgparse:
     def test_no_arguments_exits_with_code_2(self, monkeypatch):
         """Missing working_directory is an argparse error."""

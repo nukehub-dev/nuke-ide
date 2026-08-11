@@ -1907,6 +1907,9 @@ export class OpenMCRunnerService {
         if (request.randomRay) {
             args.push('--random-ray');
         }
+        if (request.nuclideWise) {
+            args.push('--nuclide-wise');
+        }
 
         return this.executePythonScriptJson<MgxsGenerationResult>(args, request.workingDirectory);
     }
@@ -1937,6 +1940,9 @@ export class OpenMCRunnerService {
         }
         if (request.output) {
             args.push('--output', request.output);
+        }
+        if (request.nuclideWise) {
+            args.push('--nuclide-wise');
         }
 
         return this.executePythonScriptJson<MgConversionResult>(args, request.workingDirectory);
@@ -1986,6 +1992,9 @@ export class OpenMCRunnerService {
         }
         if (request.byNuclide) {
             args.push('--by-nuclide');
+        }
+        if (request.nuclideWise) {
+            args.push('--nuclide-wise');
         }
         if (request.legendreOrder !== undefined) {
             args.push('--legendre-order', String(request.legendreOrder));

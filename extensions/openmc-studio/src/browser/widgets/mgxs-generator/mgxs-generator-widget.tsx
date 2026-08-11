@@ -130,6 +130,16 @@ export class MgxsGeneratorWidget extends ReactWidget {
     private convertToRandomRay = false;
     private isRunning = false;
     private statusMessage = '';
+    /** Nuclide-wise library toggle (undefined = not chosen yet; defaults on for DAGMC) */
+    private nuclideWise?: boolean;
+
+    /**
+     * Effective nuclide-wise toggle: the user's choice, defaulting to on when a
+     * DAGMC geometry is loaded (random ray + DAGMC requires nuclide-wise MGXS).
+     */
+    private isNuclideWise(): boolean {
+        return this.nuclideWise ?? !!this.stateManager.getState().settings.dagmcFile;
+    }
 
     // Library (manual) mode state
     private mode: 'convert' | 'library' = 'convert';
@@ -234,12 +244,13 @@ export class MgxsGeneratorWidget extends ReactWidget {
                 correction: this.correction,
                 temperatures: temperatures.length > 0 ? temperatures : undefined,
                 output: 'mgxs.h5',
-                randomRay: this.convertToRandomRay
+                randomRay: this.convertToRandomRay,
+                nuclideWise: this.isNuclideWise()
             });
 
             if (result.success && result.mgxsPath) {
                 this.generatedPath = result.mgxsPath;
-                this.stateManager.updateSettings({ mgxsLibrary: result.mgxsPath });
+                this.stateManager.updateSettings({ mgxsLibrary: result.mgxsPath, nuclideWiseMgxs: result.libraryType === 'nuclide' });
                 this.statusMessage = `MGXS library written to ${result.mgxsPath}`;
                 this.messageService.info(`MGXS library generated and set as project library: ${result.mgxsPath}`);
             } else {
@@ -261,6 +272,9 @@ export class MgxsGeneratorWidget extends ReactWidget {
      * @param workingDirectory - Directory with generated XML inputs.
      */
     private async generateLibraryMode(workingDirectory: string): Promise<void> {
+        // Nuclide-wise export condenses over material domains only (the form
+        // disables the toggle for other domain types)
+        const nuclideWise = this.isNuclideWise() && this.domainType === 'material';
         const result = await this.backendService.generateMgxsLibrary({
             workingDirectory,
             groups: this.groups,
@@ -268,6 +282,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
             domainType: this.domainType,
             domainIds: this.domainIds.size > 0 ? [...this.domainIds] : undefined,
             byNuclide: this.byNuclide,
+            nuclideWise,
             legendreOrder: this.legendreOrder,
             estimator: this.estimator || undefined,
             correction: this.correction,
@@ -277,8 +292,11 @@ export class MgxsGeneratorWidget extends ReactWidget {
 
         if (result.success && result.mgxsPath) {
             this.generatedPath = result.mgxsPath;
-            this.stateManager.updateSettings({ mgxsLibrary: result.mgxsPath });
-            this.statusMessage = `MGXS library written to ${result.mgxsPath} (${result.mgxsTypes?.length} XS types over ${result.domainIds?.length} domain(s))`;
+            this.stateManager.updateSettings({ mgxsLibrary: result.mgxsPath, nuclideWiseMgxs: result.libraryType === 'nuclide' });
+            this.statusMessage =
+                result.libraryType === 'nuclide'
+                    ? `Nuclide-wise MGXS library written to ${result.mgxsPath} (${result.nuclides?.length ?? 0} nuclides)`
+                    : `MGXS library written to ${result.mgxsPath} (${result.mgxsTypes?.length} XS types over ${result.domainIds?.length} domain(s))`;
             this.messageService.info(`MGXS library generated and set as project library: ${result.mgxsPath}`);
         } else {
             this.statusMessage = `MGXS generation failed: ${result.error}`;
@@ -291,27 +309,48 @@ export class MgxsGeneratorWidget extends ReactWidget {
      * @returns Convert-mode form React node.
      */
     private renderConvertForm(): React.ReactNode {
+        const nuclideWise = this.isNuclideWise();
         return (
             <div className="settings-section">
                 <h3>
                     <i className="codicon codicon-library"></i> Multi-Group Cross Section Library
                 </h3>
-                <div className="form-row">
-                    <div className="form-group">
-                        <label>Generation Method</label>
-                        <select
-                            value={this.method}
+                <div className="form-group checkbox">
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={nuclideWise}
                             onChange={(e) => {
-                                this.method = e.target.value as typeof this.method;
+                                this.nuclideWise = e.target.checked;
                                 this.update();
                             }}
-                        >
-                            <option value="material_wise">Material Wise (highest fidelity)</option>
-                            <option value="stochastic_slab">Stochastic Slab</option>
-                            <option value="infinite_medium">Infinite Medium</option>
-                        </select>
-                        <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
-                    </div>
+                        />
+                        Nuclide-wise library (required for DAGMC random ray)
+                    </label>
+                    <span className="form-hint">
+                        {nuclideWise
+                            ? 'Materials stay nuclide-decomposed; the library holds one micro XS data set per nuclide (slower, larger)'
+                            : 'Materials are replaced by macroscopic XS data sets'}
+                    </span>
+                </div>
+                <div className="form-row">
+                    {!nuclideWise && (
+                        <div className="form-group">
+                            <label>Generation Method</label>
+                            <select
+                                value={this.method}
+                                onChange={(e) => {
+                                    this.method = e.target.value as typeof this.method;
+                                    this.update();
+                                }}
+                            >
+                                <option value="material_wise">Material Wise (highest fidelity)</option>
+                                <option value="stochastic_slab">Stochastic Slab</option>
+                                <option value="infinite_medium">Infinite Medium</option>
+                            </select>
+                            <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
+                        </div>
+                    )}
                     <div className="form-group">
                         <label>Energy Group Structure</label>
                         <select
@@ -529,6 +568,21 @@ export class MgxsGeneratorWidget extends ReactWidget {
                             />
                             By-nuclide decomposition
                         </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={this.isNuclideWise()}
+                                disabled={this.domainType !== 'material'}
+                                onChange={(e) => {
+                                    this.nuclideWise = e.target.checked;
+                                    this.update();
+                                }}
+                            />
+                            Nuclide-wise library (DAGMC random ray)
+                        </label>
+                        {this.domainType !== 'material' && (
+                            <span className="form-hint">Nuclide-wise libraries require material domains</span>
+                        )}
                     </div>
                 </div>
                 <div className="form-group">

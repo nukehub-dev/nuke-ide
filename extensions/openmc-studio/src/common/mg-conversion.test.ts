@@ -29,7 +29,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { computeMgConversion, computeMgRevert } from './mg-conversion';
+import { computeMgConversion, computeMgRevert, computeNuclideWiseMgConversion } from './mg-conversion';
 import { OpenMCMaterial, OpenMCState } from './openmc-state-schema';
 
 function makeMaterial(id: number, name: string): OpenMCMaterial {
@@ -76,7 +76,7 @@ describe('computeMgConversion', () => {
         // Nuclide decomposition is kept (the revert backup needs it too)
         expect(fuel.nuclides).toHaveLength(1);
 
-        expect(updates.settings).toEqual({ energyMode: 'multigroup', mgxsLibrary: '/work/mgxs.h5' });
+        expect(updates.settings).toEqual({ energyMode: 'multigroup', mgxsLibrary: '/work/mgxs.h5', nuclideWiseMgxs: false });
         expect(updates.mgBackup.energyMode).toBeUndefined();
         expect(updates.mgBackup.materials).toHaveLength(3);
         expect(updates.mgBackup.materials[0].macroscopic).toBeUndefined();
@@ -120,5 +120,57 @@ describe('computeMgRevert', () => {
 
     it('returns undefined when no backup exists', () => {
         expect(computeMgRevert(makeState())).toBeUndefined();
+    });
+});
+
+describe('computeNuclideWiseMgConversion', () => {
+    it('keeps materials nuclide-decomposed and sets the nuclide-wise flag', () => {
+        const state = makeState();
+        const updates = computeNuclideWiseMgConversion(state, [{ nuclideName: 'U235', xsDataName: 'U235' }], '/work/mgxs.h5');
+
+        const fuel = updates.materials.find((m) => m.name === 'fuel')!;
+        expect(fuel.macroscopic).toBeUndefined();
+        expect(fuel.densityUnit).toBe('g/cm3');
+        expect(fuel.density).toBe(10.0);
+
+        expect(updates.settings).toEqual({ energyMode: 'multigroup', mgxsLibrary: '/work/mgxs.h5', nuclideWiseMgxs: true });
+        expect(updates.coveredNuclides).toEqual(['U235']);
+        expect(updates.missingNuclides).toEqual([]);
+        expect(updates.mgBackup.energyMode).toBeUndefined();
+        expect(updates.mgBackup.materials).toHaveLength(3);
+    });
+
+    it('expands element symbols to natural isotopes for coverage', () => {
+        const state = makeState();
+        state.materials = [
+            {
+                id: 1,
+                name: 'steel',
+                density: 7.8,
+                densityUnit: 'g/cm3',
+                nuclides: [{ name: 'Fe', fraction: 1.0, fractionType: 'ao' }],
+                thermalScattering: []
+            }
+        ];
+        const updates = computeNuclideWiseMgConversion(
+            state,
+            [
+                { nuclideName: 'Fe54', xsDataName: 'Fe54' },
+                { nuclideName: 'Fe56', xsDataName: 'Fe56' },
+                { nuclideName: 'Fe57', xsDataName: 'Fe57' }
+            ],
+            '/work/mgxs.h5'
+        );
+
+        // Fe expands to Fe54/Fe56/Fe57/Fe58; the library lacks Fe58
+        expect(updates.coveredNuclides).toEqual(['Fe54', 'Fe56', 'Fe57']);
+        expect(updates.missingNuclides).toEqual(['Fe58']);
+    });
+
+    it('reports nuclides missing from the library', () => {
+        const state = makeState();
+        const updates = computeNuclideWiseMgConversion(state, [], '/work/mgxs.h5');
+        expect(updates.coveredNuclides).toEqual([]);
+        expect(updates.missingNuclides).toEqual(['U235']);
     });
 });

@@ -418,3 +418,107 @@ describe('validateState random ray (multi-group) restrictions', () => {
         expect(result.issues.some((i) => i.message.includes('unknown material IDs'))).toBe(false);
     });
 });
+
+describe('validateState nuclide-wise multi-group mode', () => {
+    it('accepts nuclide-decomposed materials when nuclideWiseMgxs is set', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+        state.settings.nuclideWiseMgxs = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('Multi-group mode requires macroscopic materials'))).toBe(false);
+    });
+
+    it('errors on macroscopic materials when nuclideWiseMgxs is set', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+        state.settings.nuclideWiseMgxs = true;
+        (state.materials[0] as any).macroscopic = { name: 'Water' };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) => i.severity === 'error' && i.message.includes('Nuclide-wise multi-group mode keeps materials nuclide-decomposed')
+            )
+        ).toBe(true);
+    });
+
+    it('still errors on nuclide-decomposed materials without the nuclide-wise flag', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('Multi-group mode requires macroscopic materials'))
+        ).toBe(true);
+    });
+});
+
+describe('validateState random ray + DAGMC', () => {
+    /** Enable random ray on a DAGMC geometry with the required basics. */
+    function enableDagmcRandomRay(state: OpenMCState): void {
+        state.settings.dagmcFile = '/data/tokamak.h5m';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.settings.mgxsLibrary = '/lib/mgxs.h5';
+    }
+
+    it('errors on macroscopic materials (OpenMC aborts at initialization)', async () => {
+        const state = buildState();
+        enableDagmcRandomRay(state);
+        state.settings.energyMode = 'multigroup';
+        state.settings.nuclideWiseMgxs = true;
+        (state.materials[0] as any).macroscopic = { name: 'Water' };
+        (state.materials[0] as any).nuclides = [];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('does not support macroscopic multi-group materials'))
+        ).toBe(true);
+    });
+
+    it('errors outside multi-group mode', async () => {
+        const state = buildState();
+        enableDagmcRandomRay(state);
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('Random ray requires multi-group energy mode'))).toBe(
+            true
+        );
+    });
+
+    it('errors on a material-wise library in multi-group mode', async () => {
+        const state = buildState();
+        enableDagmcRandomRay(state);
+        state.settings.energyMode = 'multigroup';
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('requires a nuclide-wise MGXS library'))).toBe(true);
+    });
+
+    it('accepts nuclide-wise multi-group with nuclide-decomposed materials', async () => {
+        const state = buildState();
+        enableDagmcRandomRay(state);
+        state.settings.energyMode = 'multigroup';
+        state.settings.nuclideWiseMgxs = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('DAGMC') && i.severity === 'error')).toBe(false);
+    });
+});

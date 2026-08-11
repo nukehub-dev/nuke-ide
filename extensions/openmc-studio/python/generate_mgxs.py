@@ -17,6 +17,12 @@ Options:
     --temperatures TEMPS      Comma-separated temperatures in K for MGXS generation
     --output PATH             Output MGXS library path (default mgxs.h5)
     --random-ray              Also convert the model to random ray and re-export settings.xml
+    --nuclide-wise            Generate a nuclide-wise library (one micro XSdata set
+                              per nuclide) instead of a material-wise one. Required
+                              for random ray on DAGMC geometries, which rejects
+                              macroscopic multi-group materials. Delegates to
+                              generate_mgxs_library.py (openmc.mgxs.Library API);
+                              --method does not apply.
 """
 
 import argparse
@@ -26,6 +32,7 @@ import sys
 import traceback
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def log_progress(message: str):
@@ -211,6 +218,64 @@ def _call_with_supported_kwargs(fn, **kwargs):
     return fn(**accepted)
 
 
+def _run_nuclide_wise(args, working_dir: Path):
+    """Generate a nuclide-wise MGXS library via generate_mgxs_library.
+
+    Nuclide-decomposed multi-group materials (the only material form random
+    ray accepts on DAGMC geometries) need a library with one micro XSdata set
+    per nuclide — convert_to_multigroup cannot produce that, so this path
+    delegates to the openmc.mgxs.Library machinery (single code path for
+    nuclide-wise libraries).
+
+    Args:
+        args: Parsed command-line arguments.
+        working_dir: Absolute working directory containing the model XML files.
+
+    Returns:
+        Result dictionary in the same shape as run_generate_mgxs.
+    """
+    import generate_mgxs_library
+
+    lib_args = SimpleNamespace(
+        working_directory=str(working_dir),
+        groups=args.groups,
+        mgxs_types=None,
+        domain_type="material",
+        domain_ids=None,
+        by_nuclide=True,
+        nuclide_wise=True,
+        legendre_order=0,
+        estimator=None,
+        correction=args.correction,
+        particles=args.particles,
+        output=args.output,
+    )
+    result = generate_mgxs_library.run_generate_mgxs_library(lib_args)
+
+    random_ray_applied = False
+    if args.random_ray:
+        import openmc
+
+        log_progress("Converting model to random ray...")
+        materials, geometry, settings = load_model(working_dir)
+        model = openmc.Model(geometry=geometry, materials=materials, settings=settings)
+        model.convert_to_random_ray()
+        model.settings.export_to_xml()
+        random_ray_applied = True
+        log_progress("Random ray settings exported to settings.xml")
+
+    return {
+        "success": True,
+        "mgxsPath": result["mgxsPath"],
+        "method": "nuclide_wise",
+        "groups": args.groups,
+        "nuclideWise": True,
+        "libraryType": "nuclide",
+        "nuclides": result.get("nuclides"),
+        "randomRayApplied": random_ray_applied,
+    }
+
+
 def run_generate_mgxs(args):
     """Generate the MGXS library (and optionally convert to random ray).
 
@@ -220,10 +285,14 @@ def run_generate_mgxs(args):
     Returns:
         Dictionary with the output library path and conversion details.
     """
-    import openmc
-
     working_dir = Path(args.working_directory).absolute()
     os.chdir(working_dir)
+
+    if getattr(args, "nuclide_wise", False):
+        log_progress("Generating a nuclide-wise MGXS library (openmc.mgxs.Library path)")
+        return _run_nuclide_wise(args, working_dir)
+
+    import openmc
 
     log_progress(f"Loading OpenMC model from {working_dir}")
     materials, geometry, settings = load_model(working_dir)
@@ -267,6 +336,8 @@ def run_generate_mgxs(args):
         "mgxsPath": str(working_dir / args.output),
         "method": args.method,
         "groups": args.groups,
+        "nuclideWise": False,
+        "libraryType": "material",
         "randomRayApplied": random_ray_applied,
     }
 
@@ -292,6 +363,12 @@ def main():
     parser.add_argument("--output", default="mgxs.h5", help="Output MGXS library path")
     parser.add_argument(
         "--random-ray", action="store_true", help="Also convert the model to random ray"
+    )
+    parser.add_argument(
+        "--nuclide-wise",
+        action="store_true",
+        help="Generate a nuclide-wise library (one micro XSdata set per nuclide; "
+        "required for random ray on DAGMC geometries)",
     )
 
     args = parser.parse_args()

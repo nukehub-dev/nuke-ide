@@ -2200,10 +2200,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
-        // Multi-group mode requires macroscopic materials; nuclide-decomposed
-        // materials with an MGXS library reference produce "Could not find nuclide"
+        // Multi-group mode requires macroscopic materials — unless the project
+        // uses a nuclide-wise MGXS library (settings.nuclideWiseMgxs), where
+        // materials stay nuclide-decomposed and each nuclide resolves against
+        // a same-named micro XSdata set. Nuclide-decomposed materials with a
+        // material-wise library reference produce "Could not find nuclide"
         // errors because the library contains cross-section sets, not isotopes.
-        if (settings.energyMode === 'multigroup') {
+        if (settings.energyMode === 'multigroup' && settings.nuclideWiseMgxs !== true) {
             const nonMacroscopic = materials.filter((m) => !m.macroscopic && m.nuclides && m.nuclides.length > 0);
             if (nonMacroscopic.length > 0) {
                 issues.push({
@@ -2214,6 +2217,21 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         .join(', ')} ${nonMacroscopic.length === 1 ? 'still contains nuclides' : 'still contain nuclides'}`,
                     suggestion:
                         'Convert the project to multi-group in the Random Ray tab (Convert to Multi-group button), or switch the model back to continuous-energy in the Simulation tab'
+                });
+            }
+        }
+        // A nuclide-wise library only helps nuclide-decomposed materials; a
+        // macroscopic material would still resolve against a nuclide library.
+        if (settings.energyMode === 'multigroup' && settings.nuclideWiseMgxs === true) {
+            const macroscopic = materials.filter((m) => m.macroscopic);
+            if (macroscopic.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'materials',
+                    message: `Nuclide-wise multi-group mode keeps materials nuclide-decomposed, but ${macroscopic
+                        .map((m) => m.name || `material ${m.id}`)
+                        .join(', ')} ${macroscopic.length === 1 ? 'is' : 'are'} macroscopic`,
+                    suggestion: 'Revert to continuous-energy in the Random Ray tab and convert again with the nuclide-wise option'
                 });
             }
         }
@@ -2286,14 +2304,35 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        // Random ray is not supported for DAGMC geometries in this OpenMC version.
-        if (settings.randomRay && settings.dagmcFile && materials.some((m) => m.macroscopic)) {
-            issues.push({
-                severity: 'warning',
-                category: 'settings',
-                message: 'Random ray is not supported for DAGMC geometries with macroscopic multi-group materials',
-                suggestion: 'Disable random ray to run standard multi-group Monte Carlo on this DAGMC model'
-            });
+        // Random ray on DAGMC geometries: OpenMC rejects macroscopic multi-group
+        // materials there, so the only working configuration is multi-group mode
+        // with a nuclide-wise MGXS library and nuclide-decomposed materials.
+        if (settings.randomRay && settings.dagmcFile) {
+            if (materials.some((m) => m.macroscopic)) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message:
+                        'Random ray on DAGMC geometries does not support macroscopic multi-group materials (OpenMC aborts at initialization)',
+                    suggestion:
+                        'Regenerate the MGXS library with the nuclide-wise option in the Random Ray tab (materials stay nuclide-decomposed)'
+                });
+            }
+            if (settings.energyMode !== 'multigroup') {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'Random ray requires multi-group energy mode',
+                    suggestion: 'Convert the project to multi-group in the Random Ray tab'
+                });
+            } else if (settings.nuclideWiseMgxs !== true) {
+                issues.push({
+                    severity: 'error',
+                    category: 'settings',
+                    message: 'Random ray on DAGMC geometries requires a nuclide-wise MGXS library (materials stay nuclide-decomposed)',
+                    suggestion: 'Enable the nuclide-wise option when converting to multi-group in the Random Ray tab'
+                });
+            }
         }
 
         // Random ray requires inactive batches in both run modes (random_ray.rst:108)

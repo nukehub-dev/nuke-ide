@@ -34,7 +34,12 @@ import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { Tooltip, SearchableMultiSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCRandomRaySettings, OpenMCRegularMesh } from '../../../../common/openmc-state-schema';
 import { OpenMCCompat, MgConversionResult } from '../../../../common/openmc-studio-protocol';
-import { MGXS_GROUP_STRUCTURES, computeMgConversion, computeMgRevert } from '../../../../common/mg-conversion';
+import {
+    MGXS_GROUP_STRUCTURES,
+    computeMgConversion,
+    computeMgRevert,
+    computeNuclideWiseMgConversion
+} from '../../../../common/mg-conversion';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
@@ -63,6 +68,18 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     private mgConvertResult?: MgConversionResult;
     private mgAppliedSummary = '';
     private mgApplyBusy = false;
+    /** Nuclide-wise conversion toggle (undefined = not chosen yet; defaults on for DAGMC) */
+    private mgConvertNuclideWise?: boolean;
+
+    /**
+     * Effective nuclide-wise toggle value: the user's choice, defaulting to on
+     * when a DAGMC geometry is loaded (random ray + DAGMC requires it).
+     * @param state - Current OpenMC simulation state.
+     * @returns Whether to generate a nuclide-wise MGXS library.
+     */
+    private isNuclideWiseConversion(state: OpenMCState): boolean {
+        return this.mgConvertNuclideWise ?? !!state.settings.dagmcFile;
+    }
 
     // Fixed-source domain-constraint helper state
     private sourceConstraintDomainType: 'material' | 'cell' | 'universe' = 'material';
@@ -80,6 +97,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         const isMultiGroup = state.settings.energyMode === 'multigroup';
         const macroscopicNames = state.materials.filter((m) => m.macroscopic).map((m) => m.name);
         const result = this.mgConvertResult;
+        const nuclideWise = this.isNuclideWiseConversion(state);
 
         // Seed the working directory from the persisted preference once
         if (!this.mgConvertDirInitialized) {
@@ -109,6 +127,10 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         }
 
         if (isMultiGroup) {
+            // Nuclide-wise multi-group mode keeps materials nuclide-decomposed — nothing to convert
+            if (state.settings.nuclideWiseMgxs === true) {
+                return undefined;
+            }
             const nonMacroscopicMaterials = state.materials.filter((m) => !m.macroscopic && m.nuclides && m.nuclides.length > 0);
             if (nonMacroscopicMaterials.length === 0) {
                 return undefined;
@@ -165,19 +187,43 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                         </span>
                         <div className="form-row">
                             <div className="form-group">
-                                <label>Method</label>
-                                <select
-                                    value={this.mgConvertMethod}
-                                    onChange={(e) => {
-                                        this.mgConvertMethod = e.target.value as typeof this.mgConvertMethod;
-                                        host.update();
-                                    }}
-                                >
-                                    <option value="material_wise">Material Wise (highest fidelity)</option>
-                                    <option value="stochastic_slab">Stochastic Slab</option>
-                                    <option value="infinite_medium">Infinite Medium</option>
-                                </select>
+                                <label className="checkbox-label">
+                                    <input
+                                        type="checkbox"
+                                        checked={nuclideWise}
+                                        onChange={(e) => {
+                                            this.mgConvertNuclideWise = e.target.checked;
+                                            host.update();
+                                        }}
+                                    />
+                                    Nuclide-wise MGXS (required for DAGMC random ray)
+                                </label>
+                                <span className="form-hint">
+                                    {nuclideWise
+                                        ? 'Materials stay nuclide-decomposed; the library holds one micro XS data set per nuclide. Slower to generate and larger than material-wise.'
+                                        : state.settings.dagmcFile
+                                          ? 'A DAGMC geometry is loaded: random ray on DAGMC rejects macroscopic materials — enable nuclide-wise for random ray runs.'
+                                          : 'Materials are replaced by macroscopic XS data sets (faster, smaller library).'}
+                                </span>
                             </div>
+                        </div>
+                        <div className="form-row">
+                            {!nuclideWise && (
+                                <div className="form-group">
+                                    <label>Method</label>
+                                    <select
+                                        value={this.mgConvertMethod}
+                                        onChange={(e) => {
+                                            this.mgConvertMethod = e.target.value as typeof this.mgConvertMethod;
+                                            host.update();
+                                        }}
+                                    >
+                                        <option value="material_wise">Material Wise (highest fidelity)</option>
+                                        <option value="stochastic_slab">Stochastic Slab</option>
+                                        <option value="infinite_medium">Infinite Medium</option>
+                                    </select>
+                                </div>
+                            )}
                             <div className="form-group">
                                 <label>Group Structure</label>
                                 <select
@@ -237,15 +283,29 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             </button>
                             {result?.success && (
                                 <button className="theia-button primary" onClick={() => this.applyMgConversion(host)}>
-                                    <i className="codicon codicon-check"></i> Apply Conversion ({result.xsDataNames?.length ?? 0} materials)
+                                    <i className="codicon codicon-check"></i> Apply Conversion (
+                                    {result.libraryType === 'nuclide'
+                                        ? `${result.xsNuclideNames?.length ?? 0} nuclides`
+                                        : `${result.xsDataNames?.length ?? 0} materials`}
+                                    )
                                 </button>
                             )}
                         </div>
                         {result &&
                             (result.success ? (
                                 <span className="form-hint">
-                                    Library written to {result.mgxsPath} — {result.xsDataNames?.length ?? 0} material(s) have an XS data
-                                    set. Apply to switch them to macroscopic and enter multi-group mode.
+                                    {result.libraryType === 'nuclide' ? (
+                                        <>
+                                            Nuclide-wise library written to {result.mgxsPath} — {result.xsNuclideNames?.length ?? 0}{' '}
+                                            nuclide(s) have an XS data set. Apply to enter nuclide-wise multi-group mode (materials stay
+                                            nuclide-decomposed).
+                                        </>
+                                    ) : (
+                                        <>
+                                            Library written to {result.mgxsPath} — {result.xsDataNames?.length ?? 0} material(s) have an XS
+                                            data set. Apply to switch them to macroscopic and enter multi-group mode.
+                                        </>
+                                    )}
                                 </span>
                             ) : (
                                 <div className="openmc-warning-box">
@@ -314,7 +374,8 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                 method: this.mgConvertMethod,
                 groups: this.mgConvertGroups,
                 particles: this.mgConvertParticles,
-                output: 'mgxs.h5'
+                output: 'mgxs.h5',
+                nuclideWise: this.isNuclideWiseConversion(state)
             });
         } catch (error) {
             this.mgConvertResult = { success: false, error: String(error) };
@@ -325,8 +386,9 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     }
 
     /**
-     * Apply a successful conversion: macroscopic materials for every mapped
-     * material, multi-group mode + library path, and the CE backup stash.
+     * Apply a successful conversion. Material-wise: macroscopic materials for
+     * every mapped material, multi-group mode + library path. Nuclide-wise:
+     * materials stay nuclide-decomposed; only settings + the backup change.
      * @param host - Simulation dashboard widget host.
      */
     private applyMgConversion(host: SimulationDashboardWidget): void {
@@ -335,13 +397,23 @@ export class RandomRayTabContribution implements DashboardTabContribution {
             return;
         }
         const state = host.stateManager.getState();
-        const updates = computeMgConversion(state, result.xsDataNames ?? [], result.mgxsPath);
-        for (const material of updates.materials) {
-            host.stateManager.updateMaterial(material.id, material);
+        if (result.libraryType === 'nuclide') {
+            const updates = computeNuclideWiseMgConversion(state, result.xsNuclideNames ?? [], result.mgxsPath);
+            host.stateManager.updateSettings(updates.settings);
+            host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
+            this.mgAppliedSummary =
+                `Nuclide-wise multi-group mode: ${updates.coveredNuclides.length} nuclide(s) covered by the library` +
+                (updates.missingNuclides.length > 0 ? ` — MISSING: ${updates.missingNuclides.join(', ')}` : '') +
+                `. Library: ${result.mgxsPath}`;
+        } else {
+            const updates = computeMgConversion(state, result.xsDataNames ?? [], result.mgxsPath);
+            for (const material of updates.materials) {
+                host.stateManager.updateMaterial(material.id, material);
+            }
+            host.stateManager.updateSettings(updates.settings);
+            host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
+            this.mgAppliedSummary = `Converted ${updates.convertedNames.length} material(s) to macroscopic (${updates.convertedNames.join(', ')}). Library: ${result.mgxsPath}`;
         }
-        host.stateManager.updateSettings(updates.settings);
-        host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
-        this.mgAppliedSummary = `Converted ${updates.convertedNames.length} material(s) to macroscopic (${updates.convertedNames.join(', ')}). Library: ${result.mgxsPath}`;
         this.mgConvertResult = undefined;
         host.update();
     }
@@ -373,6 +445,18 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                 this.mgAppliedSummary = result.error || 'Failed to read MGXS library';
                 return;
             }
+            if (result.type === 'nuclide') {
+                // The data set names are nuclide names (returned in materialName)
+                const nuclideMapping = (result.xsDataNames ?? []).map((m) => ({ nuclideName: m.xsDataName, xsDataName: m.xsDataName }));
+                const updates = computeNuclideWiseMgConversion(state, nuclideMapping, mgxsPath);
+                host.stateManager.updateSettings(updates.settings);
+                host.stateManager.updateMetadata({ mgBackup: updates.mgBackup });
+                this.mgAppliedSummary =
+                    `Nuclide-wise library applied: ${updates.coveredNuclides.length} nuclide(s) covered` +
+                    (updates.missingNuclides.length > 0 ? ` — MISSING: ${updates.missingNuclides.join(', ')}` : '') +
+                    `. Library: ${mgxsPath}`;
+                return;
+            }
             const updates = computeMgConversion(state, result.xsDataNames ?? [], mgxsPath);
             for (const material of updates.materials) {
                 host.stateManager.updateMaterial(material.id, material);
@@ -391,7 +475,8 @@ export class RandomRayTabContribution implements DashboardTabContribution {
 
     /**
      * Revert to continuous-energy: restore the backed-up materials and energy
-     * mode, keep the MGXS library path, clear the backup.
+     * mode, keep the MGXS library path, clear the backup and the nuclide-wise
+     * multi-group flag.
      * @param host - Simulation dashboard widget host.
      */
     private revertMgConversion(host: SimulationDashboardWidget): void {
@@ -403,7 +488,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
         for (const material of updates.materials) {
             host.stateManager.updateMaterial(material.id, material);
         }
-        host.stateManager.updateSettings({ energyMode: updates.energyMode });
+        host.stateManager.updateSettings({ energyMode: updates.energyMode, nuclideWiseMgxs: false });
         host.stateManager.updateMetadata({ mgBackup: undefined });
         this.mgAppliedSummary = '';
         host.update();

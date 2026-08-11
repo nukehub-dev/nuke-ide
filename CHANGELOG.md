@@ -21,6 +21,14 @@ Phase 9: hardening + workflow unification.
   generates MGXS from the current CE model, converts matched materials to
   macroscopic with the correct XS data names, and stashes the original materials
   in project metadata for a lossless **Revert to Continuous-Energy**.
+- openmc-studio: **nuclide-wise multi-group mode** for random ray on DAGMC
+  geometries — a `settings.nuclideWiseMgxs` flag plus nuclide-wise MGXS
+  generation (`generate_mgxs.py` / `generate_mgxs_library.py --nuclide-wise`,
+  also wired into `convertToMultigroupProject` and the MGXS Generator window)
+  that writes one micro XS data set per nuclide instead of macroscopic
+  materials, which OpenMC random ray rejects on DAGMC. Materials stay
+  nuclide-decomposed, validation and run readiness enforce the mode for DAGMC
+  random ray, and library type detection routes existing libraries correctly.
 - openmc-studio: version-compatibility architecture for upstream OpenMC drift —
   a per-env runtime probe (ray_source XML format, adjoint source, TokamakSource,
   s2 sampling) that adapts XML emission and gates dev-only UI options; MG library

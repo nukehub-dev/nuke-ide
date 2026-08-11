@@ -231,6 +231,17 @@ export function computeSetupChecklist(state: OpenMCState): ChecklistItem[] {
         items.push(computeMgxsItem(state));
     }
 
+    // DAGMC random ray only works with a nuclide-wise MGXS library
+    if (state.settings.randomRay && state.settings.dagmcFile) {
+        const done = state.settings.nuclideWiseMgxs === true;
+        items.push({
+            id: 'nuclide-wise-mgxs',
+            label: 'Nuclide-wise MGXS',
+            status: done ? 'done' : 'missing',
+            detail: done ? 'Enabled' : 'Required for DAGMC random ray'
+        });
+    }
+
     return items;
 }
 
@@ -254,6 +265,11 @@ export function computeReadiness(state: OpenMCState): ReadinessResult {
     }
     if (state.settings.energyMode === 'multigroup' && computeMgxsItem(state).status === 'missing') {
         missing.push('MGXS Library');
+    }
+    // DAGMC random ray requires the nuclide-wise MGXS mode (OpenMC rejects
+    // macroscopic multi-group materials on DAGMC geometries)
+    if (state.settings.randomRay && state.settings.dagmcFile && state.settings.nuclideWiseMgxs !== true) {
+        missing.push('Nuclide-wise MGXS (DAGMC random ray)');
     }
 
     return { ready: missing.length === 0, missing };
