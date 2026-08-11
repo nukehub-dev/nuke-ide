@@ -347,6 +347,11 @@ export interface XMLGenerationRequest {
     state: OpenMCState;
     /** Output directory path */
     outputDirectory: string;
+    /**
+     * Project directory path. Relative `dagmcFile` and `mgxsLibrary` values
+     * resolve against this directory before falling back to the output directory.
+     */
+    projectDirectory?: string;
     /** Which files to generate */
     files: {
         geometry?: boolean;

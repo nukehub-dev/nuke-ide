@@ -34,6 +34,7 @@
  * @module openmc-studio/browser
  */
 
+import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
@@ -302,25 +303,28 @@ export class OpenMCSimulationRunner {
     /**
      * Resolve the MGXS library FILE path: a `.h5` value or an existing
      * extension-less file is used as-is; a directory (or an unresolvable
-     * path) resolves to the `mgxs.h5` inside it. The env var outranks
-     * materials.xml, so this must not guess wrong for real files.
+     * path) resolves to the `mgxs.h5` inside it. Relative paths are resolved
+     * against the project directory first. The env var outranks materials.xml,
+     * so this must not guess wrong for real files.
      *
      * @param raw - Configured library path.
      * @returns Path to the `mgxs.h5` file.
      */
     private async resolveMgxsLibraryFile(raw: string): Promise<string> {
-        if (raw.toLowerCase().endsWith('.h5')) {
-            return raw;
+        const resolvedRaw =
+            this.stateManager.projectPath && !path.isAbsolute(raw) ? path.resolve(path.dirname(this.stateManager.projectPath), raw) : raw;
+        if (resolvedRaw.toLowerCase().endsWith('.h5')) {
+            return resolvedRaw;
         }
         try {
-            const stat = await this.fileService.resolve(new URI(raw));
+            const stat = await this.fileService.resolve(new URI(resolvedRaw));
             if (!stat.isDirectory) {
-                return raw;
+                return resolvedRaw;
             }
         } catch {
             // Not resolvable — assume directory intent
         }
-        return `${raw.replace(/[\\/]+$/, '')}/mgxs.h5`;
+        return `${resolvedRaw.replace(/[\\/]+$/, '')}/mgxs.h5`;
     }
 
     /**

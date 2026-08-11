@@ -2269,9 +2269,11 @@ export class CSGBuilderWidget extends ReactWidget {
         const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
         const autoAdjust = this.preferences.get('openmcStudio.autoAdjustFacetingTolerance', true);
 
-        // For CAD → DAGMC conversion, place the generated .h5m next to the source
-        // file with the same base name instead of a temp name.
-        const dagmcOutput = path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)) + '.h5m');
+        // For CAD → DAGMC conversion, place the generated .h5m inside the project
+        // directory when a project is saved; otherwise fall back to next to the
+        // source file.
+        const outputBaseDir = this.stateManager.projectPath ? path.dirname(this.stateManager.projectPath) : path.dirname(filePath);
+        const dagmcOutput = path.join(outputBaseDir, path.basename(filePath, path.extname(filePath)) + '.h5m');
 
         this.isImportingCAD = true;
         this.update();
@@ -2327,30 +2329,52 @@ export class CSGBuilderWidget extends ReactWidget {
 
         // Handle DAGMC files differently - they are used directly
         if (result.fileInfo?.dagmc && result.fileInfo) {
-            // Use dagmcInfo from result if available, otherwise build from fileInfo
-            const dagmcInfo: DAGMCInfo = result.dagmcInfo || {
-                filePath: filePath || '',
-                fileName: result.fileInfo.fileName || filePath?.split('/').pop() || 'unknown.h5m',
-                volumeCount: result.fileInfo.solidCount || 0,
-                surfaceCount: result.fileInfo.faceCount || 0,
-                vertices: result.fileInfo.vertexCount || 0,
-                materials: result.fileInfo.materialsData || {},
-                volumes: (result.fileInfo.volumesData || []).map((v: any) => ({
-                    id: v.id,
-                    material: v.material,
-                    numTriangles: v.numTriangles,
-                    boundingBox: {
-                        min: (v.boundingBox?.min || [0, 0, 0]) as [number, number, number],
-                        max: (v.boundingBox?.max || [0, 0, 0]) as [number, number, number]
+            // Always use dagmcInfo from the backend. If the importer did not
+            // populate it, load the DAGMC file explicitly to retrieve it.
+            let dagmcInfo: DAGMCInfo | undefined = result.dagmcInfo;
+            if (!dagmcInfo && result.dagmcFile) {
+                const loadResult = await this.backendService.dagmcLoad(result.dagmcFile);
+                if (loadResult.success && loadResult.data) {
+                    const data = loadResult.data;
+                    const materials: Record<string, { volumeCount: number; totalTriangles: number }> = {};
+                    for (const [name, info] of Object.entries(data.materials)) {
+                        materials[name] = {
+                            volumeCount: info.volumeCount,
+                            totalTriangles: info.volumes.reduce(
+                                (sum, v) => sum + (data.volumes.find((vol) => vol.id === v)?.numTriangles ?? 0),
+                                0
+                            )
+                        };
                     }
-                })),
-                boundingBox: {
-                    min: (result.fileInfo.boundingBox?.min || [0, 0, 0]) as [number, number, number],
-                    max: (result.fileInfo.boundingBox?.max || [0, 0, 0]) as [number, number, number]
-                },
-                fileSizeMB: result.fileInfo.fileSizeMB,
-                totalSurfaceArea: result.fileInfo.totalSurfaceArea
-            };
+                    dagmcInfo = {
+                        filePath: data.filePath,
+                        fileName: data.fileName,
+                        volumeCount: data.volumeCount,
+                        surfaceCount: data.surfaceCount,
+                        vertices: data.vertices,
+                        materials,
+                        volumes: data.volumes.map((v) => ({
+                            id: v.id,
+                            material: v.material || 'void',
+                            numTriangles: v.numTriangles,
+                            boundingBox: {
+                                min: v.boundingBox.min as [number, number, number],
+                                max: v.boundingBox.max as [number, number, number]
+                            }
+                        })),
+                        boundingBox: {
+                            min: data.boundingBox.min as [number, number, number],
+                            max: data.boundingBox.max as [number, number, number]
+                        },
+                        fileSizeMB: data.fileSizeMB
+                    };
+                }
+            }
+
+            if (!dagmcInfo) {
+                this.messageService.warn('CAD import succeeded but DAGMC metadata is unavailable.');
+                return;
+            }
 
             const matCount = Object.keys(dagmcInfo.materials).length;
             this.messageService.info(

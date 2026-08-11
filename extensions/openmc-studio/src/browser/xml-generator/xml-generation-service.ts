@@ -33,6 +33,7 @@
  * @module openmc-studio/browser
  */
 
+import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
@@ -45,6 +46,7 @@ import {
     XMLImportResult,
     OpenMCStudioBackendService
 } from '../../common/openmc-studio-protocol';
+import { OpenMCStateManager } from '../openmc-state-manager';
 
 export interface XMLGenerationOptions {
     geometry?: boolean;
@@ -65,6 +67,9 @@ export class OpenMCXMLGenerationService {
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
+
+    @inject(OpenMCStateManager)
+    protected readonly stateManager: OpenMCStateManager;
 
     /**
      * Generate XML files from the current state using a request object.
@@ -113,6 +118,15 @@ export class OpenMCXMLGenerationService {
                 if (crossSectionsPath) {
                     request = { ...request, crossSectionsPath };
                 }
+            }
+
+            // Pass the project directory so relative dagmcFile/mgxsLibrary paths
+            // resolve against the project location, not just the output folder.
+            if (!request.projectDirectory && this.stateManager.projectPath) {
+                request = {
+                    ...request,
+                    projectDirectory: path.dirname(this.stateManager.projectPath)
+                };
             }
 
             const result = await this.backendService.generateXML(request);

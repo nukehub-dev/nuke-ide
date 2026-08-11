@@ -387,6 +387,11 @@
     border-radius: 8px;
 }
 
+:is(.simulation-dashboard, .openmc-widget) .openmc-warning-box.compact {
+    display: inline-flex;
+    max-width: fit-content;
+}
+
 :is(.simulation-dashboard, .openmc-widget) .openmc-warning-box > i {
     font-size: 32px;
     color: var(--theia-inputValidation-warningBorder);

@@ -2286,6 +2286,16 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // Random ray is not supported for DAGMC geometries in this OpenMC version.
+        if (settings.randomRay && settings.dagmcFile && materials.some((m) => m.macroscopic)) {
+            issues.push({
+                severity: 'warning',
+                category: 'settings',
+                message: 'Random ray is not supported for DAGMC geometries with macroscopic multi-group materials',
+                suggestion: 'Disable random ray to run standard multi-group Monte Carlo on this DAGMC model'
+            });
+        }
+
         // Random ray requires inactive batches in both run modes (random_ray.rst:108)
         if (settings.randomRay) {
             const inactiveBatches =

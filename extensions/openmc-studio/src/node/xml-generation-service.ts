@@ -105,6 +105,9 @@ export class XMLGenerationService {
             const fs = await import('fs');
             const path = await import('path');
 
+            // Project directory for resolving relative dagmcFile/mgxsLibrary paths.
+            const projectDirectory = request.projectDirectory || request.outputDirectory;
+
             // Create output directory if it doesn't exist
             if (!fs.existsSync(request.outputDirectory)) {
                 fs.mkdirSync(request.outputDirectory, { recursive: true });
@@ -131,7 +134,7 @@ export class XMLGenerationService {
             // Generate materials.xml
             if (request.files.materials) {
                 const materialsPath = path.join(request.outputDirectory, 'materials.xml');
-                const materialsXml = this.generateMaterialsXML(request.state, request.outputDirectory, availableNuclides);
+                const materialsXml = this.generateMaterialsXML(request.state, request.outputDirectory, projectDirectory, availableNuclides);
                 fs.writeFileSync(materialsPath, materialsXml);
                 generatedFiles.push(materialsPath);
                 this.log(`Generated materials.xml`);
@@ -141,7 +144,7 @@ export class XMLGenerationService {
             let dagmcFilename = 'geometry.h5m';
             let dagmcSource: string | undefined;
             if (request.state.settings.dagmcFile) {
-                dagmcSource = this.resolveDagmcSourcePath(request.state, request.outputDirectory);
+                dagmcSource = this.resolveDagmcSourcePath(request.state, request.outputDirectory, projectDirectory);
                 if (dagmcSource && request.state.settings.copyDagmcToRunDirectory !== true) {
                     const relativeDagmc = path.relative(request.outputDirectory, dagmcSource).replace(/\\/g, '/');
                     if (relativeDagmc && !path.isAbsolute(relativeDagmc)) {
@@ -175,7 +178,7 @@ export class XMLGenerationService {
             // Generate settings.xml
             if (request.files.settings) {
                 const settingsPath = path.join(request.outputDirectory, 'settings.xml');
-                const settingsXml = this.generateSettingsXML(request.state, request.randomRayCompat, warnings);
+                const settingsXml = this.generateSettingsXML(request.state, request.randomRayCompat, warnings, projectDirectory);
                 fs.writeFileSync(settingsPath, settingsXml);
                 generatedFiles.push(settingsPath);
                 this.log(`Generated settings.xml`);
@@ -249,26 +252,35 @@ export class XMLGenerationService {
      * value is used as-is; an existing extension-less FILE is used as-is;
      * anything else is treated as a directory and resolved to the `mgxs.h5`
      * inside it. Canonical `settings.mgxsLibrary` wins over the legacy
-     * `randomRay.mgxsLibraryPath` (see `resolveMgxsLibrary`).
+     * `randomRay.mgxsLibraryPath` (see `resolveMgxsLibrary`). Relative paths
+     * are resolved against the project directory first, then the output directory.
      * @param settings - Simulation settings.
+     * @param projectDirectory - Project directory for relative path resolution.
      * @returns Path to the `mgxs.h5` file, or undefined when unconfigured.
      */
-    private resolveMgxsLibraryFile(settings: OpenMCState['settings']): string | undefined {
+    private resolveMgxsLibraryFile(settings: OpenMCState['settings'], projectDirectory?: string): string | undefined {
         const raw = resolveMgxsLibrary(settings);
         if (!raw) {
             return undefined;
         }
-        if (raw.toLowerCase().endsWith('.h5')) {
-            return raw;
+        const candidates: string[] = [raw];
+        if (projectDirectory && !path.isAbsolute(raw)) {
+            candidates.unshift(path.resolve(projectDirectory, raw));
         }
-        try {
-            if (fs.existsSync(raw) && !fs.statSync(raw).isDirectory()) {
-                return raw;
+        for (const candidate of candidates) {
+            if (candidate.toLowerCase().endsWith('.h5')) {
+                return candidate;
             }
-        } catch {
-            // Stat failed — fall through to the directory assumption
+            try {
+                if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+                    return candidate;
+                }
+            } catch {
+                // Stat failed — fall through
+            }
         }
-        return `${raw.replace(/[\\/]+$/, '')}/mgxs.h5`;
+        const resolvedRaw = candidates[0];
+        return `${resolvedRaw.replace(/[\\/]+$/, '')}/mgxs.h5`;
     }
 
     /**
@@ -301,16 +313,22 @@ export class XMLGenerationService {
         return undefined;
     }
 
-    private generateMaterialsXML(state: OpenMCState, outputDirectory?: string, availableNuclides?: Set<string>): string {
+    private generateMaterialsXML(
+        state: OpenMCState,
+        outputDirectory?: string,
+        projectDirectory?: string,
+        availableNuclides?: Set<string>
+    ): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<materials>', ''];
 
         // Multi-group cross sections library reference (openmc.Materials.cross_sections
         // — the settings.xml element is deprecated in favor of this one). First
         // child of <materials> per the verified export format.
         if (state.settings.energyMode === 'multigroup') {
-            const mgxs = this.resolveMgxsLibraryFile(state.settings);
+            const mgxs = this.resolveMgxsLibraryFile(state.settings, projectDirectory);
             if (mgxs) {
-                const resolved = path.isAbsolute(mgxs) || !outputDirectory ? mgxs : path.resolve(outputDirectory, mgxs);
+                const baseDirectory = projectDirectory || outputDirectory;
+                const resolved = path.isAbsolute(mgxs) || !baseDirectory ? mgxs : path.resolve(baseDirectory, mgxs);
                 lines.push(`  <cross_sections>${this.escapeXml(resolved)}</cross_sections>`);
                 lines.push('');
             }
@@ -454,12 +472,13 @@ export class XMLGenerationService {
     /**
      * Locate the source DAGMC .h5m file. Tries, in order:
      * 1. The absolute path stored in dagmcInfo.filePath
-     * 2. dagmcFile as an absolute path
-     * 3. dagmcFile relative to the output directory's parent (typical when the
-     *    output folder is a sub-directory of the project)
-     * 4. dagmcFile relative to the output directory
+     * 2. dagmcInfo.filePath relative to the project directory, then output directory
+     * 3. dagmcFile as an absolute path
+     * 4. dagmcFile relative to the project directory
+     * 5. dagmcFile relative to the output directory's parent (legacy fallback)
+     * 6. dagmcFile relative to the output directory
      */
-    private resolveDagmcSourcePath(state: OpenMCState, outputDirectory: string): string | undefined {
+    private resolveDagmcSourcePath(state: OpenMCState, outputDirectory: string, projectDirectory?: string): string | undefined {
         const fs = require('fs');
         const path = require('path');
         const dagmcFile = state.settings.dagmcFile;
@@ -467,6 +486,7 @@ export class XMLGenerationService {
             return undefined;
         }
 
+        const baseDirectory = projectDirectory || outputDirectory;
         const candidates: string[] = [];
         if (state.settings.dagmcInfo?.filePath) {
             const infoPath = state.settings.dagmcInfo.filePath;
@@ -474,11 +494,15 @@ export class XMLGenerationService {
                 candidates.push(infoPath);
             } else {
                 // Project-relative path: try project dir first, then output dir.
+                candidates.push(path.resolve(baseDirectory, infoPath));
                 candidates.push(path.resolve(outputDirectory, '..', infoPath));
                 candidates.push(path.resolve(outputDirectory, infoPath));
             }
         }
         candidates.push(dagmcFile);
+        if (!path.isAbsolute(dagmcFile)) {
+            candidates.push(path.resolve(baseDirectory, dagmcFile));
+        }
         candidates.push(path.resolve(outputDirectory, '..', dagmcFile));
         candidates.push(path.resolve(outputDirectory, dagmcFile));
 
@@ -652,10 +676,16 @@ export class XMLGenerationService {
      * @param randomRayCompat - Random ray XML format compatibility (probed per
      *   python env by the caller); defaults to the release-compatible form
      * @param warnings - Optional array to collect generation warnings
+     * @param projectDirectory - Project directory for relative MGXS library resolution
      * @returns settings.xml content
      */
 
-    private generateSettingsXML(state: OpenMCState, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
+    private generateSettingsXML(
+        state: OpenMCState,
+        compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT,
+        warnings?: string[],
+        projectDirectory?: string
+    ): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<settings>', ''];
 
         // Mesh IDs already emitted as elements into settings.xml (dedup guard
@@ -690,7 +720,7 @@ export class XMLGenerationService {
 
         // MGXS library path for multi-group runs (deprecated-but-read settings.xml element, src/settings.cpp:450)
         // Resolves canonical settings.mgxsLibrary, falling back to the legacy randomRay.mgxsLibraryPath.
-        const mgxsLibrary = settings.energyMode === 'multigroup' ? this.resolveMgxsLibraryFile(settings) : undefined;
+        const mgxsLibrary = settings.energyMode === 'multigroup' ? this.resolveMgxsLibraryFile(settings, projectDirectory) : undefined;
         if (mgxsLibrary) {
             lines.push(`  <cross_sections>${this.escapeXml(mgxsLibrary)}</cross_sections>`);
         }

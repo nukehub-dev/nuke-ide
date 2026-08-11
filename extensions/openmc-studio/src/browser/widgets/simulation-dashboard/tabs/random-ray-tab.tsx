@@ -28,6 +28,7 @@
 import * as React from '@theia/core/shared/react';
 import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { Tooltip, SearchableMultiSelect } from 'nuke-essentials/lib/theme/browser/components';
@@ -637,6 +638,50 @@ export class RandomRayTabContribution implements DashboardTabContribution {
     }
 
     /**
+     * Enable random ray with a guard for DAGMC + macroscopic MGXS.
+     * Random ray is not supported on DAGMC models in this OpenMC version,
+     * so offer to keep multi-group mode without random ray instead.
+     */
+    private async enableRandomRay(host: SimulationDashboardWidget, state: OpenMCState): Promise<void> {
+        const hasDagmc = !!state.settings.dagmcFile;
+        const hasMacroscopic = state.materials.some((m) => m.macroscopic);
+        if (hasDagmc && hasMacroscopic) {
+            const dialog = new ConfirmDialog({
+                title: 'Random Ray Not Compatible',
+                msg:
+                    'Random ray is not supported for DAGMC geometries with macroscopic multi-group materials. ' +
+                    'Switch to standard multi-group Monte Carlo instead?',
+                ok: 'Switch to Standard MG',
+                cancel: 'Cancel'
+            });
+            const confirmed = await dialog.open();
+            if (!confirmed) {
+                return;
+            }
+            host.stateManager.updateSettings({
+                energyMode: 'multigroup',
+                randomRay: undefined
+            });
+            host.update();
+            return;
+        }
+
+        const bounds = calculateGeometryBounds(state);
+        host.stateManager.updateSettings({
+            randomRay: {
+                distanceInactive: 50,
+                distanceActive: 250,
+                raySource: bounds
+                    ? {
+                          lowerLeft: bounds.min as [number, number, number],
+                          upperRight: bounds.max as [number, number, number]
+                      }
+                    : undefined
+            }
+        });
+    }
+
+    /**
      * Render the Random Ray tab.
      * @param host - Simulation dashboard widget host.
      * @param state - Current OpenMC simulation state.
@@ -740,19 +785,7 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                 disabled={!isMultiGroup}
                                 onChange={(e) => {
                                     if (e.target.checked) {
-                                        const bounds = calculateGeometryBounds(state);
-                                        host.stateManager.updateSettings({
-                                            randomRay: {
-                                                distanceInactive: 50,
-                                                distanceActive: 250,
-                                                raySource: bounds
-                                                    ? {
-                                                          lowerLeft: bounds.min as [number, number, number],
-                                                          upperRight: bounds.max as [number, number, number]
-                                                      }
-                                                    : undefined
-                                            }
-                                        });
+                                        this.enableRandomRay(host, state);
                                     } else {
                                         host.stateManager.updateSettings({ randomRay: undefined });
                                     }

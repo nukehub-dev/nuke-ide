@@ -2162,9 +2162,11 @@ export class DAGMCEditorWidget extends ReactWidget {
         const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
         const autoAdjust = this.preferences.get('openmcStudio.autoAdjustFacetingTolerance', true);
 
-        // For CAD → DAGMC conversion, place the generated .h5m next to the source
-        // file with the same base name instead of a temp name.
-        const dagmcOutput = path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)) + '.h5m');
+        // For CAD → DAGMC conversion, place the generated .h5m inside the project
+        // directory when a project is saved; otherwise fall back to next to the
+        // source file.
+        const outputBaseDir = this.stateManager.projectPath ? path.dirname(this.stateManager.projectPath) : path.dirname(filePath);
+        const dagmcOutput = path.join(outputBaseDir, path.basename(filePath, path.extname(filePath)) + '.h5m');
 
         this.isLoading = true;
         this.update();

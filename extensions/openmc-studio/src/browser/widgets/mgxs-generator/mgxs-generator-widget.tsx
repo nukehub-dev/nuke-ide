@@ -648,7 +648,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
 
                 <div className="mgxs-body">
                     {isIncompatible && (
-                        <div className="openmc-warning-box">
+                        <div className="openmc-warning-box compact">
                             <i className="codicon codicon-warning"></i>
                             <div className="warning-content">
                                 <strong>MGXS generation requires a continuous-energy model with nuclide-decomposed materials</strong>
