@@ -715,6 +715,78 @@ class TestRefacet:
         assert result["success"] is True
         assert stale.read_bytes() == b"h5m"
 
+    def test_graveyard_volume_is_recreated(self, des, monkeypatch, tmp_path):
+        """A graveyard in the old file is re-created on the refaceted output.
+
+        The source CAD does not contain the auto-created graveyard shell, so
+        re-tessellation would silently drop it (OpenMC then loses particles).
+        """
+        _install_fake_pymoab(monkeypatch)
+        vols = [FakeVolume(1, material="fuel"), FakeVolume(2, material="graveyard")]
+        _install_model(des, monkeypatch, FakeModel(volumes=vols))
+
+        def fake_step(step_path, h5m_path, tolerance, material_map=None):
+            with open(h5m_path, "wb") as f:
+                f.write(b"h5m")
+            return (2, 50, 300)
+
+        monkeypatch.setattr(des, "_step_to_dagmc_ocp", fake_step)
+        gy_calls = []
+        monkeypatch.setattr(
+            des,
+            "create_graveyard_box",
+            lambda path: gy_calls.append(path) or {"success": True, "volumeId": 3},
+        )
+        existing = tmp_path / "model.h5m"
+        existing.write_bytes(b"old")
+
+        result = des.refacet(str(existing), "model.step", 0.01)
+
+        assert result["success"] is True
+        assert gy_calls == [str(tmp_path / "model_refaceted.h5m")]
+        assert any("graveyard" in w for w in result["warnings"])
+
+    def test_graveyard_recreate_failure_warns(self, des, monkeypatch, tmp_path):
+        """A failed graveyard re-creation warns but the refacet still succeeds."""
+        _install_fake_pymoab(monkeypatch)
+        vols = [FakeVolume(1, material="fuel"), FakeVolume(2, material="graveyard")]
+        _install_model(des, monkeypatch, FakeModel(volumes=vols))
+
+        def fake_step(step_path, h5m_path, tolerance, material_map=None):
+            with open(h5m_path, "wb") as f:
+                f.write(b"h5m")
+            return (2, 50, 300)
+
+        monkeypatch.setattr(des, "_step_to_dagmc_ocp", fake_step)
+        monkeypatch.setattr(
+            des, "create_graveyard_box", lambda path: {"success": False, "error": "boom"}
+        )
+        existing = tmp_path / "model.h5m"
+        existing.write_bytes(b"old")
+
+        result = des.refacet(str(existing), "model.step", 0.01)
+
+        assert result["success"] is True
+        assert any("Could not re-create the graveyard" in w for w in result["warnings"])
+
+    def test_no_graveyard_no_recreate(self, des, monkeypatch, tmp_path):
+        """Without a graveyard in the old file, none is created."""
+        self._install_refacet_fakes(des, monkeypatch)
+        gy_calls = []
+        monkeypatch.setattr(
+            des,
+            "create_graveyard_box",
+            lambda path: gy_calls.append(path) or {"success": True},
+        )
+        existing = tmp_path / "model.h5m"
+        existing.write_bytes(b"old")
+
+        result = des.refacet(str(existing), "model.step", 0.01)
+
+        assert result["success"] is True
+        assert gy_calls == []
+        assert result["warnings"] == []
+
     def test_conversion_failure_returns_error(self, des, monkeypatch, tmp_path):
         """A converter exception yields an error dict with a traceback."""
         _install_fake_pymoab(monkeypatch)
@@ -1256,16 +1328,20 @@ class TestMain:
         assert captured["tol"] == 0.025
 
     def test_refacet_dispatch(self, des, monkeypatch, capsys):
-        """'refacet' forwards file, CAD path, and float tolerance."""
+        """'refacet' forwards file, CAD path, float tolerance, and the imprint flag."""
         captured = {}
 
-        def fake(existing, cad, tol):
-            captured.update(existing=existing, cad=cad, tol=tol)
+        def fake(existing, cad, tol, imprint=False):
+            captured.update(existing=existing, cad=cad, tol=tol, imprint=imprint)
             return {"success": True}
 
         monkeypatch.setattr(des, "refacet", fake)
         self._run(des, monkeypatch, ["x.py", "refacet", "m.h5m", "model.step", "0.01"])
-        assert captured == {"existing": "m.h5m", "cad": "model.step", "tol": 0.01}
+        assert captured == {"existing": "m.h5m", "cad": "model.step", "tol": 0.01, "imprint": False}
+
+        captured.clear()
+        self._run(des, monkeypatch, ["x.py", "refacet", "m.h5m", "model.step", "0.01", "--imprint"])
+        assert captured["imprint"] is True
 
     def test_insufficient_args_exit_1(self, des, monkeypatch, capsys):
         """Commands without enough arguments exit 1 with an error JSON."""

@@ -1521,6 +1521,16 @@ def refacet(
             os.unlink(output_path)
         shutil.move(temp_h5m, output_path)
 
+        # 4. The source CAD does not contain the auto-created graveyard shell,
+        # so re-tessellation silently drops it. Re-create it when the old file
+        # had one — OpenMC warns (and loses particles) without a graveyard.
+        if any(m and m.lower() == "graveyard" for m in old_materials.values()):
+            gy = create_graveyard_box(output_path)
+            if gy.get("success"):
+                warnings.append("Re-created the graveyard volume dropped by re-tessellation.")
+            else:
+                warnings.append(f"Could not re-create the graveyard volume: {gy.get('error')}")
+
         return {
             "success": True,
             "data": {

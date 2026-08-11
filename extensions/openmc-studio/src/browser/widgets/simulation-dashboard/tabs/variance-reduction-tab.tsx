@@ -307,7 +307,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                             </div>
 
                             {(vr.weightWindowGenerator.method ?? 'magic') === 'fw_cadis' &&
-                                (state.settings.energyMode === 'multigroup' && state.settings.mgxsLibrary ? (
+                                (state.settings.energyMode === 'multigroup' && state.settings.mgxsLibrary && state.settings.randomRay ? (
                                     <>
                                         <div className="form-row">
                                             <div className="form-group">
@@ -385,10 +385,10 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                     <div className="openmc-warning-box">
                                         <i className="codicon codicon-warning"></i>
                                         <div className="warning-content">
-                                            <strong>FW-CADIS requires multi-group mode</strong>
+                                            <strong>FW-CADIS requires random ray mode</strong>
                                             <p>
-                                                Switch to multi-group energy mode and set an MGXS library in the Random Ray tab to use
-                                                FW-CADIS.
+                                                Enable the random ray solver in the Random Ray tab (multi-group energy mode and an MGXS
+                                                library are required) to use FW-CADIS.
                                             </p>
                                         </div>
                                     </div>

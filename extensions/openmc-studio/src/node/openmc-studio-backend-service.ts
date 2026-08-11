@@ -2385,6 +2385,18 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // FW-CADIS weight window generation runs an adjoint solve that only
+        // exists in the random ray solver (C++: 'FW-CADIS can only be run in
+        // random ray solver mode').
+        if (request.state.varianceReduction?.weightWindowGenerator?.method === 'fw_cadis' && !settings.randomRay) {
+            issues.push({
+                severity: 'error',
+                category: 'settings',
+                message: 'FW-CADIS weight window generation requires random ray mode',
+                suggestion: 'Enable the random ray solver in the Random Ray tab (requires multi-group energy mode)'
+            });
+        }
+
         // Source/geometry overlap check: warn when independent sources are placed
         // outside the verifiable geometry bounds. This catches point sources in void
         // and source boxes that do not overlap the model.

@@ -1320,7 +1320,7 @@ export interface OpenMCVarianceReduction {
         meshId?: number;
         /** Energy group boundaries in eV */
         energyBounds?: number[];
-        /** Generation method: 'magic' (default) or 'fw_cadis' (requires multi-group mode) */
+        /** Generation method: 'magic' (default) or 'fw_cadis' (requires random ray mode) */
         method?: 'magic' | 'fw_cadis';
         /** Maximum tally realizations when generating weight windows */
         maxRealizations?: number;

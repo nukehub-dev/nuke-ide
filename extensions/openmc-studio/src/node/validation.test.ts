@@ -522,3 +522,41 @@ describe('validateState random ray + DAGMC', () => {
         expect(result.issues.some((i) => i.message.includes('DAGMC') && i.severity === 'error')).toBe(false);
     });
 });
+
+describe('validateState FW-CADIS weight window generator', () => {
+    it('errors when FW-CADIS is set without random ray mode', async () => {
+        const state = buildState();
+        state.varianceReduction = { weightWindowGenerator: { method: 'fw_cadis' } } as OpenMCState['varianceReduction'];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) => i.severity === 'error' && i.message.includes('FW-CADIS weight window generation requires random ray mode')
+            )
+        ).toBe(true);
+    });
+
+    it('accepts FW-CADIS with random ray enabled', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.settings.randomRay = { distanceInactive: 500, distanceActive: 1000 };
+        state.varianceReduction = { weightWindowGenerator: { method: 'fw_cadis' } } as OpenMCState['varianceReduction'];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('FW-CADIS'))).toBe(false);
+    });
+
+    it('does not error on the magic method without random ray', async () => {
+        const state = buildState();
+        state.varianceReduction = { weightWindowGenerator: { method: 'magic' } } as OpenMCState['varianceReduction'];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('FW-CADIS'))).toBe(false);
+    });
+});
