@@ -14,7 +14,6 @@ extensions/*/lib/
 /plugins
 **/tsconfig.tsbuildinfo
 *.log
-.crush
 **/.electron-cache
 
 # Generated files
