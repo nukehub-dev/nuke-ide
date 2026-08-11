@@ -2245,12 +2245,12 @@ export class CSGBuilderWidget extends ReactWidget {
         }
 
         const uri = await this.fileDialogService.showOpenDialog({
-            title: 'Select CAD File (STEP/IGES)',
+            title: 'Select CAD/DAGMC File',
             canSelectFiles: true,
             canSelectFolders: false,
             canSelectMany: false,
             filters: {
-                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m'],
+                'All Supported Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m'],
                 'STEP Files': ['step', 'stp'],
                 'IGES Files': ['iges', 'igs'],
                 'BREP Files': ['brep'],

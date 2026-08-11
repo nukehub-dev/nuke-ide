@@ -3208,14 +3208,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     async dagmcRefacet(
         filePath: string,
         sourceCadPath: string,
-        tolerance: number
+        tolerance: number,
+        imprint?: boolean
     ): Promise<{
         success: boolean;
         data?: { outputPath: string; message?: string };
         error?: string;
     }> {
         this.log(`Re-faceting ${filePath} from ${sourceCadPath} with tolerance ${tolerance}`);
-        return this.dagmcEditorService.refacet(filePath, sourceCadPath, tolerance);
+        return this.dagmcEditorService.refacet(filePath, sourceCadPath, tolerance, imprint);
     }
 
     async dagmcCancelRefacet(): Promise<void> {

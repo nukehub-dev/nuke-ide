@@ -198,6 +198,7 @@ export class DAGMCEditorWidget extends ReactWidget {
     private sourceCadPath = '';
     private isRefaceting = false;
     private refacetError?: string;
+    private imprintMode = false;
 
     // Graveyard detection state
     private graveyardStatus: 'unknown' | 'ok' | 'needs-create' | 'needs-tag' | 'creating' | 'tagging' = 'unknown';
@@ -492,7 +493,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                             {this.modelData ? 'Open...' : 'Open File'}
                         </button>
                     </Tooltip>
-                    <Tooltip content="Import CAD file (STEP/IGES/BREP/STL)" position="bottom">
+                    <Tooltip content="Import CAD/DAGMC file (STEP/IGES/BREP/STL/H5M)" position="bottom">
                         <button className="theia-button secondary" onClick={() => this.importCADFile()}>
                             <i className="codicon codicon-file-add"></i>
                             Import CAD
@@ -583,7 +584,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                         <i className="codicon codicon-folder-opened"></i> Open DAGMC File
                     </button>
                     <button className="theia-button secondary" onClick={() => this.importCADFile()}>
-                        <i className="codicon codicon-file-add"></i> Import CAD File
+                        <i className="codicon codicon-file-add"></i> Import CAD/DAGMC File
                     </button>
                 </div>
             );
@@ -1722,6 +1723,29 @@ export class DAGMCEditorWidget extends ReactWidget {
                         </div>
                     </div>
 
+                    {/* Step 4.5: Imprint Option */}
+                    <div className="workflow-step">
+                        <div className="step-badge">
+                            <i className="codicon codicon-merge"></i>
+                        </div>
+                        <div className="step-content">
+                            <div className="step-title">Imprint & Merge</div>
+                            <div className="form-group checkbox">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={this.imprintMode}
+                                        onChange={(e) => {
+                                            this.imprintMode = e.target.checked;
+                                            this.update();
+                                        }}
+                                    />
+                                    Imprint & merge shared surfaces (slower, better for particle transport)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Step 5: Action */}
                     <div className="workflow-step action-step">
                         <div className="step-badge">5</div>
@@ -2019,7 +2043,12 @@ export class DAGMCEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.backendService.dagmcRefacet(this.modelData.filePath, this.sourceCadPath, this.facetingToleranceInput);
+            const result = await this.backendService.dagmcRefacet(
+                this.modelData.filePath,
+                this.sourceCadPath,
+                this.facetingToleranceInput,
+                this.imprintMode
+            );
 
             if (result.success && result.data) {
                 this.messageService.info(`Re-faceted geometry saved to ${result.data.outputPath}`);
@@ -2138,17 +2167,17 @@ export class DAGMCEditorWidget extends ReactWidget {
         }
 
         const uri = await this.fileDialogService.showOpenDialog({
-            title: 'Import CAD File (STEP/IGES/BREP/STL)',
+            title: 'Import CAD/DAGMC File (STEP/IGES/BREP/STL/H5M)',
             canSelectFiles: true,
             canSelectFolders: false,
             canSelectMany: false,
             filters: {
-                'All CAD Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m'],
+                'All Supported Files': ['step', 'stp', 'iges', 'igs', 'brep', 'stl', 'h5m', 'h5'],
                 'STEP Files': ['step', 'stp'],
                 'IGES Files': ['iges', 'igs'],
                 'BREP Files': ['brep'],
                 'STL Files': ['stl'],
-                'DAGMC Files': ['h5m']
+                'DAGMC Files': ['h5m', 'h5']
             }
         });
 

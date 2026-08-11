@@ -1166,7 +1166,288 @@ def _step_to_dagmc_ocp(
     return len(volume_faces), len(vertex_coords), total_tris
 
 
-def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
+def _step_to_dagmc_imprinted_ocp(
+    step_path: str,
+    h5m_path: str,
+    tolerance: float,
+    material_map: dict = None,
+    old_bboxes: dict | None = None,
+) -> tuple:
+    """STEP→DAGMC conversion with OpenCASCADE imprint/merge.
+
+    Runs BOPAlgo_Builder on the STEP solids so touching faces become shared
+    topology, then meshes and writes a DAGMC file with proper GEOM_SENSE_2
+    tags. External surfaces are tagged boundary:vacuum; shared interior
+    surfaces are not.
+
+    Returns:
+        Tuple of (num_volumes, num_vertices, num_triangles).
+    """
+    from collections import defaultdict
+
+    from OCP.BOPAlgo import BOPAlgo_Builder
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.STEPControl import STEPControl_Reader
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    from pymoab import core as moab_core
+    from pymoab import types
+
+    # 1. Load STEP and extract solids.
+    reader = STEPControl_Reader()
+    status = reader.ReadFile(step_path)
+    if status != 1:
+        raise RuntimeError(f"Failed to read STEP file, status={status}")
+    reader.TransferRoot()
+    shape = reader.OneShape()
+
+    solids = []
+    solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while solid_exp.More():
+        solids.append(topods_solid(TopoDS, solid_exp.Current()))
+        solid_exp.Next()
+
+    # 2. Imprint/merge shared faces.
+    if len(solids) > 1:
+        builder = BOPAlgo_Builder()
+        for solid in solids:
+            builder.AddArgument(solid)
+        builder.Perform()
+        shape = builder.Shape()
+
+    # 3. Tessellate.
+    BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
+
+    # 4. Collect triangulations per face with volume mapping.
+    face_to_volumes = defaultdict(list)
+    face_tris = {}  # face_id -> list of canonical (sorted) triangle vertex indices
+    face_oriented_tris = {}  # face_id -> list of oriented triangle vertex indices
+    global_vertices = {}
+    vertex_coords = []
+
+    def canonical(tri):
+        return tuple(sorted(int(v) for v in tri))
+
+    solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    vol_id = 1
+    while solid_exp.More():
+        solid = topods_solid(TopoDS, solid_exp.Current())
+        face_exp = TopExp_Explorer(solid, TopAbs_FACE)
+        while face_exp.More():
+            face = topods_face(TopoDS, face_exp.Current())
+            loc = face.Location()
+            tri = brep_tool_triangulation(BRep_Tool, face, loc)
+            if tri is None or tri.NbTriangles() == 0:
+                face_exp.Next()
+                continue
+
+            face_id = id(face.TShape())
+            face_to_volumes[face_id].append(vol_id)
+
+            trsf = loc.Transformation()
+            local_to_global = {}
+            for i in range(1, tri.NbNodes() + 1):
+                pnt = tri.Node(i)
+                pnt.Transform(trsf)
+                key = (round(pnt.X(), 9), round(pnt.Y(), 9), round(pnt.Z(), 9))
+                if key not in global_vertices:
+                    global_vertices[key] = len(vertex_coords)
+                    vertex_coords.append([pnt.X(), pnt.Y(), pnt.Z()])
+                local_to_global[i] = global_vertices[key]
+
+            oriented = []
+            canonical_tris = []
+            for i in range(1, tri.NbTriangles() + 1):
+                t = tri.Triangle(i)
+                tri_idx = [
+                    local_to_global[t.Value(1)],
+                    local_to_global[t.Value(2)],
+                    local_to_global[t.Value(3)],
+                ]
+                oriented.append(tri_idx)
+                canonical_tris.append(canonical(tri_idx))
+            face_tris[face_id] = canonical_tris
+            face_oriented_tris[face_id] = oriented
+
+            face_exp.Next()
+        vol_id += 1
+        solid_exp.Next()
+
+    num_volumes = vol_id - 1
+
+    # 5. Merge coincident faces by their canonical triangle set.
+    face_groups = defaultdict(list)
+    for face_id, tris in face_tris.items():
+        key = frozenset(tris)
+        face_groups[key].append(face_id)
+
+    merged_faces = []
+    for _key, face_ids in face_groups.items():
+        # Representative is the face with the largest surface area.
+        def face_area(fid):
+            total = 0.0
+            for tri in face_oriented_tris[fid]:
+                a = np.array(vertex_coords[tri[0]])
+                b = np.array(vertex_coords[tri[1]])
+                c = np.array(vertex_coords[tri[2]])
+                total += 0.5 * np.linalg.norm(np.cross(b - a, c - a))
+            return total
+
+        rep = max(face_ids, key=face_area)
+        volumes = []
+        for fid in face_ids:
+            for v in face_to_volumes[fid]:
+                if v not in volumes:
+                    volumes.append(v)
+        merged_faces.append(
+            {
+                "rep": rep,
+                "face_ids": face_ids,
+                "volumes": volumes,
+                "triangles": face_oriented_tris[rep],
+            }
+        )
+
+    # 6. Build MOAB DAGMC model.
+    mb = moab_core.Core()
+    tag_cat = mb.tag_get_handle(
+        types.CATEGORY_TAG_NAME,
+        types.CATEGORY_TAG_SIZE,
+        types.MB_TYPE_OPAQUE,
+        types.MB_TAG_SPARSE,
+        create_if_missing=True,
+    )
+    tag_name = mb.tag_get_handle(
+        types.NAME_TAG_NAME,
+        types.NAME_TAG_SIZE,
+        types.MB_TYPE_OPAQUE,
+        types.MB_TAG_SPARSE,
+        create_if_missing=True,
+    )
+    tag_gdim = mb.tag_get_handle(
+        types.GEOM_DIMENSION_TAG_NAME,
+        1,
+        types.MB_TYPE_INTEGER,
+        types.MB_TAG_DENSE,
+        create_if_missing=True,
+    )
+    tag_gid = mb.tag_get_handle(types.GLOBAL_ID_TAG_NAME)
+    tag_sense = mb.tag_get_handle(
+        "GEOM_SENSE_2", 2, types.MB_TYPE_HANDLE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+    tag_facet_tol = mb.tag_get_handle(
+        "FACETING_TOL", 1, types.MB_TYPE_DOUBLE, types.MB_TAG_SPARSE, create_if_missing=True
+    )
+
+    verts_array = np.array(vertex_coords, dtype=np.float64)
+    moab_verts = mb.create_vertices(verts_array)
+
+    volume_sets = {}
+    for vid in range(1, num_volumes + 1):
+        vset = mb.create_meshset()
+        mb.tag_set_data(tag_gid, vset, vid)
+        mb.tag_set_data(tag_gdim, vset, 3)
+        mb.tag_set_data(tag_cat, vset, "Volume")
+        volume_sets[vid] = vset
+
+    surface_sets = {}
+    for surf_id, mf in enumerate(merged_faces, start=1):
+        sset = mb.create_meshset()
+        mb.tag_set_data(tag_gid, sset, surf_id)
+        mb.tag_set_data(tag_gdim, sset, 2)
+        mb.tag_set_data(tag_cat, sset, "Surface")
+        surface_sets[id(mf)] = sset
+
+        for tri in mf["triangles"]:
+            tri_verts = (moab_verts[tri[0]], moab_verts[tri[1]], moab_verts[tri[2]])
+            mb_tri = mb.create_element(types.MBTRI, tri_verts)
+            mb.add_entity(sset, mb_tri)
+
+        for vid in mf["volumes"]:
+            mb.add_parent_child(volume_sets[vid], sset)
+
+        if len(mf["volumes"]) == 2:
+            sense = np.array(
+                [volume_sets[mf["volumes"][0]], volume_sets[mf["volumes"][1]]], dtype=np.uint64
+            )
+        elif len(mf["volumes"]) == 1:
+            sense = np.array([volume_sets[mf["volumes"][0]], 0], dtype=np.uint64)
+        else:
+            sense = None
+        if sense is not None:
+            mb.tag_set_data(tag_sense, sset, sense)
+
+    # 7. Material groups mapped by bounding-box proximity to the existing h5m.
+    # Compute bbox for each new volume from its surface triangles.
+    volume_bboxes = {}
+    for vid in range(1, num_volumes + 1):
+        coords = []
+        for mf in merged_faces:
+            if vid in mf["volumes"]:
+                for tri in mf["triangles"]:
+                    for vi in tri:
+                        coords.append(vertex_coords[vi])
+        if coords:
+            coords = np.array(coords)
+            volume_bboxes[vid] = (coords.min(axis=0).tolist(), coords.max(axis=0).tolist())
+        else:
+            volume_bboxes[vid] = ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+
+    # Existing material map might be keyed by old volume IDs. Try direct lookup first,
+    # then fall back to nearest-center matching if the keys don't line up.
+    old_centers = {}
+    if material_map and old_bboxes:
+        for old_vid, _mat in material_map.items():
+            if old_vid in old_bboxes:
+                omin, omax = old_bboxes[old_vid]
+                old_centers[old_vid] = (np.array(omin) + np.array(omax)) * 0.5
+
+    for vid in range(1, num_volumes + 1):
+        vset = volume_sets[vid]
+        mat_name = None
+        if material_map:
+            if vid in material_map:
+                mat_name = material_map[vid]
+            elif old_centers:
+                cmin, cmax = volume_bboxes[vid]
+                center = (np.array(cmin) + np.array(cmax)) * 0.5
+                best_id = min(
+                    old_centers, key=lambda oid: np.linalg.norm(center - old_centers[oid])
+                )
+                mat_name = material_map.get(best_id)
+        if mat_name is None:
+            mat_name = f"mat_{vid - 1}"
+
+        gset = mb.create_meshset()
+        mb.tag_set_data(tag_cat, gset, "Group")
+        mb.tag_set_data(tag_gdim, gset, 4)
+        mb.tag_set_data(tag_name, gset, f"mat:{mat_name}")
+        mb.tag_set_data(tag_gid, gset, vid)
+        mb.add_entity(gset, vset)
+
+    # 8. Tag only external surfaces as boundary:vacuum.
+    boundary_group = mb.create_meshset()
+    mb.tag_set_data(tag_cat, boundary_group, "Group")
+    mb.tag_set_data(tag_gdim, boundary_group, 4)
+    mb.tag_set_data(tag_name, boundary_group, "boundary:vacuum")
+    mb.tag_set_data(tag_gid, boundary_group, num_volumes + 1)
+    for mf in merged_faces:
+        if len(mf["volumes"]) == 1:
+            mb.add_entity(boundary_group, surface_sets[id(mf)])
+
+    root = mb.get_root_set()
+    mb.tag_set_data(tag_facet_tol, root, float(tolerance))
+    mb.write_file(h5m_path)
+
+    total_tris = sum(len(mf["triangles"]) for mf in merged_faces)
+    return num_volumes, len(vertex_coords), total_tris
+
+
+def refacet(
+    existing_h5m: str, source_cad_path: str, tolerance: float, imprint: bool = False
+) -> dict:
     """Re-export a DAGMC file from source CAD with a new faceting tolerance.
 
     Uses OpenCASCADE BRepMesh_IncrementalMesh for tessellation.
@@ -1177,6 +1458,7 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
         existing_h5m: Path to the current DAGMC .h5m file.
         source_cad_path: Path to the source CAD file (STEP/STP/BREP/IGES).
         tolerance: Desired faceting tolerance (linear deflection in cm).
+        imprint: If True, imprint and merge shared surfaces with BOPAlgo_Builder.
 
     Returns:
         Dictionary with success flag and output file path.
@@ -1190,24 +1472,38 @@ def refacet(existing_h5m: str, source_cad_path: str, tolerance: float) -> dict:
         return {"success": False, "error": "pymoab is not installed"}
 
     try:
-        # 1. Extract material assignments from existing H5M, then free it immediately
+        # 1. Extract material assignments and volume bounding boxes from existing H5M,
+        # then free it immediately.
         old_model = Model(existing_h5m)
         old_materials = {}
+        old_bboxes = {}
         for vol in old_model.volumes:
             old_materials[vol.id] = vol.material
+            bbox_min, bbox_max = _volume_bounding_box(vol)
+            if bbox_min is not None and bbox_max is not None:
+                old_bboxes[vol.id] = (bbox_min, bbox_max)
         old_vol_count = len(old_model.volumes)
         del old_model
         import gc
 
         gc.collect()
 
-        # 2. Fast OCP-based conversion
+        # 2. OCP-based conversion (optionally with imprint/merge)
         fd, temp_h5m = tempfile.mkstemp(suffix=".h5m")
         os.close(fd)
 
-        n_vols, n_verts, n_tris = _step_to_dagmc_ocp(
-            source_cad_path, temp_h5m, tolerance, material_map=old_materials
-        )
+        if imprint:
+            n_vols, n_verts, n_tris = _step_to_dagmc_imprinted_ocp(
+                source_cad_path,
+                temp_h5m,
+                tolerance,
+                material_map=old_materials,
+                old_bboxes=old_bboxes,
+            )
+        else:
+            n_vols, n_verts, n_tris = _step_to_dagmc_ocp(
+                source_cad_path, temp_h5m, tolerance, material_map=old_materials
+            )
 
         warnings = []
         if old_vol_count != n_vols:
@@ -1363,7 +1659,8 @@ def main():
         if len(sys.argv) < 5:
             print(json.dumps({"success": False, "error": "Insufficient arguments"}))
             sys.exit(1)
-        result = refacet(sys.argv[2], sys.argv[3], float(sys.argv[4]))
+        imprint = len(sys.argv) > 5 and sys.argv[5] == "--imprint"
+        result = refacet(sys.argv[2], sys.argv[3], float(sys.argv[4]), imprint=imprint)
         print(json.dumps(result))
 
     else:

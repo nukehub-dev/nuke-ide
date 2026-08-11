@@ -1134,7 +1134,8 @@ export interface OpenMCStudioBackendService {
     dagmcRefacet(
         filePath: string,
         sourceCadPath: string,
-        tolerance: number
+        tolerance: number,
+        imprint?: boolean
     ): Promise<{
         success: boolean;
         data?: {

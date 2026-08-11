@@ -818,7 +818,7 @@ export class DAGMCEditorService {
      * @param tolerance - Desired faceting tolerance
      * @returns Operation result with output file path
      */
-    async refacet(filePath: string, sourceCadPath: string, tolerance: number): Promise<DAGMCRefacetResult> {
+    async refacet(filePath: string, sourceCadPath: string, tolerance: number, imprint?: boolean): Promise<DAGMCRefacetResult> {
         if (!this.pythonPath || !this.scriptPath) {
             const initialized = await this.initialize();
             if (!initialized) {
@@ -831,6 +831,9 @@ export class DAGMCEditorService {
 
         return new Promise((resolve) => {
             const args = [this.scriptPath!, 'refacet', filePath, sourceCadPath, String(tolerance)];
+            if (imprint) {
+                args.push('--imprint');
+            }
 
             const childProcess = cp.spawn(this.pythonPath!, args, {
                 encoding: 'utf-8',
