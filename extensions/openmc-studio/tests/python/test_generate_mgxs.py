@@ -32,8 +32,16 @@ class _FakeModel:
 
     def convert_to_multigroup(self, **kwargs):
         self.convert_calls.append(kwargs)
+        # The real API switches the model to multi-group energy mode.
+        self.settings.energy_mode = "multi-group"
 
     def convert_to_random_ray(self):
+        # The real API rejects non-multi-group models.
+        if getattr(self.settings, "energy_mode", None) != "multi-group":
+            raise ValueError(
+                "Random ray conversion failed: energy mode must be "
+                "'multi-group'. Use convert_to_multigroup() first."
+            )
         self.random_ray_calls += 1
 
 
@@ -381,6 +389,9 @@ class TestNuclideWise:
         assert result["randomRayApplied"] is True
         assert _FakeModel.last_instance.random_ray_calls == 1
         assert _FakeModel.last_instance.settings.exported is True
+        # convert_to_random_ray requires multi-group mode; the nuclide-wise
+        # path switches only the setting (materials stay nuclide-decomposed)
+        assert _FakeModel.last_instance.settings.energy_mode == "multi-group"
 
 
 class TestMainArgparse:

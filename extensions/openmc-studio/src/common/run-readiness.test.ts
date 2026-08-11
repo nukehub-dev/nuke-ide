@@ -217,7 +217,7 @@ describe('computeReadiness', () => {
         const base = {
             materials: [material],
             settings: {
-                run: { mode: 'eigenvalue', particles: 1, inactive: 1, batches: 1 },
+                run: { mode: 'eigenvalue' as const, particles: 1, inactive: 1, batches: 1 },
                 sources: [source],
                 dagmcFile: '/data/geom.h5m',
                 energyMode: 'multigroup' as const,

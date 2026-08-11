@@ -185,6 +185,10 @@ export interface MgRevertUpdates {
 /**
  * Compute the state updates for reverting to continuous-energy.
  * The MGXS library path is kept; the backup is cleared by the caller.
+ * `macroscopic` is stripped explicitly (set to `undefined`) because callers
+ * apply these materials through the state manager's shallow-merge update,
+ * which keeps any key absent from the update — without the explicit key the
+ * stale macroscopic XS reference would survive the revert.
  * @param state - Current (multi-group, converted) project state.
  * @returns The restored materials and energy mode, or undefined without a backup.
  */
@@ -194,7 +198,7 @@ export function computeMgRevert(state: OpenMCState): MgRevertUpdates | undefined
         return undefined;
     }
     return {
-        materials: backup.materials.map((m) => ({ ...m })),
+        materials: backup.materials.map((m) => ({ ...m, macroscopic: undefined })),
         energyMode: backup.energyMode
     };
 }

@@ -259,6 +259,11 @@ def _run_nuclide_wise(args, working_dir: Path):
         log_progress("Converting model to random ray...")
         materials, geometry, settings = load_model(working_dir)
         model = openmc.Model(geometry=geometry, materials=materials, settings=settings)
+        # convert_to_random_ray requires multi-group energy mode. The
+        # nuclide-wise path keeps materials nuclide-decomposed (no
+        # convert_to_multigroup, which would also macroscopic-ify them),
+        # so switch only the energy mode setting before converting.
+        model.settings.energy_mode = "multi-group"
         model.convert_to_random_ray()
         model.settings.export_to_xml()
         random_ray_applied = True

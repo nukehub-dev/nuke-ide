@@ -121,6 +121,24 @@ describe('computeMgRevert', () => {
     it('returns undefined when no backup exists', () => {
         expect(computeMgRevert(makeState())).toBeUndefined();
     });
+
+    it('strips macroscopic when applied through a shallow-merge update', () => {
+        const state = makeState();
+        const conversion = computeMgConversion(state, [{ materialName: 'fuel', xsDataName: 'fuel' }], '/work/mgxs.h5');
+        state.materials = conversion.materials;
+        state.settings.energyMode = 'multigroup';
+        state.metadata.mgBackup = conversion.mgBackup;
+
+        const revert = computeMgRevert(state)!;
+        // The state manager applies material updates with a shallow merge
+        // ({ ...oldValue, ...updates }), which keeps keys absent from the
+        // update — the revert must strip `macroscopic` explicitly.
+        const applied = revert.materials.map((upd) => ({ ...state.materials.find((m) => m.id === upd.id)!, ...upd }));
+        const fuel = applied.find((m) => m.name === 'fuel')!;
+        expect(fuel.macroscopic).toBeUndefined();
+        // And it must stay gone after the state manager's JSON round-trip
+        expect(JSON.parse(JSON.stringify(fuel)).macroscopic).toBeUndefined();
+    });
 });
 
 describe('computeNuclideWiseMgConversion', () => {
