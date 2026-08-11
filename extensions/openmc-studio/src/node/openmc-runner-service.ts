@@ -78,6 +78,23 @@ interface RunningSimulation {
 }
 
 /**
+ * Maximum characters of a run's stdout/stderr kept in memory. The full output
+ * always goes to the run's log file and streams live to the client; only the
+ * tail is retained for the completion result so multi-hour runs cannot grow
+ * the backend heap without bound.
+ */
+export const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
+
+/**
+ * Append a chunk to a captured-output buffer, keeping only the trailing
+ * {@link MAX_CAPTURED_OUTPUT_CHARS} characters.
+ */
+export function appendOutputTail(buffer: string, chunk: string): string {
+    const combined = buffer + chunk;
+    return combined.length > MAX_CAPTURED_OUTPUT_CHARS ? combined.slice(combined.length - MAX_CAPTURED_OUTPUT_CHARS) : combined;
+}
+
+/**
  * OpenMC Runner Service
  *
  * Backend service for executing OpenMC simulations and depletion calculations.
@@ -606,7 +623,7 @@ export class OpenMCRunnerService {
             // Handle stdout
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stdout += chunk;
+                stdout = appendOutputTail(stdout, chunk);
                 // Stream output to client for real-time feedback in frontend
                 this.safeLog(chunk);
                 this.parseProgress(chunk);
@@ -617,7 +634,7 @@ export class OpenMCRunnerService {
             // Handle stderr
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stderr += chunk;
+                stderr = appendOutputTail(stderr, chunk);
                 // Stream errors to client for real-time feedback in frontend
                 this.safeWarn(chunk);
                 // Write to log file
@@ -824,7 +841,7 @@ export class OpenMCRunnerService {
             // Handle stdout
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stdout += chunk;
+                stdout = appendOutputTail(stdout, chunk);
                 this.safeLog(chunk);
                 this.parseProgress(chunk);
                 // Write to log file
@@ -834,7 +851,7 @@ export class OpenMCRunnerService {
             // Handle stderr
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stderr += chunk;
+                stderr = appendOutputTail(stderr, chunk);
                 this.safeWarn(chunk);
                 // Write to log file
                 logStream.write(chunk);
@@ -1071,7 +1088,7 @@ export class OpenMCRunnerService {
             // Handle stdout
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stdout += chunk;
+                stdout = appendOutputTail(stdout, chunk);
                 this.safeLog(chunk);
                 logStream.write(chunk);
             });
@@ -1079,7 +1096,7 @@ export class OpenMCRunnerService {
             // Handle stderr (includes progress messages from depletion script)
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stderr += chunk;
+                stderr = appendOutputTail(stderr, chunk);
                 this.safeLog(chunk);
                 logStream.write(chunk);
             });
@@ -1287,7 +1304,7 @@ export class OpenMCRunnerService {
             // Handle stdout (libopenmc batch table — same format as the CLI)
             childProcess.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stdout += chunk;
+                stdout = appendOutputTail(stdout, chunk);
                 this.safeLog(chunk);
                 this.parseProgress(chunk);
                 logStream.write(chunk);
@@ -1296,7 +1313,7 @@ export class OpenMCRunnerService {
             // Handle stderr (includes progress messages from the CMFD driver)
             childProcess.stderr?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
-                stderr += chunk;
+                stderr = appendOutputTail(stderr, chunk);
                 this.safeLog(chunk);
                 logStream.write(chunk);
             });
@@ -1572,7 +1589,9 @@ export class OpenMCRunnerService {
      * dedicated `tracks/` and `particles/` subfolders. Used both during a run
      * (by the watcher) and at the end of a run. This keeps both the cwd and
      * `settings.output.path` tidy. The currently selected restart file is left
-     * untouched so a re-run from it still works.
+     * untouched so a re-run from it still works. Files whose name already
+     * exists in the target subfolder REPLACE the older copy (OpenMC rewrites
+     * the same names across batches / random-ray iterations).
      * Non-blocking: failures are logged but do not fail the run.
      * @param workingDirectory - Base working directory (used for relative logs)
      * @param outputDirectory - Effective OpenMC output directory, if different
@@ -1605,19 +1624,21 @@ export class OpenMCRunnerService {
 
                 const tracksDir = path.join(dir, 'tracks');
                 const particlesDir = path.join(dir, 'particles');
+                let movedTracks = 0;
+                let movedParticles = 0;
 
                 if (tracksFiles.length > 0) {
                     await fs.promises.mkdir(tracksDir, { recursive: true });
                     for (const file of tracksFiles) {
                         const source = path.join(dir, file);
                         const destination = path.join(tracksDir, file);
-                        try {
-                            await fs.promises.access(destination);
-                            this.log(`Track file already exists in ${path.relative(workingDirectory, tracksDir)}/: ${file}`);
-                        } catch {
-                            await fs.promises.rename(source, destination);
-                            this.log(`Moved track file into ${path.relative(workingDirectory, tracksDir)}/: ${file}`);
-                        }
+                        // OpenMC rewrites the same file names across batches /
+                        // random-ray iterations, so replace the older copy —
+                        // leaving the source in place would make every watcher
+                        // scan re-log the same stuck file forever.
+                        await fs.promises.rm(destination, { force: true });
+                        await fs.promises.rename(source, destination);
+                        movedTracks++;
                     }
                 }
 
@@ -1626,14 +1647,23 @@ export class OpenMCRunnerService {
                     for (const file of particlesFiles) {
                         const source = path.join(dir, file);
                         const destination = path.join(particlesDir, file);
-                        try {
-                            await fs.promises.access(destination);
-                            this.log(`Particle restart file already exists in ${path.relative(workingDirectory, particlesDir)}/: ${file}`);
-                        } catch {
-                            await fs.promises.rename(source, destination);
-                            this.log(`Moved particle restart file into ${path.relative(workingDirectory, particlesDir)}/: ${file}`);
-                        }
+                        await fs.promises.rm(destination, { force: true });
+                        await fs.promises.rename(source, destination);
+                        movedParticles++;
                     }
+                }
+
+                // One summary line per directory per pass — per-file logging
+                // spams the backend console on runs with many lost particles.
+                const parts: string[] = [];
+                if (movedTracks > 0) {
+                    parts.push(`${movedTracks} track file(s) into ${path.relative(workingDirectory, tracksDir)}/`);
+                }
+                if (movedParticles > 0) {
+                    parts.push(`${movedParticles} particle restart file(s) into ${path.relative(workingDirectory, particlesDir)}/`);
+                }
+                if (parts.length > 0) {
+                    this.log(`Moved ${parts.join(' and ')}`);
                 }
             } catch (error) {
                 this.log(`Warning: failed to organize run output files in ${dir}: ${error}`);
