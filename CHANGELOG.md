@@ -234,8 +234,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The experimental `@theia/ai-vercel-ai` provider was removed (upstream
   deprecated and unpublished it — the dedicated `@theia/ai-openai` and
   `@theia/ai-anthropic` providers cover the same models), and the Electron
-  shell moves to Electron 42.3.0 (bundles Node 24) per Theia's downstream
-  requirement.
+  shell moves to Electron **43.4.0** (Theia requires ≥ 42.3.0; both bundle
+  Node 24). Inherited upstream behavior changes: file dialogs now default to
+  the Downloads folder instead of remembering the last-used directory, and
+  frameless windows get rounded corners on Linux.
+- Platform: build tooling updates — lerna 9 → **10** (ESM-only; minimum Node.js
+  is now 22.13.0) and markdown-it 14 → **15** in nuke-docs (bundled TypeScript
+  declarations; its linkify-it v6 no longer autolinks bare domains in
+  documentation pages — use explicit markdown links).
+- Platform: React 18 → **19** (`react`/`react-dom` 19.2.8) for all extension
+  widgets, supported by Theia 1.74 — no component API changes were needed
+  beyond qualifying the removed global `JSX.Element` namespace as
+  `React.JSX.Element`.
 
 ## [0.1.3] - 2026-07-28
 

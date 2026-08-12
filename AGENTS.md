@@ -97,7 +97,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 Install once before making changes:
 
-- **Node.js** >= 22.12.0 and **Yarn** 1.x (`>=1.7.0 <2`). Dependencies install with `yarn` (yarn workspaces + lerna 9).
+- **Node.js** >= 22.13.0 and **Yarn** 1.x (`>=1.7.0 <2`). Dependencies install with `yarn` (yarn workspaces + lerna 10).
 - **Python** 3.13 with `pip install -r requirements-dev.txt` (pytest, numpy, ruff). Only needed for the extension Python backends and their tests; the TypeScript build does not need it.
 - **Docker** (optional) for the containerized browser deployment in `applications/docker/`.
 

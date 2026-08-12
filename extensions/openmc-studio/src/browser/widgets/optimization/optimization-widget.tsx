@@ -1042,7 +1042,7 @@ export class OptimizationWidget extends ReactWidget {
                                 <option value="">-- Select parameter --</option>
                                 {(() => {
                                     const state = this.stateManager.getState();
-                                    const options: JSX.Element[] = [];
+                                    const options: React.JSX.Element[] = [];
                                     state.materials.forEach((mat) => {
                                         options.push(
                                             <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
@@ -1084,7 +1084,7 @@ export class OptimizationWidget extends ReactWidget {
                                 <option value="">-- Select parameter --</option>
                                 {(() => {
                                     const state = this.stateManager.getState();
-                                    const options: JSX.Element[] = [];
+                                    const options: React.JSX.Element[] = [];
                                     if (state.geometry && state.geometry.cells) {
                                         state.geometry.cells.forEach((cell) => {
                                             options.push(

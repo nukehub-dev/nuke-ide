@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, codicon } from '@theia/core/lib/browser';
 import { Endpoint } from '@theia/core/lib/browser/endpoint';
-import MarkdownIt from 'markdown-it';
+import MarkdownIt, { type MarkdownIt as MarkdownItType, type MarkdownItOptions, type Renderer, type Token } from 'markdown-it';
 import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { DocsSidebar } from './docs-sidebar';
 import { DocsToc, TocItem } from './docs-toc';
@@ -48,7 +48,7 @@ export class DocsWidget extends ReactWidget {
     static readonly MAX_TOC_WIDTH = 350;
     static readonly DEFAULT_TOC_WIDTH = 220;
 
-    protected md: MarkdownIt;
+    protected md: MarkdownItType;
     protected readonly state: DocsWidgetState;
     protected searchDebounce: ReturnType<typeof setTimeout> | undefined;
     protected contentRef = React.createRef<HTMLDivElement>();
@@ -83,11 +83,11 @@ export class DocsWidget extends ReactWidget {
         this.md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
         this.md.renderer.rules.heading_open = (
-            tokens: MarkdownIt.Token[],
+            tokens: Token[],
             idx: number,
-            options: MarkdownIt.Options,
+            options: Required<MarkdownItOptions>,
             env: unknown,
-            self: MarkdownIt.Renderer
+            self: Renderer
         ) => {
             const token = tokens[idx];
             const inlineToken = tokens[idx + 1];
@@ -103,14 +103,14 @@ export class DocsWidget extends ReactWidget {
         };
 
         this.md.renderer.rules.image = (
-            tokens: MarkdownIt.Token[],
+            tokens: Token[],
             idx: number,
-            _options: MarkdownIt.Options,
+            _options: Required<MarkdownItOptions>,
             _env: unknown,
-            self: MarkdownIt.Renderer
+            self: Renderer
         ) => {
             const token = tokens[idx];
-            let src = token.attrGet('src') || '';
+            let src = String(token.attrGet('src') ?? '');
             const alt = token.content || '';
             if (!src.startsWith('http') && !src.startsWith('/')) {
                 src = this.getApiUrlWithQuery('docs-api/file', { path: this.resolveDocLink(src) });
@@ -121,14 +121,14 @@ export class DocsWidget extends ReactWidget {
         };
 
         this.md.renderer.rules.link_open = (
-            tokens: MarkdownIt.Token[],
+            tokens: Token[],
             idx: number,
-            options: MarkdownIt.Options,
+            options: Required<MarkdownItOptions>,
             env: unknown,
-            self: MarkdownIt.Renderer
+            self: Renderer
         ) => {
             const token = tokens[idx];
-            const href = token.attrGet('href') || '';
+            const href = String(token.attrGet('href') ?? '');
             if (!href.startsWith('http') && !href.startsWith('#') && !href.startsWith('mailto:')) {
                 token.attrSet('data-doc-link', href);
                 token.attrSet('href', 'javascript:void(0)');
@@ -137,11 +137,11 @@ export class DocsWidget extends ReactWidget {
         };
 
         this.md.renderer.rules.fence = (
-            tokens: MarkdownIt.Token[],
+            tokens: Token[],
             idx: number,
-            _options: MarkdownIt.Options,
+            _options: Required<MarkdownItOptions>,
             _env: unknown,
-            _self: MarkdownIt.Renderer
+            _self: Renderer
         ) => {
             const token = tokens[idx];
             const info = token.info ? token.info.trim() : '';
