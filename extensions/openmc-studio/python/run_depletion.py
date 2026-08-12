@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import traceback
+from collections.abc import Iterable
 from pathlib import Path
 
 # Canonical solver ids are the OpenMC short names from
@@ -123,6 +124,72 @@ def log_progress(message: str):
         message: Progress message to emit.
     """
     print(f"{message}", file=sys.stderr, flush=True)
+
+
+def sync_dagmc_universes_for_depletion(model):
+    """Populate Python-side cells of DAGMC universes for depletion.
+
+    CoupledOperator needs material instances, which requires the DAGMC cells
+    (and their material fills) on the Python side — geometry.xml only carries
+    a <dagmc_universe> file reference, so the universe is EMPTY until
+    synchronized. Prefers the upstream init_lib → sync_dagmc_universes →
+    finalize_lib sequence; falls back to direct openmc.lib cell enumeration
+    when the .h5m stores set tags in the compact tstt/sets/tags layout
+    (newer pymoab writes) that openmc's h5py tag reader cannot parse. Also
+    determines instance counts (determine_paths), which CoupledOperator
+    requires.
+
+    Args:
+        model: openmc.Model with geometry/materials loaded.
+
+    Returns:
+        Number of synchronized DAGMC cells (0 when the model has no DAGMC
+        universes).
+    """
+    import openmc
+
+    dagmc_universe_cls = getattr(openmc, "DAGMCUniverse", None)
+    dagmc_cell_cls = getattr(openmc, "DAGMCCell", None)
+    if dagmc_universe_cls is None or dagmc_cell_cls is None:
+        return 0
+    dagmc_universes = [
+        u for u in model.geometry.get_all_universes().values() if isinstance(u, dagmc_universe_cls)
+    ]
+    if not dagmc_universes:
+        return 0
+    if all(len(u.cells) > 0 for u in dagmc_universes):
+        # Already synchronized (e.g. geometry.xml carries cell overrides)
+        return sum(len(u.cells) for u in dagmc_universes)
+
+    log_progress(f"Synchronizing {len(dagmc_universes)} DAGMC universe(s) for depletion...")
+    model.init_lib(output=False)
+    try:
+        try:
+            model.sync_dagmc_universes()
+        except Exception as e:
+            log_progress(
+                f"Note: sync_dagmc_universes failed ({e}); "
+                "falling back to direct lib cell enumeration"
+            )
+            import openmc.lib
+
+            mats_per_id = {m.id: m for m in model.materials}
+            for universe in dagmc_universes:
+                if len(universe.cells) > 0:
+                    continue  # this universe was synchronized by the upstream attempt
+                for cell_id in openmc.lib.dagmc.dagmc_universe_cell_ids(universe.id):
+                    lib_cell = openmc.lib.cells[cell_id]
+                    fill = lib_cell.fill
+                    if isinstance(fill, Iterable):
+                        fill = [mats_per_id[m.id] for m in fill if m]
+                    else:
+                        fill = mats_per_id[fill.id] if fill else None
+                    universe.add_cell(dagmc_cell_cls(cell_id=cell_id, fill=fill))
+    finally:
+        model.finalize_lib()
+
+    model.geometry.determine_paths()
+    return sum(len(u.cells) for u in dagmc_universes)
 
 
 def run_depletion(args):
@@ -302,6 +369,11 @@ def run_depletion(args):
             operator = build_independent_operator(args, model, materials, chain, fission_q)
         else:
             log_progress("Creating CoupledOperator...")
+            # DAGMC models need Python-side cells + instance counts before
+            # CoupledOperator (geometry.xml only references the .h5m)
+            synced_cells = sync_dagmc_universes_for_depletion(model)
+            if synced_cells:
+                log_progress(f"Synchronized {synced_cells} DAGMC cell(s) for depletion")
             # CE edge: an MG/non-XML library reference in materials.xml would be
             # fed to DataLibrary.from_xml (lxml crash). 0.15.3's CoupledOperator
             # has no cross_sections kwarg, so clear it and let

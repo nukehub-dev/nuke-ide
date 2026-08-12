@@ -87,7 +87,10 @@ def _install_fake_openmc(
 ):
     """Insert stub openmc/openmc.deplete modules; returns the fake openmc."""
     if geometry is None:
-        geometry = SimpleNamespace(root_universe=SimpleNamespace())
+        geometry = SimpleNamespace(
+            root_universe=SimpleNamespace(),
+            get_all_universes=lambda: {},
+        )
 
     fake_openmc = types.ModuleType("openmc")
 
@@ -255,7 +258,7 @@ class TestRunDepletionSuccess:
 
     def test_missing_root_universe_gets_dummy(self, monkeypatch, tmp_path, chain_file, capsys):
         """A geometry without a root universe receives a dummy one."""
-        geometry = SimpleNamespace(root_universe=None)
+        geometry = SimpleNamespace(root_universe=None, get_all_universes=lambda: {})
         _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")], geometry=geometry)
         workdir = _workdir(tmp_path)
 
@@ -635,3 +638,183 @@ class TestMultigroupCoupledGuard:
             match="Depletion requires nuclide-decomposed materials",
         ):
             run_depletion.run_depletion(_args(workdir))
+
+
+# ---------------------------------------------------------------------------
+# DAGMC depletion sync
+# ---------------------------------------------------------------------------
+
+
+class FakeDAGMCCell:
+    """Fake openmc.DAGMCCell (cell_id + fill)."""
+
+    def __init__(self, cell_id=None, fill=None):
+        self.id = cell_id
+        self.fill = fill
+
+
+class FakeDAGMCUniverse:
+    """Fake openmc.DAGMCUniverse: id + cells dict + add_cell."""
+
+    def __init__(self, uid):
+        self.id = uid
+        self.cells = {}
+
+    def add_cell(self, cell):
+        self.cells[cell.id] = cell
+
+
+def _dagmc_geometry(universe, paths_called):
+    """Fake geometry carrying one DAGMC universe."""
+
+    def determine_paths():
+        paths_called.append(True)
+
+    return SimpleNamespace(
+        root_universe=SimpleNamespace(),
+        get_all_universes=lambda: {universe.id: universe},
+        determine_paths=determine_paths,
+    )
+
+
+def _dagmc_model(fake_openmc, geometry, materials, sync_error=None):
+    """Fake Model with init_lib/sync/finalize tracking."""
+
+    class FakeModel:
+        def __init__(self, geometry, materials, settings):
+            self.geometry = geometry
+            self.materials = materials
+            self.settings = settings
+            self.lib_initialized = False
+            self.lib_finalized = False
+            self.upstream_sync_called = False
+
+        def init_lib(self, output=False):
+            self.lib_initialized = True
+
+        def finalize_lib(self):
+            self.lib_finalized = True
+
+        def sync_dagmc_universes(self):
+            self.upstream_sync_called = True
+            if sync_error is not None:
+                raise sync_error
+            # Upstream success: populate nothing else needed here; tests that
+            # exercise the success path pre-fill via their own fake lib too.
+
+    fake_openmc.model = SimpleNamespace(Model=FakeModel)
+    return FakeModel
+
+
+def _fake_lib(monkeypatch, cell_fills):
+    """Install a fake openmc.lib; cell_fills maps cell_id -> fill (material-like or None)."""
+    fake_lib = types.ModuleType("openmc.lib")
+    fake_lib.is_initialized = True
+    fake_lib.dagmc = SimpleNamespace(dagmc_universe_cell_ids=lambda uid: sorted(cell_fills))
+    fake_lib.cells = {cid: SimpleNamespace(fill=fill) for cid, fill in cell_fills.items()}
+    monkeypatch.setitem(sys.modules, "openmc.lib", fake_lib)
+    # A real `import openmc.lib` also sets the attribute on the parent package
+    sys.modules["openmc"].lib = fake_lib
+    return fake_lib
+
+
+class TestDagmcDepletionSync:
+    """DAGMC models must be synchronized before CoupledOperator creation."""
+
+    def _materials(self):
+        mats = [FakeMaterial("mat_0"), FakeMaterial("mat_1")]
+        mats[0].id = 1
+        mats[1].id = 2
+        return mats
+
+    def test_upstream_sync_failure_falls_back_to_lib_enumeration(
+        self, monkeypatch, tmp_path, chain_file, capsys
+    ):
+        """pymoab-layout .h5m breaks sync_dagmc_universes; lib fallback populates cells."""
+        universe = FakeDAGMCUniverse(1)
+        paths_called = []
+        geometry = _dagmc_geometry(universe, paths_called)
+        materials = self._materials()
+        fake_openmc = _install_fake_openmc(monkeypatch, materials=materials, geometry=geometry)
+        fake_openmc.DAGMCUniverse = FakeDAGMCUniverse
+        fake_openmc.DAGMCCell = FakeDAGMCCell
+        _dagmc_model(fake_openmc, geometry, materials, sync_error=KeyError("values"))
+        _fake_lib(monkeypatch, {10: SimpleNamespace(id=1), 11: SimpleNamespace(id=2)})
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+        assert result["success"] is True
+        # Cells came from the lib fallback with fills resolved by material id
+        assert set(universe.cells) == {10, 11}
+        assert universe.cells[10].fill is materials[0]
+        assert universe.cells[11].fill is materials[1]
+        assert paths_called == [True]
+        # init_lib/finalize_lib bracket the sync even on failure
+        model = RecordingOperator.instances[0].model
+        assert model.lib_initialized and model.lib_finalized and model.upstream_sync_called
+        assert "falling back to direct lib cell enumeration" in capsys.readouterr().err
+
+    def test_upstream_sync_success_skips_the_fallback(self, monkeypatch, tmp_path, chain_file):
+        """When sync_dagmc_universes works, no lib enumeration is needed."""
+        universe = FakeDAGMCUniverse(1)
+        paths_called = []
+        geometry = _dagmc_geometry(universe, paths_called)
+        materials = self._materials()
+        fake_openmc = _install_fake_openmc(monkeypatch, materials=materials, geometry=geometry)
+        fake_openmc.DAGMCUniverse = FakeDAGMCUniverse
+        fake_openmc.DAGMCCell = FakeDAGMCCell
+
+        def populate(model):
+            universe.add_cell(FakeDAGMCCell(cell_id=10, fill=materials[0]))
+
+        model_cls = _dagmc_model(fake_openmc, geometry, materials)
+        # Emulate the upstream sync populating the universe
+        original_sync = model_cls.sync_dagmc_universes
+
+        def sync_and_populate(self):
+            original_sync(self)
+            populate(self)
+
+        model_cls.sync_dagmc_universes = sync_and_populate
+        # No openmc.lib installed: reaching the fallback would raise
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+        assert result["success"] is True
+        assert set(universe.cells) == {10}
+        assert paths_called == [True]
+
+    def test_already_synchronized_universe_skips_lib_entirely(
+        self, monkeypatch, tmp_path, chain_file
+    ):
+        """A geometry.xml that already carries DAGMC cell overrides needs no init_lib."""
+        universe = FakeDAGMCUniverse(1)
+        materials = self._materials()
+        universe.add_cell(FakeDAGMCCell(cell_id=10, fill=materials[0]))
+        paths_called = []
+        geometry = _dagmc_geometry(universe, paths_called)
+        fake_openmc = _install_fake_openmc(monkeypatch, materials=materials, geometry=geometry)
+        fake_openmc.DAGMCUniverse = FakeDAGMCUniverse
+        fake_openmc.DAGMCCell = FakeDAGMCCell
+        _dagmc_model(fake_openmc, geometry, materials)
+        # No openmc.lib installed: any lib access would raise
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+        assert result["success"] is True
+        model = RecordingOperator.instances[0].model
+        assert model.lib_initialized is False
+        assert paths_called == []  # instances already valid on synced models
+
+    def test_non_dagmc_models_never_touch_lib(self, monkeypatch, tmp_path, chain_file):
+        """Plain CSG models skip the whole DAGMC path (no openmc.lib import)."""
+        _install_fake_openmc(monkeypatch, materials=[FakeMaterial("fuel")])
+        workdir = _workdir(tmp_path)
+
+        result = run_depletion.run_depletion(_args(workdir, chain_file=chain_file))
+
+        # Success despite openmc.lib being unimportable with the stub openmc
+        assert result["success"] is True
