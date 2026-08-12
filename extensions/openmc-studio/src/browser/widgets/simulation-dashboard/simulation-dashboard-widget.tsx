@@ -276,6 +276,31 @@ export class SimulationDashboardWidget extends ReactWidget {
                 this.update();
             }
         }, 2000); // Check every 2 seconds
+
+        // Re-attach to any simulation already running in the backend. Status
+        // events are one-shot pushes, so after a tab reload (or a project open
+        // while a run is in flight) the UI would otherwise look idle and Stop
+        // would not work. Attempt again when a project is (re)loaded.
+        this.tryReattachToActiveSimulation();
+        this.stateManager.onStateReload(() => this.tryReattachToActiveSimulation());
+    }
+
+    /**
+     * Ask the simulation runner to re-attach to a backend run for this project.
+     */
+    private async tryReattachToActiveSimulation(): Promise<void> {
+        const projectPath = this.stateManager.projectPath;
+        if (!projectPath || this.isRunning) {
+            return;
+        }
+        try {
+            const attached = await this.simulationRunner.reattachToActiveSimulation(path.dirname(projectPath));
+            if (attached) {
+                this.logToConsole('Re-attached to a simulation already running in the backend', 'info');
+            }
+        } catch (error) {
+            console.warn('[Simulation] Re-attach failed:', error);
+        }
     }
 
     /**

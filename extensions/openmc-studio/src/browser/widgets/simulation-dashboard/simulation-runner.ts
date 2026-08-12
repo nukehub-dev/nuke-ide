@@ -50,6 +50,7 @@ import {
 } from '../../../common/openmc-studio-protocol';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { resolveMgxsLibrary } from '../../../common/mgxs-library';
+import { pickReattachTarget } from '../../../common/simulation-reattach';
 import URI from '@theia/core/lib/common/uri';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
@@ -85,6 +86,44 @@ export class OpenMCSimulationRunner {
 
     private _isRunning = false;
     private _currentProcessId?: string;
+
+    /**
+     * Re-attach to a simulation that is already running in the backend for the
+     * given working directory.
+     *
+     * Status events are one-shot pushes: after a tab reload the fresh frontend
+     * never saw the original 'starting' event, so without this handshake the UI
+     * shows idle, Stop cannot work (unknown processId), and a second concurrent
+     * run could be started against the same output directory. When a matching
+     * active run is found, local state is restored and the usual events are
+     * fired so consumers behave as if the run had just started here.
+     *
+     * @param workingDirectory - Project directory to match against active runs.
+     * @returns `true` if a running simulation was found and attached.
+     */
+    async reattachToActiveSimulation(workingDirectory: string): Promise<boolean> {
+        if (this._isRunning) {
+            return true;
+        }
+        try {
+            const active = await this.backendService.getActiveSimulations();
+            const match = pickReattachTarget(active, workingDirectory);
+            if (!match) {
+                return false;
+            }
+            this._isRunning = true;
+            this._currentProcessId = match.processId;
+            this._onSimulationStart.fire();
+            this._onStatusChange.fire({
+                processId: match.processId,
+                status: 'running'
+            });
+            return true;
+        } catch (error) {
+            console.warn('[SimulationRunner] Failed to query active simulations:', error);
+            return false;
+        }
+    }
 
     /** Event emitter fired when a simulation starts. */
     private readonly _onSimulationStart = new Emitter<void>();

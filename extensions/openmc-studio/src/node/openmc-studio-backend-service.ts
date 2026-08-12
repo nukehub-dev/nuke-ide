@@ -50,6 +50,7 @@ import {
     SimulationRunRequest,
     SimulationRunResult,
     SimulationLogResult,
+    ActiveSimulationInfo,
     StartSimulationResponse,
     ValidationRequest,
     ValidationResult,
@@ -1775,6 +1776,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async getSimulationLog(processId: string): Promise<SimulationLogResult> {
         return this.runnerService.getSimulationLog(processId);
+    }
+
+    /**
+     * List simulations currently running in the backend (for frontend re-attach).
+     * @returns Active runs with process IDs, working directories, and log paths
+     */
+    async getActiveSimulations(): Promise<ActiveSimulationInfo[]> {
+        return this.runnerService.getActiveSimulations();
     }
 
     /**

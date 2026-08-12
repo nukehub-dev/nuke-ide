@@ -608,6 +608,18 @@ export interface StartSimulationResponse {
     error?: string;
 }
 
+/** Info about a simulation currently running in the backend */
+export interface ActiveSimulationInfo {
+    /** Process ID for tracking/cancelling */
+    processId: string;
+    /** Working directory (project directory) the run was started from */
+    workingDirectory: string;
+    /** Path to the run's log file on disk */
+    logFilePath: string;
+    /** Run start time (ISO string) */
+    startTime: string;
+}
+
 /** Simulation log result */
 export interface SimulationLogResult {
     /** Whether log was found */
@@ -923,6 +935,13 @@ export interface OpenMCStudioBackendService {
 
     /** Get simulation log file content */
     getSimulationLog(processId: string): Promise<SimulationLogResult>;
+
+    /**
+     * List simulations currently running in the backend. Used by frontends to
+     * re-attach to an in-flight run after a tab reload / reconnect (status
+     * events are one-shot, so a fresh frontend cannot discover runs otherwise).
+     */
+    getActiveSimulations(): Promise<ActiveSimulationInfo[]>;
 
     /** Check if OpenMC is available */
     checkOpenMC(): Promise<{ available: boolean; version?: string; path?: string; error?: string }>;

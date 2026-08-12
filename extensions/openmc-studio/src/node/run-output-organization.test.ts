@@ -64,7 +64,7 @@ describe('moveRunOutputFiles', () => {
         }
     });
 
-    it('moves particle restart and track files into subfolders with one summary log', async () => {
+    it('moves particle restart and track files into subfolders, logging only track moves', async () => {
         const dir = tempDir();
         fs.writeFileSync(path.join(dir, 'particle_1_100.h5'), 'a');
         fs.writeFileSync(path.join(dir, 'particle_1_101.h5'), 'b');
@@ -82,10 +82,13 @@ describe('moveRunOutputFiles', () => {
         expect(fs.existsSync(path.join(dir, 'tracks.h5'))).toBe(false);
         expect(fs.existsSync(path.join(dir, 'settings.xml'))).toBe(true);
 
-        const summaries = logSpy.mock.calls.filter((args) => String(args[0]).includes('particle restart file'));
-        expect(summaries).toHaveLength(1);
-        expect(String(summaries[0][0])).toContain('2 particle restart file(s)');
-        expect(String(summaries[0][0])).toContain('1 track file(s)');
+        // Particle restart files are per-lost-particle debris — logging their
+        // moves floods the backend console on leaky geometries. Only track
+        // moves (rare, user artifacts) get a summary line.
+        const movedSummaries = logSpy.mock.calls.filter((args) => String(args[0]).startsWith('[OpenMC Runner] Moved'));
+        expect(movedSummaries).toHaveLength(1);
+        expect(String(movedSummaries[0][0])).toContain('1 track file(s)');
+        expect(logSpy.mock.calls.some((args) => String(args[0]).includes('particle restart file'))).toBe(false);
     });
 
     it('replaces an existing destination instead of leaving a stuck source', async () => {

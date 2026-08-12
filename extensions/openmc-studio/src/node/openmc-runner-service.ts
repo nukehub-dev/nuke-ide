@@ -60,7 +60,8 @@ import {
     ChainBuildRequest,
     ChainBuildResult,
     MgxsLibraryGenerationRequest,
-    MgxsLibraryGenerationResult
+    MgxsLibraryGenerationResult,
+    ActiveSimulationInfo
 } from '../common/openmc-studio-protocol';
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
@@ -1569,6 +1570,24 @@ export class OpenMCRunnerService {
     }
 
     /**
+     * List simulations currently running in the backend.
+     *
+     * Status/log events are pushed to whatever client is connected, but a
+     * reloaded tab never saw the one-shot 'starting' event — this lets a fresh
+     * frontend discover in-flight runs and re-attach (processId for cancel,
+     * logFilePath for history).
+     * @returns Active runs with their working directories and log paths
+     */
+    async getActiveSimulations(): Promise<ActiveSimulationInfo[]> {
+        return Array.from(this.runningSimulations.values()).map((simulation) => ({
+            processId: simulation.processId,
+            workingDirectory: simulation.request.workingDirectory,
+            logFilePath: simulation.logFilePath,
+            startTime: simulation.startTime.toISOString()
+        }));
+    }
+
+    /**
      * Parse progress information from OpenMC stdout output.
      * @param output - Output chunk from OpenMC process
      */
@@ -1668,7 +1687,6 @@ export class OpenMCRunnerService {
                 const tracksDir = path.join(dir, 'tracks');
                 const particlesDir = path.join(dir, 'particles');
                 let movedTracks = 0;
-                let movedParticles = 0;
 
                 if (tracksFiles.length > 0) {
                     await fs.promises.mkdir(tracksDir, { recursive: true });
@@ -1692,21 +1710,15 @@ export class OpenMCRunnerService {
                         const destination = path.join(particlesDir, file);
                         await fs.promises.rm(destination, { force: true });
                         await fs.promises.rename(source, destination);
-                        movedParticles++;
                     }
                 }
 
-                // One summary line per directory per pass — per-file logging
-                // spams the backend console on runs with many lost particles.
-                const parts: string[] = [];
+                // Only track moves get a summary line. Particle restart files
+                // are per-lost-particle debris — on leaky geometries they churn
+                // at hundreds per watcher pass, so logging them floods the
+                // backend console even as one line per pass.
                 if (movedTracks > 0) {
-                    parts.push(`${movedTracks} track file(s) into ${path.relative(workingDirectory, tracksDir)}/`);
-                }
-                if (movedParticles > 0) {
-                    parts.push(`${movedParticles} particle restart file(s) into ${path.relative(workingDirectory, particlesDir)}/`);
-                }
-                if (parts.length > 0) {
-                    this.log(`Moved ${parts.join(' and ')}`);
+                    this.log(`Moved ${movedTracks} track file(s) into ${path.relative(workingDirectory, tracksDir)}/`);
                 }
             } catch (error) {
                 this.log(`Warning: failed to organize run output files in ${dir}: ${error}`);
