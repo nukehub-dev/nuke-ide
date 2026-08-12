@@ -228,6 +228,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: vitest job never compiled extensions (broken imports on fresh runners);
   setup-miniconda pinned Python 3.14, unsatisfiable for OpenMC.
 
+### Changed
+
+- Platform: Theia 1.73.1 → **1.74.1** across all applications and extensions.
+  The experimental `@theia/ai-vercel-ai` provider was removed (upstream
+  deprecated and unpublished it — the dedicated `@theia/ai-openai` and
+  `@theia/ai-anthropic` providers cover the same models), and the Electron
+  shell moves to Electron 42.3.0 (bundles Node 24) per Theia's downstream
+  requirement.
+
 ## [0.1.3] - 2026-07-28
 
 First tagged release.
