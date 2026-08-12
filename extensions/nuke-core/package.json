@@ -23,11 +23,11 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.73.1",
-    "@theia/filesystem": "1.73.1",
-    "@theia/preferences": "1.73.1",
-    "@theia/terminal": "1.73.1",
-    "@theia/workspace": "1.73.1"
+    "@theia/core": "1.74.1",
+    "@theia/filesystem": "1.74.1",
+    "@theia/preferences": "1.74.1",
+    "@theia/terminal": "1.74.1",
+    "@theia/workspace": "1.74.1"
   },
   "devDependencies": {
     "rimraf": "^6.1.3",
