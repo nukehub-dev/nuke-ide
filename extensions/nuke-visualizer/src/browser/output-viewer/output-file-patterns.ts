@@ -71,3 +71,13 @@ export function isVoxelPlotFileName(baseName: string): boolean {
 export function isSummaryFileName(baseName: string): boolean {
     return baseName.toLowerCase() === 'summary.h5';
 }
+
+/**
+ * `openmc_simulation_n<N>.h5` — per-step statepoints written by the depletion
+ * CoupledOperator (`write_bos_data` → `openmc.lib.statepoint_write(...,
+ * write_source=False)`). Same layout as a `statepoint*.h5` file minus the
+ * source bank, so the statepoint viewer claims them.
+ */
+export function isDepletionStepStatepointFileName(baseName: string): boolean {
+    return /^openmc_simulation_n\d+\.h5$/.test(baseName.toLowerCase());
+}

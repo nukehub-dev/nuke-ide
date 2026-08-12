@@ -41,6 +41,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OutputViewerContribution, selectOutputViewer } from './output-viewer-registry';
 import {
     isCollisionTrackFileName,
+    isDepletionStepStatepointFileName,
     isParticleRestartFileName,
     isSummaryFileName,
     isTracksFileName,
@@ -134,6 +135,18 @@ describe('output file patterns', () => {
         expect(isSummaryFileName('summary.1.h5')).toBe(false);
         expect(isSummaryFileName('my_summary.h5')).toBe(false);
         expect(isSummaryFileName('statepoint.100.h5')).toBe(false);
+    });
+
+    it('matches depletion per-step statepoints (openmc_simulation_n<N>.h5)', () => {
+        expect(isDepletionStepStatepointFileName('openmc_simulation_n0.h5')).toBe(true);
+        expect(isDepletionStepStatepointFileName('openmc_simulation_n8.h5')).toBe(true);
+        expect(isDepletionStepStatepointFileName('openmc_simulation_n123.h5')).toBe(true);
+        expect(isDepletionStepStatepointFileName('OPENMC_SIMULATION_N8.H5')).toBe(true);
+        expect(isDepletionStepStatepointFileName('openmc_simulation_n.h5')).toBe(false);
+        expect(isDepletionStepStatepointFileName('openmc_simulation.h5')).toBe(false);
+        expect(isDepletionStepStatepointFileName('statepoint.100.h5')).toBe(false);
+        expect(isDepletionStepStatepointFileName('depletion_results.h5')).toBe(false);
+        expect(isDepletionStepStatepointFileName('source.h5')).toBe(false);
     });
 });
 

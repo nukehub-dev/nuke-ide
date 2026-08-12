@@ -52,6 +52,7 @@ import { OpenMCDepletionContribution } from './contributions/openmc-depletion-co
 import { OpenMCOverlayContribution } from './contributions/openmc-overlay-contribution';
 import { OpenMCPlottingContribution } from './contributions/openmc-plotting-contribution';
 import { OutputViewerRegistry } from '../../output-viewer/output-viewer-registry';
+import { isDepletionStepStatepointFileName } from '../../output-viewer/output-file-patterns';
 
 @injectable()
 export class OpenMCContribution implements FrontendApplicationContribution, OpenHandler {
@@ -122,8 +123,10 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
         const name = uri.path.base.toLowerCase();
 
-        // Handle statepoint files
-        if (name.startsWith('statepoint') && name.endsWith('.h5')) {
+        // Handle statepoint files — including the per-step statepoints a
+        // depletion run writes as openmc_simulation_n<N>.h5 (same layout,
+        // minus the source bank).
+        if ((name.startsWith('statepoint') && name.endsWith('.h5')) || isDepletionStepStatepointFileName(name)) {
             return 200;
         }
 
@@ -195,7 +198,7 @@ export class OpenMCContribution implements FrontendApplicationContribution, Open
 
         const name = uri.path.base.toLowerCase();
 
-        if (name.startsWith('statepoint') && name.endsWith('.h5')) {
+        if ((name.startsWith('statepoint') && name.endsWith('.h5')) || isDepletionStepStatepointFileName(name)) {
             // Load statepoint and open Statepoint Viewer
             const progress = await this.messageService.showProgress({
                 text: 'Opening statepoint viewer...',
