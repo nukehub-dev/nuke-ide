@@ -603,6 +603,24 @@ export class OpenMCPythonExporter {
         const lines: string[] = [];
         const varName = this.sanitizeVariableName(material.name);
 
+        if (material.ncrystalCfg) {
+            // NCrystal material: from_ncrystal rebuilds the flattened composition,
+            // density and temperature from the cfg and attaches the cfg so the
+            // exported XML takes thermal scattering from NCrystal. S(a,b) and
+            // explicit nuclides are intentionally not emitted (incompatible).
+            lines.push(
+                `${varName} = openmc.Material.from_ncrystal("${this.escapePythonString(material.ncrystalCfg)}", name="${this.escapePythonString(material.name)}", material_id=${material.id})`
+            );
+            if (material.isDepletable) {
+                lines.push(`${varName}.depletable = True`);
+            }
+            if (material.volume !== undefined) {
+                lines.push(`${varName}.volume = ${material.volume}`);
+            }
+            lines.push('');
+            return lines;
+        }
+
         lines.push(`${varName} = openmc.Material(name="${this.escapePythonString(material.name)}", material_id=${material.id})`);
 
         if (material.macroscopic) {

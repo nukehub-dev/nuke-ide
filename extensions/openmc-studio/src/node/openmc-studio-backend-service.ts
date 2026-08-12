@@ -472,6 +472,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     material.macroscopic = { name: mat.macroscopic.$.name };
                 }
 
+                // Parse NCrystal configuration (material cfg attribute)
+                if (mat.$.cfg) {
+                    material.ncrystalCfg = mat.$.cfg;
+                }
+
                 // Parse temperature
                 if (mat.$.temperature) {
                     material.temperature = parseFloat(mat.$.temperature);

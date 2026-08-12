@@ -58,6 +58,8 @@ export class MaterialsTabContribution implements DashboardTabContribution {
     private newMaterialTemperature?: number;
     private newMaterialThermalScattering: { name: string; fraction: number }[] = [];
     private newMaterialColor = '#4A90D9';
+    /** NCrystal cfg attached to the material being created/edited (set by the NCrystal import). */
+    private newMaterialNCrystalCfg?: string;
 
     /** Material type for the creation form. */
     private newMaterialType: 'nuclides' | 'macroscopic' = 'nuclides';
@@ -755,6 +757,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialColor = '#4A90D9';
         this.newMaterialType = 'nuclides';
         this.newMaterialMacroscopicName = '';
+        this.newMaterialNCrystalCfg = undefined;
         this.ncrystalCfg = '';
     }
 
@@ -799,6 +802,10 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                 this.newMaterialDensityUnit = 'g/cm3';
                 this.newMaterialNuclides = result.material.nuclides.map((n) => ({ ...n }));
                 this.newMaterialTemperature = result.material.temperature ?? undefined;
+                // Keep the cfg on the material so XML export writes the
+                // <material cfg="..."> attribute — without it the material
+                // would silently run on plain ACE data, not NCrystal.
+                this.newMaterialNCrystalCfg = cfg;
                 host.messageService.info(`NCrystal material imported (${result.material.nuclides.length} nuclides)`);
             } else {
                 host.messageService.error(result.error || 'NCrystal import failed');
@@ -876,6 +883,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialColor = material.color || '#4A90D9';
         this.newMaterialType = material.macroscopic ? 'macroscopic' : 'nuclides';
         this.newMaterialMacroscopicName = material.macroscopic?.name ?? '';
+        this.newMaterialNCrystalCfg = material.ncrystalCfg;
         this.showNewMaterialForm = true;
         host.update();
     }
@@ -912,6 +920,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialColor = material.color || '#4A90D9';
         this.newMaterialType = material.macroscopic ? 'macroscopic' : 'nuclides';
         this.newMaterialMacroscopicName = material.macroscopic?.name ?? '';
+        this.newMaterialNCrystalCfg = material.ncrystalCfg;
         this.showNewMaterialForm = true;
         host.update();
         host.messageService.info('Edit the duplicated material and click Create');
@@ -1010,6 +1019,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
             isDepletable: this.newMaterialIsDepletable,
             volume: this.newMaterialVolume,
             temperature: this.newMaterialTemperature,
+            ncrystalCfg: this.newMaterialNCrystalCfg,
             color: this.newMaterialColor
         };
 

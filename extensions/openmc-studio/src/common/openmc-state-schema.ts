@@ -381,6 +381,15 @@ export interface OpenMCMaterial {
         /** Name of the macroscopic data set in the MGXS library (e.g. 'UO2') */
         name: string;
     };
+    /**
+     * NCrystal configuration string (e.g. 'LiquidWaterH2O_T293.6K.ncmat;temp=293.6K').
+     * Emitted as the `<material cfg="...">` attribute so libopenmc takes thermal
+     * neutron scattering from NCrystal; the nuclide list still carries the
+     * flattened composition (used for non-scattering reactions and tallies).
+     * Incompatible with S(α,β) and macroscopic data (openmc/material.py
+     * `to_xml_element` raises on both).
+     */
+    ncrystalCfg?: string;
     /** Whether material is depletable */
     isDepletable?: boolean;
     /** Optional volume in cm³ (required for depletion) */

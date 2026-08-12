@@ -391,8 +391,14 @@ export class XMLGenerationService {
         const depletableAttr = material.isDepletable ? ' depletable="true"' : '';
         const volumeAttr = material.volume ? ` volume="${material.volume}"` : '';
         const tempAttr = material.temperature ? ` temperature="${material.temperature}"` : '';
+        // NCrystal materials take thermal scattering from NCrystal at runtime
+        // (openmc/material.py to_xml_element writes cfg on the material tag);
+        // the flattened nuclide decomposition below is still emitted.
+        const cfgAttr = material.ncrystalCfg ? ` cfg="${this.escapeXml(material.ncrystalCfg)}"` : '';
 
-        lines.push(`  <material id="${material.id}" name="${this.escapeXml(material.name)}"${depletableAttr}${volumeAttr}${tempAttr}>`);
+        lines.push(
+            `  <material id="${material.id}" name="${this.escapeXml(material.name)}"${depletableAttr}${volumeAttr}${tempAttr}${cfgAttr}>`
+        );
         lines.push(`    <density units="${material.densityUnit}" value="${material.density}"/>`);
 
         if (material.macroscopic && !forceNuclides) {
