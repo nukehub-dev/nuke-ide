@@ -37,6 +37,15 @@ Update the closest owning `AGENTS.md` when a change affects:
 
 Update parent docs when parent-level structure, ownership, workflow, or child index changes. Update child docs when parent changes alter local rules. Remove stale or contradictory text immediately. Small edits that do not change behavior or contracts may leave docs unchanged, but the NAD pass still must happen.
 
+### Docs and Changelog Pass
+
+`AGENTS.md` updates do not cover user/dev documentation. In the same change, also update:
+
+- **User/dev docs** when a change alters user-visible or developer-facing behavior — features, UI, RPC/protocol contracts, settings, file formats, workflows. Product docs live in `docs/*.md`; extension docs are the source of truth under `extensions/<name>/docs/` (`user/` and `dev/`), read in-IDE by `extensions/nuke-docs`. See `docs/AGENTS.md`.
+- **`CHANGELOG.md`** (`Unreleased`, Keep a Changelog format) for every user-visible addition, change, or fix — the release flow extracts release notes from it, so an unlogged feature never reaches users.
+
+Internal refactors, bug fixes with no behavior change, and test-only work need neither.
+
 ## Hierarchy
 
 - Root `AGENTS.md` is the NAD rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child NAD Index.
