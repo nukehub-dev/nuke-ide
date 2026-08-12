@@ -43,6 +43,9 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
+import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
+import * as path from 'path';
 
 import {
     OpenMCState,
@@ -63,6 +66,7 @@ import {
 } from '../common/openmc-state-schema';
 
 import { StateChangeEvent, ValidationResult, OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
+import { computeOutputWatcherExcludes } from '../common/output-watcher-excludes';
 
 /**
  * Create a default empty {@link OpenMCState} with sensible initial values.
@@ -130,6 +134,12 @@ export class OpenMCStateManager {
 
     @inject(OpenMCStudioBackendService)
     protected readonly backendService: OpenMCStudioBackendService;
+
+    @inject(PreferenceService)
+    protected readonly preferences: PreferenceService;
+
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
 
     /** Internal mutable state — access through {@link getState} to receive a copy. */
     private _state: OpenMCState = createDefaultState();
@@ -417,6 +427,11 @@ export class OpenMCStateManager {
             type: 'update',
             value: this._state.settings
         });
+
+        if (updates.output !== undefined) {
+            // The output directory moved — refresh the watcher exclusion.
+            this.excludeRunOutputFromWatcher();
+        }
     }
 
     /**
@@ -838,6 +853,7 @@ export class OpenMCStateManager {
     setProjectPath(path: string): void {
         this._projectPath = path;
         this._onProjectPathChange.fire(path);
+        this.excludeRunOutputFromWatcher();
     }
 
     /**
@@ -846,6 +862,49 @@ export class OpenMCStateManager {
     clearProjectPath(): void {
         this._projectPath = undefined;
         this._onProjectPathChange.fire(undefined);
+    }
+
+    /**
+     * Add the project's run-output directory to `files.watcherExclude`
+     * (workspace scope). OpenMC runs write huge numbers of small files
+     * (lost-particle restart files, track files) under the output directory;
+     * without an exclusion Theia's recursive watcher drowns in fs events and
+     * the file manager lags. Theia refreshes the workspace-root watchers live
+     * when the preference changes. Best effort: failures are logged, never
+     * thrown.
+     */
+    protected excludeRunOutputFromWatcher(): void {
+        if (!this._projectPath) {
+            return;
+        }
+        try {
+            const outputSetting = this._state.settings.output?.path;
+            const projectDir = path.dirname(this._projectPath);
+            const outputDir = outputSetting
+                ? path.isAbsolute(outputSetting)
+                    ? outputSetting
+                    : path.resolve(projectDir, outputSetting)
+                : projectDir;
+            const roots = this.workspaceService.tryGetRoots().map((root) => root.resource.path.toString());
+            const patterns = computeOutputWatcherExcludes(outputDir, projectDir, roots);
+            if (patterns.length === 0) {
+                return;
+            }
+            const current = this.preferences.get<{ [pattern: string]: boolean }>('files.watcherExclude', {}) ?? {};
+            const missing = patterns.filter((pattern) => !(pattern in current));
+            if (missing.length === 0) {
+                return;
+            }
+            const next = { ...current };
+            for (const pattern of missing) {
+                next[pattern] = true;
+            }
+            Promise.resolve(this.preferences.set('files.watcherExclude', next, PreferenceScope.Workspace))
+                .then(() => console.log(`[OpenMC Studio] Excluded run output from file watcher: ${missing.join(', ')}`))
+                .catch((error) => console.warn('[OpenMC Studio] Failed to update files.watcherExclude:', error));
+        } catch (error) {
+            console.warn('[OpenMC Studio] Failed to exclude run output from file watcher:', error);
+        }
     }
 
     /**
