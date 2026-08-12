@@ -232,7 +232,8 @@ The **Faceting** tab lets you regenerate the DAGMC mesh from the original source
 2. **Select a source CAD file** — Click **Browse** to pick the original STEP/IGES file, or **Auto-detect** to search the same directory as the `.h5m` file.
 3. **Choose a tolerance** — Use preset buttons (**Draft 1 cm**, **Standard 0.5 cm**, **Fine 0.1 cm**, **Ultra 0.01 cm**) or drag the slider for fine-tuning.
 4. **Review the impact preview** — The gauge shows the estimated triangle count and the change relative to the current mesh.
-5. **Click Generate** — The new `.h5m` is saved next to the original with a `_refaceted` suffix. You can load it immediately or keep the current file.
+5. **(Optional) Enable Imprint & Merge** — Check **"Imprint & merge shared surfaces"** to produce a conformal mesh between adjacent volumes (slower, but better for particle transport).
+6. **Click Generate** — The new `.h5m` is saved next to the original with a `_refaceted` suffix. You can load it immediately or keep the current file. If the old file had a `mat:graveyard` volume, it is re-created on the re-tessellated output automatically (the source CAD does not contain the graveyard shell); a warning confirms this.
 
 > **Tip:** Smaller tolerance = more triangles = finer mesh. For large assemblies (tokamaks, reactor vessels), **Draft** or **Standard** presets usually give a good balance between accuracy and file size.
 
@@ -301,6 +302,6 @@ If you see "skipped N volumes" warnings:
 ## Tips
 
 - **Validate before running:** After building CSG geometry, run `Tools → OpenMC Studio → Simulation → Validate Model` to check for errors before simulation.
-- **DAGMC graveyard:** Always ensure your DAGMC model has a `graveyard` group. Without it, OpenMC cannot terminate escaping particles.
+- **DAGMC graveyard:** Always ensure your DAGMC model has a `graveyard` group. Without it, OpenMC cannot terminate escaping particles. The DAGMC Editor detects a missing graveyard and can create one automatically (see [DAGMC Editor](dagmc-editor.md)).
 - **Unit consistency:** OpenMC uses centimeters. Ensure your CAD files are in cm or convert during import.
 - **Complex lattices:** For large lattice arrays, use the grid editor's **"Fill Pattern"** button to repeat a universe pattern across the lattice.

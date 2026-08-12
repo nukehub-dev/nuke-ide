@@ -7,14 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Phase 5: comprehensive OpenMC feature completeness.
-Phase 6: remaining OpenMC surface.
-Phase 7: deferred surface + end-to-end testing layer.
-Phase 8: nuclear data hub (NCrystal + ENDF).
-Phase 9: hardening + workflow unification.
-
 ### Added
 
+- openmc-studio: the Simulation Dashboard re-attaches to in-flight backend
+  runs after a browser tab/window reload — Stop keeps working and live
+  progress/log streaming resumes instead of the run looking idle.
+- openmc-studio: **graveyard tooling for DAGMC models** — the DAGMC editor
+  detects a missing graveyard and offers one-click creation of a bounding box
+  tagged `mat:graveyard` (or re-tagging an existing enclosing volume), and
+  CAD→DAGMC conversion auto-creates the graveyard bounding volume by default
+  (`--no-graveyard` / `addGraveyard: false` to opt out).
+- openmc-studio: **Import CAD** button in the DAGMC editor header — imports
+  STEP/IGES/BREP/STL files straight into DAGMC format with a gmsh/OpenCASCADE
+  availability check. Generated `.h5m` files land in the project directory
+  when a project is saved, otherwise next to the source CAD file.
+- openmc-studio: optional **Imprint & Merge** mode for DAGMC refacet
+  (OpenCASCADE imprint/merge so touching faces share topology), and refacet
+  re-creates a graveyard volume that re-tessellation would otherwise drop.
+- openmc-studio: one-click fix when MGXS generation is incompatible with the
+  project (multi-group mode or macroscopic materials) — a warning box offers
+  to switch back to continuous energy, restoring materials from the
+  pre-conversion backup.
+- openmc-studio: `copyDagmcToRunDirectory` setting (Simulation tab) — off by
+  default, geometry.xml references the DAGMC file via a project-relative path;
+  on, the `.h5m` is copied into the run directory as `geometry.h5m` for a
+  self-contained run directory. Project files store DAGMC/MGXS asset paths
+  project-relative, keeping projects portable across machines.
+- nuke-visualizer: depletion per-step statepoints (`openmc_simulation_n<N>.h5`)
+  open in the statepoint viewer alongside regular `statepoint*.h5` files.
 - nuke-core: **Nuke Tools sidebar** — a searchable, categorized left-panel view that aggregates every Nuke command across extensions. Extensions contribute items via `NukeToolsContribution`, with support for nested categories, section/category ordering, and state-aware enabled/disabled items.
 - openmc-studio: element symbols (e.g. `U`, `O`) in materials are expanded to their natural nuclide compositions on XML export and script generation, so hand-edited element shorthand round-trips correctly through OpenMC.
 - openmc-studio: one-click **CE ↔ Multi-Group conversion** (Random Ray tab) —
@@ -149,6 +169,25 @@ Phase 9: hardening + workflow unification.
 
 ### Fixed
 
+- openmc-studio: DAGMC universes are synchronized before CoupledOperator
+  creation on DAGMC geometries — coupled depletion previously failed with
+  'Number of material instances have not been determined'.
+- openmc-studio: FW-CADIS weight-window generation is validated against
+  random ray mode (it silently required it), and repeated CAD conversions no
+  longer produce duplicate graveyard volumes.
+- openmc-studio: nuclide-wise MGXS generation with `--random-ray` sets
+  `energy_mode = 'multi-group'` directly instead of running
+  `convert_to_random_ray`, which rejects continuous-energy models.
+- openmc-studio: the OpenMC run output directory is excluded from the file
+  watcher, stopping file-manager lag on runs that flood the output dir with
+  track/particle files.
+- openmc-studio: runner robustness — in-memory run output capture is capped
+  to a 1 MB tail (multi-hour runs can't OOM the backend), client log
+  streaming is batched (chatty DAGMC warning floods no longer stall the
+  frontend), re-written track/particle files replace older copies in the
+  `tracks/`/`particles/` subfolders, and empty track directories are skipped.
+- openmc-studio: DAGMC file persistence — project files no longer break when
+  moved, with asset paths saved and resolved relative to the project file.
 - openmc-studio: random-ray ray_source emitted in the dev-clone XML format,
   which release 0.15.3 binaries reject — now probed per env.
 - openmc-studio: macroscopic materials couldn't select the required `macro`

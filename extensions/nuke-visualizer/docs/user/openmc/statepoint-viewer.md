@@ -1,6 +1,6 @@
 # Statepoint Viewer
 
-The Statepoint Viewer is the main dashboard for inspecting OpenMC simulation results. It opens automatically when you click a `statepoint*.h5` file.
+The Statepoint Viewer is the main dashboard for inspecting OpenMC simulation results. It opens automatically when you click a `statepoint*.h5` file. It also opens for `openmc_simulation_n<N>.h5` files — the per-step statepoints a depletion run writes, which share the statepoint layout minus the source bank.
 
 ---
 
@@ -8,7 +8,7 @@ The Statepoint Viewer is the main dashboard for inspecting OpenMC simulation res
 
 ### Method 1: Click
 
-In the Explorer, Click any file matching `statepoint*.h5`.
+In the Explorer, Click any file matching `statepoint*.h5` or `openmc_simulation_n<N>.h5` (depletion per-step statepoints).
 
 ### Method 2: Menu
 

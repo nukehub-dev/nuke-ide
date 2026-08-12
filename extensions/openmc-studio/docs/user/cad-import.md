@@ -46,6 +46,10 @@ To disable auto-adjustment for a specific import, uncheck the setting above or p
 
 Drag a CAD file from your file manager directly into the OpenMC Studio window.
 
+### Method 3: DAGMC Editor
+
+Click **Import CAD** in the [DAGMC Editor](dagmc-editor.md) header to pick a STEP/IGES/BREP/STL file and convert it straight into a DAGMC `.h5m`. The editor checks that gmsh or OpenCASCADE is available first.
+
 ---
 
 ## The CAD → CSG Conversion Pipeline
@@ -200,12 +204,17 @@ The DAGMC conversion uses a **native H5M writer** built on `pymoab`. This writer
 - Full DAGMC tagging (`CATEGORY`, `GEOM_DIMENSION`, `GEOM_SENSE_2`, `GLOBAL_ID`, `NAME`, material groups)
 - Graceful handling of empty element lists
 
+**Graveyard auto-creation:** by default the converter adds a `mat:graveyard` bounding volume when the input doesn't already appear to contain one (detection uses STEP/IGES product names plus a volume/bounding-box heuristic; an existing graveyard is re-tagged `mat:graveyard`). Without a graveyard OpenMC cannot terminate escaping particles. Disable it with `--no-graveyard` (CLI) or `addGraveyard: false` (API).
+
+**Output location:** the generated `.h5m` is written into the project directory when a project is saved; otherwise it lands next to the source CAD file, named after it (`<source-name>.h5m`).
+
 To override the automatic behavior:
 
-| Override        | Effect                                                                                                            |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `--force-csg`   | Force CSG conversion even if NURBS are present (analytic faces become CSG; NURBS faces are skipped with warnings) |
-| `--force-dagmc` | Force DAGMC output even for purely analytic models                                                                |
+| Override         | Effect                                                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `--force-csg`    | Force CSG conversion even if NURBS are present (analytic faces become CSG; NURBS faces are skipped with warnings) |
+| `--force-dagmc`  | Force DAGMC output even for purely analytic models                                                                |
+| `--no-graveyard` | Skip the automatic `mat:graveyard` bounding volume on DAGMC conversion                                            |
 
 ### Advanced Topology
 

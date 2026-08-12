@@ -35,10 +35,14 @@ interface OpenMCProjectMetadata {
   author?: string;
   created: string; // ISO 8601
   modified: string; // ISO 8601
+  mgBackup?: {
+    materials: OpenMCMaterial[]; // Materials before "Convert to Multi-Group"
+    energyMode?: OpenMCSettings['energyMode']; // Energy mode before conversion
+  };
 }
 ```
 
-**Concept:** Metadata is updated automatically by `OpenMCStateManager` on every mutating operation (it refreshes `modified`). The schema version is hard-coded and bumped when breaking changes are introduced.
+**Concept:** Metadata is updated automatically by `OpenMCStateManager` on every mutating operation (it refreshes `modified`). The schema version is hard-coded and bumped when breaking changes are introduced. `mgBackup` is the optional, version-tolerant snapshot stashed by "Convert to Multi-Group" (no migration needed); "Revert to Continuous-Energy" restores the pre-conversion materials and energy mode from it (see `src/common/mg-conversion.ts`).
 
 ---
 
@@ -188,6 +192,13 @@ interface OpenMCEntropyMesh {
   shape: [number, number, number];
 }
 ```
+
+### Multi-Group and DAGMC Toggles
+
+Two optional booleans on `OpenMCSettings` control specialized run modes (the schema file holds the full settings field list):
+
+- `settings.nuclideWiseMgxs` — switches multi-group mode from material-wise macroscopic to nuclide-decomposed: the MGXS library holds one micro XSdata set per nuclide and materials stay nuclide-decomposed (no `macroscopic`). Required for random ray on DAGMC geometries, which reject macroscopic multi-group materials. Undefined/false = material-wise macroscopic mode.
+- `settings.copyDagmcToRunDirectory` — when true, the DAGMC `.h5m` file is copied into each run directory as `geometry.h5m`; otherwise geometry.xml references the original file via a relative path (see [XML Generation](xml-generation.md#dagmc-geometry-mode)).
 
 ---
 

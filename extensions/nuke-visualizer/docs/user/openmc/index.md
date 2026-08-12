@@ -6,21 +6,21 @@ The OpenMC plugin visualizes output from [OpenMC](https://openmc.org/) Monte Car
 
 ## Supported Files
 
-| File              | Extension                              | What You Can Do                                                             |
-| ----------------- | -------------------------------------- | --------------------------------------------------------------------------- |
-| Statepoint        | `statepoint*.h5`                       | View metadata, tallies, k-eff, kinetics (IFP), runtime, source distribution |
-| Source            | `source.h5`                            | Visualize source particle distribution in 3D                                |
-| Depletion results | `depletion_results.h5`                 | Plot nuclide evolution, mass changes, activity, decay heat                  |
-| Particle tracks   | `tracks.h5`, `tracks_p<N>.h5`          | 3D polyline view of recorded particle tracks                                |
-| Collision tracks  | `collision_track*.h5`                  | 3D point cloud + table of recorded collision sites                          |
-| Weight windows    | `weight_windows.h5`                    | 3D mesh view of weight window bounds (multi-mesh selector)                  |
-| Particle restart  | `particle_restart.h5`, `particle_*.h5` | Inspect a lost particle's recorded state                                    |
-| Voxel plot        | `*voxel*.h5`, `plot_*.h5`              | 3D view of voxel plot data (auto-converted to VTK)                          |
-| Summary           | `summary.h5`                           | Browse CSG hierarchy, view cells/surfaces in 3D (auto-converted to XML)     |
-| Random ray        | `.vtk`, `.vti`, `.vtr`                 | 3D view of random ray results (via "Open as Random Ray Results...")         |
-| Geometry          | `geometry.xml`                         | Browse CSG hierarchy, view cells/surfaces/lattices in 3D                    |
-| Materials         | `materials.xml`                        | Inspect compositions, mix materials, trace cell usage                       |
-| DAGMC geometry    | `.h5m`                                 | Visualize geometry with optional tally overlay                              |
+| File              | Extension                                     | What You Can Do                                                             |
+| ----------------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Statepoint        | `statepoint*.h5`, `openmc_simulation_n<N>.h5` | View metadata, tallies, k-eff, kinetics (IFP), runtime, source distribution |
+| Source            | `source.h5`                                   | Visualize source particle distribution in 3D                                |
+| Depletion results | `depletion_results.h5`                        | Plot nuclide evolution, mass changes, activity, decay heat                  |
+| Particle tracks   | `tracks.h5`, `tracks_p<N>.h5`                 | 3D polyline view of recorded particle tracks                                |
+| Collision tracks  | `collision_track*.h5`                         | 3D point cloud + table of recorded collision sites                          |
+| Weight windows    | `weight_windows.h5`                           | 3D mesh view of weight window bounds (multi-mesh selector)                  |
+| Particle restart  | `particle_restart.h5`, `particle_*.h5`        | Inspect a lost particle's recorded state                                    |
+| Voxel plot        | `*voxel*.h5`, `plot_*.h5`                     | 3D view of voxel plot data (auto-converted to VTK)                          |
+| Summary           | `summary.h5`                                  | Browse CSG hierarchy, view cells/surfaces in 3D (auto-converted to XML)     |
+| Random ray        | `.vtk`, `.vti`, `.vtr`                        | 3D view of random ray results (via "Open as Random Ray Results...")         |
+| Geometry          | `geometry.xml`                                | Browse CSG hierarchy, view cells/surfaces/lattices in 3D                    |
+| Materials         | `materials.xml`                               | Inspect compositions, mix materials, trace cell usage                       |
+| DAGMC geometry    | `.h5m`                                        | Visualize geometry with optional tally overlay                              |
 
 The [Nuclear Data](nuclear-data.md) window additionally browses the configured `cross_sections.xml` library itself.
 

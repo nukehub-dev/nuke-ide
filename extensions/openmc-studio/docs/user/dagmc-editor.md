@@ -75,6 +75,11 @@ Important groups:
 | `vacuum`     | Surfaces with vacuum boundary condition                            |
 | `periodic`   | Surfaces with periodic boundary condition                          |
 
+The editor automatically detects a missing graveyard when a file is loaded. If none is found, a banner appears below the header with two actions:
+
+- **Create Graveyard Box** (primary) — creates a new axis-aligned bounding cube around the model, tagged `mat:graveyard`.
+- **Tag existing volume N instead** (secondary, shown when an enclosing volume is detected) — re-tags that existing volume as the graveyard. The banner warns that this turns the volume into a particle sink, so creating a new box is the safe choice.
+
 ---
 
 ### Overrides
@@ -135,9 +140,10 @@ Regenerate the DAGMC mesh from the original source CAD with a new tolerance.
    Use the slider for values between presets.
 
 3. **Review impact** — The gauge shows the estimated triangle count and the delta (increase or decrease) relative to the current mesh. A warning appears if the new mesh would be significantly denser.
-4. **Generate** — Click **Generate Re-faceted H5M**. The new file is saved with a `_refaceted` suffix. Choose whether to load it immediately.
+4. **(Optional) Imprint & Merge** — Check **"Imprint & merge shared surfaces"** to imprint and merge coincident surfaces between adjacent volumes during re-faceting. This is slower but produces conformal meshes, which is better for particle transport.
+5. **Generate** — Click **Generate Re-faceted H5M**. The new file is saved with a `_refaceted` suffix. Choose whether to load it immediately.
 
-> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag where possible.
+> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag where possible. The graveyard is preserved too: re-faceting re-tessellates from the source CAD, which does not contain the auto-created graveyard shell — if the old file had a `mat:graveyard` volume it is re-created on the output automatically, with a warning.
 
 #### Under the Hood
 
@@ -161,6 +167,10 @@ For large models, use **"View in 3D"** from a volume modal to load only the sele
 
 Click **Open...** in the header to load a different `.h5m` file. When the newly loaded file differs from the one stored in the project, the project's DAGMC reference (`dagmcFile` and `dagmcInfo`) is updated automatically so the new geometry is used for simulation.
 
+## Importing CAD
+
+Click **Import CAD** in the header to open a file dialog for STEP/IGES/BREP/STL files and import the CAD model into DAGMC format. The editor first checks that gmsh or OpenCASCADE is available in the active Python environment and warns if neither is installed. See [CAD Import](cad-import.md) for the full conversion pipeline.
+
 ## Saving
 
 Click **Save As** in the header to save a copy of the current `.h5m` under a new name or location. This is useful for creating checkpoints before bulk edits.
@@ -169,7 +179,7 @@ Click **Save As** in the header to save a copy of the current `.h5m` under a new
 
 ## Tips
 
-- **Always ensure a `graveyard` group exists.** Without it, OpenMC cannot terminate escaping particles.
+- **Always ensure a `graveyard` group exists.** Without it, OpenMC cannot terminate escaping particles. The editor detects a missing graveyard automatically and offers to create one (see the Groups tab).
 - **Use Draft preset first** when exploring a new model. You can always re-facet with Fine later.
 - **Check the triangle estimate** before generating. Very fine meshes (>5× current count) will show a warning.
 - **Unit consistency:** OpenMC uses centimeters. Ensure your CAD files are in cm.

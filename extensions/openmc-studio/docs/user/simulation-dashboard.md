@@ -177,6 +177,8 @@ Define irradiation steps as a table of power/duration rows. Use a zero-power ste
 | **Weight Window Generator** | Magic-style weight window generation: particle type, update interval, target tallies (local VR)     |
 | **Weight Windows**          | Edit weight window sets and their meshes; import MCNP `wwinp` files                                 |
 
+The generator method can be `MAGIC (default)` or `FW-CADIS (multi-group)`. **FW-CADIS requires random ray mode** — enable the random ray solver in the Random Ray tab (multi-group energy mode plus an MGXS library); the tab shows a warning otherwise, and model validation fails until random ray is enabled.
+
 > **Tip:** Variance reduction requires an initial simulation to generate mesh-based importance maps. Run a short simulation first, then enable weight windows for the production run. For FW-CADIS workflows, pair weight windows with the adjoint options in the Random Ray tab.
 
 ---
@@ -198,6 +200,8 @@ One-click conversion from a continuous-energy project: pick the generation metho
 - stores the original nuclide-decomposed materials in project metadata.
 
 A **Revert to Continuous-Energy** button then restores the original materials losslessly (the MGXS library is kept). Materials that don't match an XS data set in the library are left untouched, so mixed models convert partially and cleanly.
+
+The conversion panel also offers a **Nuclide-wise MGXS (required for DAGMC random ray)** toggle, which defaults ON when a DAGMC geometry is loaded. In nuclide-wise mode materials stay nuclide-decomposed and the MGXS library holds one micro XS data set per nuclide instead of macroscopic material sets — the only library form OpenMC's random ray solver accepts on DAGMC geometries. Apply then sets the project's nuclide-wise multi-group flag instead of converting materials; generation is slower and the library larger than material-wise.
 
 > **Note:** Conversion requires a continuous-energy model with nuclide-decomposed materials (the Generate step runs a CE solve). Save a CE copy for depletion work — depletion needs nuclide decomposition and cannot run on a converted project.
 
@@ -248,6 +252,8 @@ A readiness checklist (with an `N / M configured` badge) verifies the model befo
 | **Optimization**   | Open the [Optimization](optimization.md) widget                                                  |
 | **Restart…**       | Resume from a selected statepoint (sets `settings.restartFile`, shown as a dismissible chip)     |
 
+If you reload the browser tab or window while a simulation is running, the dashboard automatically re-attaches to the in-flight backend run: **Stop** keeps working and live progress and the log resume where they left off.
+
 ### Particle Restart
 
 When the restart file is a particle restart file (`particle_restart.h5` or `particle_<batch>_<id>.h5`), the tab explains that OpenMC re-runs a single lost particle (the dashboard passes `-t` automatically) and offers:
@@ -271,6 +277,8 @@ Enable iterated fission probability kinetics (eigenvalue mode only): IFP generat
 ### Console and Summaries
 
 The console streams OpenMC stdout/stderr with filtering and a maximize toggle. Summary cards recap the run configuration, depletion, variance reduction, and geometry (with **Edit in CSG Builder** / DAGMC details shortcuts), plus validation results.
+
+For DAGMC models, the geometry summary offers a **Copy DAGMC file into run directory** checkbox (default off). Off: `geometry.xml` references the `.h5m` via a project-relative path. On: the file is copied into the run directory as `geometry.h5m`, making the run directory self-contained.
 
 ---
 

@@ -55,3 +55,5 @@ Drives `openmc.mgxs.Library` directly for fine-grained control:
 ## Generating
 
 Click **Generate MGXS Library** and pick a working directory. Generation runs a continuous-energy solve and can take a while. On success the library path is stored in the project settings; switch to multi-group energy mode in the Random Ray tab to use it.
+
+MGXS generation requires a continuous-energy model with nuclide-decomposed materials. If the project is incompatible (multi-group energy mode, or macroscopic materials from a previous conversion), the window shows a warning box listing the issues and offers a one-click fix: **Switch to Continuous Energy** (or **Switch to Continuous Energy & Restore Materials** when macroscopic materials need restoring from the pre-conversion backup). The restore button is disabled with an explanation when no backup exists.

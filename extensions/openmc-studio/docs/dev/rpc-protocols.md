@@ -53,18 +53,23 @@ The main backend service interface is intentionally broad — it is the single R
 
 **Concept:** XML generation is the bridge between the JSON state model and OpenMC's native input format. The frontend never writes XML directly; it mutates `OpenMCState` and asks the backend to materialize files.
 
+`XMLGenerationRequest` carries an optional `projectDirectory` alongside `outputDirectory`. `settings.dagmcFile` / `dagmcInfo.filePath` and `settings.mgxsLibrary` may be project-relative paths; the backend resolves them against `projectDirectory` first, then falls back to the output directory (see `src/node/xml-generation-service.ts`).
+
 ### Simulation Runner
 
-| Method                        | Blocking?        | Purpose                                                                                  |
-| ----------------------------- | ---------------- | ---------------------------------------------------------------------------------------- |
-| `runSimulation(request)`      | **Blocking**     | Spawns OpenMC and returns the complete result (exit code, stdout, stderr, output files). |
-| `startSimulation(request)`    | **Non-blocking** | Spawns OpenMC in the background and returns a `processId` immediately.                   |
-| `cancelSimulation(processId)` | —                | Kills the running process identified by `processId`.                                     |
-| `getSimulationLog(processId)` | —                | Reads the log file for a running or completed simulation.                                |
-| `checkOpenMC()`               | —                | Detects whether `openmc` is available and returns version/path.                          |
-| `checkMPI()`                  | —                | Detects MPI availability and recommended process count.                                  |
+| Method                        | Blocking?        | Purpose                                                                                                         |
+| ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `runSimulation(request)`      | **Blocking**     | Spawns OpenMC and returns the complete result (exit code, stdout, stderr, output files).                        |
+| `startSimulation(request)`    | **Non-blocking** | Spawns OpenMC in the background and returns a `processId` immediately.                                          |
+| `cancelSimulation(processId)` | —                | Kills the running process identified by `processId`.                                                            |
+| `getSimulationLog(processId)` | —                | Reads the log file for a running or completed simulation.                                                       |
+| `getActiveSimulations()`      | —                | Lists in-flight runs as `ActiveSimulationInfo[]` (`processId`, `workingDirectory`, `logFilePath`, `startTime`). |
+| `checkOpenMC()`               | —                | Detects whether `openmc` is available and returns version/path.                                                 |
+| `checkMPI()`                  | —                | Detects MPI availability and recommended process count.                                                         |
 
 **Concept:** Two execution modes serve different UX needs. The blocking call is used for quick validation runs or when the user explicitly waits. The non-blocking call is used for long production runs where the dashboard shows real-time progress. Both modes write a dedicated log file so output is never lost, even if the WebSocket disconnects.
+
+Status events are one-shot pushes, so a reloaded frontend cannot discover in-flight runs on its own. The dashboard calls `getActiveSimulations()` on init and on project reload to re-attach, restoring the running state and `processId` (log polling then picks up history from the on-disk log). The target run is chosen by the pure `pickReattachTarget` helper in `src/common/simulation-reattach.ts`: exact `workingDirectory` match first, single-active-run fallback, no guessing when several runs are active.
 
 ### Validation
 
@@ -112,6 +117,13 @@ The main backend service interface is intentionally broad — it is the single R
 | `importCAD(request)`   | Converts STEP/IGES/BREP/STL to OpenMC CSG surfaces and cells.              |
 | `previewCAD(filePath)` | Returns solid count, face count, and bounding box without full conversion. |
 
+**`CADImportRequest` top-level fields (in addition to `filePath` / `format`):**
+
+| Field          | Type      | Default  | Description                                                               |
+| -------------- | --------- | -------- | ------------------------------------------------------------------------- |
+| `dagmcOutput`  | `string`  | tempfile | Explicit output path for the generated DAGMC `.h5m` file                  |
+| `addGraveyard` | `boolean` | `true`   | Auto-create a `mat:graveyard` bounding volume during CAD→DAGMC conversion |
+
 **`CADImportRequest.options` fields:**
 
 | Field                 | Type      | Default | Description                                           |
@@ -126,12 +138,16 @@ The main backend service interface is intentionally broad — it is the single R
 
 ### DAGMC Editor
 
-| Method                     | Purpose                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `dagmcLoad(filePath)`      | Reads a `.h5m` file and returns volumes, materials, groups, and bounding box. |
-| `dagmcAssignMaterial(...)` | Assigns a material name to a volume in the DAGMC file.                        |
-| `dagmcCreateGroup(...)`    | Creates a new group and optionally adds volumes.                              |
-| `dagmcDeleteGroup(...)`    | Removes a group from the DAGMC file.                                          |
+| Method                                     | Purpose                                                                                                                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dagmcLoad(filePath)`                      | Reads a `.h5m` file and returns volumes, materials, groups, and bounding box.                                                                                                                                                      |
+| `dagmcAssignMaterial(...)`                 | Assigns a material name to a volume in the DAGMC file.                                                                                                                                                                             |
+| `dagmcCreateGroup(...)`                    | Creates a new group and optionally adds volumes.                                                                                                                                                                                   |
+| `dagmcDeleteGroup(...)`                    | Removes a group from the DAGMC file.                                                                                                                                                                                               |
+| `dagmcRefacet(...)`                        | Re-exports the DAGMC file from the source CAD with a new faceting tolerance (`filePath, sourceCadPath, tolerance, imprint?`). The optional `imprint` flag runs OpenCASCADE imprint/merge so touching faces become shared topology. |
+| `dagmcDetectGraveyard(filePath)`           | Detects whether the file has a properly tagged `mat:graveyard` volume; reports `needsTag` / `canCreate` plus bounds and suggested padding.                                                                                         |
+| `dagmcCreateGraveyard(filePath, padding?)` | Creates a new axis-aligned bounding-box volume tagged `mat:graveyard` (preferred fix).                                                                                                                                             |
+| `dagmcTagGraveyard(filePath, volumeId?)`   | Re-tags an existing enclosing volume as `mat:graveyard` (auto-detects the volume when `volumeId` is omitted; secondary/unsafe).                                                                                                    |
 
 **Concept:** DAGMC editing operates on the `.h5m` file directly via `pydagmc` / `pymoab`. The backend modifies the file in place and returns success confirmation. The frontend refreshes the DAGMC editor widget by calling `dagmcLoad` again.
 

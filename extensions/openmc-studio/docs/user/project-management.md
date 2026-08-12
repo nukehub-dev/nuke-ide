@@ -47,6 +47,10 @@ A `.nuke-openmc` file is a compressed archive containing:
 
 > **Tip:** Enable `Auto-save on simulation complete` in project settings to automatically capture statepoints after each run.
 
+### Portable Asset Paths
+
+External asset references are stored **relative to the `.nuke-openmc` project file** and resolved against the project directory on load, XML generation, and run time. This covers the DAGMC file paths (`dagmcFile`, `dagmcInfo.filePath`) and the MGXS library path (`mgxsLibrary`). Because no absolute paths are baked in, projects stay portable across machines — moving or sharing a project folder keeps the references valid as long as the assets travel with it.
+
 ---
 
 ## Opening an Existing Project

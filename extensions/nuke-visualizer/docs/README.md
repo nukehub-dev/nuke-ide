@@ -26,10 +26,10 @@ Covers architecture, shared services, RPC protocols, DI wiring, and how to add n
 
 **Nuke Visualizer** is a plugin-based visualization framework with two built-in plugins:
 
-| Plugin              | What It Visualizes                                                    | File Types                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                                   | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                                                                                             |
-| **OpenMC**          | Monte Carlo results, tallies, cross-sections, depletion, output files | `statepoint*.h5`, `geometry.xml`, `materials.xml`, `depletion_results.h5`, `tracks.h5`, `collision_track*.h5`, `weight_windows.h5` |
+| Plugin              | What It Visualizes                                                    | File Types                                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                                   | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                                                                                                                          |
+| **OpenMC**          | Monte Carlo results, tallies, cross-sections, depletion, output files | `statepoint*.h5`, `openmc_simulation_n<N>.h5`, `geometry.xml`, `materials.xml`, `depletion_results.h5`, `tracks.h5`, `collision_track*.h5`, `weight_windows.h5` |
 
 ---
 

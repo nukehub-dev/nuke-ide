@@ -135,7 +135,9 @@ if (type === 'cylinder') {
 
 ### DAGMC Geometry Mode
 
-When `state.settings.dagmcFile` is set, geometry.xml contains a single `dagmc_universe` element:
+When `state.settings.dagmcFile` is set, geometry.xml contains a single `dagmc_universe` element. How the `.h5m` file reaches the run directory depends on `settings.copyDagmcToRunDirectory`:
+
+- **Copy mode** (`copyDagmcToRunDirectory: true`): the `.h5m` file is copied into the output directory as `geometry.h5m` and geometry.xml references that copy — the run directory is self-contained:
 
 ```xml
 <geometry>
@@ -143,7 +145,17 @@ When `state.settings.dagmcFile` is set, geometry.xml contains a single `dagmc_un
 </geometry>
 ```
 
-The DAGMC `.h5m` file is also copied to the output directory as `geometry.h5m`.
+- **Reference mode** (default, unset/false): no copy is made; geometry.xml references the original `.h5m` via a path relative to the output directory, avoiding duplication of large files:
+
+```xml
+<geometry>
+  <dagmc_universe filename="../geometry.h5m" id="1" />
+</geometry>
+```
+
+If a relative path cannot be computed (e.g., different drive on Windows), the generator falls back to copying the file.
+
+`settings.dagmcFile` / `dagmcInfo.filePath` and `settings.mgxsLibrary` may be project-relative paths. At XML generation time the backend resolves them against `XMLGenerationRequest.projectDirectory` first, then falls back to the output directory (`resolveDagmcSourcePath` / `resolveMgxsLibraryFile` in `src/node/xml-generation-service.ts`).
 
 ---
 
