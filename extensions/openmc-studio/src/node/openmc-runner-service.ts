@@ -267,16 +267,14 @@ export class OpenMCRunnerService {
     }
 
     /**
-     * Safely send log message to client. Removes client reference on disconnect error.
+     * Safely send log message to client. Batched: chatty runs (tens of
+     * thousands of geometry warnings) would otherwise push one JSON-RPC
+     * notification per line and stall the frontend renderer.
      */
     private safeLog(message: string): void {
         if (!this.client) return;
-        try {
-            this.client.log(message);
-        } catch (error) {
-            console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
-            this.client = undefined;
-        }
+        this.clientLogBuffer += message;
+        this.scheduleClientLogFlush();
     }
 
     /**
@@ -284,11 +282,53 @@ export class OpenMCRunnerService {
      */
     private safeWarn(message: string): void {
         if (!this.client) return;
+        this.clientWarnBuffer += message;
+        this.scheduleClientLogFlush();
+    }
+
+    /** Maximum age of a buffered client log chunk before it is flushed. */
+    private static readonly CLIENT_LOG_FLUSH_MS = 200;
+    /** Flush immediately once this many characters are buffered. */
+    private static readonly CLIENT_LOG_FLUSH_CHARS = 256 * 1024;
+    private clientLogBuffer = '';
+    private clientWarnBuffer = '';
+    private clientLogFlushTimer?: NodeJS.Timeout;
+
+    private scheduleClientLogFlush(): void {
+        if (this.clientLogBuffer.length + this.clientWarnBuffer.length >= OpenMCRunnerService.CLIENT_LOG_FLUSH_CHARS) {
+            this.flushClientLogs();
+            return;
+        }
+        if (!this.clientLogFlushTimer) {
+            this.clientLogFlushTimer = setTimeout(() => this.flushClientLogs(), OpenMCRunnerService.CLIENT_LOG_FLUSH_MS);
+            this.clientLogFlushTimer.unref?.();
+        }
+    }
+
+    private flushClientLogs(): void {
+        if (this.clientLogFlushTimer) {
+            clearTimeout(this.clientLogFlushTimer);
+            this.clientLogFlushTimer = undefined;
+        }
+        if (!this.client) {
+            this.clientLogBuffer = '';
+            this.clientWarnBuffer = '';
+            return;
+        }
         try {
-            this.client.warn(message);
+            if (this.clientLogBuffer) {
+                this.client.log(this.clientLogBuffer);
+                this.clientLogBuffer = '';
+            }
+            if (this.clientWarnBuffer) {
+                this.client.warn(this.clientWarnBuffer);
+                this.clientWarnBuffer = '';
+            }
         } catch (error) {
             console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
             this.client = undefined;
+            this.clientLogBuffer = '';
+            this.clientWarnBuffer = '';
         }
     }
 
@@ -297,6 +337,9 @@ export class OpenMCRunnerService {
      */
     private safeSendStatus(status: any): void {
         if (!this.client) return;
+        // Status transitions (starting/completed/failed) must not overtake
+        // buffered output — flush first so the console reads in order.
+        this.flushClientLogs();
         try {
             this.client.onSimulationStatus(status);
         } catch (error) {
