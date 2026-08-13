@@ -11,15 +11,15 @@ const RENEWAL_GRACE_MS = 30_000;
 /**
  * Keeps the NukeLab server access token alive while the IDE is open.
  *
- * The hub mints the `nukelab_server_token` cookie (5 minute TTL) only when the
+ * NukeLab mints the `nukelab_server_token` cookie (5 minute TTL) only when the
  * gateway page opens or reloads; nothing refreshes it during an IDE session.
  * Editor and terminal traffic runs over a long-lived WebSocket, so an expired
  * cookie goes unnoticed until a plain REST call — file downloads and uploads
  * via `/files` — is rejected with a 401 by the container's auth sidecar.
  *
  * This contribution wraps `window.fetch`: when a same-origin request is
- * answered with 401, it silently re-mints the cookie via the hub API (the IDE
- * page is same-origin with the hub SPA, so the hub JWT is readable from
+ * answered with 401, it silently re-mints the cookie via the NukeLab API (the IDE
+ * page is same-origin with the NukeLab SPA, so the NukeLab JWT is readable from
  * localStorage) and retries the request exactly once. Retrying any HTTP
  * method is safe: the 401 came from the sidecar, so the request never
  * reached the application.
@@ -103,7 +103,7 @@ export class NukeLabSessionRenewalContribution implements FrontendApplicationCon
             if (!jwt || !this.serverId || !original) {
                 return false;
             }
-            // Origin-rooted on purpose: this is a hub API route, not an IDE
+            // Origin-rooted on purpose: this is a NukeLab API route, not an IDE
             // backend route (see extensions/AGENTS.md). The endpoint sets the
             // fresh server cookie on the response.
             const response = await original(`${window.location.origin}/api/servers/${this.serverId}/access-token`, {

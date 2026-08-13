@@ -97,7 +97,7 @@ lerna run build
 Optional extensions can be left out of a bundle via environment variables:
 
 ```bash
-# Default: everything except the hub-only nukelab-integration
+# Default: everything except the NukeLab-only nukelab-integration
 yarn build:browser
 
 # Everything, including nukelab-integration
@@ -112,7 +112,7 @@ NUKE_EXCLUDE_EXTENSIONS=nuke-sysmon yarn build:browser
 
 - `NUKE_EXTENSIONS` — comma-separated allow-list of optional extensions to bundle (`all` = every optional extension).
 - `NUKE_EXCLUDE_EXTENSIONS` — comma-separated deny-list applied to the default set (ignored when `NUKE_EXTENSIONS` is set).
-- Unset: every extension is bundled except `nukelab-integration`, which is hub-only (NukeLab deployments) and opt-in.
+- Unset: every extension is bundled except `nukelab-integration`, which only applies to NukeLab deployments and is opt-in.
 - `nuke-core` and `nuke-essentials` are required and always ship. Local dependencies resolve automatically: selecting `openmc-studio` pulls in `nuke-visualizer`; excluding `nuke-visualizer` also drops `openmc-studio`.
 - Run `yarn ext:list` to preview the resolved set per app without building.
 

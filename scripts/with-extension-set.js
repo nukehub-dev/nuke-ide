@@ -14,7 +14,7 @@
  *   NUKE_EXCLUDE_EXTENSIONS=a,b  deny-list: drop these from the default set
  *   (neither set)                default: bundle everything except DEFAULT_EXCLUDED
  *
- * `nukelab-integration` is hub-only (NukeLab deployments) and excluded by
+ * `nukelab-integration` only applies to NukeLab deployments and is excluded by
  * default; opt in with NUKE_EXTENSIONS=all or by listing it explicitly.
  *
  * Local dependency closure is handled: picking `openmc-studio` pulls in

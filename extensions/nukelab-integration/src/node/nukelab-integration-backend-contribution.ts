@@ -39,7 +39,7 @@ export class NukeLabIntegrationBackendContribution implements BackendApplication
             } as NukeLabContext);
         });
 
-        // Activity heartbeat target for NukeLabActivityContribution. The hub's
+        // Activity heartbeat target for NukeLabActivityContribution. NukeLab's
         // idle shutdown learns about the request from the nginx auth sidecar in
         // front of the IDE, so this endpoint only needs to acknowledge it.
         app.post('/api/nukelab/activity', (_req, res) => {

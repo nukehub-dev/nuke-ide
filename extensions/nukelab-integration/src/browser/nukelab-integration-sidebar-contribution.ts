@@ -40,7 +40,7 @@ export class NukeLabSidebarContribution implements FrontendApplicationContributi
             // Resolve against the current page path (like Theia's own services)
             // so the request stays under the Traefik route prefix
             // (/user/<name>/<server>) in the NukeLab deployment; an origin-rooted
-            // URL would hit the hub API instead of this IDE backend.
+            // URL would hit the NukeLab API instead of this IDE backend.
             const endpoint = new Endpoint({ path: '/api/nukelab/context' }).getRestUrl().toString();
             const response = await fetch(endpoint);
             if (response.ok) {

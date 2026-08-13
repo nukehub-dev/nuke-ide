@@ -23,7 +23,7 @@ All files under `applications/` except generated artifacts (`*/lib/`, `*/node_mo
 ## Work Guidance
 
 - Adding or removing an extension: update both app `package.json` files and the `REQUIRED`/`OPTIONAL` registry in `scripts/with-extension-set.js`, then re-bundle. Extension code changes alone only need the extension's `build` plus an app re-bundle.
-- Optional extensions are selectable at build time: the root `build:browser`/`build:electron(:prod)` scripts run through `scripts/with-extension-set.js`, which prunes optional extensions from the app manifest per `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS` (deny-list) and restores it byte-for-byte afterwards; unset variables bundle everything except `nukelab-integration` (hub-only, opt-in). The Docker image exposes both as build args (also passed through by `compose.yml`).
+- Optional extensions are selectable at build time: the root `build:browser`/`build:electron(:prod)` scripts run through `scripts/with-extension-set.js`, which prunes optional extensions from the app manifest per `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS` (deny-list) and restores it byte-for-byte afterwards; unset variables bundle everything except `nukelab-integration` (NukeLab-only, opt-in). The Docker image exposes both as build args (also passed through by `compose.yml`).
 - Electron packaging runs on CI for Linux/Windows/macOS (`.github/workflows/build.yml`); local packaging is `yarn package:electron`.
 - The Docker image targets the browser app only — do not wire Electron into it.
 - Runtime Python dependencies for extension backends belong in `docker/environment.yml` (and `docs/installation.md`), not in the root `requirements-dev.txt`, which is dev/test-only.

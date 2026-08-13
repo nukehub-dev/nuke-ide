@@ -5,7 +5,7 @@ import { Endpoint } from '@theia/core/lib/browser/endpoint';
 // How often the heartbeat checks whether an activity ping should be sent.
 const ACTIVITY_PING_INTERVAL_MS = 60_000;
 // Only interactions within this window count as activity. Kept below the
-// minimum idle_shutdown_timeout (5 minutes, enforced by the NukeLab hub) so
+// minimum idle_shutdown_timeout (5 minutes, enforced by NukeLab) so
 // the final ping after the user's last interaction always lands before the
 // server can be stopped.
 const ACTIVITY_INPUT_WINDOW_MS = 4 * 60_000;
@@ -13,11 +13,11 @@ const ACTIVITY_INPUT_WINDOW_MS = 4 * 60_000;
 const INPUT_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
 
 /**
- * Reports real user activity in the IDE to the NukeLab hub's idle-shutdown
+ * Reports real user activity in the IDE to NukeLab's idle-shutdown
  * tracking. Editor and terminal traffic runs over long-lived websockets that
- * the hub cannot see, so without this an actively-used server looks idle once
- * the hub SPA is closed. Each ping traverses the container nginx auth sidecar,
- * which reports the request time to the hub as server activity.
+ * NukeLab cannot see, so without this an actively-used server looks idle once
+ * the NukeLab SPA is closed. Each ping traverses the container nginx auth sidecar,
+ * which reports the request time to NukeLab as server activity.
  *
  * Pings are gated on recent, deliberate interaction: an IDE tab left open but
  * untouched must not keep the server alive forever.
@@ -56,7 +56,7 @@ export class NukeLabActivityContribution implements FrontendApplicationContribut
         }
         // Resolve against the current page path so the request stays under the
         // Traefik route prefix in the NukeLab deployment; an origin-rooted URL
-        // would hit the hub API instead (see extensions/AGENTS.md). Outside
+        // would hit the NukeLab API instead (see extensions/AGENTS.md). Outside
         // NukeLab this endpoint does not exist and the ping harmlessly 404s.
         const endpoint = new Endpoint({ path: '/api/nukelab/activity' }).getRestUrl().toString();
         fetch(endpoint, { method: 'POST' }).catch(() => {

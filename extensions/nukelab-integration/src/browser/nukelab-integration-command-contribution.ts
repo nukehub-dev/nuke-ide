@@ -38,7 +38,7 @@ export class NukeLabCommandContribution implements CommandContribution {
     }
 
     registerCommands(commands: CommandRegistry): void {
-        // The IDE is served through the NukeLab gateway on the hub origin, so
+        // The IDE is served through the NukeLab gateway on the NukeLab origin, so
         // origin-relative paths always land on the right page regardless of
         // how NUKELAB_PUBLIC_URL is (or isn't) configured.
         commands.registerCommand(NukeLabCommands.BACK_TO_NUKELAB, {

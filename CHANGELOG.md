@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (deny-list) prune optional extensions from the browser/Electron bundles and
   the Docker image (build args); `nuke-core`/`nuke-essentials` always ship and
   local dependency closure is automatic. `yarn ext:list` previews the resolved
-  set without building. `nukelab-integration` is hub-only and no longer
-  bundled by default — NukeLab deployments must opt in with
-  `NUKE_EXTENSIONS=all`.
+  set without building. `nukelab-integration` only applies to NukeLab
+  deployments and is no longer bundled by default — NukeLab deployments must
+  opt in with `NUKE_EXTENSIONS=all`.
 
 - openmc-studio: the Simulation Dashboard re-attaches to in-flight backend
   runs after a browser tab/window reload — Stop keeps working and live

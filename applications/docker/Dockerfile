@@ -8,7 +8,7 @@
 # Open:   http://localhost:3000
 #
 # Optional extensions can be left out of the bundled IDE via build args, e.g.:
-#   docker build --build-arg NUKE_EXTENSIONS=all ...            # also bundle nukelab-integration (hub-only, off by default)
+#   docker build --build-arg NUKE_EXTENSIONS=all ...            # also bundle nukelab-integration (NukeLab-only, off by default)
 #   docker build --build-arg NUKE_EXCLUDE_EXTENSIONS=nuke-sysmon ...
 # (see scripts/with-extension-set.js; unset args bundle every extension except nukelab-integration)
 
