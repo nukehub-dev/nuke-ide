@@ -5,6 +5,7 @@ replaced with recording fakes for the DAGMC conversion pipeline. No real
 CAD kernel, mesh database, or .h5m output is involved.
 """
 
+import importlib
 import sys
 import types
 from types import SimpleNamespace
@@ -255,6 +256,19 @@ class TestConvertToDagmc:
         assert result["success"] is False
         assert result["output_path"] == out
         assert "Failed to read CAD file, status=0" == result["error"]
+        assert result["warnings"] == []
+
+    def test_failure_without_warnings_reports_generic_hint(self, monkeypatch, tmp_path):
+        """A failed native conversion with no warnings falls back to the generic hint."""
+        self._install_ocp_probes(monkeypatch)
+        monkeypatch.setattr(nurbs_handler, "_native_dagmc_conversion", lambda *args: False)
+        out = str(tmp_path / "out.h5m")
+
+        result = nurbs_handler.convert_to_dagmc("model.step", output_path=out)
+
+        assert result["success"] is False
+        assert result["output_path"] == out
+        assert result["error"].startswith("Failed to convert CAD to DAGMC .h5m.")
         assert result["warnings"] == []
 
 
@@ -825,3 +839,749 @@ class TestGraveyardHandling:
         assert "mat:graveyard" in name_tags
         assert "mat:mat_0" in name_tags
         assert "mat:mat_1" in name_tags
+
+
+# ---------------------------------------------------------------------------
+# Import fallbacks (module reload with blocked imports)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _restore_module():
+    """Reload nurbs_handler after a test reloaded it with blocked imports."""
+    yield
+    importlib.reload(nurbs_handler)
+
+
+class TestImportFallbacks:
+    def test_gmsh_absence_disables_detection(self, _restore_module, monkeypatch):
+        """When gmsh cannot be imported, HAS_GMSH flips off and detection returns False."""
+        monkeypatch.setitem(sys.modules, "gmsh", None)
+
+        importlib.reload(nurbs_handler)
+
+        assert nurbs_handler.HAS_GMSH is False
+        assert nurbs_handler.has_nurbs_surfaces("model.step") is False
+
+    def test_numpy_absence_is_flagged(self, _restore_module, monkeypatch):
+        """When numpy cannot be imported, HAS_NUMPY flips off."""
+        monkeypatch.setitem(sys.modules, "numpy", None)
+
+        importlib.reload(nurbs_handler)
+
+        assert nurbs_handler.HAS_NUMPY is False
+
+
+# ---------------------------------------------------------------------------
+# _bbox_contains (pure)
+# ---------------------------------------------------------------------------
+
+
+class TestBboxContains:
+    def test_inner_fully_inside(self):
+        outer = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        inner = (1.0, 2.0, 3.0, 9.0, 8.0, 7.0)
+        assert nurbs_handler._bbox_contains(outer, inner) is True
+
+    def test_equal_bounds_contain(self):
+        box = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        assert nurbs_handler._bbox_contains(box, box) is True
+
+    def test_protruding_inner_rejected(self):
+        outer = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        assert nurbs_handler._bbox_contains(outer, (-1.0, 0.0, 0.0, 10.0, 10.0, 10.0)) is False
+        assert nurbs_handler._bbox_contains(outer, (0.0, 0.0, 0.0, 10.0, 10.0, 11.0)) is False
+
+    def test_padding_tolerates_small_protrusion(self):
+        outer = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        # Protrusion of 5e-5 is below the default 1e-4 padding.
+        assert nurbs_handler._bbox_contains(outer, (0.0, 0.0, 0.0, 10.00005, 10.0, 10.0)) is True
+        # Protrusion of 1e-3 exceeds it.
+        assert nurbs_handler._bbox_contains(outer, (0.0, 0.0, 0.0, 10.001, 10.0, 10.0)) is False
+
+
+# ---------------------------------------------------------------------------
+# Graveyard helpers (fake OCP geometry + CAF stack)
+# ---------------------------------------------------------------------------
+
+
+class _FakeOccShape:
+    """Stand-in for a TopoDS shape; identity-keyed in the fake registries."""
+
+    _counter = 0
+
+    def __init__(self):
+        _FakeOccShape._counter += 1
+        self.label = f"shape-{_FakeOccShape._counter}"
+
+    def __repr__(self):
+        return f"<_FakeOccShape {self.label}>"
+
+
+class _FakeCafLabel:
+    """TDF label carrying an optional name plus component/subshape children."""
+
+    def __init__(self, name=None, components=(), subshapes=()):
+        self.name = name
+        self.components = list(components)
+        self.subshapes = list(subshapes)
+
+    def FindAttribute(self, attr_id, attr):
+        if self.name is None:
+            return False
+        attr._value = self.name
+        return True
+
+
+class _FakeNameString:
+    def __init__(self, value):
+        self._value = value
+
+    def PrintToString(self):
+        if isinstance(self._value, Exception):
+            raise self._value
+        return self._value
+
+
+class _FakeTDataStdName:
+    def __init__(self):
+        self._value = None
+
+    @staticmethod
+    def GetID():
+        return "NAME_ID"
+
+    def Get(self):
+        return _FakeNameString(self._value)
+
+
+class _FakeLabelSequence:
+    def __init__(self):
+        self._items = []
+
+    def Length(self):
+        return len(self._items)
+
+    def Value(self, i):
+        return self._items[i - 1]
+
+
+class _FakeGProps:
+    def __init__(self):
+        self._mass = 0.0
+
+    def Mass(self):
+        return self._mass
+
+
+class _FakeGraveyardBndBox:
+    def __init__(self):
+        self._bounds = (0.0,) * 6
+
+    def Get(self):
+        return self._bounds
+
+
+def _install_graveyard_fakes(monkeypatch):
+    """Insert the fake OCP stack used by the graveyard helper functions.
+
+    Returns a SimpleNamespace of mutable registries the fakes read at call
+    time: ``solids`` maps id(shape) -> [solid, ...], ``volumes`` maps
+    id(shape) -> float (a missing key makes _shape_volume raise), ``bboxes``
+    maps id(shape) -> 6-tuple (falling back to ``default_bbox``),
+    ``free_shapes`` holds the CAF root labels, ``read_status`` drives the CAF
+    readers, and ``cut_is_done``/``cut_shape``/``box_error`` drive the boolean
+    pipeline. ``box_points`` and ``compounds`` record construction details.
+    """
+    state = SimpleNamespace(
+        solids={},
+        volumes={},
+        bboxes={},
+        default_bbox=(0.0, 0.0, 0.0, 1.0, 1.0, 1.0),
+        free_shapes=[],
+        read_status=1,
+        cut_is_done=True,
+        cut_shape=None,
+        box_error=None,
+        box_points=[],
+        compounds=[],
+    )
+
+    class FakeSolidExplorer:
+        def __init__(self, shape, what):
+            self._items = list(state.solids.get(id(shape), []))
+            self._i = 0
+
+        def More(self):
+            return self._i < len(self._items)
+
+        def Current(self):
+            return self._items[self._i]
+
+        def Next(self):
+            self._i += 1
+
+    class FakeShapeTool:
+        def GetFreeShapes(self, seq):
+            seq._items.extend(state.free_shapes)
+
+        def GetComponents(self, label, seq):
+            seq._items.extend(label.components)
+
+        def GetSubShapes(self, label, seq):
+            seq._items.extend(label.subshapes)
+
+    class FakeDoc:
+        def __init__(self, fmt):
+            self.fmt = fmt
+
+        def Main(self):
+            return "MAIN"
+
+    class FakeCafReader:
+        def __init__(self):
+            self.name_mode = None
+
+        def SetNameMode(self, mode):
+            self.name_mode = mode
+
+        def ReadFile(self, path):
+            return state.read_status
+
+        def Transfer(self, doc):
+            pass
+
+    class FakeMakeCompound:
+        def __init__(self):
+            self.added = []
+            state.compounds.append(self)
+
+        def Add(self, solid):
+            self.added.append(solid)
+
+        def Shape(self):
+            shape = _FakeOccShape()
+            state.bboxes.setdefault(id(shape), state.default_bbox)
+            return shape
+
+    class FakeGpPnt:
+        def __init__(self, x, y, z):
+            self.coords = (x, y, z)
+
+    class FakeMakeBox:
+        def __init__(self, p1, p2):
+            state.box_points.append((p1.coords, p2.coords))
+
+        def Shape(self):
+            return _FakeOccShape()
+
+    class FakeCut:
+        def __init__(self, box, model):
+            pass
+
+        def IsDone(self):
+            return state.cut_is_done
+
+        def Shape(self):
+            return state.cut_shape
+
+    def make_compound():
+        return FakeMakeCompound()
+
+    def make_box(p1, p2):
+        if state.box_error is not None:
+            raise state.box_error
+        return FakeMakeBox(p1, p2)
+
+    def set_volume(shape, props):
+        props._mass = state.volumes[id(shape)]
+
+    def set_bounds(shape, box):
+        box._bounds = state.bboxes.get(id(shape), state.default_bbox)
+
+    modules = {}
+    modules["OCP"] = types.ModuleType("OCP")
+
+    topabs = types.ModuleType("OCP.TopAbs")
+    topabs.TopAbs_SOLID = "SOLID"
+    modules["OCP.TopAbs"] = topabs
+
+    topexp = types.ModuleType("OCP.TopExp")
+    topexp.TopExp_Explorer = FakeSolidExplorer
+    modules["OCP.TopExp"] = topexp
+
+    topods = types.ModuleType("OCP.TopoDS")
+    topods.TopoDS = SimpleNamespace(Solid_s=staticmethod(lambda s: s))
+    modules["OCP.TopoDS"] = topods
+
+    bnd = types.ModuleType("OCP.Bnd")
+    bnd.Bnd_Box = _FakeGraveyardBndBox
+    modules["OCP.Bnd"] = bnd
+
+    bndlib = types.ModuleType("OCP.BRepBndLib")
+    bndlib.BRepBndLib = SimpleNamespace(Add_s=staticmethod(set_bounds))
+    modules["OCP.BRepBndLib"] = bndlib
+
+    brepgprop = types.ModuleType("OCP.BRepGProp")
+    brepgprop.BRepGProp = SimpleNamespace(VolumeProperties_s=staticmethod(set_volume))
+    modules["OCP.BRepGProp"] = brepgprop
+
+    gprop = types.ModuleType("OCP.GProp")
+    gprop.GProp_GProps = _FakeGProps
+    modules["OCP.GProp"] = gprop
+
+    builderapi = types.ModuleType("OCP.BRepBuilderAPI")
+    builderapi.BRepBuilderAPI_MakeCompound = make_compound
+    modules["OCP.BRepBuilderAPI"] = builderapi
+
+    primapi = types.ModuleType("OCP.BRepPrimAPI")
+    primapi.BRepPrimAPI_MakeBox = make_box
+    modules["OCP.BRepPrimAPI"] = primapi
+
+    algoapi = types.ModuleType("OCP.BRepAlgoAPI")
+    algoapi.BRepAlgoAPI_Cut = FakeCut
+    modules["OCP.BRepAlgoAPI"] = algoapi
+
+    gp = types.ModuleType("OCP.gp")
+    gp.gp_Pnt = FakeGpPnt
+    modules["OCP.gp"] = gp
+
+    tdatastd = types.ModuleType("OCP.TDataStd")
+    tdatastd.TDataStd_Name = _FakeTDataStdName
+    modules["OCP.TDataStd"] = tdatastd
+
+    tdf = types.ModuleType("OCP.TDF")
+    tdf.TDF_LabelSequence = _FakeLabelSequence
+    modules["OCP.TDF"] = tdf
+
+    tdocstd = types.ModuleType("OCP.TDocStd")
+    tdocstd.TDocStd_Document = FakeDoc
+    modules["OCP.TDocStd"] = tdocstd
+
+    xcafdoc = types.ModuleType("OCP.XCAFDoc")
+    xcafdoc.XCAFDoc_DocumentTool = SimpleNamespace(
+        ShapeTool=staticmethod(lambda main: FakeShapeTool())
+    )
+    modules["OCP.XCAFDoc"] = xcafdoc
+
+    stepcaf = types.ModuleType("OCP.STEPCAFControl")
+    stepcaf.STEPCAFControl_Reader = FakeCafReader
+    modules["OCP.STEPCAFControl"] = stepcaf
+
+    igescaf = types.ModuleType("OCP.IGESCAFControl")
+    igescaf.IGESCAFControl_Reader = FakeCafReader
+    modules["OCP.IGESCAFControl"] = igescaf
+
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    return state
+
+
+class TestShapeHelpers:
+    def test_solids_from_shape(self, monkeypatch):
+        """The explorer walks every solid nested in a shape."""
+        state = _install_graveyard_fakes(monkeypatch)
+        shape = _FakeOccShape()
+        s1, s2 = _FakeOccShape(), _FakeOccShape()
+        state.solids[id(shape)] = [s1, s2]
+
+        assert nurbs_handler._solids_from_shape(shape) == [s1, s2]
+
+    def test_shape_volume(self, monkeypatch):
+        """The GProp mass is returned as the shape volume."""
+        state = _install_graveyard_fakes(monkeypatch)
+        solid = _FakeOccShape()
+        state.volumes[id(solid)] = 42.5
+
+        assert nurbs_handler._shape_volume(solid) == 42.5
+
+    def test_bounding_box_helpers(self, monkeypatch):
+        """Both bounding-box helpers return the Bnd_Box bounds."""
+        state = _install_graveyard_fakes(monkeypatch)
+        shape = _FakeOccShape()
+        state.bboxes[id(shape)] = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+
+        assert nurbs_handler._solid_bounding_box(shape) == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+        assert nurbs_handler._shape_bounding_box(shape) == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+
+
+class TestCollectCadNames:
+    def test_step_names_collected_recursively(self, monkeypatch):
+        """Names are gathered from free shapes, components, and subshapes."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.free_shapes = [
+            _FakeCafLabel(
+                "Assembly",
+                components=[_FakeCafLabel("Part A"), _FakeCafLabel(None)],
+                subshapes=[_FakeCafLabel("Solid 1")],
+            ),
+            _FakeCafLabel("Graveyard"),
+        ]
+
+        names = nurbs_handler._collect_cad_names("model.step", ".step")
+
+        assert names == {"Assembly", "Part A", "Solid 1", "Graveyard"}
+
+    def test_iges_names_collected(self, monkeypatch):
+        """The IGES CAF reader is used for .iges files."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.free_shapes = [_FakeCafLabel("Iges Part")]
+
+        assert nurbs_handler._collect_cad_names("model.iges", ".iges") == {"Iges Part"}
+
+    def test_unsupported_extension_returns_empty(self, monkeypatch):
+        """Non-STEP/IGES extensions skip name collection entirely."""
+        _install_graveyard_fakes(monkeypatch)
+
+        assert nurbs_handler._collect_cad_names("model.brep", ".brep") == set()
+
+    def test_read_failure_returns_empty(self, monkeypatch):
+        """A non-1 CAF read status yields no names."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.read_status = 0
+        state.free_shapes = [_FakeCafLabel("Part")]
+
+        assert nurbs_handler._collect_cad_names("model.step", ".step") == set()
+
+    def test_empty_and_failing_names_skipped(self, monkeypatch):
+        """Empty names and name-extraction errors are skipped per label."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.free_shapes = [
+            _FakeCafLabel(""),
+            _FakeCafLabel(RuntimeError("name exploded")),
+            _FakeCafLabel("Good"),
+        ]
+
+        assert nurbs_handler._collect_cad_names("model.step", ".step") == {"Good"}
+
+    def test_caf_stack_failure_returns_empty(self, monkeypatch):
+        """A broken CAF import degrades to an empty name set."""
+        _install_graveyard_fakes(monkeypatch)
+        monkeypatch.setitem(sys.modules, "OCP.TDocStd", None)
+
+        assert nurbs_handler._collect_cad_names("model.step", ".step") == set()
+
+
+class TestDetectExistingGraveyard:
+    def _register_model(self, state, gy, models, gy_volume=1e6, model_volume=1.0):
+        """Register a shape whose first solid is a huge box around the models."""
+        shape = _FakeOccShape()
+        state.solids[id(shape)] = [gy, *models]
+        state.volumes[id(gy)] = gy_volume
+        state.bboxes[id(gy)] = (0.0, 0.0, 0.0, 100.0, 100.0, 100.0)
+        for m in models:
+            state.volumes[id(m)] = model_volume
+            state.bboxes[id(m)] = (10.0, 10.0, 10.0, 20.0, 20.0, 20.0)
+        return shape
+
+    def test_name_detection_identifies_enclosing_solid(self, monkeypatch):
+        """A 'graveyard' product name plus an enclosing solid is detected."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1, m2 = _FakeOccShape(), _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1, m2])
+        monkeypatch.setattr(
+            nurbs_handler, "_collect_cad_names", lambda fp, ext: {"Assembly", "Graveyard Box"}
+        )
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is True
+        assert model_solids == [m1, m2]
+        assert gy_index == 0
+
+    def test_name_detection_without_identifiable_solid(self, monkeypatch):
+        """A graveyard name with a single solid reports detection without an index."""
+        state = _install_graveyard_fakes(monkeypatch)
+        only = _FakeOccShape()
+        shape = _FakeOccShape()
+        state.solids[id(shape)] = [only]
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: {"graveyard"})
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is True
+        assert model_solids == [only]
+        assert gy_index is None
+
+    def test_name_collection_error_falls_back_to_heuristic(self, monkeypatch):
+        """A failing name lookup is ignored; the heuristic still applies."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1 = _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1])
+
+        def raising_collect(fp, ext):
+            raise RuntimeError("CAF exploded")
+
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", raising_collect)
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is True
+        assert model_solids == [m1]
+        assert gy_index == 0
+
+    def test_heuristic_detects_enclosing_solid(self, monkeypatch):
+        """Without names, a >10x solid containing all others is a graveyard."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1, m2 = _FakeOccShape(), _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1, m2])
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is True
+        assert model_solids == [m1, m2]
+        assert gy_index == 0
+
+    def test_heuristic_rejects_similar_volumes(self, monkeypatch):
+        """A largest solid under 10x the second is not a graveyard."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1 = _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1], gy_volume=5.0, model_volume=1.0)
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is False
+        assert model_solids == [gy, m1]
+        assert gy_index is None
+
+    def test_heuristic_rejects_non_containing_solid(self, monkeypatch):
+        """A huge solid that does not contain the others is not a graveyard."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1 = _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1])
+        # m1 sticks out of the gy bounding box.
+        state.bboxes[id(m1)] = (500.0, 500.0, 500.0, 600.0, 600.0, 600.0)
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, _, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is False
+        assert gy_index is None
+
+    def test_heuristic_rejects_zero_second_volume(self, monkeypatch):
+        """A zero-volume second solid makes the ratio check meaningless."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1 = _FakeOccShape(), _FakeOccShape()
+        shape = self._register_model(state, gy, [m1], model_volume=0.0)
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, _, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is False
+        assert gy_index is None
+
+    def test_heuristic_rejects_unmeasurable_solid(self, monkeypatch):
+        """A solid whose volume cannot be computed aborts the heuristic."""
+        state = _install_graveyard_fakes(monkeypatch)
+        gy, m1 = _FakeOccShape(), _FakeOccShape()
+        shape = _FakeOccShape()
+        state.solids[id(shape)] = [gy, m1]
+        state.volumes[id(gy)] = 1e6
+        # m1 has no registered volume -> _shape_volume raises.
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is False
+        assert model_solids == [gy, m1]
+        assert gy_index is None
+
+    def test_single_solid_is_not_a_graveyard(self, monkeypatch):
+        """A lone solid can never match the enclosing heuristic."""
+        state = _install_graveyard_fakes(monkeypatch)
+        only = _FakeOccShape()
+        shape = _FakeOccShape()
+        state.solids[id(shape)] = [only]
+        monkeypatch.setattr(nurbs_handler, "_collect_cad_names", lambda fp, ext: set())
+
+        detected, model_solids, gy_index = nurbs_handler._detect_existing_graveyard(
+            shape, "model.step", ".step"
+        )
+
+        assert detected is False
+        assert model_solids == [only]
+        assert gy_index is None
+
+
+class TestMakeCompound:
+    def test_compound_collects_solids_in_order(self, monkeypatch):
+        """The builder receives every solid and produces a shape."""
+        _install_graveyard_fakes(monkeypatch)
+        s1, s2 = _FakeOccShape(), _FakeOccShape()
+
+        compound = nurbs_handler._make_compound([s1, s2])
+
+        assert compound is not None
+
+
+class TestBuildGraveyardShape:
+    def test_empty_model_warns_and_returns_none(self, monkeypatch):
+        """No model solids means no graveyard can be built."""
+        _install_graveyard_fakes(monkeypatch)
+        warnings = []
+
+        result = nurbs_handler._build_graveyard_shape([], warnings)
+
+        assert result is None
+        assert any("no model solids found" in w for w in warnings)
+
+    def test_success_cuts_padded_box_and_combines(self, monkeypatch):
+        """A padded box minus the model yields model + graveyard solids."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.default_bbox = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        gy = _FakeOccShape()
+        state.cut_shape = _FakeOccShape()
+        state.solids[id(state.cut_shape)] = [gy]
+        m1, m2 = _FakeOccShape(), _FakeOccShape()
+        warnings = []
+
+        result = nurbs_handler._build_graveyard_shape([m1, m2], warnings)
+
+        assert result is not None
+        assert warnings == []
+        # max_dim 10 -> padding max(1.0, 1.0) = 1.0 around the model bbox.
+        assert state.box_points == [((-1.0, -1.0, -1.0), (11.0, 11.0, 11.0))]
+        # The final compound holds the model solids followed by the graveyard.
+        assert state.compounds[-1].added == [m1, m2, gy]
+
+    def test_failed_cut_warns_and_returns_none(self, monkeypatch):
+        """A failed boolean cut warns and yields no shape."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.cut_is_done = False
+        warnings = []
+
+        result = nurbs_handler._build_graveyard_shape([_FakeOccShape()], warnings)
+
+        assert result is None
+        assert any("boolean cut failed" in w for w in warnings)
+
+    def test_cut_without_solids_warns_and_returns_none(self, monkeypatch):
+        """A cut that produces no volumes warns and yields no shape."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.cut_shape = _FakeOccShape()  # no solids registered for it
+        warnings = []
+
+        result = nurbs_handler._build_graveyard_shape([_FakeOccShape()], warnings)
+
+        assert result is None
+        assert any("boolean cut produced no volumes" in w for w in warnings)
+
+    def test_kernel_error_warns_and_returns_none(self, monkeypatch):
+        """An OCC failure during construction is reported in the warning."""
+        state = _install_graveyard_fakes(monkeypatch)
+        state.box_error = RuntimeError("kernel exploded")
+        warnings = []
+
+        result = nurbs_handler._build_graveyard_shape([_FakeOccShape()], warnings)
+
+        assert result is None
+        assert any("kernel exploded" in w for w in warnings)
+
+
+class TestMaybeAddGraveyard:
+    def test_existing_graveyard_with_index_is_tagged(self, monkeypatch):
+        """A detected graveyard keeps the shape and tags its 1-based volume id."""
+        shape = _FakeOccShape()
+        monkeypatch.setattr(
+            nurbs_handler, "_detect_existing_graveyard", lambda s, fp, ext: (True, ["m"], 1)
+        )
+        warnings = []
+
+        result_shape, gy_ids = nurbs_handler._maybe_add_graveyard(
+            shape, "model.step", ".step", warnings
+        )
+
+        assert result_shape is shape
+        assert gy_ids == {2}
+        assert any("Existing graveyard volume detected" in w for w in warnings)
+        assert any("will be tagged mat:graveyard" in w for w in warnings)
+
+    def test_existing_graveyard_without_index_warns_manual(self, monkeypatch):
+        """A name-only detection tags nothing and warns about manual correction."""
+        shape = _FakeOccShape()
+        monkeypatch.setattr(
+            nurbs_handler, "_detect_existing_graveyard", lambda s, fp, ext: (True, ["m"], None)
+        )
+        warnings = []
+
+        result_shape, gy_ids = nurbs_handler._maybe_add_graveyard(
+            shape, "model.step", ".step", warnings
+        )
+
+        assert result_shape is shape
+        assert gy_ids == set()
+        assert any("could not be matched to a solid" in w for w in warnings)
+
+    def test_auto_created_graveyard_returns_new_ids(self, monkeypatch):
+        """An auto-created graveyard yields the combined shape and new volume ids."""
+        state = _install_graveyard_fakes(monkeypatch)
+        shape, m1, gy = _FakeOccShape(), _FakeOccShape(), _FakeOccShape()
+        combined = _FakeOccShape()
+        state.solids[id(shape)] = [m1]
+        state.solids[id(combined)] = [m1, gy]
+        monkeypatch.setattr(
+            nurbs_handler, "_detect_existing_graveyard", lambda s, fp, ext: (False, [m1], None)
+        )
+        monkeypatch.setattr(nurbs_handler, "_build_graveyard_shape", lambda solids, w: combined)
+        warnings = []
+
+        result_shape, gy_ids = nurbs_handler._maybe_add_graveyard(
+            shape, "model.step", ".step", warnings
+        )
+
+        assert result_shape is combined
+        assert gy_ids == {2}
+        assert any("Auto-created graveyard volume around model" in w for w in warnings)
+
+    def test_failed_creation_keeps_original_shape(self, monkeypatch):
+        """When graveyard construction fails, the original shape is kept."""
+        shape = _FakeOccShape()
+        monkeypatch.setattr(
+            nurbs_handler, "_detect_existing_graveyard", lambda s, fp, ext: (False, [], None)
+        )
+        monkeypatch.setattr(nurbs_handler, "_build_graveyard_shape", lambda solids, w: None)
+        warnings = []
+
+        result_shape, gy_ids = nurbs_handler._maybe_add_graveyard(
+            shape, "model.step", ".step", warnings
+        )
+
+        assert result_shape is shape
+        assert gy_ids == set()
+
+    def test_detection_error_warns_and_keeps_shape(self, monkeypatch):
+        """An unexpected detection failure warns and leaves the shape untouched."""
+        shape = _FakeOccShape()
+
+        def raising_detect(s, fp, ext):
+            raise RuntimeError("detector exploded")
+
+        monkeypatch.setattr(nurbs_handler, "_detect_existing_graveyard", raising_detect)
+        warnings = []
+
+        result_shape, gy_ids = nurbs_handler._maybe_add_graveyard(
+            shape, "model.step", ".step", warnings
+        )
+
+        assert result_shape is shape
+        assert gy_ids == set()
+        assert any("detector exploded" in w for w in warnings)

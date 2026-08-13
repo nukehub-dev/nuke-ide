@@ -104,7 +104,7 @@ jobs:
             ~/nndc_hdf5
             ~/endf-b-vii.1
             ~/nuclear-data/chain_endfb71_pwr.xml
-          key: nuclear-data-v1
+          key: nuclear-data-v2
 
       - name: Download nuclear data libraries
         if: steps.data-cache.outputs.cache-hit != 'true'
@@ -115,10 +115,11 @@ jobs:
           wget -q -O - https://anl.box.com/shared/static/teaup95cqv8s9nn56hfn7ku8mmelr95p.xz | tar -C ~ -xJ
           wget -q -O - https://anl.box.com/shared/static/4kd2gxnf4gtk4w1c8eua5fsua22kvgjb.xz | tar -C ~ -xJ
           # Depletion chain for NUKE_E2E_CHAIN: the public ENDF/B-VII.1 PWR
-          # chain from openmc.org/depletion-chains (our local env uses the
-          # CASL chain; any valid chain satisfies the e2e gate).
+          # chain (OpenMC 0.12+ format) from openmc.org/depletion-chains (our
+          # local env uses the CASL chain; any valid chain satisfies the e2e
+          # gate).
           wget -q -O ~/nuclear-data/chain_endfb71_pwr.xml \
-            https://anl.box.com/shared/static/1ndcrc1j042nkdpfobp5ebsvxghziisc.xml
+            https://anl.box.com/shared/static/os1u896bwsbopurpgas72bi6aij2zzdc.xml
 
       - name: Enable Corepack
         run: corepack enable
