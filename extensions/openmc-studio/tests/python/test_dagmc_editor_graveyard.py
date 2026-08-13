@@ -448,6 +448,7 @@ class TestCreateGraveyardBox:
 
     def test_model_failure_returns_error(self, des, monkeypatch):
         """A Model constructor failure yields an error dict with a traceback."""
+        _install_fake_pymoab(monkeypatch)
         monkeypatch.setattr(
             des, "Model", lambda file_path: (_ for _ in ()).throw(ValueError("bad file"))
         )
