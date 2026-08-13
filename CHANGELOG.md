@@ -169,6 +169,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nukelab-integration: IDE file downloads and uploads no longer hang on
+  "Preparing download..." after the NukeLab server access token expires
+  (5 minutes after opening the environment) — a 401 from the container auth
+  sidecar now silently re-mints the token via the hub and retries the request.
 - openmc-studio: DAGMC universes are synchronized before CoupledOperator
   creation on DAGMC geometries — coupled depletion previously failed with
   'Number of material instances have not been determined'.

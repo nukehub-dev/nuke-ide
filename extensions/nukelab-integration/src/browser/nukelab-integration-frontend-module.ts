@@ -6,12 +6,16 @@ import { NukeLabMenuContribution } from './nukelab-integration-menu-contribution
 import { NukeLabSidebarContribution } from './nukelab-integration-sidebar-contribution';
 import { NukeLabAppStatusService } from './nukelab-integration-app-status-service';
 import { NukeLabActivityContribution } from './nukelab-integration-activity-contribution';
+import { NukeLabSessionRenewalContribution } from './nukelab-integration-session-renewal';
 
 export default new ContainerModule((bind) => {
     bind(NukeLabAppStatusService).toSelf().inSingletonScope();
 
     bind(NukeLabActivityContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(NukeLabActivityContribution);
+
+    bind(NukeLabSessionRenewalContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(NukeLabSessionRenewalContribution);
 
     bind(NukeLabCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeLabCommandContribution);
