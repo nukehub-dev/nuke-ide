@@ -145,6 +145,11 @@ jobs:
         # native modules are not needed for pytest or node-env vitest.
         run: yarn install --frozen-lockfile --ignore-scripts
 
+      # vitest imports compiled sibling packages (nuke-core/lib/...); --ignore-scripts skips the
+      # lerna prepare build, so extensions must be compiled explicitly before running tests.
+      - name: Compile extensions
+        run: npx lerna run build
+
       - name: Run extension test suites
         env:
           NUKE_TEST_PYTHON: python
