@@ -8,6 +8,12 @@ services:
       # Build context is the repository root (the Dockerfile needs the sources).
       context: ../..
       dockerfile: applications/docker/Dockerfile
+      # Optional extension selection, forwarded to the Dockerfile (see
+      # scripts/with-extension-set.js), e.g.:
+      #   NUKE_EXTENSIONS=all yarn docker:build   # also bundle nukelab-integration (off by default)
+      args:
+        NUKE_EXTENSIONS: ${NUKE_EXTENSIONS:-}
+        NUKE_EXCLUDE_EXTENSIONS: ${NUKE_EXCLUDE_EXTENSIONS:-}
     image: nuke-ide:latest
     container_name: nuke-ide
     ports:

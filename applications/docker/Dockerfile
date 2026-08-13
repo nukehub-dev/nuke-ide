@@ -6,11 +6,22 @@
 # Build:  docker compose -f applications/docker/compose.yml build
 # Run:    docker compose -f applications/docker/compose.yml up
 # Open:   http://localhost:3000
+#
+# Optional extensions can be left out of the bundled IDE via build args, e.g.:
+#   docker build --build-arg NUKE_EXTENSIONS=all ...            # also bundle nukelab-integration (hub-only, off by default)
+#   docker build --build-arg NUKE_EXCLUDE_EXTENSIONS=nuke-sysmon ...
+# (see scripts/with-extension-set.js; unset args bundle every extension except nukelab-integration)
 
 ###############################################################################
 # Stage 1 — build the Theia browser bundle
 ###############################################################################
 FROM docker.io/library/node:22-bookworm AS build
+
+# Extension selection for `yarn build:browser` (scripts/with-extension-set.js).
+ARG NUKE_EXTENSIONS
+ARG NUKE_EXCLUDE_EXTENSIONS
+ENV NUKE_EXTENSIONS=$NUKE_EXTENSIONS \
+    NUKE_EXCLUDE_EXTENSIONS=$NUKE_EXCLUDE_EXTENSIONS
 
 # Native node modules (e.g. native-keymap) need X11/xkbfile headers to compile.
 RUN apt-get update && apt-get install -y --no-install-recommends \

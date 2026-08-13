@@ -10,7 +10,7 @@ All files under `applications/` except generated artifacts (`*/lib/`, `*/node_mo
 
 ## Local Contracts
 
-- `browser/` and `electron/` are Theia application packages. Their `package.json` dependency lists decide which extensions ship — registering a new extension means adding it to **both**.
+- `browser/` and `electron/` are Theia application packages. Their `package.json` dependency lists are the superset of extensions that can ship — registering a new extension means adding it to **both**, plus the `REQUIRED`/`OPTIONAL` registry in `scripts/with-extension-set.js`.
 - `src-gen/`, `gen-webpack.config.js`, `gen-webpack.node.config.js`, and `lib/` are produced by the Theia generator/webpack during builds. Never edit them; regenerate instead.
 - `browser/` scripts: `bundle` (rebuild + `theia build`), `start`, `watch`. Driven from the repo root via `yarn build:browser` / `yarn start:browser` / `yarn watch:browser`.
 - `electron/` scripts: `bundle` / `bundle:prod` (rebuild → preload generation → `theia build` → `patch-electron-main`), `start`, `dist` (electron-builder). Driven from the root via `yarn build:electron(:prod)`, `yarn start:electron`, `yarn dist`, `yarn package:electron(:all)`.
@@ -22,7 +22,8 @@ All files under `applications/` except generated artifacts (`*/lib/`, `*/node_mo
 
 ## Work Guidance
 
-- Adding or removing an extension: update both app `package.json` files, then re-bundle. Extension code changes alone only need the extension's `build` plus an app re-bundle.
+- Adding or removing an extension: update both app `package.json` files and the `REQUIRED`/`OPTIONAL` registry in `scripts/with-extension-set.js`, then re-bundle. Extension code changes alone only need the extension's `build` plus an app re-bundle.
+- Optional extensions are selectable at build time: the root `build:browser`/`build:electron(:prod)` scripts run through `scripts/with-extension-set.js`, which prunes optional extensions from the app manifest per `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS` (deny-list) and restores it byte-for-byte afterwards; unset variables bundle everything except `nukelab-integration` (hub-only, opt-in). The Docker image exposes both as build args (also passed through by `compose.yml`).
 - Electron packaging runs on CI for Linux/Windows/macOS (`.github/workflows/build.yml`); local packaging is `yarn package:electron`.
 - The Docker image targets the browser app only — do not wire Electron into it.
 - Runtime Python dependencies for extension backends belong in `docker/environment.yml` (and `docs/installation.md`), not in the root `requirements-dev.txt`, which is dev/test-only.
