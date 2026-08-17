@@ -116,11 +116,13 @@ export interface GeometryBuildResult {
     output?: string;
 }
 
-/** Request to build/update geometry from a script. */
+/** Request to build/update geometry from a script or STEP file. */
 export interface GeometryBuildRequest {
-    /** Absolute path to the build123d/CadQuery script. */
+    /** Absolute path to the build123d/CadQuery script or STEP file. */
     readonly scriptPath: string;
-    /** Optional output directory; defaults to the script's directory. */
+    /** Source type; defaults to ``script``. Use ``step`` for existing STEP files. */
+    readonly sourceType?: 'script' | 'step';
+    /** Optional output directory; defaults to the source file's directory. */
     readonly outputDirectory?: string;
     /** BRepMesh faceting tolerance. */
     readonly tolerance?: number;

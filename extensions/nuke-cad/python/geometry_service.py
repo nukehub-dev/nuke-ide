@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Geometry service for nuke-cad.
 
-Executes a user-authored build123d/CadQuery script, normalizes the resulting
-object to an OCP B-rep, and emits canonical artifacts:
+Executes a user-authored build123d/CadQuery script or imports an existing STEP
+file, normalizes the resulting object to an OCP B-rep, and emits canonical
+artifacts:
 
     <stem>.step              canonical STEP export
     <stem>.tess.json         per-solid/per-face triangle stream for the viewport
@@ -15,8 +16,8 @@ printed on stdout (stdout-JSON protocol used across NukeIDE backends).
 
 Script convention
 -----------------
-The script must define a top-level variable named ``model`` that holds the
-canonical geometry object. Supported types:
+For script sources, the file must define a top-level variable named ``model``
+that holds the canonical geometry object. Supported types:
 
 * ``build123d.Part``, ``build123d.Compound`` (primary)
 * ``cadquery.Workplane`` (compat)
@@ -132,6 +133,22 @@ def _write_step(shape: object, step_path: Path) -> None:
         raise RuntimeError(f"STEP writer returned status {status}")
 
 
+def _read_step(step_path: Path) -> object:
+    """Read a STEP file into an OCP ``TopoDS_Shape``."""
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPControl import STEPControl_Reader
+
+    reader = STEPControl_Reader()
+    status = reader.ReadFile(str(step_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"STEP reader returned status {status} for {step_path}")
+    reader.TransferRoots()
+    shape = reader.OneShape()
+    if shape is None:
+        raise RuntimeError(f"No shape transferred from {step_path}")
+    return shape
+
+
 def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
     """Tessellate ``shape`` and return per-solid face buffers."""
     from OCP.BRep import BRep_Tool
@@ -216,9 +233,25 @@ def _load_manifest(script_path: Path) -> tuple[RegionManifest | None, list[str]]
         return None, warnings
 
 
-def build_geometry(
-    script_path: str,
-    output_dir: str | None = None,
+def _artifact_paths(out_dir: Path, stem: str) -> dict[str, Path]:
+    """Return canonical artifact paths for a given output directory and stem."""
+    return {
+        "step": out_dir / f"{stem}.step",
+        "tess": out_dir / f"{stem}.tess.json",
+        "h5m": out_dir / f"{stem}.h5m",
+        "msh": out_dir / f"{stem}.msh",
+        "exodus": out_dir / f"{stem}.e",
+        "inp": out_dir / f"{stem}.inp",
+        "vtk": out_dir / f"{stem}.vtk",
+        "mesh_report": out_dir / f"{stem}.mesh.report.json",
+    }
+
+
+def _process_shape(
+    shape: object,
+    source_file: Path,
+    out_dir: Path,
+    stem: str,
     tolerance: float = 0.001,
     export_dagmc: bool = True,
     add_graveyard: bool = True,
@@ -228,45 +261,32 @@ def build_geometry(
     mesh_min_size: float | None = None,
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
+    selector_map: dict[str, list[int]] | None = None,
+    manifest: RegionManifest | None = None,
 ) -> dict:
-    """Execute ``script_path`` and write canonical artifacts.
+    """Tessellate ``shape`` and write canonical artifacts.
 
+    This is the shared backend of both script-based builds and STEP imports.
     Returns the stdout-JSON result dict.
     """
-    script_file = Path(script_path).resolve()
-    if not script_file.exists():
-        return {"success": False, "error": f"Script not found: {script_path}"}
-
-    if output_dir is None:
-        output_dir = script_file.parent
-    out_dir = Path(output_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    stem = script_file.stem
-    step_path = out_dir / f"{stem}.step"
-    tess_path = out_dir / f"{stem}.tess.json"
-    h5m_path = out_dir / f"{stem}.h5m"
-    msh_path = out_dir / f"{stem}.msh"
-    exodus_path = out_dir / f"{stem}.e"
-    inp_path = out_dir / f"{stem}.inp"
-    vtk_path = out_dir / f"{stem}.vtk"
-    mesh_report_path = out_dir / f"{stem}.mesh.report.json"
+    selector_map = selector_map or {}
+    paths = _artifact_paths(out_dir, stem)
 
     result: dict = {
         "success": False,
-        "scriptPath": str(script_file),
+        "scriptPath": str(source_file),
         "outputDirectory": str(out_dir),
-        "stepPath": str(step_path),
-        "tessPath": str(tess_path),
-        "dagmcPath": str(h5m_path),
+        "stepPath": str(paths["step"]),
+        "tessPath": str(paths["tess"]),
+        "dagmcPath": str(paths["h5m"]),
         "dagmcSuccess": False,
         "dagmcWarnings": [],
         "dagmcError": None,
-        "meshPath": str(msh_path),
-        "exodusPath": str(exodus_path),
-        "inpPath": str(inp_path),
-        "vtkPath": str(vtk_path),
-        "meshReportPath": str(mesh_report_path),
+        "meshPath": str(paths["msh"]),
+        "exodusPath": str(paths["exodus"]),
+        "inpPath": str(paths["inp"]),
+        "vtkPath": str(paths["vtk"]),
+        "meshReportPath": str(paths["mesh_report"]),
         "meshSuccess": False,
         "meshWarnings": [],
         "meshError": None,
@@ -275,57 +295,21 @@ def build_geometry(
     }
 
     # ------------------------------------------------------------------
-    # 1. Execute user script and locate ``model``.
+    # 1. Write canonical STEP (skip if it would overwrite the input STEP).
     # ------------------------------------------------------------------
-    _print_progress(f"Executing script: {script_file}")
     try:
-        import runpy
-
-        namespace = runpy.run_path(str(script_file), run_name="__nuke_cad_model__")
-    except Exception as exc:
-        result["error"] = f"Script execution failed: {exc}"
-        result["traceback"] = traceback.format_exc()
-        return result
-
-    if "model" not in namespace:
-        result["error"] = (
-            "Script did not define a top-level 'model' variable. "
-            "Assign your build123d Part/Compound or CadQuery Workplane to 'model'."
-        )
-        return result
-
-    raw_model = namespace["model"]
-
-    # ------------------------------------------------------------------
-    # 2. Normalize to OCP shape.
-    # ------------------------------------------------------------------
-    _print_progress("Normalizing to OCP B-rep")
-    try:
-        shape, selector_map = _extract_shape(raw_model)
-    except TypeError as exc:
-        result["error"] = str(exc)
-        return result
-
-    if shape is None:
-        result["error"] = (
-            "Could not extract an OCP B-rep from 'model'. "
-            "Supported types: build123d Part/Compound, CadQuery Workplane, OCP TopoDS_Shape."
-        )
-        return result
-
-    # ------------------------------------------------------------------
-    # 3. Write STEP.
-    # ------------------------------------------------------------------
-    _print_progress(f"Writing STEP: {step_path}")
-    try:
-        _write_step(shape, step_path)
+        if paths["step"].resolve() == source_file.resolve():
+            _print_progress(f"Reusing input STEP: {paths['step']}")
+        else:
+            _print_progress(f"Writing STEP: {paths['step']}")
+            _write_step(shape, paths["step"])
     except Exception as exc:
         result["error"] = str(exc)
         result["traceback"] = traceback.format_exc()
         return result
 
     # ------------------------------------------------------------------
-    # 4. Tessellate and write viewport stream.
+    # 2. Tessellate and write viewport stream.
     # ------------------------------------------------------------------
     _print_progress("Tessellating B-rep")
     try:
@@ -346,16 +330,14 @@ def build_geometry(
         "solids": solids,
     }
     try:
-        tess_path.write_text(json.dumps(tess_data), encoding="utf-8")
+        paths["tess"].write_text(json.dumps(tess_data), encoding="utf-8")
     except Exception as exc:
         result["error"] = f"Failed to write tessellation stream: {exc}"
         return result
 
     # ------------------------------------------------------------------
-    # 5. Load and validate region manifest.
+    # 3. Apply region manifest (script builds only; STEP has no selectors).
     # ------------------------------------------------------------------
-    manifest, manifest_warnings = _load_manifest(script_file)
-    result["warnings"].extend(manifest_warnings)
     if manifest is not None:
         unknown = manifest.unknown_selectors(set(selector_map.keys()))
         if unknown:
@@ -366,15 +348,15 @@ def build_geometry(
         result["selectorMap"] = selector_map
 
     # ------------------------------------------------------------------
-    # 6. Export DAGMC .h5m.
+    # 4. Export DAGMC .h5m.
     # ------------------------------------------------------------------
     if export_dagmc:
-        _print_progress(f"Exporting DAGMC: {h5m_path}")
+        _print_progress(f"Exporting DAGMC: {paths['h5m']}")
         try:
             if HAS_DAGMC_EXPORT and dagmc_export is not None:
                 dagmc_result = dagmc_export.convert_to_dagmc(
-                    str(step_path),
-                    output_path=str(h5m_path),
+                    str(paths["step"]),
+                    output_path=str(paths["h5m"]),
                     manifest=manifest,
                     selector_map=selector_map,
                     faceting_tolerance=tolerance,
@@ -393,14 +375,14 @@ def build_geometry(
             result["warnings"].append(f"DAGMC export skipped: {exc}")
 
     # ------------------------------------------------------------------
-    # 7. Export FEM volume mesh.
+    # 5. Export FEM volume mesh.
     # ------------------------------------------------------------------
     if export_mesh:
-        _print_progress(f"Exporting FEM mesh: {msh_path}")
+        _print_progress(f"Exporting FEM mesh: {paths['msh']}")
         try:
             if HAS_MESH_SERVICE and mesh_service is not None:
                 mesh_result = mesh_service.mesh_step(
-                    str(step_path),
+                    str(paths["step"]),
                     output_dir=str(out_dir),
                     output_stem=stem,
                     manifest=manifest,
@@ -437,9 +419,164 @@ def build_geometry(
     return result
 
 
+def build_geometry(
+    script_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
+    export_mesh: bool = True,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+) -> dict:
+    """Execute ``script_path`` and write canonical artifacts.
+
+    Returns the stdout-JSON result dict.
+    """
+    script_file = Path(script_path).resolve()
+    if not script_file.exists():
+        return {"success": False, "error": f"Script not found: {script_path}"}
+
+    if output_dir is None:
+        output_dir = script_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # 1. Execute user script and locate ``model``.
+    # ------------------------------------------------------------------
+    _print_progress(f"Executing script: {script_file}")
+    try:
+        import runpy
+
+        namespace = runpy.run_path(str(script_file), run_name="__nuke_cad_model__")
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Script execution failed: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(script_file),
+        }
+
+    if "model" not in namespace:
+        return {
+            "success": False,
+            "error": (
+                "Script did not define a top-level 'model' variable. "
+                "Assign your build123d Part/Compound or CadQuery Workplane to 'model'."
+            ),
+            "scriptPath": str(script_file),
+        }
+
+    raw_model = namespace["model"]
+
+    # ------------------------------------------------------------------
+    # 2. Normalize to OCP shape.
+    # ------------------------------------------------------------------
+    _print_progress("Normalizing to OCP B-rep")
+    try:
+        shape, selector_map = _extract_shape(raw_model)
+    except TypeError as exc:
+        return {"success": False, "error": str(exc), "scriptPath": str(script_file)}
+
+    if shape is None:
+        return {
+            "success": False,
+            "error": (
+                "Could not extract an OCP B-rep from 'model'. "
+                "Supported types: build123d Part/Compound, CadQuery Workplane, OCP TopoDS_Shape."
+            ),
+            "scriptPath": str(script_file),
+        }
+
+    # ------------------------------------------------------------------
+    # 3. Load manifest and process shape.
+    # ------------------------------------------------------------------
+    manifest, manifest_warnings = _load_manifest(script_file)
+    result = _process_shape(
+        shape,
+        script_file,
+        out_dir,
+        script_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map=selector_map,
+        manifest=manifest,
+    )
+    result["warnings"] = (result.get("warnings") or []) + manifest_warnings
+    return result
+
+
+def import_step_file(
+    step_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
+    export_mesh: bool = True,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+) -> dict:
+    """Import an existing STEP file and write canonical artifacts.
+
+    Returns the stdout-JSON result dict.
+    """
+    step_file = Path(step_path).resolve()
+    if not step_file.exists():
+        return {"success": False, "error": f"STEP file not found: {step_path}"}
+
+    if output_dir is None:
+        output_dir = step_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Reading STEP: {step_file}")
+    try:
+        shape = _read_step(step_file)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read STEP file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(step_file),
+        }
+
+    return _process_shape(
+        shape,
+        step_file,
+        out_dir,
+        step_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map={},
+        manifest=None,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="nuke-cad geometry service")
-    parser.add_argument("script", help="Path to the build123d/CadQuery script")
+    parser.add_argument("script", help="Path to the build123d/CadQuery script or STEP file")
+    parser.add_argument("--from-step", action="store_true", help="Treat the input as a STEP file")
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
     parser.add_argument(
         "--tolerance",
@@ -474,19 +611,34 @@ def main() -> None:
     parser.add_argument("--mesh-order", type=int, default=1, help="Element order (1 or 2)")
     args = parser.parse_args()
 
-    result = build_geometry(
-        args.script,
-        output_dir=args.output_dir,
-        tolerance=args.tolerance,
-        export_dagmc=not args.no_dagmc,
-        add_graveyard=not args.no_graveyard,
-        export_mesh=not args.no_mesh,
-        mesh_engine=args.mesh_engine,
-        mesh_size=args.mesh_size,
-        mesh_min_size=args.mesh_min_size,
-        mesh_max_size=args.mesh_max_size,
-        mesh_order=args.mesh_order,
-    )
+    if args.from_step:
+        result = import_step_file(
+            args.script,
+            output_dir=args.output_dir,
+            tolerance=args.tolerance,
+            export_dagmc=not args.no_dagmc,
+            add_graveyard=not args.no_graveyard,
+            export_mesh=not args.no_mesh,
+            mesh_engine=args.mesh_engine,
+            mesh_size=args.mesh_size,
+            mesh_min_size=args.mesh_min_size,
+            mesh_max_size=args.mesh_max_size,
+            mesh_order=args.mesh_order,
+        )
+    else:
+        result = build_geometry(
+            args.script,
+            output_dir=args.output_dir,
+            tolerance=args.tolerance,
+            export_dagmc=not args.no_dagmc,
+            add_graveyard=not args.no_graveyard,
+            export_mesh=not args.no_mesh,
+            mesh_engine=args.mesh_engine,
+            mesh_size=args.mesh_size,
+            mesh_min_size=args.mesh_min_size,
+            mesh_max_size=args.mesh_max_size,
+            mesh_order=args.mesh_order,
+        )
     print(json.dumps(result))
     sys.stdout.flush()
     sys.exit(0 if result.get("success") else 1)

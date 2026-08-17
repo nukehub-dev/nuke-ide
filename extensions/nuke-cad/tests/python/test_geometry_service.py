@@ -63,3 +63,23 @@ def test_region_manifest_warning_for_unknown_selector(tmp_path: Path) -> None:
     result = geometry_service.build_geometry(str(script), output_dir=str(tmp_path))
     assert result["success"] is True
     assert any("unknown selectors" in w.lower() for w in (result.get("warnings") or []))
+
+
+def test_import_step_file(tmp_path: Path) -> None:
+    pytest.importorskip("build123d", reason="build123d not installed")
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    build_result = geometry_service.build_geometry(str(script), output_dir=str(tmp_path))
+    assert build_result["success"] is True, build_result.get("error", "")
+
+    import_dir = tmp_path / "imported"
+    import_dir.mkdir()
+    result = geometry_service.import_step_file(build_result["stepPath"], output_dir=str(import_dir))
+    assert result["success"] is True, result.get("error", "")
+    assert result["solidCount"] == 1
+    assert result["triangleCount"] > 0
+
+    tess_path = Path(result["tessPath"])
+    assert tess_path.exists()
+    tess_data = json.loads(tess_path.read_text())
+    assert len(tess_data["solids"]) == 1

@@ -19,7 +19,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
   the "reuse nuke-visualizer" rule); heavy visualization results still route to
-  nuke-visualizer.
+  nuke-visualizer. The empty viewport shows an **Open CAD Model...** button.
+- STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
+  than nuke-visualizer); the geometry service reads them through OCP and runs
+  the same tessellation/export pipeline as script builds.
 - Widget CSS is copied to `lib/` by the `copy-css` build step.
 - Python package requirements live in `src/common/packages.json`; never inline
   package lists in services or widgets.

@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the DAGMC editor refacets with **Imprint & Merge** enabled, it routes through
   nuke-cad's `dagmc_export.py` pipeline; if nuke-cad is unavailable it falls
   back to the legacy OpenCASCADE path.
+- nuke-cad: **direct STEP import** — `.step` / `.stp` / `.brep` files can be
+  opened in the CAD viewport without a script. The geometry service reads the
+  file through OCP, writes the canonical viewport tessellation, and runs the
+  optional DAGMC/FEM export pipeline. Double-clicking a STEP file now opens it
+  in nuke-cad by default instead of nuke-visualizer.
+- nuke-cad: **Open CAD Model button** — the empty CAD viewport shows an
+  **Open CAD Model...** button that launches a file picker for `.py` scripts
+  and `.step` / `.stp` files.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and

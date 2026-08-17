@@ -5,6 +5,8 @@ truth is a Python script using **build123d** or **CadQuery**.
 
 ## Quick start
 
+### From a script
+
 1. Create a new file `model.py` in your workspace.
 2. Write a build123d model and assign it to a top-level variable called `model`:
 
@@ -18,6 +20,15 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
    **CAD Viewport** command from the Nuke Tools sidebar.
 4. The geometry service builds a STEP file and a triangle stream beside your
    script (`model.step`, `model.tess.json`) and renders them in the viewport.
+
+### From a STEP file
+
+1. Double-click any `.step`, `.stp`, or `.brep` file in the Explorer — it opens
+   in nuke-cad by default.
+2. Or open the **CAD Viewport** and click **Open CAD Model...** to browse for a
+   `.py` script or `.step` / `.stp` file.
+3. The file is read through OCP, tessellated, and displayed. The same DAGMC and
+   FEM export pipeline runs, writing artifacts beside the source file.
 
 ## Region manifest
 

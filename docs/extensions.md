@@ -52,8 +52,8 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 Script-first parametric CAD / meshing / FEM extension.
 
-- Author geometry with build123d or CadQuery (Python scripts)
-- Live three.js viewport with face/solid picking
+- Author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
+- Live three.js viewport with face/solid picking and an **Open CAD Model...** button
 - Canonical STEP export and JSON region manifest
 - DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups
 - FEM volume meshing (gmsh `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)

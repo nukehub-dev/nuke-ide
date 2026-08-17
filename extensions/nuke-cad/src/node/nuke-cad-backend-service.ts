@@ -69,7 +69,12 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             };
         }
 
+        const ext = request.scriptPath.split('.').pop()?.toLowerCase();
+        const sourceType = request.sourceType ?? (ext === 'step' || ext === 'stp' ? 'step' : 'script');
         const args = [scriptPath, request.scriptPath];
+        if (sourceType === 'step') {
+            args.push('--from-step');
+        }
         if (request.outputDirectory) {
             args.push('--output-dir', request.outputDirectory);
         }

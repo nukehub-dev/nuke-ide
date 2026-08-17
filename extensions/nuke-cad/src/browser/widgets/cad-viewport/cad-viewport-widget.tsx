@@ -41,9 +41,11 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
 import * as THREE from 'three';
 
+import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadSelection } from '../../state/nuke-cad-state-manager';
 import './cad-viewport.css';
 
@@ -82,6 +84,12 @@ export class CadViewportWidget extends ReactWidget {
     @inject(FileService)
     protected readonly fileService: FileService;
 
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
+    @inject(NukeCadBackendService)
+    protected readonly backendService: NukeCadBackendService;
+
     private tessData?: TessData;
 
     @postConstruct()
@@ -112,12 +120,55 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Prompt for a CAD model script or STEP file and load it into the viewport.
+     */
+    protected async openModel(): Promise<void> {
+        const uri = await this.fileDialogService.showOpenDialog({
+            title: 'Open CAD Model',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'CAD Models': ['py', 'step', 'stp']
+            }
+        });
+        if (!uri) {
+            return;
+        }
+
+        const filePath = uri.path.toString();
+        const ext = uri.path.ext.toLowerCase();
+        const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
+
+        this.messageService.info(`Loading CAD model: ${filePath}`);
+        try {
+            const result: GeometryBuildResult = await this.backendService.buildGeometry({
+                scriptPath: filePath,
+                sourceType
+            });
+            if (result.success) {
+                this.stateManager.setModel({
+                    scriptPath: filePath,
+                    result,
+                    manifest: result.regionManifest
+                });
+                this.messageService.info(`Loaded ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
+            } else {
+                this.messageService.error(result.error || 'Failed to load CAD model.');
+            }
+        } catch (error) {
+            this.messageService.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
     protected render(): React.ReactNode {
         return (
             <CadViewportComponent
                 tessData={this.tessData}
                 selection={this.stateManager.selection}
                 onSelect={(selection) => this.stateManager.setSelection(selection)}
+                onOpenModel={() => this.openModel()}
             />
         );
     }
@@ -127,6 +178,7 @@ interface CadViewportComponentProps {
     readonly tessData?: TessData;
     readonly selection: CadSelection;
     readonly onSelect: (selection: CadSelection) => void;
+    readonly onOpenModel: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -161,7 +213,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     if (props.tessData === undefined) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
-                Open a CAD model to view geometry.
+                <span>Open a CAD model to view geometry.</span>
+                <button
+                    className="theia-button open-cad-model-button"
+                    onClick={props.onOpenModel}
+                    title="Open a build123d/CadQuery script or STEP file"
+                >
+                    <span className="codicon codicon-folder-opened" /> Open CAD Model...
+                </button>
             </div>
         );
     }

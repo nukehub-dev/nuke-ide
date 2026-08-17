@@ -65,20 +65,31 @@ export class NukeCadOpenHandler implements OpenHandler {
     protected readonly messageService: MessageService;
 
     canHandle(uri: URI): number {
-        return uri.path.ext.toLowerCase() === '.py' ? 200 : 0;
+        const ext = uri.path.ext.toLowerCase();
+        if (ext === '.py') {
+            return 200;
+        }
+        if (['.step', '.stp', '.brep'].includes(ext)) {
+            // Higher priority than nuke-visualizer so STEP files open in nuke-cad by default.
+            return 500;
+        }
+        return 0;
     }
 
     async open(uri: URI): Promise<void> {
-        const scriptPath = uri.path.toString();
+        const filePath = uri.path.toString();
+        const ext = uri.path.ext.toLowerCase();
+        const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
+
         const widget = await this.widgetManager.getOrCreateWidget(CadViewportWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
 
-        const result = await this.backendService.buildGeometry({ scriptPath });
+        const result = await this.backendService.buildGeometry({ scriptPath: filePath, sourceType });
         if (result.success) {
-            this.stateManager.setModel({ scriptPath, result, manifest: result.regionManifest });
+            this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
         } else {
-            this.messageService.error(result.error || 'Failed to build CAD geometry.');
+            this.messageService.error(result.error || 'Failed to load CAD model.');
             console.error('[NukeCad] Open handler failed:', result.output);
         }
     }
