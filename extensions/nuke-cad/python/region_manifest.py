@@ -10,7 +10,7 @@ Schema (version 1):
     {
       "version": 1,
       "volumes": [
-        {"selector": "fuel_pin", "name": "fuel", "material": "UO2", "tags": ["depletable"]}
+        {"selector": "fuel_pin", "name": "fuel", "material": "UO2", "tags": ["depletable"], "meshSize": 0.5}
       ],
       "surfaces": [
         {"selector": "clad.outer", "name": "clad_outer", "role": "boundary"}
@@ -140,6 +140,9 @@ def _validate_entry(kind: str, index: int, entry: Any) -> None:
         tags = entry.get("tags")
         if tags is not None and not isinstance(tags, list):
             raise ManifestValidationError(f"volumes[{index}].tags must be a list")
+        mesh_size = entry.get("meshSize")
+        if mesh_size is not None and not isinstance(mesh_size, (int, float)):
+            raise ManifestValidationError(f"volumes[{index}].meshSize must be a number")
     elif kind == "surfaces":
         role = entry.get("role")
         if role is not None and not isinstance(role, str):

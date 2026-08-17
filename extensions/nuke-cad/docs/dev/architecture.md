@@ -10,7 +10,8 @@ extensions/nuke-cad/
 │   ├── common/            # RPC protocol, packages.json
 │   ├── browser/           # widgets, commands, contributions, state
 │   └── node/              # backend service that spawns Python
-├── python/                # geometry_service.py, dagmc_export.py, region_manifest.py, ocp_compat.py
+├── python/                # geometry_service.py, dagmc_export.py, mesh_service.py,
+│                          # region_manifest.py, ocp_compat.py
 ├── tests/python/          # pytest suite
 └── docs/                  # user/dev docs
 ```
@@ -56,8 +57,30 @@ path. It uses gmsh's OpenCASCADE kernel for robust imprint/merge:
 8. Bind region-manifest selectors to `mat:<name>` material groups; unmanifested
    volumes fall back to `mat_<vol_id-1>`.
 
+## Meshing service (`mesh_service.py`)
+
+The meshing service turns the canonical STEP file into FEM volume meshes:
+
+1. Load the STEP file into gmsh's OpenCASCADE kernel and run `occ.fragment`
+   on all volumes so touching solids remain distinct while sharing exact
+   coincident faces.
+2. Apply a global size field and per-region size fields. Manifest volume
+   entries may include `meshSize` to refine specific regions; these are
+   implemented as gmsh `MathEval` fields restricted to the target volumes.
+3. Generate a 3D tetrahedral mesh with the HXT algorithm
+   (`Mesh.Algorithm3D = 10`).
+4. Write the native `.msh` file and convert it to:
+   - `.e` ExodusII via a custom netCDF4 writer with named element blocks
+     and side sets.
+   - `.inp` CalculiX/Abaqus via meshio.
+   - `.vtk` VTK unstructured grid via meshio.
+5. Write a `mesh.report.json` with element counts and tetrahedral quality
+   metrics (dihedral angles and edge-length aspect ratios).
+
+Netgen is accepted as an `engine` value for forward compatibility but is
+not wired yet.
+
 ## Future phases
 
-- Phase 3: gmsh/netgen meshing service + ExodusII export.
 - Phase 4: openmc-studio one-click import from nuke-cad.
 - Phase 5: CalculiX FEM job builder/runner.

@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mat_<vol_id-1>`, and a `mat:graveyard` bounding volume is auto-created by
   default. Geometry service exposes `dagmcPath`, `dagmcSuccess`,
   `dagmcWarnings`, and `dagmcError` in the stdout-JSON result.
+- nuke-cad: **FEM volume meshing** — `mesh_service.py` turns the canonical
+  STEP file into gmsh `.msh`, ExodusII `.e`, CalculiX/Abaqus `.inp`, and
+  VTK `.vtk` meshes using the HXT tetrahedral algorithm. Manifest volume
+  names become Exodus/INP element blocks, manifest surface names become
+  Exodus side sets, and volume entries support an optional `meshSize` for
+  per-region refinement. The geometry service exposes `meshPath`,
+  `exodusPath`, `inpPath`, `vtkPath`, `meshReportPath`, `meshSuccess`,
+  `meshWarnings`, `meshError`, and `meshReport` in the stdout-JSON result.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and

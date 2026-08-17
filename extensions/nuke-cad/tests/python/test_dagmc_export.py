@@ -1,4 +1,4 @@
-"""Tests for nuke-cad DAGMC export (Phase 2)."""
+"""Tests for nuke-cad DAGMC export."""
 
 import json
 from pathlib import Path

@@ -714,8 +714,7 @@ def convert_to_dagmc(
 
             # Size field: interpret ``tol`` as a rough target mesh edge length.
             # Curved surfaces are refined based on curvature. This is a pragmatic
-            # mapping from faceting tolerance to gmsh's length-field API; true
-            # deflection-controlled faceting is Phase 3 work.
+            # mapping from faceting tolerance to gmsh's length-field API.
             gmsh.option.setNumber("Mesh.CharacteristicLengthMin", tol / 100.0)
             gmsh.option.setNumber("Mesh.CharacteristicLengthMax", max(tol * 10.0, 0.1))
             gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 1)

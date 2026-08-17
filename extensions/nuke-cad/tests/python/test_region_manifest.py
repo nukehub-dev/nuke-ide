@@ -62,3 +62,19 @@ def test_missing_material_volumes() -> None:
     }
     manifest = RegionManifest.from_dict(data)
     assert manifest.missing_material_volumes() == ["void"]
+
+
+def test_mesh_size_field() -> None:
+    data = {
+        "version": CURRENT_VERSION,
+        "volumes": [{"selector": "fuel_pin", "meshSize": 0.5}],
+    }
+    manifest = RegionManifest.from_dict(data)
+    assert manifest.volumes[0]["meshSize"] == 0.5
+
+
+def test_invalid_mesh_size_raises() -> None:
+    with pytest.raises(ManifestValidationError, match="meshSize must be a number"):
+        RegionManifest.from_dict(
+            {"version": CURRENT_VERSION, "volumes": [{"selector": "fuel_pin", "meshSize": "fine"}]}
+        )

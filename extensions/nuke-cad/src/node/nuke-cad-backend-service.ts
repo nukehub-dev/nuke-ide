@@ -76,6 +76,21 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         if (request.tolerance !== undefined) {
             args.push('--tolerance', String(request.tolerance));
         }
+        if (request.meshEngine) {
+            args.push('--mesh-engine', request.meshEngine);
+        }
+        if (request.meshSize !== undefined) {
+            args.push('--mesh-size', String(request.meshSize));
+        }
+        if (request.meshMinSize !== undefined) {
+            args.push('--mesh-min-size', String(request.meshMinSize));
+        }
+        if (request.meshMaxSize !== undefined) {
+            args.push('--mesh-max-size', String(request.meshMaxSize));
+        }
+        if (request.meshOrder !== undefined) {
+            args.push('--mesh-order', String(request.meshOrder));
+        }
 
         const { spawn } = await import('child_process');
         const pythonBinDir = path.dirname(pythonCommand);

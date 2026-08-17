@@ -16,7 +16,19 @@
       "required": false,
       "installCommand": "pip install cadquery"
     },
-    { "name": "gmsh", "required": false }
+    { "name": "gmsh", "required": false },
+    { "name": "meshio", "required": false },
+    { "name": "netCDF4", "required": false },
+    {
+      "name": "netgen",
+      "required": false,
+      "installCommand": "pip install netgen-mesher"
+    },
+    {
+      "name": "ngsolve",
+      "required": false,
+      "installCommand": "pip install ngsolve"
+    }
   ],
   "dagmc": [
     { "name": "pymoab", "required": false },
@@ -40,6 +52,18 @@
       "installCommand": "pip install cadquery"
     },
     { "name": "gmsh", "required": false },
+    { "name": "meshio", "required": false },
+    { "name": "netCDF4", "required": false },
+    {
+      "name": "netgen",
+      "required": false,
+      "installCommand": "pip install netgen-mesher"
+    },
+    {
+      "name": "ngsolve",
+      "required": false,
+      "installCommand": "pip install ngsolve"
+    },
     { "name": "pymoab", "required": false },
     { "name": "h5py", "required": false }
   ]

@@ -35,6 +35,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   build123d Part/Compound, CadQuery Workplane, or OCP TopoDS_Shape.
 - Heavy Python imports must be guarded so the module stays importable in the
   minimal pytest profile (`pytest` + `numpy` only).
+- Region manifest volume entries may include an optional `meshSize` number
+  for per-region mesh refinement.
 
 ## Verification
 

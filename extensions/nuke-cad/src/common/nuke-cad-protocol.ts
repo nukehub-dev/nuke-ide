@@ -41,6 +41,21 @@ export interface CadBoundingBox {
     readonly max: number[];
 }
 
+/** Mesh quality report returned by the meshing service. */
+export interface MeshQualityReport {
+    readonly elementCount: number;
+    readonly nodeCount: number;
+    readonly elementTypes: Record<string, number>;
+    readonly blocks: { readonly name: string; readonly elementCount: number; readonly dimension: number }[];
+    readonly quality: {
+        readonly minDihedralDeg: number;
+        readonly maxDihedralDeg: number;
+        readonly minAspectRatio: number;
+        readonly maxAspectRatio: number;
+        readonly meanAspectRatio: number;
+    };
+}
+
 /** Result of a geometry build request. */
 export interface GeometryBuildResult {
     /** Whether the build succeeded. */
@@ -79,6 +94,24 @@ export interface GeometryBuildResult {
     readonly dagmcWarnings?: string[];
     /** DAGMC export error when dagmcSuccess is false. */
     readonly dagmcError?: string;
+    /** Absolute path to the generated gmsh native mesh. */
+    readonly meshPath?: string;
+    /** Absolute path to the generated ExodusII mesh. */
+    readonly exodusPath?: string;
+    /** Absolute path to the generated CalculiX/Abaqus input. */
+    readonly inpPath?: string;
+    /** Absolute path to the generated VTK unstructured grid. */
+    readonly vtkPath?: string;
+    /** Absolute path to the generated mesh quality report. */
+    readonly meshReportPath?: string;
+    /** Whether the FEM mesh export succeeded (non-fatal if false). */
+    readonly meshSuccess?: boolean;
+    /** FEM mesh export warnings. */
+    readonly meshWarnings?: string[];
+    /** FEM mesh export error when meshSuccess is false. */
+    readonly meshError?: string;
+    /** FEM mesh quality report. */
+    readonly meshReport?: MeshQualityReport;
     /** Captured stderr/stdout from the geometry service. */
     output?: string;
 }
@@ -91,6 +124,16 @@ export interface GeometryBuildRequest {
     readonly outputDirectory?: string;
     /** BRepMesh faceting tolerance. */
     readonly tolerance?: number;
+    /** Meshing engine: ``gmsh`` or ``netgen``. */
+    readonly meshEngine?: string;
+    /** Global target element size for the volume mesh. */
+    readonly meshSize?: number;
+    /** Minimum element size for the volume mesh. */
+    readonly meshMinSize?: number;
+    /** Maximum element size for the volume mesh. */
+    readonly meshMaxSize?: number;
+    /** Element order (1 = linear, 2 = quadratic). */
+    readonly meshOrder?: number;
 }
 
 /** Single volume entry in the region manifest. */
@@ -99,6 +142,8 @@ export interface RegionManifestVolume {
     readonly name?: string;
     readonly material?: string;
     readonly tags?: string[];
+    /** Optional per-region target element size for meshing. */
+    readonly meshSize?: number;
 }
 
 /** Single surface entry in the region manifest. */

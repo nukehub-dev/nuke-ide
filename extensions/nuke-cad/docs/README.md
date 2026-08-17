@@ -16,8 +16,9 @@ build123d/CadQuery script (.py = source of truth)
 
 ## Current status
 
-- Phase 1 (geometry service, viewport, STEP, region manifest): complete.
-- Phase 2 (DAGMC export with imprint/merge and named material groups): complete.
+- Geometry service: script execution, STEP export, viewport tessellation stream, region manifest validation.
+- DAGMC export: gmsh OCC imprint/merge, named material groups, auto-graveyard.
+- FEM meshing: gmsh HXT volume meshing, ExodusII/CalculiX/VTK export, mesh quality report.
 
 ## User guides
 
