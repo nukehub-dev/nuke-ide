@@ -34,6 +34,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 from ocp_compat import (  # noqa: E402
     brep_bnd_lib_add,
     brep_tool_triangulation,
+    interface_static_set_cval,
     topods_face,
     topods_solid,
 )
@@ -104,8 +105,7 @@ def _write_step(shape: object, step_path: Path) -> None:
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
 
     writer = STEPControl_Writer()
-    set_cval = getattr(Interface_Static, "SetCVal_s", Interface_Static.SetCVal)
-    set_cval("write.step.schema", "AP214IS")
+    interface_static_set_cval(Interface_Static, "write.step.schema", "AP214IS")
     writer.Transfer(shape, STEPControl_AsIs)
     status = writer.Write(str(step_path))
     if status != 1:

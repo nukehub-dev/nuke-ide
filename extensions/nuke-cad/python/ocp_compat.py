@@ -44,3 +44,8 @@ def brep_bnd_lib_add(brep_bnd_lib_class: Any, shape: Any, bbox: Any) -> None:
 def brep_gprop_volume_properties(brep_gprop_class: Any, shape: Any, props: Any) -> None:
     """Compute volume properties of a shape."""
     return _resolve(brep_gprop_class, "VolumeProperties")(shape, props)
+
+
+def interface_static_set_cval(static_class: Any, key: str, value: str) -> None:
+    """Set a string-valued STEP writer static parameter."""
+    return _resolve(static_class, "SetCVal")(key, value)
