@@ -4315,9 +4315,9 @@
     undici-types "~7.18.0"
 
 "@types/plotly.js@^3.0.10":
-  version "3.0.10"
-  resolved "https://registry.yarnpkg.com/@types/plotly.js/-/plotly.js-3.0.10.tgz#889d2c65e024db507b427ffa84ac870e8c1ac90f"
-  integrity sha512-q+MgO4aajC2HrO7FllTYWzrpdfbTjboSMfjkz/aXKjg1v7HNo1zMEFfAW7quKfk6SL+bH74A5ThBEps/7hZxOA==
+  version "3.0.13"
+  resolved "https://registry.yarnpkg.com/@types/plotly.js/-/plotly.js-3.0.13.tgz#2f3e0a6ebf8b5dd0aef1916a54e42a1517b20e75"
+  integrity sha512-mWI1NZRDHDoiFiPEvUjR0P12fv21kmT8XSLrEjfNwIDahELaXXkSz38n6o+5SYsq0YEGxkK3ANqqM0cRl8uZdg==
 
 "@types/qs@*":
   version "6.9.18"
