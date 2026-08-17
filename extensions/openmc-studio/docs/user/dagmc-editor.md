@@ -143,11 +143,11 @@ Regenerate the DAGMC mesh from the original source CAD with a new tolerance.
 4. **(Optional) Imprint & Merge** — Check **"Imprint & merge shared surfaces"** to imprint and merge coincident surfaces between adjacent volumes during re-faceting. This is slower but produces conformal meshes, which is better for particle transport.
 5. **Generate** — Click **Generate Re-faceted H5M**. The new file is saved with a `_refaceted` suffix. Choose whether to load it immediately.
 
-> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag where possible. The graveyard is preserved too: re-faceting re-tessellates from the source CAD, which does not contain the auto-created graveyard shell — if the old file had a `mat:graveyard` volume it is re-created on the output automatically, with a warning.
+> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag or bounding-box proximity where possible. The graveyard is preserved too: re-faceting re-tessellates from the source CAD, which does not contain the auto-created graveyard shell — if the old file had a `mat:graveyard` volume it is re-created on the output automatically, with a warning.
 
 #### Under the Hood
 
-Refacet uses **OpenCASCADE BRepMesh_IncrementalMesh** to tessellate the source CAD surface directly, then streams the resulting triangles into a properly tagged DAGMC H5M file via `pymoab`. Triangle count scales predictably with tolerance because tessellation is based on linear deflection from the true CAD surface.
+Refacet uses **OpenCASCADE BRepMesh_IncrementalMesh** to tessellate the source CAD surface directly, then streams the resulting triangles into a properly tagged DAGMC H5M file via `pymoab`. When **Imprint & Merge** is enabled and Nuke CAD is available, the refacet routes through Nuke CAD's gmsh OCC imprint/merge pipeline instead, producing conformal shared surfaces between touching solids. Triangle count scales predictably with tolerance because tessellation is based on linear deflection from the true CAD surface.
 
 ---
 

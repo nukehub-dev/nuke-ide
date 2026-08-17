@@ -112,7 +112,7 @@ export class OpenMCMenuContribution implements MenuContribution {
     }
 
     /**
-     * Register Project submenu actions (New, Open, Save, Save As).
+     * Register Project submenu actions (New, Open, Save, Save As, Import from nuke-cad).
      * @param menus - The Theia menu model registry
      * @see {@link OpenMCProjectCommands}
      */
@@ -136,6 +136,11 @@ export class OpenMCMenuContribution implements MenuContribution {
             commandId: OpenMCProjectCommands.SAVE_PROJECT_AS.id,
             label: 'Save Project As...',
             order: 'd'
+        });
+        menus.registerMenuAction(OpenMCMenus.OPENMC_PROJECT, {
+            commandId: OpenMCProjectCommands.IMPORT_NUKE_CAD.id,
+            label: 'Import from nuke-cad...',
+            order: 'e'
         });
     }
 

@@ -35,8 +35,35 @@ Assign materials and names by creating a sidecar file named
 The manifest is validated when the geometry rebuilds. Unknown selectors and
 missing materials are reported as warnings.
 
+## Export artifacts
+
+When the geometry service runs it writes several files beside `model.py`:
+
+| File                      | Purpose                                            |
+| ------------------------- | -------------------------------------------------- |
+| `model.step`              | Canonical B-rep exchange format                    |
+| `model.tess.json`         | Viewport triangle stream                           |
+| `model.h5m`               | DAGMC faceted geometry for OpenMC                  |
+| `model.msh` / `model.e`   | FEM volume mesh (gmsh native / ExodusII)           |
+| `model.inp` / `model.vtk` | CalculiX/Abaqus and VTK mesh exports               |
+| `model.regions.json`      | Named volumes, materials, surfaces, and mesh sizes |
+| `model.mesh.report.json`  | Mesh quality metrics                               |
+
+## Use in OpenMC Studio
+
+The fastest path from a Nuke CAD model to an OpenMC simulation is through the
+DAGMC export:
+
+1. Build your model and make sure `model.h5m` is produced.
+2. In OpenMC Studio, choose `Project → Import from nuke-cad...`.
+3. Select `model.h5m`. OpenMC Studio reads the sibling `model.regions.json`
+   manifest, sets the DAGMC geometry, and creates placeholder materials for
+   each manifest material name.
+4. Fill in nuclide compositions in the Materials tab and run.
+
 ## Next steps
 
 - Add the CAD toolchain to your active Python environment (see the Environment
   section in Nuke Tools).
-- In later phases, export directly to DAGMC `.h5m` and FEM meshes.
+- Refine mesh size per region with the optional `meshSize` field in the
+  manifest.

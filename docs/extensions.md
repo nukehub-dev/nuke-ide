@@ -42,6 +42,7 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 - Volume calculation, native plotting (slice/voxel/ray-trace), and MGXS generator
 - Simulation comparison and project management
 - CAD import (STEP/IGES to DAGMC or CSG)
+- Nuke-cad integration: import a nuke-cad `.h5m` + `.regions.json` and auto-match materials
 
 [User Guide](/openmc-studio/user/getting-started) · [Developer Guide](/openmc-studio/dev/index)
 
@@ -54,7 +55,9 @@ Script-first parametric CAD / meshing / FEM extension.
 - Author geometry with build123d or CadQuery (Python scripts)
 - Live three.js viewport with face/solid picking
 - Canonical STEP export and JSON region manifest
-- DAGMC export, FEM meshing, and solver hooks (upcoming phases)
+- DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups
+- FEM volume meshing (gmsh `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)
+- One-click import into OpenMC Studio: `.h5m` + `.regions.json` → DAGMC project
 
 [User Guide](/nuke-cad/user/getting-started) · [Developer Guide](/nuke-cad/dev/architecture)
 

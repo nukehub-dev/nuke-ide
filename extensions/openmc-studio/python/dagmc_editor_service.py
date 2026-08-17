@@ -9,6 +9,7 @@ groups within DAGMC .h5m files.
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1445,6 +1446,129 @@ def _step_to_dagmc_imprinted_ocp(
     return num_volumes, len(vertex_coords), total_tris
 
 
+def _find_nuke_cad_dagmc_export() -> str | None:
+    """Locate nuke-cad's dagmc_export.py script.
+
+    Extension Python is not pip-installed, so we probe the sibling extension
+    layout relative to this file. In development that is
+    ``../../nuke-cad/python/dagmc_export.py``; packaged layouts may differ,
+    so an explicit ``NUKE_CAD_DAGMC_EXPORT`` environment variable wins.
+    """
+    env_path = os.environ.get("NUKE_CAD_DAGMC_EXPORT")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    script_dir = Path(__file__).parent.resolve()
+    candidates = [
+        script_dir / ".." / ".." / "nuke-cad" / "python" / "dagmc_export.py",
+        script_dir / ".." / "nuke-cad" / "python" / "dagmc_export.py",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    # Final fallback: search sys.path for a nuke-cad/python directory.
+    for entry in sys.path:
+        candidate = Path(entry) / "nuke-cad" / "python" / "dagmc_export.py"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def _bbox_center(bbox: tuple[list[float], list[float]]) -> np.ndarray:
+    """Return the center of a (min, max) bounding box."""
+    return (np.array(bbox[0]) + np.array(bbox[1])) * 0.5
+
+
+def _map_materials_by_proximity(
+    new_model,
+    old_bboxes: dict[int, tuple[list[float], list[float]]],
+    old_materials: dict[int, str | None],
+) -> tuple[int, list[str]]:
+    """Assign old materials to new volumes by nearest bounding-box center.
+
+    Returns the number of volumes that received a material and a list of
+    diagnostic warnings.
+    """
+    warnings: list[str] = []
+    if not old_bboxes:
+        return 0, warnings
+
+    old_centers = {vid: _bbox_center(bbox) for vid, bbox in old_bboxes.items()}
+    matched = 0
+    for new_vol in new_model.volumes:
+        new_bbox = _volume_bounding_box(new_vol)
+        if new_bbox[0] is None:
+            continue
+        new_center = _bbox_center(new_bbox)
+        nearest = min(old_centers, key=lambda vid: np.linalg.norm(new_center - old_centers[vid]))
+        old_mat = old_materials.get(nearest)
+        if old_mat is not None:
+            new_vol.material = old_mat
+            matched += 1
+    return matched, warnings
+
+
+def _refacet_with_nuke_cad(
+    source_cad_path: str,
+    temp_h5m: str,
+    tolerance: float,
+    existing_h5m: str,
+    old_materials: dict[int, str | None],
+    old_bboxes: dict[int, tuple[list[float], list[float]]],
+) -> tuple[int, int, int]:
+    """Run nuke-cad's dagmc_export.py and map materials back to the result.
+
+    Uses gmsh OCC fragment for imprint/merge, then assigns old materials to
+    new volumes by bounding-box proximity.
+    """
+    script = _find_nuke_cad_dagmc_export()
+    if script is None:
+        raise RuntimeError("nuke-cad dagmc_export.py not found; set NUKE_CAD_DAGMC_EXPORT")
+
+    args = [
+        sys.executable,
+        script,
+        source_cad_path,
+        "--output",
+        temp_h5m,
+        "--tolerance",
+        str(tolerance),
+    ]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        detail = stderr or stdout or "nuke-cad dagmc_export.py failed"
+        raise RuntimeError(detail)
+
+    # Map old materials onto the new volumes by proximity.
+    new_model = Model(temp_h5m)
+    matched, _warnings = _map_materials_by_proximity(new_model, old_bboxes, old_materials)
+    new_model.mb.write_file(temp_h5m)
+
+    n_vols = len(new_model.volumes)
+    n_tris = sum(v.num_triangles for v in new_model.volumes)
+    # pydagmc does not expose vertex count directly; use triangle connectivity.
+    n_verts = 0
+    for vol in new_model.volumes:
+        for surf in vol.surfaces:
+            try:
+                conn, _coords = surf.get_triangle_conn_and_coords()
+                if conn:
+                    n_verts = max(n_verts, max(conn) + 1)
+            except Exception:
+                pass
+    del new_model
+    import gc
+
+    gc.collect()
+
+    if matched != n_vols:
+        raise RuntimeError(f"Material mapping mismatch: matched {matched} of {n_vols} volumes")
+    return n_vols, n_verts, n_tris
+
+
 def refacet(
     existing_h5m: str, source_cad_path: str, tolerance: float, imprint: bool = False
 ) -> dict:
@@ -1454,11 +1578,14 @@ def refacet(
     Triangle count scales with tolerance because we tessellate based on
     linear deflection from the true CAD surface.
 
+    When ``imprint`` is true, the nuke-cad imprint/merge pipeline is used if
+    available; otherwise the legacy OpenCASCADE BOPAlgo_Builder path is used.
+
     Args:
         existing_h5m: Path to the current DAGMC .h5m file.
         source_cad_path: Path to the source CAD file (STEP/STP/BREP/IGES).
         tolerance: Desired faceting tolerance (linear deflection in cm).
-        imprint: If True, imprint and merge shared surfaces with BOPAlgo_Builder.
+        imprint: If True, imprint and merge shared surfaces.
 
     Returns:
         Dictionary with success flag and output file path.
@@ -1475,8 +1602,8 @@ def refacet(
         # 1. Extract material assignments and volume bounding boxes from existing H5M,
         # then free it immediately.
         old_model = Model(existing_h5m)
-        old_materials = {}
-        old_bboxes = {}
+        old_materials: dict[int, str | None] = {}
+        old_bboxes: dict[int, tuple[list[float], list[float]]] = {}
         for vol in old_model.volumes:
             old_materials[vol.id] = vol.material
             bbox_min, bbox_max = _volume_bounding_box(vol)
@@ -1488,18 +1615,29 @@ def refacet(
 
         gc.collect()
 
-        # 2. OCP-based conversion (optionally with imprint/merge)
+        # 2. Convert: nuke-cad pipeline for imprint/merge, legacy OCP otherwise.
         fd, temp_h5m = tempfile.mkstemp(suffix=".h5m")
         os.close(fd)
 
         if imprint:
-            n_vols, n_verts, n_tris = _step_to_dagmc_imprinted_ocp(
-                source_cad_path,
-                temp_h5m,
-                tolerance,
-                material_map=old_materials,
-                old_bboxes=old_bboxes,
-            )
+            nuke_cad_script = _find_nuke_cad_dagmc_export()
+            if nuke_cad_script:
+                n_vols, n_verts, n_tris = _refacet_with_nuke_cad(
+                    source_cad_path,
+                    temp_h5m,
+                    tolerance,
+                    existing_h5m,
+                    old_materials,
+                    old_bboxes,
+                )
+            else:
+                n_vols, n_verts, n_tris = _step_to_dagmc_imprinted_ocp(
+                    source_cad_path,
+                    temp_h5m,
+                    tolerance,
+                    material_map=old_materials,
+                    old_bboxes=old_bboxes,
+                )
         else:
             n_vols, n_verts, n_tris = _step_to_dagmc_ocp(
                 source_cad_path, temp_h5m, tolerance, material_map=old_materials

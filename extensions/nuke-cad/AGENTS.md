@@ -24,8 +24,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Python package requirements live in `src/common/packages.json`; never inline
   package lists in services or widgets.
 - The converter home is nuke-cad `python/` (`dagmc_export.py`). openmc-studio
-  will delegate to nuke-cad services in Phase 4 rather than duplicating the
-  converter.
+  delegates to nuke-cad services: the **Import from nuke-cad...** command loads
+  a nuke-cad `.h5m` + `.regions.json` into an OpenMC project, and the DAGMC
+  editor's imprinted refacet routes through `dagmc_export.py` when available.
 
 ## Work Guidance
 

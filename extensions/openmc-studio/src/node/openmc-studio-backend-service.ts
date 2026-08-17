@@ -3063,6 +3063,18 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return this.cadService.previewCAD(filePath);
     }
 
+    /**
+     * Import a DAGMC model produced by nuke-cad into the current OpenMC project.
+     * @param request - Import request with h5m path and optional manifest path
+     * @returns Import result with DAGMC info and material names
+     */
+    async importNukeCAD(
+        request: import('../common/openmc-studio-protocol').NukeCADImportRequest
+    ): Promise<import('../common/openmc-studio-protocol').NukeCADImportResult> {
+        this.log(`Importing nuke-cad model from ${request.h5mPath}`);
+        return this.cadService.importNukeCAD(request);
+    }
+
     // ============================================================================
     // DAGMC Editor
     // ============================================================================

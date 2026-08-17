@@ -1067,6 +1067,9 @@ export interface OpenMCStudioBackendService {
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }>;
 
+    /** Import a DAGMC model produced by nuke-cad into the OpenMC project */
+    importNukeCAD(request: NukeCADImportRequest): Promise<NukeCADImportResult>;
+
     // === DAGMC Editor ===
 
     /** Load DAGMC file and return model information */
@@ -1381,6 +1384,46 @@ export interface CADImportResult {
     nurbsDetected?: boolean;
     /** DAGMC model information (when importing .h5m files or DAGMC fallback) */
     dagmcInfo?: DAGMCInfo;
+}
+
+/** Nuke-cad import request */
+export interface NukeCADImportRequest {
+    /** Path to the DAGMC .h5m file produced by nuke-cad */
+    h5mPath: string;
+    /** Optional explicit path to the nuke-cad region manifest (.regions.json) */
+    manifestPath?: string;
+}
+
+/** Nuke-cad import result */
+export interface NukeCADImportResult {
+    /** Whether import was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Warning messages */
+    warnings?: string[];
+    /** Absolute path to the imported DAGMC file */
+    dagmcFile?: string;
+    /** DAGMC model information */
+    dagmcInfo?: DAGMCInfo;
+    /** Parsed nuke-cad region manifest, if found */
+    manifest?: {
+        version: number;
+        volumes: Array<{
+            selector: string;
+            name?: string;
+            material?: string;
+            tags?: string[];
+            meshSize?: number;
+        }>;
+        surfaces: Array<{
+            selector: string;
+            name?: string;
+            role?: string;
+        }>;
+    };
+    /** Material names extracted from the manifest or DAGMC file */
+    materialNames?: string[];
 }
 
 // ============================================================================

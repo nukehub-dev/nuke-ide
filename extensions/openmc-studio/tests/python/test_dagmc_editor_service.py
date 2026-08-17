@@ -805,6 +805,66 @@ class TestRefacet:
         assert "OCP exploded" in result["error"]
         assert "traceback" in result
 
+    def test_imprint_routes_through_nuke_cad_when_available(self, des, monkeypatch, tmp_path):
+        """With imprint=True and nuke-cad present, the nuke-cad pipeline is used."""
+        _install_fake_pymoab(monkeypatch)
+        vols = [FakeVolume(1, material="fuel"), FakeVolume(2, material="clad")]
+        _install_model(des, monkeypatch, FakeModel(volumes=vols))
+
+        nuke_calls = []
+
+        def fake_refacet_with_nuke_cad(step, temp, tol, existing, old_mats, old_bboxes):
+            nuke_calls.append({"step": step, "temp": temp, "tolerance": tol})
+            with open(temp, "wb") as f:
+                f.write(b"nuke-cad")
+            return 2, 10, 200
+
+        monkeypatch.setattr(
+            des, "_find_nuke_cad_dagmc_export", lambda: "/fake/nuke-cad/dagmc_export.py"
+        )
+        monkeypatch.setattr(des, "_refacet_with_nuke_cad", fake_refacet_with_nuke_cad)
+
+        existing = tmp_path / "model.h5m"
+        existing.write_bytes(b"old")
+
+        result = des.refacet(str(existing), "model.step", 0.005, imprint=True)
+
+        assert result["success"] is True
+        assert len(nuke_calls) == 1
+        assert nuke_calls[0]["step"] == "model.step"
+        assert nuke_calls[0]["tolerance"] == 0.005
+        out = tmp_path / "model_refaceted.h5m"
+        assert result["data"]["outputPath"] == str(out)
+        assert out.read_bytes() == b"nuke-cad"
+        assert "2 volumes, 200 triangles" in result["data"]["message"]
+
+    def test_imprint_falls_back_to_legacy_when_nuke_cad_missing(self, des, monkeypatch, tmp_path):
+        """With imprint=True but no nuke-cad, the legacy imprint path is used."""
+        _install_fake_pymoab(monkeypatch)
+        vols = [FakeVolume(1, material="fuel"), FakeVolume(2, material="clad")]
+        _install_model(des, monkeypatch, FakeModel(volumes=vols))
+        calls = {}
+
+        def fake_imprinted(step_path, h5m_path, tolerance, material_map=None, old_bboxes=None):
+            calls.update(step_path=step_path, h5m_path=h5m_path, tolerance=tolerance)
+            with open(h5m_path, "wb") as f:
+                f.write(b"legacy")
+            return 2, 10, 200
+
+        monkeypatch.setattr(des, "_find_nuke_cad_dagmc_export", lambda: None)
+        monkeypatch.setattr(des, "_step_to_dagmc_imprinted_ocp", fake_imprinted)
+
+        existing = tmp_path / "model.h5m"
+        existing.write_bytes(b"old")
+
+        result = des.refacet(str(existing), "model.step", 0.005, imprint=True)
+
+        assert result["success"] is True
+        assert calls["step_path"] == "model.step"
+        assert calls["tolerance"] == 0.005
+        out = tmp_path / "model_refaceted.h5m"
+        assert out.read_bytes() == b"legacy"
+
 
 # ---------------------------------------------------------------------------
 # _write_dagmc_streaming (fake gmsh + fake moab core)

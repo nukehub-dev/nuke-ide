@@ -164,6 +164,17 @@ openmc.run()
 
 ---
 
+## Importing from Nuke CAD
+
+Models authored in the **Nuke CAD** extension can be brought into OpenMC Studio in one step.
+
+1. `Project → Import from nuke-cad...`.
+2. Select the `.h5m` file produced by Nuke CAD.
+3. OpenMC Studio reads the sibling `.regions.json` manifest (if present), sets the DAGMC geometry reference, and creates placeholder materials for every manifest material name that does not already exist.
+4. Fill in the placeholder compositions in the Materials tab and run as usual.
+
+The manifest material names are matched against existing OpenMC materials by name, so keeping names consistent between Nuke CAD and OpenMC Studio lets the import work automatically.
+
 ## XML Import / Export Workflow
 
 You can exchange models with standard OpenMC command-line workflows using XML import and export.

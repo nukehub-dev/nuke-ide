@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-region refinement. The geometry service exposes `meshPath`,
   `exodusPath`, `inpPath`, `vtkPath`, `meshReportPath`, `meshSuccess`,
   `meshWarnings`, `meshError`, and `meshReport` in the stdout-JSON result.
+- nuke-cad/openmc-studio: **one-click nuke-cad import** — OpenMC Studio's
+  **Import from nuke-cad...** command loads a nuke-cad-produced `.h5m` and its
+  sibling `.regions.json` manifest into the project, auto-creates placeholder
+  OpenMC materials for manifest material names, and sets `dagmcFile`/
+  `dagmcInfo` so the existing DAGMC graveyard/sync/run flow works unchanged.
+- nuke-cad/openmc-studio: **imprinted DAGMC refacet through nuke-cad** — when
+  the DAGMC editor refacets with **Imprint & Merge** enabled, it routes through
+  nuke-cad's `dagmc_export.py` pipeline; if nuke-cad is unavailable it falls
+  back to the legacy OpenCASCADE path.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and
