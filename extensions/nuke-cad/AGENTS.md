@@ -23,8 +23,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Widget CSS is copied to `lib/` by the `copy-css` build step.
 - Python package requirements live in `src/common/packages.json`; never inline
   package lists in services or widgets.
-- The converter home decision (Phase 2) is nuke-cad `python/`. openmc-studio
-  will delegate to nuke-cad services rather than duplicating the converter.
+- The converter home is nuke-cad `python/` (`dagmc_export.py`). openmc-studio
+  will delegate to nuke-cad services in Phase 4 rather than duplicating the
+  converter.
 
 ## Work Guidance
 

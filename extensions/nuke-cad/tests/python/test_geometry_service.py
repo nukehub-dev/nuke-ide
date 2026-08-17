@@ -39,6 +39,13 @@ def test_build_simple_build123d_box(tmp_path: Path) -> None:
     assert tess_data["version"] == 1
     assert len(tess_data["solids"]) == 1
 
+    # DAGMC export is attempted automatically when pymoab is available.
+    h5m_path = Path(result["dagmcPath"])
+    if result["dagmcSuccess"]:
+        assert h5m_path.exists()
+    elif result["dagmcError"]:
+        assert "DAGMC export" in result["dagmcError"] or "pymoab" in result["dagmcError"].lower()
+
 
 def test_region_manifest_warning_for_unknown_selector(tmp_path: Path) -> None:
     pytest.importorskip("build123d", reason="build123d not installed")

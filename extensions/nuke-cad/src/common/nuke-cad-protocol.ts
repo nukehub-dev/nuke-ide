@@ -71,6 +71,14 @@ export interface GeometryBuildResult {
     readonly regionManifest?: RegionManifestData;
     /** Mapping of selector -> 1-based solid indices. */
     readonly selectorMap?: Record<string, number[]>;
+    /** Absolute path to the generated DAGMC .h5m file. */
+    readonly dagmcPath?: string;
+    /** Whether the DAGMC export succeeded (non-fatal if false). */
+    readonly dagmcSuccess?: boolean;
+    /** DAGMC export warnings. */
+    readonly dagmcWarnings?: string[];
+    /** DAGMC export error when dagmcSuccess is false. */
+    readonly dagmcError?: string;
     /** Captured stderr/stdout from the geometry service. */
     output?: string;
 }

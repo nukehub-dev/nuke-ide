@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered
   as an optional extension in the browser and Electron apps.
+- nuke-cad: **DAGMC export** — `dagmc_export.py` converts the
+  canonical STEP file to a tagged `.h5m` using gmsh OCC imprint/merge so
+  touching solids share exact coincident faces. Region-manifest volume names
+  map to `mat:<name>` groups, unmanifested volumes fall back to positional
+  `mat_<vol_id-1>`, and a `mat:graveyard` bounding volume is auto-created by
+  default. Geometry service exposes `dagmcPath`, `dagmcSuccess`,
+  `dagmcWarnings`, and `dagmcError` in the stdout-JSON result.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and

@@ -10,7 +10,7 @@ extensions/nuke-cad/
 │   ├── common/            # RPC protocol, packages.json
 │   ├── browser/           # widgets, commands, contributions, state
 │   └── node/              # backend service that spawns Python
-├── python/                # geometry_service.py, region_manifest.py, ocp_compat.py
+├── python/                # geometry_service.py, dagmc_export.py, region_manifest.py, ocp_compat.py
 ├── tests/python/          # pytest suite
 └── docs/                  # user/dev docs
 ```
@@ -34,9 +34,30 @@ The frontend receives the result, caches the active `CadModel` in
 3. Writes a canonical STEP file.
 4. Tessellates with `BRepMesh_IncrementalMesh` and writes `model.tess.json`.
 5. Loads and validates `model.regions.json` if present.
+6. Exports a DAGMC `.h5m` file via `dagmc_export.py`.
+
+## DAGMC export (`dagmc_export.py`)
+
+The DAGMC pipeline is intentionally separated from the viewport tessellation
+path. It uses gmsh's OpenCASCADE kernel for robust imprint/merge:
+
+1. Load the canonical STEP file into an OCP `TopoDS_Shape`.
+2. Optionally auto-create a `mat:graveyard` bounding volume with an OCP boolean
+   cut (ported from openmc-studio's converter).
+3. Write the shape to a temporary STEP file.
+4. Load the temp STEP into gmsh and run `occ.fragment` on all volumes. This
+   splits touching faces at their shared boundaries so adjacent solids receive
+   exact, coincident surfaces.
+5. Generate a 2D surface mesh in gmsh.
+6. Extract triangle buffers and surface-to-volume adjacencies via
+   `gmsh.model.getAdjacencies`.
+7. Write a tagged DAGMC H5M file via pymoab: `CATEGORY`, `GEOM_DIMENSION`,
+   `GLOBAL_ID`, `NAME`, `GEOM_SENSE_2`, and `FACETING_TOL`.
+8. Bind region-manifest selectors to `mat:<name>` material groups; unmanifested
+   volumes fall back to `mat_<vol_id-1>`.
 
 ## Future phases
 
-- Phase 2: imprint/merge DAGMC export (shared converter owned by nuke-cad).
 - Phase 3: gmsh/netgen meshing service + ExodusII export.
+- Phase 4: openmc-studio one-click import from nuke-cad.
 - Phase 5: CalculiX FEM job builder/runner.

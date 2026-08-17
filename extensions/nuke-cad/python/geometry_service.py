@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Geometry service for nuke-cad (Phase 1).
+"""Geometry service for nuke-cad (Phases 1 and 2).
 
 Executes a user-authored build123d/CadQuery script, normalizes the resulting
 object to an OCP B-rep, and emits canonical artifacts:
 
     <stem>.step          canonical STEP export
     <stem>.tess.json     per-solid/per-face triangle stream for the viewport
+    <stem>.h5m           DAGMC export with imprint/merge and named groups
 
 Progress and diagnostics are emitted on stderr. One final JSON object is
 printed on stdout (stdout-JSON protocol used across NukeIDE backends).
@@ -39,6 +40,15 @@ from ocp_compat import (  # noqa: E402
     topods_solid,
 )
 from region_manifest import ManifestValidationError, RegionManifest  # noqa: E402
+
+# DAGMC export is optional; failure is reported but does not break STEP/tessellation.
+try:
+    import dagmc_export
+
+    HAS_DAGMC_EXPORT = True
+except Exception:
+    dagmc_export = None  # type: ignore
+    HAS_DAGMC_EXPORT = False
 
 
 def _print_progress(message: str) -> None:
@@ -200,6 +210,8 @@ def build_geometry(
     script_path: str,
     output_dir: str | None = None,
     tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
 ) -> dict:
     """Execute ``script_path`` and write canonical artifacts.
 
@@ -217,6 +229,7 @@ def build_geometry(
     stem = script_file.stem
     step_path = out_dir / f"{stem}.step"
     tess_path = out_dir / f"{stem}.tess.json"
+    h5m_path = out_dir / f"{stem}.h5m"
 
     result: dict = {
         "success": False,
@@ -224,6 +237,10 @@ def build_geometry(
         "outputDirectory": str(out_dir),
         "stepPath": str(step_path),
         "tessPath": str(tess_path),
+        "dagmcPath": str(h5m_path),
+        "dagmcSuccess": False,
+        "dagmcWarnings": [],
+        "dagmcError": None,
         "warnings": [],
     }
 
@@ -318,6 +335,33 @@ def build_geometry(
         result["regionManifest"] = manifest.to_dict()
         result["selectorMap"] = selector_map
 
+    # ------------------------------------------------------------------
+    # 6. Export DAGMC .h5m (Phase 2).
+    # ------------------------------------------------------------------
+    if export_dagmc:
+        _print_progress(f"Exporting DAGMC: {h5m_path}")
+        try:
+            if HAS_DAGMC_EXPORT and dagmc_export is not None:
+                dagmc_result = dagmc_export.convert_to_dagmc(
+                    str(step_path),
+                    output_path=str(h5m_path),
+                    manifest=manifest,
+                    selector_map=selector_map,
+                    faceting_tolerance=tolerance,
+                    add_graveyard=add_graveyard,
+                )
+                result["dagmcSuccess"] = dagmc_result.get("success", False)
+                result["dagmcWarnings"] = dagmc_result.get("warnings", [])
+                result["dagmcError"] = dagmc_result.get("error")
+                if dagmc_result.get("warnings"):
+                    result["warnings"].extend(dagmc_result["warnings"])
+            else:
+                result["dagmcError"] = "DAGMC export module is unavailable"
+        except Exception as exc:
+            result["dagmcError"] = str(exc)
+            result["dagmcWarnings"].append(traceback.format_exc())
+            result["warnings"].append(f"DAGMC export skipped: {exc}")
+
     result.update(
         {
             "success": True,
@@ -341,9 +385,25 @@ def main() -> None:
         default=0.001,
         help="BRepMesh faceting tolerance (default: 0.001)",
     )
+    parser.add_argument(
+        "--no-dagmc",
+        action="store_true",
+        help="Skip DAGMC .h5m export",
+    )
+    parser.add_argument(
+        "--no-graveyard",
+        action="store_true",
+        help="Do not auto-create a mat:graveyard bounding volume",
+    )
     args = parser.parse_args()
 
-    result = build_geometry(args.script, output_dir=args.output_dir, tolerance=args.tolerance)
+    result = build_geometry(
+        args.script,
+        output_dir=args.output_dir,
+        tolerance=args.tolerance,
+        export_dagmc=not args.no_dagmc,
+        add_graveyard=not args.no_graveyard,
+    )
     print(json.dumps(result))
     sys.stdout.flush()
     sys.exit(0 if result.get("success") else 1)
