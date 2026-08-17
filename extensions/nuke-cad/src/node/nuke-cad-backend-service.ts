@@ -81,6 +81,12 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         if (request.tolerance !== undefined) {
             args.push('--tolerance', String(request.tolerance));
         }
+        if (request.exportDagmc === false) {
+            args.push('--no-dagmc');
+        }
+        if (request.exportMesh === false) {
+            args.push('--no-mesh');
+        }
         if (request.meshEngine) {
             args.push('--mesh-engine', request.meshEngine);
         }

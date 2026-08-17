@@ -126,6 +126,10 @@ export interface GeometryBuildRequest {
     readonly outputDirectory?: string;
     /** BRepMesh faceting tolerance. */
     readonly tolerance?: number;
+    /** Whether to export DAGMC .h5m (default true for script builds; STEP imports default to false for fast viewport load). */
+    readonly exportDagmc?: boolean;
+    /** Whether to export FEM volume meshes (default true for script builds; STEP imports default to false). */
+    readonly exportMesh?: boolean;
     /** Meshing engine: ``gmsh`` or ``netgen``. */
     readonly meshEngine?: string;
     /** Global target element size for the volume mesh. */

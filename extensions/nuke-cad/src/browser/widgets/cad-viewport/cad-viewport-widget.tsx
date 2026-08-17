@@ -47,6 +47,7 @@ import * as THREE from 'three';
 
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadSelection } from '../../state/nuke-cad-state-manager';
+import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import './cad-viewport.css';
 
 interface TessFace {
@@ -91,17 +92,19 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly backendService: NukeCadBackendService;
 
     private tessData?: TessData;
+    private loading = false;
+    private loadingMessage = 'Loading CAD model...';
 
     @postConstruct()
     protected init(): void {
         this.id = CadViewportWidget.ID;
         this.title.label = CadViewportWidget.LABEL;
-        this.title.caption = CadViewportWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-globe';
 
         this.stateManager.onModelChange((model) => {
             this.tessData = undefined;
+            this.loading = false;
             if (model?.result.tessPath) {
                 this.loadTessellation(model.result.tessPath).catch((err) => {
                     console.error('[CadViewport] Failed to load tessellation:', err);
@@ -141,11 +144,17 @@ export class CadViewportWidget extends ReactWidget {
         const ext = uri.path.ext.toLowerCase();
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
 
+        this.loading = true;
+        this.loadingMessage = sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...';
+        this.update();
+
         this.messageService.info(`Loading CAD model: ${filePath}`);
         try {
             const result: GeometryBuildResult = await this.backendService.buildGeometry({
                 scriptPath: filePath,
-                sourceType
+                sourceType,
+                exportDagmc: sourceType === 'script' ? undefined : false,
+                exportMesh: sourceType === 'script' ? undefined : false
             });
             if (result.success) {
                 this.stateManager.setModel({
@@ -159,12 +168,17 @@ export class CadViewportWidget extends ReactWidget {
             }
         } catch (error) {
             this.messageService.error(error instanceof Error ? error.message : String(error));
+        } finally {
+            this.loading = false;
+            this.update();
         }
     }
 
     protected render(): React.ReactNode {
         return (
             <CadViewportComponent
+                loading={this.loading}
+                loadingMessage={this.loadingMessage}
                 tessData={this.tessData}
                 selection={this.stateManager.selection}
                 onSelect={(selection) => this.stateManager.setSelection(selection)}
@@ -175,6 +189,8 @@ export class CadViewportWidget extends ReactWidget {
 }
 
 interface CadViewportComponentProps {
+    readonly loading: boolean;
+    readonly loadingMessage: string;
     readonly tessData?: TessData;
     readonly selection: CadSelection;
     readonly onSelect: (selection: CadSelection) => void;
@@ -210,17 +226,30 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         };
     }, [props.tessData, props.selection, props.onSelect]);
 
+    if (props.loading) {
+        return (
+            <div className="cad-viewport loading">
+                <LoadingAnimations />
+                <FancyLoadingSpinner message={props.loadingMessage} subMessage="This may take a moment for large models" />
+            </div>
+        );
+    }
+
     if (props.tessData === undefined) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
-                <span>Open a CAD model to view geometry.</span>
-                <button
-                    className="theia-button open-cad-model-button"
-                    onClick={props.onOpenModel}
-                    title="Open a build123d/CadQuery script or STEP file"
-                >
-                    <span className="codicon codicon-folder-opened" /> Open CAD Model...
-                </button>
+                <LoadingAnimations />
+                <div className="cad-viewport-empty-panel">
+                    <span className="codicon codicon-globe cad-viewport-empty-icon" />
+                    <div className="cad-viewport-empty-title">CAD Viewport</div>
+                    <div className="cad-viewport-empty-description">
+                        Open a build123d/CadQuery script or a STEP/STP/BREP file to view and inspect geometry.
+                    </div>
+                    <div className="cad-viewport-empty-formats">Supported formats: .py, .step, .stp, .brep</div>
+                    <button className="theia-button open-cad-model-button" onClick={props.onOpenModel}>
+                        <span className="codicon codicon-folder-opened" /> Open CAD Model...
+                    </button>
+                </div>
             </div>
         );
     }

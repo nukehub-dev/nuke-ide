@@ -7,19 +7,54 @@
     background: var(--theia-editor-background);
 }
 
-.cad-viewport.empty {
+.cad-viewport.empty,
+.cad-viewport.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--theia-editor-background);
+}
+
+.cad-viewport-empty-panel {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 10px;
+    max-width: 420px;
+    padding: 32px;
+    text-align: center;
     color: var(--theia-foreground);
-    opacity: 0.7;
+    background: var(--theia-editorWidget-background, rgba(100, 100, 100, 0.08));
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+}
+
+.cad-viewport-empty-icon {
+    font-size: 48px;
+    margin-bottom: 4px;
+    opacity: 0.5;
+}
+
+.cad-viewport-empty-title {
     font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.cad-viewport-empty-description {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+.cad-viewport-empty-formats {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.6;
+    font-family: var(--theia-ui-font-family);
 }
 
 .cad-viewport.empty .open-cad-model-button {
-    opacity: 1;
+    margin-top: 8px;
 }
 
 .cad-viewport canvas {

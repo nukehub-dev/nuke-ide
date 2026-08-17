@@ -85,7 +85,12 @@ export class NukeCadOpenHandler implements OpenHandler {
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
 
-        const result = await this.backendService.buildGeometry({ scriptPath: filePath, sourceType });
+        const result = await this.backendService.buildGeometry({
+            scriptPath: filePath,
+            sourceType,
+            exportDagmc: sourceType === 'script' ? undefined : false,
+            exportMesh: sourceType === 'script' ? undefined : false
+        });
         if (result.success) {
             this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
         } else {
