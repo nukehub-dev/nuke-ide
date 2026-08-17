@@ -59,3 +59,4 @@ yarn test:python           # pytest for extensions with Python backends
 - `nuke-core/AGENTS.md` — shared services, environment subsystem, and the Nuke Tools sidebar.
 - `nuke-visualizer/AGENTS.md` — visualization plugin framework and its Python backend.
 - `openmc-studio/AGENTS.md` — OpenMC workspace extension and its Python backend.
+- `nuke-cad/AGENTS.md` — parametric CAD / meshing / FEM extension and its Python backend.

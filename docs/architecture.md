@@ -15,6 +15,7 @@ nuke-ide/
 │   ├── nuke-core/         # Python env management, health checks, status bar
 │   ├── nuke-visualizer/   # 3D/2D visualization framework
 │   ├── openmc-studio/     # No-code OpenMC simulation workspace
+│   ├── nuke-cad/          # Parametric CAD / meshing / FEM
 │   ├── nuke-essentials/   # Common UI components and commands
 │   ├── nuke-sysmon/       # System monitoring
 │   ├── nuke-fileinfo/     # File properties/metadata viewer

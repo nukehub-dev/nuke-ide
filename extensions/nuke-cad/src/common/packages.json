@@ -1,0 +1,46 @@
+{
+  "core": [{ "name": "numpy", "required": true }],
+  "cad": [
+    {
+      "name": "OCP",
+      "required": false,
+      "installCommand": "pip install cadquery-ocp==7.8.1.1"
+    },
+    {
+      "name": "build123d",
+      "required": false,
+      "installCommand": "pip install build123d"
+    },
+    {
+      "name": "cadquery",
+      "required": false,
+      "installCommand": "pip install cadquery"
+    },
+    { "name": "gmsh", "required": false }
+  ],
+  "dagmc": [
+    { "name": "pymoab", "required": false },
+    { "name": "h5py", "required": false }
+  ],
+  "health": [
+    { "name": "numpy", "required": true },
+    {
+      "name": "OCP",
+      "required": false,
+      "installCommand": "pip install cadquery-ocp==7.8.1.1"
+    },
+    {
+      "name": "build123d",
+      "required": false,
+      "installCommand": "pip install build123d"
+    },
+    {
+      "name": "cadquery",
+      "required": false,
+      "installCommand": "pip install cadquery"
+    },
+    { "name": "gmsh", "required": false },
+    { "name": "pymoab", "required": false },
+    { "name": "h5py", "required": false }
+  ]
+}

@@ -186,3 +186,4 @@ High-level layout; see the Child NAD Index below for domain-specific details.
   - `extensions/nuke-core/AGENTS.md` — shared services, environment subsystem, and the Nuke Tools sidebar.
   - `extensions/nuke-visualizer/AGENTS.md` — visualization plugin framework and its Python backend.
   - `extensions/openmc-studio/AGENTS.md` — OpenMC workspace extension and its Python backend.
+  - `extensions/nuke-cad/AGENTS.md` — parametric CAD / meshing / FEM extension and its Python backend.

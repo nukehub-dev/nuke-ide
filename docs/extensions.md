@@ -45,6 +45,19 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 [User Guide](/openmc-studio/user/getting-started) · [Developer Guide](/openmc-studio/dev/index)
 
+---
+
+### Nuke CAD
+
+Script-first parametric CAD / meshing / FEM extension.
+
+- Author geometry with build123d or CadQuery (Python scripts)
+- Live three.js viewport with face/solid picking
+- Canonical STEP export and JSON region manifest
+- DAGMC export, FEM meshing, and solver hooks (upcoming phases)
+
+[User Guide](/nuke-cad/user/getting-started) · [Developer Guide](/nuke-cad/dev/architecture)
+
 ## Utility Extensions
 
 | Extension               | Purpose                                                                                                                      |

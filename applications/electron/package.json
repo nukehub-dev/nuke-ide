@@ -103,7 +103,8 @@
     "nuke-sysmon": "0.1.3",
     "nuke-core": "0.1.3",
     "nuke-visualizer": "0.1.3",
-    "openmc-studio": "0.1.3"
+    "openmc-studio": "0.1.3",
+    "nuke-cad": "0.1.3"
   },
   "devDependencies": {
     "@theia/cli": "1.74.1",

@@ -1,0 +1,75 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+/**
+ * Frontend DI module for nuke-cad.
+ *
+ * @see src/node/nuke-cad-backend-module.ts
+ */
+
+import { ContainerModule } from '@theia/core/shared/inversify';
+import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
+import { CommandContribution } from '@theia/core/lib/common';
+import { OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
+import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+
+import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
+import { NukeCadFrontendService } from './nuke-cad-frontend-service';
+import { NukeCadStateManager } from './state/nuke-cad-state-manager';
+import { NukeCadCommandContribution } from './contributions/nuke-cad-command-contribution';
+import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
+import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contribution';
+import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
+
+export default new ContainerModule((bind) => {
+    bind(NukeCadStateManager).toSelf().inSingletonScope();
+
+    bind(NukeCadFrontendService)
+        .toDynamicValue((ctx) => {
+            const proxy = ctx.container.get(WebSocketConnectionProvider).createProxy<NukeCadBackendService>(NukeCadBackendServicePath);
+            return new NukeCadFrontendService(proxy);
+        })
+        .inSingletonScope();
+    bind(NukeCadBackendService).toService(NukeCadFrontendService);
+
+    bind(NukeCadCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeCadCommandContribution);
+
+    bind(NukeCadToolsContribution).toSelf().inSingletonScope();
+    bind(NukeToolsContribution).toService(NukeCadToolsContribution);
+
+    bind(NukeCadOpenHandler).toSelf().inSingletonScope();
+    bind(OpenHandler).toService(NukeCadOpenHandler);
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadViewportWidget.ID,
+            createWidget: () => ctx.container.get(CadViewportWidget)
+        }))
+        .inSingletonScope();
+    bind(CadViewportWidget).toSelf();
+});

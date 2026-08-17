@@ -1,0 +1,23 @@
+.cad-viewport {
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    overflow: hidden;
+    position: relative;
+    background: var(--theia-editor-background);
+}
+
+.cad-viewport.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--theia-foreground);
+    opacity: 0.7;
+    font-size: var(--theia-ui-font-size2);
+}
+
+.cad-viewport canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
