@@ -19,8 +19,7 @@ export type ProjectMigrationStep = (project: OpenMCProjectFile) => OpenMCProject
  * Each step must return the project file stamped with the NEXT version.
  */
 const MIGRATIONS: Record<string, ProjectMigrationStep> = {
-    // 1.0.0 -> 1.1.0: Phase 5 foundation. No field changes yet — the bump
-    // establishes the migration hook before Phase 5 workstreams extend the schema.
+    // 1.0.0 -> 1.1.0: migration hook bump with no field changes yet.
     '1.0.0': (project) => ({
         ...project,
         version: '1.1.0',

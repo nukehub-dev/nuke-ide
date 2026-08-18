@@ -43,7 +43,7 @@ import { OPENMC_SCORES } from '../common/scores-catalog';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
 
 /**
- * Build a state exercising every settings.xml field added in Phase 5 W1.
+ * Build a state exercising every settings.xml field.
  * @returns The test state.
  */
 function buildTestState(): OpenMCState {

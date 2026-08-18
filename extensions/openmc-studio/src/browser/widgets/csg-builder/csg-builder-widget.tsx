@@ -2223,8 +2223,7 @@ export class CSGBuilderWidget extends ReactWidget {
     }
 
     private parseRegionString(region: string): OpenMCRegionNode {
-        // Simplified parser - for now just return a placeholder
-        // Full parser would be implemented in Phase 3
+        // Simplified parser - for now just return a placeholder.
         return { type: 'operator', operator: 'intersection', children: [] };
     }
 

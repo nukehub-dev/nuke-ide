@@ -183,7 +183,7 @@ export function computeKineticsItem(state: OpenMCState): ChecklistItem {
 
 /**
  * Compute the full Setup Checklist: required items, optional items, and
- * conditional Phase 5 items (kinetics when enabled, random ray in multi-group).
+ * conditional items (kinetics when enabled, random ray in multi-group).
  * @param state - Current OpenMC simulation state.
  * @returns The checklist items in display order.
  */

@@ -76,7 +76,7 @@ Status events are one-shot pushes, so a reloaded frontend cannot discover in-fli
 | Method                             | Purpose                                                                                             |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `validateState(request)`           | Checks geometry, materials, settings, tallies, and depletion configuration for errors and warnings. |
-| `checkOverlaps(request)`           | Samples geometry for cell overlaps (placeholder for Phase 2).                                       |
+| `checkOverlaps(request)`           | Samples geometry for cell overlaps (placeholder).                                                   |
 | `validateRegion(region, surfaces)` | Parses a region string against the available surface list.                                          |
 
 **Concept:** Validation runs in the backend because it may need to inspect cross-references across the entire state (e.g., verifying that every surface referenced in a cell region actually exists). The frontend can trigger validation on demand or before run/export.

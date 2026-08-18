@@ -1732,7 +1732,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async validateXML(directory: string): Promise<XMLValidationResult> {
         this.log(`Validating XML in ${directory}`);
-        // TODO: Implement XML validation in Phase 1
+        // TODO: Implement XML validation.
         return {
             valid: true,
             errors: [],
@@ -2647,7 +2647,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async checkOverlaps(request: OverlapCheckRequest): Promise<OverlapCheckResult> {
         this.log('Checking for geometry overlaps');
-        // TODO: Implement overlap checking in Phase 2
+        // TODO: Implement overlap checking.
         return {
             complete: true,
             overlaps: [],
@@ -2664,7 +2664,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async validateRegion(region: string, surfaces: any[]): Promise<{ valid: boolean; error?: string }> {
         this.log(`Validating region expression: ${region}`);
-        // TODO: Implement region validation in Phase 2
+        // TODO: Implement region validation.
         return { valid: true };
     }
 

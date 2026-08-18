@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- nuke-cad: **new parametric CAD extension (Phase 1)** — script-first geometry
+- nuke-cad: **new parametric CAD extension** — script-first geometry
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered
   as an optional extension in the browser and Electron apps.
