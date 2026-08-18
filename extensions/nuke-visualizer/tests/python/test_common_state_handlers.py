@@ -813,6 +813,12 @@ def test_check_trame_dependencies_missing_in_this_env():
     if "trame" not in sys.modules and "paraview" not in sys.modules:
         assert ok is False
         assert len(errors) == 2
+        # Hints render from the structured spec fields: trame is dual-manager
+        # (conda preferred), paraview is conda-only.
+        trame_error = next(e for e in errors if "trame" in e)
+        paraview_error = next(e for e in errors if "paraview" in e)
+        assert "conda install -c conda-forge trame (or pip install trame)" in trame_error
+        assert "conda install -c conda-forge paraview" in paraview_error
 
 
 def test_check_trame_dependencies_with_fakes(monkeypatch):
@@ -1159,10 +1165,36 @@ def test_capture_screenshot_no_view_returns_error():
 def test_install_hint_variants():
     from plugins.base.lib.common import _install_hint
 
-    assert _install_hint({"name": "vtk", "installCommand": "custom cmd"}) == "custom cmd"
-    assert _install_hint({"name": "vtk", "condaOnly": True}) == "conda install -c conda-forge vtk"
+    # condaOnly → conda command only
+    assert (
+        _install_hint({"name": "paraview", "condaOnly": True, "condaSpec": "paraview"})
+        == "conda install -c conda-forge paraview"
+    )
+    # condaSpec (dual-manager) → conda command with the pip alternative
+    assert (
+        _install_hint({"name": "gmsh", "condaSpec": "python-gmsh"})
+        == "conda install -c conda-forge python-gmsh (or pip install gmsh)"
+    )
+    # pip-only entries honor extraIndexUrl, pipSpec, and pipArgs
     assert (
         _install_hint({"name": "pkg", "extraIndexUrl": "https://idx"})
         == "pip install --extra-index-url https://idx pkg"
+    )
+    assert (
+        _install_hint(
+            {"name": "build123d", "pipSpec": "build123d==0.9.1", "pipArgs": ["--no-deps"]}
+        )
+        == "pip install --no-deps build123d==0.9.1"
+    )
+    assert (
+        _install_hint(
+            {"name": "pydagmc", "pipSpec": "git+https://github.com/svalinn/pydagmc@abc123"}
+        )
+        == "pip install git+https://github.com/svalinn/pydagmc@abc123"
+    )
+    # custom channels
+    assert (
+        _install_hint({"name": "pkg", "condaOnly": True, "channels": ["conda-forge", "custom"]})
+        == "conda install -c conda-forge -c custom pkg"
     )
     assert _install_hint({"name": "pkg"}) == "pip install pkg"

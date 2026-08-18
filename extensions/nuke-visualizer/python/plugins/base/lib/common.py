@@ -1696,14 +1696,28 @@ def _load_package_requirements() -> dict:
 
 
 def _install_hint(entry: dict) -> str:
-    """Build the install hint for a package requirement entry."""
-    if entry.get("installCommand"):
-        return entry["installCommand"]
-    if entry.get("condaOnly"):
-        return f"conda install -c conda-forge {entry['name']}"
+    """Build the install hint for a package requirement entry.
+
+    Renders from the structured spec fields (see nuke-core's ``PackageDependency``):
+    ``condaOnly`` → conda command only; ``condaSpec`` (dual-manager) → conda command
+    with the pip alternative; otherwise a pip command honoring ``pipArgs``,
+    ``extraIndexUrl``, and ``pipSpec``.
+    """
+    channels = entry.get("channels") or ["conda-forge"]
+    channel_args = " ".join(f"-c {c}" for c in channels)
+    conda_line = f"conda install {channel_args} {entry.get('condaSpec') or entry['name']}"
+
+    pip_parts = list(entry.get("pipArgs") or [])
     if entry.get("extraIndexUrl"):
-        return f"pip install --extra-index-url {entry['extraIndexUrl']} {entry['name']}"
-    return f"pip install {entry['name']}"
+        pip_parts += ["--extra-index-url", entry["extraIndexUrl"]]
+    pip_parts.append(entry.get("pipSpec") or entry["name"])
+    pip_line = f"pip install {' '.join(pip_parts)}"
+
+    if entry.get("condaOnly"):
+        return conda_line
+    if entry.get("condaSpec"):
+        return f"{conda_line} (or {pip_line})"
+    return pip_line
 
 
 def _check_required_packages(group: str) -> list[str]:

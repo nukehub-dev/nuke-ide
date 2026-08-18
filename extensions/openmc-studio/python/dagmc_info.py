@@ -26,7 +26,8 @@ def get_dagmc_info(h5m_path: str):
     except ImportError:
         return {
             "success": False,
-            "error": "pydagmc not available. Install with: pip install pydagmc",
+            "error": "pydagmc not available. Install with: pip install "
+            "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8",
         }
 
     h5m_path = Path(h5m_path)

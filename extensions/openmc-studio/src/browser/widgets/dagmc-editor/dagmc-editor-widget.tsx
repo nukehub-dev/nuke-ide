@@ -2162,7 +2162,7 @@ export class DAGMCEditorWidget extends ReactWidget {
 
         if (!support.available) {
             this.messageService.warn(
-                'CAD import requires gmsh or OpenCASCADE. ' + 'Install with: pip install gmsh or conda install -c conda-forge python-gmsh'
+                'CAD import requires gmsh or OpenCASCADE. ' + 'Install with: conda install -c conda-forge python-gmsh (or pip install gmsh)'
             );
         }
 

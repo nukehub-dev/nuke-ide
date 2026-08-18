@@ -80,6 +80,20 @@ interface OpenMCProcess {
 }
 
 /**
+ * Render a pip install hint for a requirement entry, honoring its structured
+ * spec fields (`extraIndexUrl`, `pipSpec`, `pipArgs`).
+ */
+function pipInstallHint(name: string): string {
+    const def = OPENMC_REQUIREMENTS.find((r) => r.name === name);
+    const args = [...(def?.pipArgs ?? [])];
+    if (def?.extraIndexUrl) {
+        args.push('--extra-index-url', def.extraIndexUrl);
+    }
+    args.push(def?.pipSpec ?? name);
+    return `pip install ${args.join(' ')}`;
+}
+
+/**
  * Node.js backend implementation of the OpenMC visualization RPC service.
  *
  * Spawns Python processes running `server.py` for 3D tally/geometry
@@ -583,7 +597,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (!check.available) {
                 return {
                     available: false,
-                    message: `Missing packages: ${check.missing.join(', ')}. Run: pip install ${check.missing.join(' ')}`,
+                    message: `Missing packages: ${check.missing.join(', ')}. Run: ${check.missing.map(pipInstallHint).join(' and ')}`,
                     warning: python.warning
                 };
             }
@@ -624,7 +638,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (!check.available) {
                 return {
                     available: false,
-                    message: `OpenMC Python module not installed. Run: pip install openmc`,
+                    message: `OpenMC Python module not installed. Run: ${pipInstallHint('openmc')}`,
                     warning: python.warning
                 };
             }

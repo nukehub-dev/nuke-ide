@@ -10,8 +10,9 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
 
 ## Local Contracts
 
-- TypeScript side follows `extensions/AGENTS.md`: `src/browser/`, `src/node/`, `src/common/`, wired by `nuke-core-frontend-module.ts` / `nuke-core-backend-module.ts`.
-- Python backend lives in `python/` and is **not pip-installed**; the IDE spawns it as a subprocess for environment discovery, health checks, and package installation.
+- TypeScript side follows `extensions/AGENTS.md`: `src/browser/`, `src/node/`, `src/common/`, wired by `nuke-core-frontend-module.ts` / `nuke-core-backend-module.ts`. There is no Python backend in this extension — environment discovery, health checks, and package-install command preparation are pure TypeScript services that spawn the user's Python.
+- `src/common/nuke-core-protocol.ts` owns the `PackageDependency` schema (detection fields + structured install specs: `pipSpec`/`pipArgs`/`condaSpec`/`condaOnly`/`channels`/`extraIndexUrl`; `installCommand` is deprecated hint-only). `src/node/services/dependency-install-planner.ts` holds the pure `buildDependencyInstallPlan` routing (conda env + `condaOnly`/`condaSpec` → conda batch, else pip groups per index/args signature), and `PackageService.prepareDependencyInstallCommands` turns the plan into terminal commands (RPC + browser delegate on `NukeCoreService`); `EnvironmentActionsHelper.ensurePackages` executes the plan groups sequentially.
+- `src/common/package-registry.json` is the canonical install-spec source for Python packages shared by the extension `packages.json` files (nuke-cad, nuke-visualizer, openmc-studio); `package-registry.test.ts` (vitest) fails CI when a shared entry's spec fields drift from the registry or a shared name is unregistered.
 - `src/browser/tools-sidebar/` owns the **Nuke Tools sidebar**:
   - `nuke-tools-protocol.ts` defines the `NukeToolsContribution` contract and `NukeToolsItem` shape.
   - `nuke-tools-sidebar-widget.tsx` renders the searchable, collapsible sidebar.

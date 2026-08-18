@@ -1,70 +1,60 @@
 {
-  "core": [{ "name": "numpy", "required": true }],
+  "core": [{ "name": "numpy", "required": true, "condaSpec": "numpy" }],
   "cad": [
     {
       "name": "OCP",
       "required": false,
-      "installCommand": "pip install cadquery-ocp==7.9.3.1.1"
+      "condaSpec": "ocp",
+      "pipSpec": "cadquery-ocp"
     },
     {
       "name": "build123d",
       "required": false,
-      "installCommand": "pip install build123d"
+      "pipSpec": "build123d==0.9.1",
+      "pipArgs": ["--no-deps"]
     },
-    {
-      "name": "cadquery",
-      "required": false,
-      "installCommand": "pip install cadquery"
-    },
-    { "name": "gmsh", "required": false },
-    { "name": "meshio", "required": false },
-    { "name": "netCDF4", "required": false },
+    { "name": "cadquery", "required": false, "condaSpec": "cadquery" },
+    { "name": "gmsh", "required": false, "condaSpec": "python-gmsh" },
+    { "name": "meshio", "required": false, "condaSpec": "meshio" },
+    { "name": "netCDF4", "required": false, "condaSpec": "netcdf4" },
     {
       "name": "netgen",
       "required": false,
-      "installCommand": "pip install ngsolve"
+      "condaSpec": "ngsolve",
+      "pipSpec": "ngsolve"
     },
-    {
-      "name": "ngsolve",
-      "required": false,
-      "installCommand": "pip install ngsolve"
-    }
+    { "name": "ngsolve", "required": false, "condaSpec": "ngsolve" }
   ],
   "dagmc": [
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "h5py", "required": false }
+    { "name": "h5py", "required": false, "condaSpec": "h5py" }
   ],
   "health": [
-    { "name": "numpy", "required": true },
+    { "name": "numpy", "required": true, "condaSpec": "numpy" },
     {
       "name": "OCP",
       "required": true,
-      "installCommand": "pip install cadquery-ocp==7.9.3.1.1"
+      "condaSpec": "ocp",
+      "pipSpec": "cadquery-ocp"
     },
     {
       "name": "build123d",
       "required": true,
-      "installCommand": "pip install build123d"
+      "pipSpec": "build123d==0.9.1",
+      "pipArgs": ["--no-deps"]
     },
-    {
-      "name": "cadquery",
-      "required": false,
-      "installCommand": "pip install cadquery"
-    },
-    { "name": "gmsh", "required": true },
-    { "name": "meshio", "required": false },
-    { "name": "netCDF4", "required": false },
+    { "name": "cadquery", "required": false, "condaSpec": "cadquery" },
+    { "name": "gmsh", "required": true, "condaSpec": "python-gmsh" },
+    { "name": "meshio", "required": false, "condaSpec": "meshio" },
+    { "name": "netCDF4", "required": false, "condaSpec": "netcdf4" },
     {
       "name": "netgen",
       "required": false,
-      "installCommand": "pip install ngsolve"
+      "condaSpec": "ngsolve",
+      "pipSpec": "ngsolve"
     },
-    {
-      "name": "ngsolve",
-      "required": false,
-      "installCommand": "pip install ngsolve"
-    },
+    { "name": "ngsolve", "required": false, "condaSpec": "ngsolve" },
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "h5py", "required": false }
+    { "name": "h5py", "required": false, "condaSpec": "h5py" }
   ]
 }

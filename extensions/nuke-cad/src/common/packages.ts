@@ -39,14 +39,5 @@ import { PackageDependency } from 'nuke-core/lib/common';
 
 import * as packages from './packages.json';
 
-/** Packages required for all nuke-cad operations. */
-export const CAD_CORE_PACKAGES: PackageDependency[] = packages.core;
-
-/** CAD authoring and meshing stack (full profile). */
-export const CAD_AUTHORING_PACKAGES: PackageDependency[] = packages.cad;
-
-/** DAGMC export toolchain (full profile). */
-export const CAD_DAGMC_PACKAGES: PackageDependency[] = packages.dagmc;
-
 /** Full package set verified by the nuke-cad health check. */
 export const CAD_HEALTH_PACKAGES: PackageDependency[] = packages.health;

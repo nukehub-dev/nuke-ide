@@ -101,9 +101,9 @@ quality report. The netgen path imprints the geometry first (touching solids
 share one face) and supports second-order meshes: `order=2` produces real
 tetra10/triangle6 elements, `order > 2` clamps to 2 with a warning, and
 curved-boundary mid-nodes are a best-effort projection (verified for
-straight-edged geometry). Netgen requires the `ngsolve` pip wheel
-(`pip install ngsolve`); if netgen is not installed you get a structured
-error, not a silent gmsh fallback.
+straight-edged geometry). Install netgen via conda (`conda install -c
+conda-forge ngsolve`, preferred) or the `ngsolve` pip wheel; if netgen is not
+installed you get a structured error, not a silent gmsh fallback.
 
 ## Use in OpenMC Studio
 

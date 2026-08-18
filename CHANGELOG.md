@@ -428,6 +428,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as `overlapCheck` in the result.
 - nuke-cad: saving a script-source model's `.py` file debounce-triggers a
   viewport rebuild (STEP-source models are unaffected).
+- nuke-core: dependency installs are now spec-aware. `PackageDependency`
+  entries carry structured install specs (`pipSpec`, `pipArgs`, `condaSpec`)
+  alongside `condaOnly`/`channels`/`extraIndexUrl`; the missing-packages
+  install flow (`ensurePackages`) routes them through a new
+  `buildDependencyInstallPlan` planner — conda envs batch `condaOnly`/
+  `condaSpec` entries into one conda command, everything else installs via
+  pip grouped by (`extraIndexUrl`, `pipArgs`) signature (so pinned/VCS specs
+  like the commit-pinned pydagmc git URL and `--no-deps` build123d are
+  actually honored, and a single `condaOnly` entry no longer flips the whole
+  batch to conda). `installCommand` is deprecated (legacy hint-only). Install
+  hints in health checks, env validation, and the Python backends render from
+  the same fields, and `extensions/nuke-core/src/common/package-registry.json`
+  pins the canonical specs for shared packages (openmc/moab → shimwell wheel
+  index, gmsh → conda `python-gmsh`, OCP → conda `ocp`, netgen/ngsolve → conda
+  `ngsolve`, mpi4py/paraview → conda-only, …) with a vitest consistency test
+  (`package-registry.test.ts`) that fails CI on drift between the three
+  extension `packages.json` files.
 
 ## [0.1.3] - 2026-07-28
 

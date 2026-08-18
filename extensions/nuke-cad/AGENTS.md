@@ -66,9 +66,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   flavors — do not shim it.
 - Widget CSS is copied to `lib/` by the `copy-css` build step.
 - Python package requirements live in `src/common/packages.json`; never inline
-  package lists in services or widgets. The `health` group's required set
-  (numpy, OCP, build123d, gmsh) is what `checkCadEnvironment` treats as a
-  working CAD backend; the rest are reported as `missingOptional`.
+  package lists in services or widgets. Only the `health` group is exported to
+  TS (`CAD_HEALTH_PACKAGES`) and consumed today; the `core`/`cad`/`dagmc`
+  groups stay as reference data. The `health` group's required set (numpy, OCP,
+  build123d, gmsh) is what `checkCadEnvironment` treats as a working CAD
+  backend; the rest are reported as `missingOptional`. Shared packages must
+  match nuke-core's `package-registry.json`.
 - The converter home is nuke-cad `python/` (`dagmc_export.py`). openmc-studio
   delegates to nuke-cad services: the **Import from nuke-cad...** command loads
   a nuke-cad `.h5m` + `.regions.json` into an OpenMC project, and the DAGMC

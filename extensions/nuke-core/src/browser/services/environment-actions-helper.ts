@@ -598,23 +598,16 @@ export class EnvironmentActionsHelper {
             };
         }
 
-        // 4. Derive install options from the PackageDependency definitions
+        // 4. Build the spec-aware install plan from the PackageDependency definitions
+        //    (conda batch for condaOnly/condaSpec entries, then one pip group per
+        //    index/args signature) instead of collapsing bare names into one command
         const missingDefs = requiredPackages.filter((p) => missing.includes(p.name));
-        const useConda = missingDefs.some((p) => p.condaOnly);
-        const channels = [...new Set(missingDefs.flatMap((p) => p.channels ?? []))];
-        const extraIndexUrl = missingDefs.find((p) => p.extraIndexUrl)?.extraIndexUrl;
+        const commands = await this.nukeCore.prepareDependencyInstallCommands(missingDefs, env.pythonPath);
 
-        // 5. Install missing packages via unified helper
-        const installResult = await this.installPackages({
-            packages: missing,
-            title,
-            useConda,
-            channels: channels.length > 0 ? channels : undefined,
-            extraIndexUrl
-        });
-
-        if (!installResult.success) {
-            this.messageService.error(`Failed to install: ${installResult.message}`);
+        if (commands.length === 0) {
+            this.messageService.error(
+                `Cannot auto-install: ${missingDefs.map((p) => p.name).join(', ')} (conda-only packages require a conda environment)`
+            );
             return {
                 success: false,
                 environment: env,
@@ -623,7 +616,25 @@ export class EnvironmentActionsHelper {
             };
         }
 
-        // 5. Re-check the configured env to verify
+        // 5. Execute the plan groups sequentially in live terminals; stop on first failure
+        for (const cmd of commands) {
+            const success = await this.runCommandInTerminal({
+                title: cmd.label || title,
+                cwd: cmd.cwd,
+                args: this.parseCommandString(cmd.command)
+            });
+            if (!success) {
+                this.messageService.error('Installation failed or was cancelled. Check the terminal for details.');
+                return {
+                    success: false,
+                    environment: env,
+                    missingPackages: missing,
+                    installed: false
+                };
+            }
+        }
+
+        // 6. Re-check the configured env to verify
         const retry = await this.nukeCore.checkDependencies(requiredPackages, env.pythonPath);
         if (retry.available) {
             this.messageService.info(`Environment ready: ${env.name}`);

@@ -3,18 +3,20 @@
     {
       "name": "trame",
       "submodule": "app",
-      "required": true
+      "required": true,
+      "condaSpec": "trame"
     },
     {
       "name": "paraview",
       "submodule": "simple",
       "required": true,
-      "condaOnly": true
+      "condaOnly": true,
+      "condaSpec": "paraview"
     },
     {
       "name": "pydagmc",
       "required": false,
-      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+      "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
     },
     {
       "name": "moab",
@@ -23,16 +25,23 @@
     },
     {
       "name": "gmsh",
-      "required": false
+      "required": false,
+      "condaSpec": "python-gmsh"
     }
   ],
   "dagmcServer": [
     {
       "name": "trame",
-      "submodule": "app"
+      "submodule": "app",
+      "required": true,
+      "condaSpec": "trame"
     },
     {
-      "name": "paraview"
+      "name": "paraview",
+      "submodule": "simple",
+      "required": true,
+      "condaOnly": true,
+      "condaSpec": "paraview"
     },
     {
       "name": "moab",
@@ -43,13 +52,15 @@
   "step": [
     {
       "name": "gmsh",
-      "required": true
+      "required": true,
+      "condaSpec": "python-gmsh"
     }
   ],
   "openmc": [
     {
       "name": "h5py",
-      "required": true
+      "required": true,
+      "condaSpec": "h5py"
     },
     {
       "name": "openmc",
@@ -58,11 +69,13 @@
     },
     {
       "name": "numpy",
-      "required": true
+      "required": true,
+      "condaSpec": "numpy"
     },
     {
       "name": "ncrystal",
-      "required": false
+      "required": false,
+      "condaSpec": "ncrystal"
     }
   ]
 }

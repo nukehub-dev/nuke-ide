@@ -1,34 +1,34 @@
 {
   "core": [
-    { "name": "h5py", "required": true },
+    { "name": "h5py", "required": true, "condaSpec": "h5py" },
     { "name": "openmc", "required": true, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "numpy", "required": true }
+    { "name": "numpy", "required": true, "condaSpec": "numpy" }
   ],
   "dagmc": [
     {
       "name": "pydagmc",
       "required": true,
-      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+      "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
     },
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" }
   ],
   "cad": [
-    { "name": "gmsh", "required": false },
-    { "name": "OCC", "required": false, "installCommand": "conda install -c conda-forge pythonocc-core" },
-    { "name": "cadquery", "required": false }
+    { "name": "gmsh", "required": false, "condaSpec": "python-gmsh" },
+    { "name": "OCC", "required": false, "condaSpec": "pythonocc-core" },
+    { "name": "cadquery", "required": false, "condaSpec": "cadquery" }
   ],
   "health": [
-    { "name": "h5py", "required": true },
+    { "name": "h5py", "required": true, "condaSpec": "h5py" },
     { "name": "openmc", "required": true, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "numpy", "required": true },
-    { "name": "mpi4py", "required": false },
+    { "name": "numpy", "required": true, "condaSpec": "numpy" },
+    { "name": "mpi4py", "required": false, "condaOnly": true, "condaSpec": "mpi4py" },
     {
       "name": "pydagmc",
       "required": false,
-      "installCommand": "pip install git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+      "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
     },
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "OCP", "required": false, "installCommand": "pip install cadquery-ocp" }
+    { "name": "OCP", "required": false, "condaSpec": "ocp", "pipSpec": "cadquery-ocp" }
   ],
-  "ncrystal": [{ "name": "ncrystal", "required": false }]
+  "ncrystal": [{ "name": "ncrystal", "required": false, "condaSpec": "ncrystal" }]
 }

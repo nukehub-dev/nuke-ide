@@ -1052,7 +1052,8 @@ def mesh_step(
     if engine == "netgen" and not HAS_NETGEN:
         result["error"] = (
             "Netgen engine is not available: install the optional netgen/ngsolve "
-            "packages (pip install ngsolve) to use it."
+            "packages (conda install -c conda-forge ngsolve preferred, or pip install "
+            "ngsolve) to use it."
         )
         return result
 
