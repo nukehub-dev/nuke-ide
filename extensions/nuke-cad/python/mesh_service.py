@@ -11,9 +11,11 @@ Turns a canonical STEP file into FEM-ready volume meshes:
 
 The gmsh backend is the primary engine and uses the HXT 3D tetrahedral
 algorithm. Netgen is available as a fallback engine when the optional
-``netgen``/``ngsolve`` stack is installed; it produces linear tetrahedra and
-converts its mesh into the same meshio representation as the gmsh path, so
-quality reports and exports are engine-agnostic.
+``netgen``/``ngsolve`` stack is installed; it imprints the geometry first
+(gmsh OCC fragment + duplicate removal, mirroring the DAGMC pipeline),
+supports linear and quadratic tetrahedra, and converts its mesh into the
+same meshio representation as the gmsh path, so quality reports and exports
+are engine-agnostic.
 
 Progress and diagnostics are emitted on stderr. One final JSON object is
 printed on stdout (stdout-JSON protocol used across NukeIDE backends).
@@ -25,6 +27,7 @@ import argparse
 import json
 import math
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -118,12 +121,14 @@ def _derive_output_paths(
     }
 
 
-def _load_step_into_gmsh(step_path: str) -> None:
-    """Open a STEP file in the gmsh OpenCASCADE kernel.
+def _load_step_into_gmsh(step_path: str, remove_duplicates: bool = False) -> None:
+    """Open a STEP file in the gmsh OpenCASCADE kernel and imprint it.
 
     An ``occ.fragment`` imprint/merge is applied to all volumes so that
     touching solids remain distinct volumes while sharing exact coincident
-    faces. This mirrors the DAGMC export pipeline.
+    faces. With ``remove_duplicates`` the ``occ.removeAllDuplicates`` merge
+    stage also runs, unifying the coincident duplicate faces fragment leaves
+    behind — the same imprint/merge sequence as the DAGMC export pipeline.
     """
     if gmsh is None:
         raise RuntimeError("gmsh is required")
@@ -133,6 +138,9 @@ def _load_step_into_gmsh(step_path: str) -> None:
     if len(volumes) > 1:
         gmsh.model.occ.fragment(volumes, volumes)
         gmsh.model.occ.synchronize()
+        if remove_duplicates:
+            gmsh.model.occ.removeAllDuplicates()
+            gmsh.model.occ.synchronize()
 
 
 def _gmsh_volume_tags() -> list[int]:
@@ -307,8 +315,9 @@ def _mesh_with_gmsh(
                 pass
 
 
-def _selector_coms_via_gmsh(
+def _imprint_and_resolve_coms_via_gmsh(
     step_path: str,
+    imprinted_path: Path,
     manifest: Any | None,
     selector_map: dict[str, list[int]],
     warnings: list[str],
@@ -317,10 +326,19 @@ def _selector_coms_via_gmsh(
     list[tuple[str, tuple[float, ...]]],
     list[tuple[int, tuple[float, ...]]],
 ]:
-    """Resolve manifest selectors to entity centers of mass via the gmsh OCC kernel.
+    """Imprint a STEP model and resolve manifest selectors, in one gmsh pass.
 
-    Selector maps hold 1-based gmsh entity tags, so the tags are resolved with
-    the same OCC load (including the fragment step) as the gmsh engine.
+    Loads the STEP file into the gmsh OCC kernel, runs the fragment +
+    removeAllDuplicates imprint/merge sequence (shared with the gmsh engine
+    path via ``_load_step_into_gmsh``), and writes the imprinted model to
+    ``imprinted_path`` as a BREP file. BREP is used instead of STEP because a
+    STEP round trip re-instances each solid's shell separately and loses the
+    shared coincident faces; BREP preserves them.
+
+    Selector maps hold 1-based gmsh entity tags, so selector centers of mass
+    are resolved against the same imprinted model the netgen engine will
+    mesh: both sides of a shared face have already collapsed into a single
+    face entity here, and will be a single face in the netgen shape too.
     Returns ``(named_volumes, named_surfaces, all_volumes)`` where
     ``named_volumes`` holds ``(name, com, meshSize)`` triples,
     ``named_surfaces`` holds ``(name, com)`` pairs, and ``all_volumes`` holds
@@ -338,7 +356,8 @@ def _selector_coms_via_gmsh(
         gmsh.initialize()
         gmsh_initialized = True
         gmsh.option.setNumber("General.Terminal", 0)
-        _load_step_into_gmsh(step_path)
+        _load_step_into_gmsh(step_path, remove_duplicates=True)
+        gmsh.write(str(imprinted_path))
 
         for tag in _gmsh_volume_tags():
             com = tuple(float(c) for c in gmsh.model.occ.getCenterOfMass(3, tag))
@@ -399,13 +418,26 @@ def _closest_com(
     return best
 
 
+# Netgen node ordering differs from the meshio/VTK canonical ordering for
+# quadratic cells (verified empirically against netgen 6.2.2606 and against a
+# gmsh order-2 mesh read through meshio):
+#   netgen tet10 mid-edge slots 4..9: edges (0,1) (0,2) (0,3) (1,2) (1,3) (2,3)
+#   meshio tetra10 slots 4..9:        edges (0,1) (1,2) (0,2) (0,3) (1,3) (2,3)
+#   netgen tri6 mid-edge slots 3..5:  edges (1,2) (0,2) (0,1)
+#   meshio triangle6 slots 3..5:      edges (0,1) (1,2) (0,2)
+_NETGEN_TETRA10_TO_MESHIO = [0, 1, 2, 3, 4, 7, 5, 6, 8, 9]
+_NETGEN_TRIANGLE6_TO_MESHIO = [0, 1, 2, 5, 3, 4]
+
+
 def _netgen_to_meshio(ng_mesh: Any, warnings: list[str]) -> Any:
     """Convert a netgen volume mesh into the meshio form the gmsh path yields.
 
-    Builds one ``tetra`` cell block plus one ``triangle`` block for boundary
-    faces, named cell sets from netgen's material (volume) and
-    boundary-condition (surface) names, and gmsh physical tags so the written
-    .msh artifact keeps the same named groups.
+    Builds one ``tetra``/``tetra10`` cell block plus one
+    ``triangle``/``triangle6`` block for boundary faces, named cell sets from
+    netgen's material (volume) and boundary-condition (surface) names, and
+    gmsh physical tags so the written .msh artifact keeps the same named
+    groups. Quadratic meshes (after ``Mesh.SecondOrder()``) are reordered
+    from netgen's node numbering into the meshio/VTK canonical one.
     """
     if np is None or meshio is None:
         raise RuntimeError("numpy and meshio are required")
@@ -414,26 +446,54 @@ def _netgen_to_meshio(ng_mesh: Any, warnings: list[str]) -> Any:
     if not elements3d:
         raise RuntimeError("netgen produced no tetrahedral elements")
     elements2d = list(ng_mesh.Elements2D())
-    quad_like = [el for el in elements2d if len(el.vertices) != 3]
-    if quad_like:
-        warnings.append(
-            f"netgen engine: dropping {len(quad_like)} non-triangular boundary elements."
+
+    # el.points holds corners + high-order nodes (corners first); for linear
+    # meshes it coincides with el.vertices.
+    tet_rows = [[p.nr - 1 for p in el.points] for el in elements3d]
+    tet_sizes = {len(row) for row in tet_rows}
+    if tet_sizes == {10}:
+        tet_type = "tetra10"
+        tets = np.array(
+            [[row[i] for i in _NETGEN_TETRA10_TO_MESHIO] for row in tet_rows], dtype=np.int32
         )
-    elements2d = [el for el in elements2d if len(el.vertices) == 3]
+    elif tet_sizes == {4}:
+        tet_type = "tetra"
+        tets = np.array(tet_rows, dtype=np.int32)
+    else:
+        raise RuntimeError(
+            f"netgen produced unsupported tetrahedral elements (node counts: {sorted(tet_sizes)})"
+        )
+
+    tri_rows: list[list[int]] = []
+    tri_bc_values: list[int] = []
+    dropped = 0
+    tri_type = "triangle"
+    for el in elements2d:
+        row = [p.nr - 1 for p in el.points]
+        if len(row) == 3:
+            tri_rows.append(row)
+        elif len(row) == 6:
+            tri_rows.append([row[i] for i in _NETGEN_TRIANGLE6_TO_MESHIO])
+            tri_type = "triangle6"
+        else:
+            dropped += 1
+            continue
+        tri_bc_values.append(el.index)
+    if dropped:
+        warnings.append(f"netgen engine: dropping {dropped} non-triangular boundary elements.")
 
     points = np.array(ng_mesh.Coordinates(), dtype=float)
-    tets = np.array([[v.nr - 1 for v in el.vertices] for el in elements3d], dtype=np.int32)
-    tris = np.array([[v.nr - 1 for v in el.vertices] for el in elements2d], dtype=np.int32)
+    tris = np.array(tri_rows, dtype=np.int32) if tri_rows else np.empty((0, 3), dtype=np.int32)
     tet_domain = np.array([el.index for el in elements3d], dtype=int)
-    tri_bc = np.array([el.index for el in elements2d], dtype=int)
+    tri_bc = np.array(tri_bc_values, dtype=int)
 
     # Element indices are 1-based domain/BC numbers; GetBCName is 0-based.
     materials = [ng_mesh.GetMaterial(i) for i in range(1, ng_mesh.GetNDomains() + 1)]
     bc_names = {i: ng_mesh.GetBCName(i - 1) for i in sorted(set(tri_bc.tolist()))}
 
-    cells: list[tuple[str, np.ndarray]] = [("tetra", tets)]
+    cells: list[tuple[str, np.ndarray]] = [(tet_type, tets)]
     if len(tris) > 0:
-        cells.append(("triangle", tris))
+        cells.append((tri_type, tris))
 
     field_data: dict[str, np.ndarray] = {}
     phys_tet = np.zeros(len(tets), dtype=np.int32)
@@ -483,80 +543,97 @@ def _mesh_with_netgen(
 ) -> Any:
     """Generate a 3D volume mesh with netgen and write a gmsh-compatible .msh file.
 
-    The STEP file is meshed with netgen's own OCC kernel and converted
-    in-memory to the same meshio representation the gmsh engine produces via
-    ``meshio.read``: a ``tetra`` cell block, a ``triangle`` boundary block,
-    and named cell sets for blocks and sidesets. The returned mesh feeds the
-    shared report/ExodusII/INP/VTK pipeline unchanged.
+    The STEP file is first imprinted via a gmsh OCC pass (fragment +
+    removeAllDuplicates, mirroring the DAGMC export pipeline) and written to
+    a temporary BREP file, which netgen then meshes with its own OCC kernel.
+    This gives touching solids a single shared interface face instead of
+    coincident duplicates, so sidesets and BC names are not double-counted.
+    The same gmsh pass resolves selector centers of mass against the
+    imprinted entity numbering, so tags are matched only once.
+
+    The netgen mesh is converted in-memory to the same meshio representation
+    the gmsh engine produces via ``meshio.read``: a ``tetra``/``tetra10``
+    cell block, a ``triangle``/``triangle6`` boundary block, and named cell
+    sets for blocks and sidesets. The returned mesh feeds the shared
+    report/ExodusII/INP/VTK pipeline unchanged.
 
     Manifest volume names become netgen material names (block names) and a
     volume's ``meshSize`` maps to that solid's ``maxh``; manifest surface
     names become boundary-condition names (sidesets). Selectors are matched
-    to netgen solids/faces by center of mass against the gmsh OCC numbering
-    the selector map refers to. Unmatched selectors produce warnings and
-    unnamed solids fall back to ``block_<tag>`` names.
+    to netgen solids/faces by center of mass against the imprinted gmsh OCC
+    numbering the selector map refers to. Unmatched selectors produce
+    warnings and unnamed solids fall back to ``block_<tag>`` names.
 
-    Limitations compared to the gmsh engine: only linear tetrahedra are
-    produced (``order`` > 1 falls back with a warning) and ``min_size`` maps
-    to netgen's ``minh`` hint rather than a hard characteristic-length bound.
+    Element order: 1 (linear) and 2 (quadratic, via ``Mesh.SecondOrder()``)
+    are supported; ``order`` > 2 clamps to 2 with a warning. Netgen projects
+    boundary mid-edge nodes onto the geometry where it can, but this is
+    best-effort: correctness of the converted pipeline is only guaranteed
+    for straight-edged elements — curved quadratic boundaries are netgen's
+    own approximation. ``min_size`` maps to netgen's ``minh`` hint rather
+    than a hard characteristic-length bound.
     """
     if not HAS_NETGEN or OCCGeometry is None or np is None or meshio is None:
         raise RuntimeError("netgen, numpy, and meshio are required")
-    if order > 1:
+    if order > 2:
         warnings.append(
-            "netgen engine: element order > 1 is not supported; generating linear tetrahedra."
+            f"netgen engine: element order {order} is not supported; clamping to order 2."
+        )
+        order = 2
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        imprinted_path = Path(tmpdir) / "imprinted.brep"
+        named_volumes, named_surfaces, all_volumes = _imprint_and_resolve_coms_via_gmsh(
+            step_path, imprinted_path, manifest, selector_map or {}, warnings
         )
 
-    named_volumes, named_surfaces, all_volumes = _selector_coms_via_gmsh(
-        step_path, manifest, selector_map or {}, warnings
-    )
+        # Load the imprinted shape, tag it with names/sizes, then hand the
+        # tagged shape to a fresh OCCGeometry: sub-shape meshing attributes
+        # are only honored when present before the OCCGeometry is constructed.
+        shape = OCCGeometry(str(imprinted_path)).shape
+        bb_min, bb_max = shape.bounding_box
+        tol = 1e-6 * max(math.dist(bb_min, bb_max), 1.0)
 
-    # Load the STEP shape, tag it with names/sizes, then hand the tagged shape
-    # to a fresh OCCGeometry: sub-shape meshing attributes are only honored
-    # when present before the OCCGeometry is constructed.
-    shape = OCCGeometry(step_path).shape
-    bb_min, bb_max = shape.bounding_box
-    tol = 1e-6 * max(math.dist(bb_min, bb_max), 1.0)
-
-    volume_coms = [com for _, com, _ in named_volumes]
-    default_coms = [com for _, com in all_volumes]
-    for idx, solid in enumerate(shape.solids):
-        center = tuple(float(c) for c in solid.center)
-        named_idx = _closest_com(center, volume_coms, tol) if volume_coms else None
-        if named_idx is not None:
-            name, _, region_size = named_volumes[named_idx]
-            if region_size is not None:
-                solid.maxh = region_size
-        else:
-            tag_idx = _closest_com(center, default_coms, tol) if default_coms else None
-            if tag_idx is not None:
-                name = f"block_{all_volumes[tag_idx][0]}"
+        volume_coms = [com for _, com, _ in named_volumes]
+        default_coms = [com for _, com in all_volumes]
+        for idx, solid in enumerate(shape.solids):
+            center = tuple(float(c) for c in solid.center)
+            named_idx = _closest_com(center, volume_coms, tol) if volume_coms else None
+            if named_idx is not None:
+                name, _, region_size = named_volumes[named_idx]
+                if region_size is not None:
+                    solid.maxh = region_size
             else:
-                name = f"block_{idx + 1}"
+                tag_idx = _closest_com(center, default_coms, tol) if default_coms else None
+                if tag_idx is not None:
+                    name = f"block_{all_volumes[tag_idx][0]}"
+                else:
+                    name = f"block_{idx + 1}"
+                    warnings.append(
+                        f"netgen engine: could not match solid {idx + 1} to a gmsh volume "
+                        f"by center of mass; using fallback block name '{name}'."
+                    )
+            solid.mat(name)
+
+        faces = list(shape.faces)
+        for name, com in named_surfaces:
+            matched = [face for face in faces if math.dist(tuple(face.center), com) <= tol]
+            if not matched:
                 warnings.append(
-                    f"netgen engine: could not match solid {idx + 1} to a gmsh volume "
-                    f"by center of mass; using fallback block name '{name}'."
+                    f"netgen engine: surface '{name}' could not be matched to a netgen face; "
+                    "the sideset will be empty."
                 )
-        solid.mat(name)
+            for face in matched:
+                face.bc(name)
 
-    faces = list(shape.faces)
-    for name, com in named_surfaces:
-        matched = [face for face in faces if math.dist(tuple(face.center), com) <= tol]
-        if not matched:
-            warnings.append(
-                f"netgen engine: surface '{name}' could not be matched to a netgen face; "
-                "the sideset will be empty."
-            )
-        for face in matched:
-            face.bc(name)
-
-    mesh_kwargs: dict[str, float] = {}
-    maxh = max_size if max_size is not None else mesh_size
-    if maxh is not None:
-        mesh_kwargs["maxh"] = float(maxh)
-    if min_size is not None:
-        mesh_kwargs["minh"] = float(min_size)
-    ng_mesh = OCCGeometry(shape).GenerateMesh(**mesh_kwargs)
+        mesh_kwargs: dict[str, float] = {}
+        maxh = max_size if max_size is not None else mesh_size
+        if maxh is not None:
+            mesh_kwargs["maxh"] = float(maxh)
+        if min_size is not None:
+            mesh_kwargs["minh"] = float(min_size)
+        ng_mesh = OCCGeometry(shape).GenerateMesh(**mesh_kwargs)
+        if order == 2:
+            ng_mesh.SecondOrder()
 
     mesh = _netgen_to_meshio(ng_mesh, warnings)
 
@@ -938,7 +1015,7 @@ def mesh_step(
         output_stem: Base file name; defaults to the STEP stem.
         manifest: Optional ``RegionManifest`` for block/sideset names and sizes.
         selector_map: Maps selectors to lists of 1-based gmsh volume/surface tags.
-        engine: ``"gmsh"`` (primary) or ``"netgen"`` (fallback, linear tetrahedra).
+        engine: ``"gmsh"`` (primary) or ``"netgen"`` (fallback, order 1 or 2).
         mesh_size: Global target element size (sets max characteristic length).
         min_size: Minimum allowed element size.
         max_size: Maximum allowed element size.

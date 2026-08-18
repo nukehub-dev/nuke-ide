@@ -47,6 +47,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - User geometry scripts execute in an isolated subprocess with a 120 s default
   timeout (`--script-timeout`); `SystemExit` and unsupported model types are
   reported as structured errors, not process crashes.
+- Geometry-service selector extraction (build123d labels, CadQuery Assembly
+  names) is tested against real cadquery 2.7/2.8: TShape-based matching via
+  `IsPartner`, UUID-name filtering, and multi-solid Workplane handling.
 - `dagmc_export.py` treats surface-sense verification as a hard error (every
   exported surface must have sense 1 or 2) and reports geometry diagnostics in
   the result: `sealed=False` + warning for hole edges, `nonManifoldEdges` for
@@ -80,10 +83,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   (default) and `engine='netgen'` with interface parity: per-region `meshSize`
   maps to `solid.maxh`, surface names become boundary-condition names, and the
   result converges into the same meshio-based report/Exodus/INP/VTK pipeline.
-  Netgen produces linear tets only (order > 1 warns) and its `.msh` artifact is
-  gmsh-2.2 ASCII via meshio; a missing netgen install returns a structured
-  error. Install it with the `ngsolve` pip wheel (pulls in netgen-mesher,
-  which bundles its own OCCT 7.8.1).
+  The netgen path imprints: a shared gmsh load → `fragment` →
+  `removeAllDuplicates` pass writes an imprinted BREP (a STEP round-trip
+  re-duplicates shared faces; BREP preserves the imprint) that netgen meshes,
+  so touching solids share one face; selector COM resolution runs in the same
+  imprinted session. `order=2` produces real tetra10/triangle6 elements via
+  netgen's `Mesh.SecondOrder()` with node-order remapping to the
+  meshio/SEACAS canonical convention; `order > 2` clamps to 2 with a warning.
+  Curved-boundary mid-nodes are netgen's best-effort projection (verified
+  straight-edged only). The `.msh` artifact is gmsh-2.2 ASCII via meshio; a
+  missing netgen install returns a structured error. Install netgen with the
+  `ngsolve` pip wheel (pulls in netgen-mesher, which bundles its own OCCT
+  7.8.1).
 - The e2e layer lives in `tests/e2e/` (pytest, `@pytest.mark.e2e`): real
   full-pipeline runs such as the pincell DAGMC test (labeled build123d pincell
   → STEP → imprinted h5m → real OpenMC run asserting zero lost particles).
@@ -127,6 +138,15 @@ yarn lint
 E2e runs require the full profile: `NUKE_TEST_PYTHON` pointing at an env with
 openmc + the CAD toolchain, plus `OPENMC_CROSS_SECTIONS` for the model run —
 see the root `AGENTS.md` coverage/e2e bullets.
+
+Environment split for local testing: the dedicated `nuke` dev env
+(`$HOME/.conda/envs/nuke`, conda-forge OCP stack: cadquery, build123d,
+python-gmsh, meshio, netCDF4, vtk + pip openmc/moab/pydagmc) intentionally
+excludes netgen — conda netgen and conda OCP register the same OCCT types
+with pybind11 in one process ("type gp_Pnt is already registered!"), and the
+pip `ngsolve` wheel dumps its own OCCT .so files into the env's `lib/`,
+clobbering conda's occt. Netgen engine tests therefore need a pip-OCP env
+(e.g. pip `cadquery-ocp` + pip `ngsolve`, which coexist fine).
 
 ## Child NAD Index
 

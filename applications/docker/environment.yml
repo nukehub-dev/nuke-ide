@@ -36,9 +36,15 @@ dependencies:
   # nuke-cad full profile: build123d geometry authoring (conda build, links
   # conda ocp), meshio for CalculiX/VTK mesh export, netCDF4 for the custom
   # ExodusII writer. netgen/ngsolve stay optional and are intentionally not
-  # installed: the netgen mesh engine is an opt-in alternative to the default
-  # gmsh path, and the pip ngsolve wheel bundles its own OCCT, which risks the
-  # same vtkmodules/OCCT clobbering the pip cadquery warning above describes.
+  # installed, for two confirmed reasons: conda netgen and conda OCP register
+  # the same OCCT types with pybind11 in one process ("type gp_Pnt is already
+  # registered!" in either import order, and build123d+netgen breaks too), and
+  # the pip ngsolve wheel (netgen-occt) dumps its own OCCT 7.8.1 .so files
+  # into the env's lib/, clobbering conda's occt (empirically confirmed:
+  # cadquery import broke with undefined-symbol errors until the pip packages
+  # were removed and conda occt force-reinstalled). The netgen mesh engine is
+  # an opt-in alternative to the default gmsh path; run its tests in a pip-OCP
+  # env (pip cadquery-ocp + pip ngsolve coexist fine).
   - build123d
   - meshio
   - netCDF4

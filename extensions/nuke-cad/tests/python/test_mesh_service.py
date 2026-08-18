@@ -65,6 +65,52 @@ def _read_exodus_names(h5m_path: Path, variable: str) -> list[str]:
     return names
 
 
+def _named_triangles(mesh: Any, name: str) -> Any:
+    """Return the triangle rows (node indices) of a named surface group.
+
+    Reads the group from the meshio mesh produced by reading back the .msh
+    artifact: prefers cell_sets, falls back to gmsh:physical tags resolved
+    through field_data.
+    """
+    np = pytest.importorskip("numpy", reason="numpy not installed")
+    tris: list[Any] = []
+    if name in mesh.cell_sets:
+        sets = mesh.cell_sets[name]
+        for i, block in enumerate(mesh.cells):
+            if not block.type.startswith("triangle") or i >= len(sets) or sets[i] is None:
+                continue
+            tris.append(np.asarray(block.data)[np.asarray(sets[i]).ravel()])
+    else:
+        tag = int(mesh.field_data[name][0])
+        for i, block in enumerate(mesh.cells):
+            if not block.type.startswith("triangle"):
+                continue
+            phys = np.asarray(mesh.cell_data["gmsh:physical"][i])
+            tris.append(np.asarray(block.data)[phys == tag])
+    if not tris:
+        return np.empty((0, 3), dtype=int)
+    return np.concatenate(tris)
+
+
+def _two_touching_boxes_step(tmp_path: Path) -> str:
+    """Build two touching boxes via geometry_service and return the STEP path."""
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+    return service_result["stepPath"]
+
+
 def test_module_imports_without_heavy_deps(monkeypatch: Any) -> None:
     """mesh_service must be importable in the minimal pytest profile."""
     # Force the heavy dependencies to appear absent for this import.
@@ -476,10 +522,8 @@ def test_netgen_mesh_single_box(tmp_path: Path) -> None:
         output_stem="netgen_box",
         engine="netgen",
         mesh_size=4.0,
-        order=2,  # unsupported: must fall back to linear with a warning
     )
     assert mesh_result["success"] is True, mesh_result.get("error", "")
-    assert any("order" in w for w in mesh_result["warnings"])
 
     report = mesh_result["report"]
     assert report is not None
@@ -610,6 +654,143 @@ def test_netgen_per_region_mesh_size_changes_element_count(tmp_path: Path) -> No
     assert fine["success"] is True, fine.get("error", "")
 
     assert fine["report"]["elementCount"] > coarse["report"]["elementCount"]
+
+
+def test_netgen_imprint_shared_face_not_duplicated(tmp_path: Path) -> None:
+    """engine='netgen' imprints touching solids: the shared face is meshed once.
+
+    Without imprinting, the raw STEP carries two coincident duplicate faces
+    on the interface and the sideset would count the interface triangles
+    twice. The gmsh fragment + removeAllDuplicates imprint collapses them to
+    one face before netgen meshes the model.
+    """
+    _requires_netgen()
+    np = pytest.importorskip("numpy", reason="numpy not installed")
+
+    step_path = _two_touching_boxes_step(tmp_path)
+    left = _find_gmsh_tag_by_com(step_path, 3, (0.0, 0.0, 0.0))
+    right = _find_gmsh_tag_by_com(step_path, 3, (10.0, 0.0, 0.0))
+    shared = _find_gmsh_tag_by_com(step_path, 2, (5.0, 0.0, 0.0))
+    assert left is not None and right is not None and shared is not None
+
+    manifest = RegionManifest.from_dict(
+        {
+            "version": 1,
+            "volumes": [
+                {"selector": "left", "name": "left_block", "material": "mat1"},
+                {"selector": "right", "name": "right_block", "material": "mat2"},
+            ],
+            "surfaces": [
+                {"selector": "shared", "name": "shared_surface", "role": "interface"},
+            ],
+        }
+    )
+    mesh_result = mesh_service.mesh_step(
+        step_path,
+        output_dir=str(tmp_path),
+        output_stem="netgen_imprint",
+        engine="netgen",
+        manifest=manifest,
+        selector_map={"left": [left], "right": [right], "shared": [shared]},
+        mesh_size=4.0,
+    )
+    assert mesh_result["success"] is True, mesh_result.get("error", "")
+
+    import meshio
+
+    mesh = meshio.read(mesh_result["paths"]["msh"])
+    tris = _named_triangles(mesh, "shared_surface")
+    assert len(tris) > 0, "shared_surface sideset is empty"
+
+    # One geometric face: no duplicated coincident triangles.
+    corner_sets = [frozenset(int(n) for n in tri[:3]) for tri in tris]
+    assert len(corner_sets) == len(set(corner_sets))
+
+    # All triangles lie on the x=5 interface plane.
+    iface_nodes = sorted({n for corner_set in corner_sets for n in corner_set})
+    assert np.allclose(mesh.points[iface_nodes][:, 0], 5.0, atol=1e-6)
+
+    # An internal face borders two tetrahedra, so the Exodus-style sideset
+    # holds exactly two (element, side) entries per interface triangle.
+    report = mesh_result["report"]
+    sideset_counts = {s["name"]: s["elementCount"] for s in report["sidesets"]}
+    assert sideset_counts["shared_surface"] == 2 * len(corner_sets)
+
+    # Element counts and quality metrics stay sane.
+    assert report["elementCount"] > 0
+    quality = report["quality"]
+    assert 0.0 < quality["minDihedralDeg"] <= quality["maxDihedralDeg"] <= 180.0
+    assert quality["minAspectRatio"] >= 1.0
+
+
+def test_netgen_order2_quadratic_tets(tmp_path: Path) -> None:
+    """engine='netgen' with order=2 produces tetra10 meshes end to end."""
+    _requires_netgen()
+
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+
+    mesh_result = mesh_service.mesh_step(
+        service_result["stepPath"],
+        output_dir=str(tmp_path),
+        output_stem="netgen_o2",
+        engine="netgen",
+        mesh_size=4.0,
+        order=2,
+    )
+    assert mesh_result["success"] is True, mesh_result.get("error", "")
+    assert not any("order" in w for w in mesh_result["warnings"])
+
+    report = mesh_result["report"]
+    assert report is not None
+    assert report["elementCount"] > 0
+    assert report["elementTypes"] == {"tetra10": report["elementCount"]}
+
+    import meshio
+
+    mesh = meshio.read(mesh_result["paths"]["msh"])
+    tet_blocks = [c for c in mesh.cells if c.type == "tetra10"]
+    assert len(tet_blocks) == 1
+    tets = tet_blocks[0].data
+    assert tets.shape == (report["elementCount"], 10)
+    assert len(mesh.points) == report["nodeCount"]
+
+    # meshio-canonical tetra10 slots 4..9 are the mid-edge nodes of edges
+    # (0,1) (1,2) (0,2) (0,3) (1,3) (2,3). A box has straight edges, so each
+    # mid-edge node must sit at the exact midpoint of its corner pair — this
+    # verifies the netgen -> meshio node reordering.
+    edge_slots = [(0, 1), (1, 2), (0, 2), (0, 3), (1, 3), (2, 3)]
+    for tet in tets:
+        corners = mesh.points[tet[:4]]
+        for slot, (a, b) in zip(range(4, 10), edge_slots, strict=True):
+            assert mesh.points[tet[slot]] == pytest.approx(0.5 * (corners[a] + corners[b]))
+
+    # The Exodus/report pipeline accepts the quadratic mesh.
+    quality = report["quality"]
+    assert 0.0 < quality["minDihedralDeg"] <= quality["maxDihedralDeg"] <= 180.0
+    exodus = meshio.read(mesh_result["paths"]["e"])
+    exo_tets = [c for c in exodus.cells if c.type == "tetra10"]
+    assert sum(len(c.data) for c in exo_tets) == report["elementCount"]
+
+    # order > 2 clamps to quadratic with a warning.
+    clamped = mesh_service.mesh_step(
+        service_result["stepPath"],
+        output_dir=str(tmp_path),
+        output_stem="netgen_o3",
+        engine="netgen",
+        mesh_size=4.0,
+        order=3,
+    )
+    assert clamped["success"] is True, clamped.get("error", "")
+    assert any("order" in w for w in clamped["warnings"])
+    assert clamped["report"]["elementTypes"] == {"tetra10": clamped["report"]["elementCount"]}
 
 
 def test_exodus_sideset_side_numbers_match_geometry(tmp_path: Path) -> None:

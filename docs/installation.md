@@ -34,7 +34,7 @@ reports them as required or optional:
 | `meshio`             | optional | CalculiX/VTK mesh export                                   |
 | `netCDF4`            | optional | ExodusII mesh export                                       |
 | `moab` + `h5py`      | optional | DAGMC `.h5m` export (`moab` wheels are on the index below) |
-| `netgen` / `ngsolve` | optional | Alternative meshing engine (not yet implemented)           |
+| `netgen` / `ngsolve` | optional | Alternative meshing engine (pip wheel only)                |
 
 ```bash
 pip install build123d cadquery-ocp gmsh meshio netCDF4
@@ -45,6 +45,25 @@ All of the above except netgen/ngsolve are preinstalled in the Docker image.
 The FEM analysis panel additionally needs the external `ccx` (CalculiX)
 executable on `PATH` or pointed to with `NUKE_CCX` — it is not a Python
 package.
+
+### Dedicated dev/test environment
+
+For running the Python test suites against real dependencies, a lean conda
+env works well (the Docker image's `environment.yml` minus the
+ParaView/trame visualization stack):
+
+- conda-forge: `python=3.13`, `cadquery`, `build123d`, `python-gmsh`,
+  `meshio`, `netCDF4`, `vtk`, `pytest`
+- pip from the shimwell index (`--extra-index-url
+https://shimwell.github.io/wheels`): `openmc`, `moab`; plus `pydagmc`
+  (commit-pinned, from GitHub)
+
+Keep netgen out of this env. Conda netgen and conda OCP register the same
+OCCT types with pybind11 in one process ("type gp_Pnt is already registered!"
+in either import order), and the pip `ngsolve` wheel dumps its own OCCT .so
+files into the env's `lib/`, clobbering conda's occt (cadquery then fails to
+import with undefined-symbol errors). Run netgen engine tests in a separate
+pip-OCP env instead — pip `cadquery-ocp` and pip `ngsolve` coexist fine.
 
 ## Clone and Install
 

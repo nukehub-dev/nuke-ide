@@ -63,7 +63,9 @@ expands its section.
 2. Extracts the `model` global and normalizes it to an OCP `TopoDS_Shape`.
 3. Writes a canonical STEP file.
 4. Tessellates with `BRepMesh_IncrementalMesh` and writes `model.tess.json`.
-   Selectors come from real build123d labels and CadQuery assembly names.
+   Selectors come from real build123d labels and CadQuery Assembly names;
+   CadQuery extraction is tested against real cadquery 2.7/2.8 (TShape-based
+   matching via `IsPartner`, UUID-name filtering, multi-solid Workplanes).
 5. Loads and validates `model.regions.json` if present.
 6. Exports a DAGMC `.h5m` file via `dagmc_export.py` (skipped for
    `--from-step` imports unless `--dagmc`/`--mesh` opt in).
@@ -119,15 +121,24 @@ The meshing service turns the canonical STEP file into FEM volume meshes:
    edge-length aspect ratios). An explicit `max_size` request overrides
    `mesh_size`; second-order meshes report `elementTypes: tetra10`.
 
-Netgen is a supported alternative engine (`engine='netgen'`). It loads the
-STEP via `netgen.occ.OCCGeometry`, maps per-region `meshSize` to
-`solid.maxh`, maps surface names to boundary-condition names, resolves the
-selector map via gmsh COM matching, and converges into the same meshio-based
-report/Exodus/INP/VTK pipeline as gmsh. Limitations: linear tets only
-(order > 1 warns), and the `.msh` artifact is gmsh-2.2 ASCII via meshio. A
-missing netgen install returns a structured error. Netgen comes from the
-`ngsolve` pip wheel (installs netgen-mesher, which bundles its own OCCT
-7.8.1).
+Netgen is a supported alternative engine (`engine='netgen'`). It does not
+mesh the raw STEP directly: a shared gmsh pass first loads the STEP, runs
+`occ.fragment` + `removeAllDuplicates`, and writes an **imprinted BREP**
+(a STEP round-trip was empirically shown to re-duplicate shared faces; BREP
+preserves the imprint). Netgen then meshes that imprinted BREP via
+`netgen.occ.OCCGeometry`, so touching solids share one face. Selector COM
+resolution runs in the same imprinted session, per-region `meshSize` maps to
+`solid.maxh`, surface names map to boundary-condition names, and the result
+converges into the same meshio-based report/Exodus/INP/VTK pipeline as gmsh.
+`order=2` produces real tetra10/triangle6 elements via netgen's
+`Mesh.SecondOrder()` with node-order remapping to the meshio/SEACAS canonical
+convention; `order > 2` clamps to 2 with a warning. Curved-boundary mid-nodes
+are netgen's best-effort projection (verified straight-edged only). The
+`.msh` artifact is gmsh-2.2 ASCII via meshio. A missing netgen install
+returns a structured error. Netgen comes from the `ngsolve` pip wheel
+(installs netgen-mesher, which bundles its own OCCT 7.8.1) and cannot share
+an env with conda OCP — see `applications/docker/environment.yml` and the
+env-split note in `extensions/nuke-cad/AGENTS.md`.
 
 ## E2E tests (`tests/e2e/`)
 

@@ -81,8 +81,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `engine='netgen'` (netgen.occ OCCGeometry, per-region `meshSize` mapped to
   `solid.maxh`, surface names mapped to boundary-condition names) and
   converges into the same meshio-based report/Exodus/INP/VTK pipeline as
-  gmsh. Netgen produces linear tets only (order > 1 warns) and requires the
-  `ngsolve` pip wheel; a missing install returns a structured error.
+  gmsh. The netgen path imprints first — a shared gmsh
+  load/fragment/`removeAllDuplicates` pass writes an imprinted BREP (a STEP
+  round-trip re-duplicates shared faces; BREP preserves the imprint), so
+  touching solids share one face — and supports second-order meshes:
+  `order=2` produces real tetra10/triangle6 elements via netgen's
+  `Mesh.SecondOrder()` with node-order remapping to the meshio/SEACAS
+  convention (`order > 2` clamps to 2 with a warning; curved-boundary
+  mid-nodes are a best-effort projection, verified straight-edged only).
+  Netgen requires the `ngsolve` pip wheel; a missing install returns a
+  structured error.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and
@@ -323,6 +331,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and CadQuery assembly names — region-manifest `mat:<name>` groups, Exodus
   block names, and per-region `meshSize` values resolve instead of falling
   back to positional names.
+- nuke-cad: CadQuery Assembly selector extraction hardened against real
+  cadquery 2.7/2.8 — TShape-based matching via `IsPartner`, UUID-name
+  filtering, and correct multi-solid Workplane handling (covered by the
+  assembly/cadquery test suite).
 - nuke-cad: DAGMC export corrections — unmanifested volumes fall back to
   OpenMC-recognized `mat:mat_<vol_id-1>` groups (previously missing the
   `mat:` prefix), volume identity across the gmsh fragment step uses the
