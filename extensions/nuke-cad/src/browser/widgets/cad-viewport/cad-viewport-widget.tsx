@@ -55,6 +55,7 @@ import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './cad-viewport.css';
 
 interface TessFace {
@@ -347,9 +348,11 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         <div className="cad-viewport-error-banner">
             <span className="codicon codicon-error" />
             <span className="cad-viewport-error-message">{props.error}</span>
-            <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissError} title="Dismiss">
-                <span className="codicon codicon-close" />
-            </button>
+            <Tooltip content="Dismiss" position="left">
+                <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissError}>
+                    <span className="codicon codicon-close" />
+                </button>
+            </Tooltip>
         </div>
     ) : undefined;
 

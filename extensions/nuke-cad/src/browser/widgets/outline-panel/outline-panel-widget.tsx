@@ -49,6 +49,7 @@ import { URI } from '@theia/core/lib/common/uri';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
 @injectable()
@@ -245,19 +246,19 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                 </div>
                 {model && (
                     <div className="header-actions">
-                        <button
-                            className="theia-button secondary"
-                            onClick={props.onOpenManifest}
-                            disabled={!props.manifestExists}
-                            title={
+                        <Tooltip
+                            content={
                                 props.manifestExists
                                     ? `Open ${props.manifestFileName} in the editor`
                                     : `${props.manifestFileName} does not exist beside the model`
                             }
+                            position="bottom"
                         >
-                            <i className="codicon codicon-json" />
-                            Manifest
-                        </button>
+                            <button className="theia-button secondary" onClick={props.onOpenManifest} disabled={!props.manifestExists}>
+                                <i className="codicon codicon-json" />
+                                Manifest
+                            </button>
+                        </Tooltip>
                     </div>
                 )}
             </div>
@@ -368,20 +369,30 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
     }, [props.selected]);
 
     const className = `outline-row${props.selected ? ' selected' : ''}${mapped ? '' : ' unmapped'}`;
-    const title = mapped
+    const tooltipText = mapped
         ? `Solid${props.row.solidIndices.length > 1 ? 's' : ''} ${props.row.solidIndices.join(', ')}`
         : 'Selector not found in the built model';
+    const tooltip = useTooltip(tooltipText, 'right');
 
     return (
-        <div ref={ref} className={className} title={title} onClick={mapped ? () => props.onSelect(props.row.solidIndices[0]) : undefined}>
-            <span className="outline-row-label">{props.row.label}</span>
-            {props.row.tags?.map((tag) => (
-                <span key={tag} className="outline-tag">
-                    {tag}
-                </span>
-            ))}
-            {props.row.detail && <span className="outline-row-detail">{props.row.detail}</span>}
-            {!mapped && <span className="codicon codicon-warning outline-row-warning" />}
-        </div>
+        <>
+            <div
+                ref={ref}
+                className={className}
+                onMouseEnter={tooltip.onMouseEnter}
+                onMouseLeave={tooltip.onMouseLeave}
+                onClick={mapped ? () => props.onSelect(props.row.solidIndices[0]) : undefined}
+            >
+                <span className="outline-row-label">{props.row.label}</span>
+                {props.row.tags?.map((tag) => (
+                    <span key={tag} className="outline-tag">
+                        {tag}
+                    </span>
+                ))}
+                {props.row.detail && <span className="outline-row-detail">{props.row.detail}</span>}
+                {!mapped && <span className="codicon codicon-warning outline-row-warning" />}
+            </div>
+            {tooltip.tooltipElement}
+        </>
     );
 }

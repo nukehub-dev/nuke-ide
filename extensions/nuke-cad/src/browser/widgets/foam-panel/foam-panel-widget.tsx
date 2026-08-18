@@ -48,6 +48,7 @@ import {
     FoamStlExportResult
 } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './foam-panel.css';
 
 interface FoamPanelState {
@@ -333,14 +334,15 @@ export class FoamPanelWidget extends ReactWidget {
                                 placeholder="value"
                                 disabled={this.state.isScaffolding || this.state.isExporting}
                             />
-                            <button
-                                className="theia-button secondary"
-                                onClick={() => this.removeBoundary(index)}
-                                disabled={this.state.isScaffolding || this.state.isExporting}
-                                title="Remove boundary"
-                            >
-                                <span className="codicon codicon-trash" />
-                            </button>
+                            <Tooltip content="Remove boundary">
+                                <button
+                                    className="theia-button secondary"
+                                    onClick={() => this.removeBoundary(index)}
+                                    disabled={this.state.isScaffolding || this.state.isExporting}
+                                >
+                                    <span className="codicon codicon-trash" />
+                                </button>
+                            </Tooltip>
                         </div>
                     ))}
                     <button
