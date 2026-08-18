@@ -118,6 +118,85 @@ export interface FemRunResult {
     readonly warnings?: string[];
 }
 
+/** Declarative job request for the generic run-layer. */
+export interface JobRunRequest {
+    /** Absolute path to the working directory (created if missing). */
+    readonly workingDirectory: string;
+    /** Command and arguments to execute. */
+    readonly command: string[];
+    /** Optional extra environment variables. */
+    readonly env?: Record<string, string>;
+    /** Glob patterns for output files to report back. */
+    readonly artifacts?: string[];
+    /** Optional timeout in seconds. */
+    readonly timeout?: number;
+    /** Optional path to tee stdout/stderr into. */
+    readonly logFile?: string;
+}
+
+/** Result of a generic job run. */
+export interface JobRunResult {
+    readonly success: boolean;
+    readonly error?: string;
+    readonly exitCode?: number | null;
+    readonly artifacts: string[];
+    readonly logFile?: string;
+    readonly stdout?: string;
+    readonly stderr?: string;
+}
+
+/** OpenFOAM boundary condition entry. */
+export interface FoamBoundaryCondition {
+    readonly name: string;
+    readonly type: 'inlet' | 'outlet' | 'wall' | 'symmetry' | 'patch' | string;
+    readonly value?: string;
+}
+
+/** Request to scaffold an OpenFOAM case. */
+export interface FoamCaseRequest {
+    /** Absolute path to the case directory to create. */
+    readonly caseDir: string;
+    /** OpenFOAM solver application (icoFoam, simpleFoam, ...). */
+    readonly solver: string;
+    /** Optional controlDict overrides. */
+    readonly settings?: Record<string, unknown>;
+    /** Boundary conditions for the field files. */
+    readonly boundaries?: FoamBoundaryCondition[];
+    /** Fields to create (U, p, T). Defaults to [U, p]. */
+    readonly writeFields?: string[];
+    /** Optional path to a polyMesh directory to copy into constant/polyMesh. */
+    readonly meshPath?: string;
+}
+
+/** Result of an OpenFOAM case scaffolding request. */
+export interface FoamCaseResult {
+    readonly success: boolean;
+    readonly error?: string;
+    readonly caseDir: string;
+    readonly solver: string;
+    readonly files: string[];
+}
+
+/** Request to export per-solid STL files from a STEP file. */
+export interface FoamStlExportRequest {
+    /** Absolute path to the source STEP file. */
+    readonly stepPath: string;
+    /** Absolute path to the output directory. */
+    readonly outputDir: string;
+    /** Optional 1-based solid index -> name map. */
+    readonly names?: Record<string, string>;
+    readonly linearDeflection?: number;
+    readonly angularDeflection?: number;
+}
+
+/** Result of a per-solid STL export. */
+export interface FoamStlExportResult {
+    readonly success: boolean;
+    readonly error?: string;
+    readonly outputDir: string;
+    readonly stlFiles: string[];
+}
+
 /** Result of a geometry build request. */
 export interface GeometryBuildResult {
     /** Whether the build succeeded. */
@@ -244,6 +323,26 @@ export interface NukeCadBackendService {
      * Return the built-in FEM material database.
      */
     listFemMaterials(): Promise<FemMaterial[]>;
+
+    /**
+     * Run a generic declarative job through the nuke-cad run-layer.
+     */
+    runJob(request: JobRunRequest): Promise<JobRunResult>;
+
+    /**
+     * Scaffold a new OpenFOAM case directory.
+     */
+    buildFoamCase(request: FoamCaseRequest): Promise<FoamCaseResult>;
+
+    /**
+     * Export per-solid STL files from a STEP file for OpenFOAM patch geometry.
+     */
+    exportFoamStl(request: FoamStlExportRequest): Promise<FoamStlExportResult>;
+
+    /**
+     * Return the built-in set of OpenFOAM solver templates.
+     */
+    listFoamSolvers(): Promise<string[]>;
 
     /**
      * Check whether the active Python environment has the CAD toolchain.

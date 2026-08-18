@@ -46,7 +46,13 @@ import {
     GeometryBuildResult,
     FemRunRequest,
     FemRunResult,
-    FemMaterial
+    FemMaterial,
+    JobRunRequest,
+    JobRunResult,
+    FoamCaseRequest,
+    FoamCaseResult,
+    FoamStlExportRequest,
+    FoamStlExportResult
 } from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 
@@ -279,6 +285,130 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                 resolve([]);
             });
         });
+    }
+
+    /**
+     * Run a declarative job through the generic nuke-cad job runner.
+     */
+    async runJob(request: JobRunRequest): Promise<JobRunResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'job_service.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Job service script not found.', artifacts: [] };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.',
+                artifacts: []
+            };
+        }
+
+        const requestPath = path.join(request.workingDirectory, `.nuke-cad-job-request-${Date.now()}.json`);
+        fs.writeFileSync(requestPath, JSON.stringify(request), 'utf-8');
+
+        try {
+            return await this._spawnJsonService<JobRunResult>(
+                pythonCommand,
+                [scriptPath, '--request', requestPath],
+                request.workingDirectory
+            );
+        } finally {
+            try {
+                fs.unlinkSync(requestPath);
+            } catch {
+                // Temporary request file cleanup is best-effort.
+            }
+        }
+    }
+
+    /**
+     * Scaffold a new OpenFOAM case directory.
+     */
+    async buildFoamCase(request: FoamCaseRequest): Promise<FoamCaseResult> {
+        return this._spawnFoamService<FoamCaseResult>(request, { operation: 'buildCase', ...request });
+    }
+
+    /**
+     * Export per-solid STL files from a STEP file.
+     */
+    async exportFoamStl(request: FoamStlExportRequest): Promise<FoamStlExportResult> {
+        return this._spawnFoamService<FoamStlExportResult>(request, { operation: 'exportStl', ...request });
+    }
+
+    /**
+     * Return the built-in OpenFOAM solver template names.
+     */
+    async listFoamSolvers(): Promise<string[]> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'foam_service.py' });
+        if (!scriptPath) {
+            return [];
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return [];
+        }
+
+        const requestPath = path.join(path.dirname(scriptPath), `.nuke-cad-foam-list-${Date.now()}.json`);
+        fs.writeFileSync(requestPath, JSON.stringify({ operation: 'listSolvers', caseDir: path.dirname(scriptPath) }), 'utf-8');
+
+        try {
+            const result = await this._spawnJsonService<{ success: boolean; solvers?: string[]; error?: string }>(
+                pythonCommand,
+                [scriptPath, '--request', requestPath],
+                path.dirname(scriptPath)
+            );
+            return result.success && result.solvers ? result.solvers : [];
+        } catch {
+            return [];
+        } finally {
+            try {
+                fs.unlinkSync(requestPath);
+            } catch {
+                // Temporary request file cleanup is best-effort.
+            }
+        }
+    }
+
+    /**
+     * Helper to spawn foam_service.py with a JSON request file.
+     */
+    private async _spawnFoamService<T extends { success: boolean; error?: string }>(
+        request: { caseDir?: string; stepPath?: string },
+        payload: Record<string, unknown>
+    ): Promise<T> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'foam_service.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'OpenFOAM service script not found.' } as unknown as T;
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.'
+            } as unknown as T;
+        }
+
+        const workingDirectory = request.caseDir
+            ? path.dirname(request.caseDir)
+            : request.stepPath
+              ? path.dirname(request.stepPath)
+              : path.dirname(scriptPath);
+        const requestPath = path.join(workingDirectory, `.nuke-cad-foam-request-${Date.now()}.json`);
+        fs.writeFileSync(requestPath, JSON.stringify(payload), 'utf-8');
+
+        try {
+            return await this._spawnJsonService<T>(pythonCommand, [scriptPath, '--request', requestPath], workingDirectory);
+        } finally {
+            try {
+                fs.unlinkSync(requestPath);
+            } catch {
+                // Temporary request file cleanup is best-effort.
+            }
+        }
     }
 
     /**

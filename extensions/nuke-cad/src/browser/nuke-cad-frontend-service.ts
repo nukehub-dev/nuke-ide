@@ -38,7 +38,13 @@ import {
     GeometryBuildResult,
     FemRunRequest,
     FemRunResult,
-    FemMaterial
+    FemMaterial,
+    JobRunRequest,
+    JobRunResult,
+    FoamCaseRequest,
+    FoamCaseResult,
+    FoamStlExportRequest,
+    FoamStlExportResult
 } from '../common/nuke-cad-protocol';
 
 @injectable()
@@ -55,6 +61,22 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     listFemMaterials(): Promise<FemMaterial[]> {
         return this.proxy.listFemMaterials();
+    }
+
+    runJob(request: JobRunRequest): Promise<JobRunResult> {
+        return this.proxy.runJob(request);
+    }
+
+    buildFoamCase(request: FoamCaseRequest): Promise<FoamCaseResult> {
+        return this.proxy.buildFoamCase(request);
+    }
+
+    exportFoamStl(request: FoamStlExportRequest): Promise<FoamStlExportResult> {
+        return this.proxy.exportFoamStl(request);
+    }
+
+    listFoamSolvers(): Promise<string[]> {
+        return this.proxy.listFoamSolvers();
     }
 
     checkCadEnvironment(): Promise<{ ready: boolean; missing: string[] }> {

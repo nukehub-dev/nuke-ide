@@ -40,6 +40,7 @@ import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
 import { FemPanelWidget } from '../widgets/fem-panel/fem-panel-widget';
+import { FoamPanelWidget } from '../widgets/foam-panel/foam-panel-widget';
 
 @injectable()
 export class NukeCadCommandContribution implements CommandContribution {
@@ -99,6 +100,14 @@ export class NukeCadCommandContribution implements CommandContribution {
         commands.registerCommand(NukeCadCommands.OPEN_FEM_PANEL, {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget(FemPanelWidget.ID);
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_FOAM_PANEL, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(FoamPanelWidget.ID);
                 await this.shell.addWidget(widget, { area: 'main' });
                 await this.shell.activateWidget(widget.id);
             }

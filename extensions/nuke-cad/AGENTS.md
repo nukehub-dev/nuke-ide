@@ -34,6 +34,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   from gmsh `.msh` files, runs the external `ccx` executable, and converts
   FRD results to VTK. `ccx` is resolved from `NUKE_CCX`, `PATH`, or an
   explicit request path; it is not a Python package.
+- The generic job runner (`python/job_service.py`) is the run-layer
+  abstraction for solver hooks: declarative working directory, command,
+  environment, artifacts, timeout, and log capture. Local subprocess only
+  today; SSH/container submit should keep the same request schema.
+- The OpenFOAM service (`python/foam_service.py`) scaffolds solver-ready
+  cases (controlDict, fvSchemes, fvSolution, transportProperties, and
+  0/U/p/T field files) and exports per-solid STL files from a STEP file.
+  Heavy OCP/build123d imports are optional; the module stays importable
+  without them.
 
 ## Work Guidance
 

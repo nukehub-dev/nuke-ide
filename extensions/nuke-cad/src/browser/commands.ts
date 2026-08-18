@@ -53,4 +53,9 @@ export namespace NukeCadCommands {
         id: 'nuke.cad.openFemPanel',
         label: nls.localize('nuke/cad/openFemPanel', 'Open FEM Analysis Panel')
     };
+
+    export const OPEN_FOAM_PANEL: Command = {
+        id: 'nuke.cad.openFoamPanel',
+        label: nls.localize('nuke/cad/openFoamPanel', 'Open OpenFOAM Case Panel')
+    };
 }

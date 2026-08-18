@@ -11,7 +11,7 @@ build123d/CadQuery script (.py = source of truth)
   → canonical STEP + region manifest (sidecar JSON)
   ├→ DAGMC .h5m (imprint/merge via gmsh OCC) → openmc-studio
   ├→ FEM volume mesh (.msh / .inp / .e ExodusII) → CalculiX
-  └→ region-named STL → OpenFOAM (future)
+  └→ OpenFOAM case + per-solid STL → OpenFOAM
 ```
 
 ## Current status
@@ -20,6 +20,8 @@ build123d/CadQuery script (.py = source of truth)
 - DAGMC export: gmsh OCC imprint/merge, named material groups, auto-graveyard.
 - FEM meshing: gmsh HXT volume meshing, ExodusII/CalculiX/VTK export, mesh quality report.
 - FEM analysis (CalculiX): input-deck writer, boundary-condition/material UI, `ccx` runner, FRD-to-VTK conversion.
+- Generic job runner: declarative local subprocess abstraction for solver hooks.
+- OpenFOAM scaffolding: case directory + dictionary generation, per-solid STL export from STEP.
 
 ## User guides
 

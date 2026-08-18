@@ -95,5 +95,17 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             icon: 'dashboard',
             description: 'Open the CalculiX FEM analysis panel for the active mesh.'
         });
+
+        registry.registerItem({
+            id: 'nuke.cad.openFoamPanel',
+            label: 'OpenFOAM Case',
+            commandId: NukeCadCommands.OPEN_FOAM_PANEL.id,
+            category: ['CAD Studio', 'CFD'],
+            sectionOrder: 'b',
+            categoryOrder: 'd',
+            order: 'a',
+            icon: 'server-process',
+            description: 'Scaffold an OpenFOAM case from the active CAD model.'
+        });
     }
 }

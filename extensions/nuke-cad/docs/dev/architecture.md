@@ -102,6 +102,34 @@ flux (approximated as nodal heat flow). Pressure and heat flux use the
 surface triangle area for distribution, so they are accurate in net load but
 approximate in local distribution.
 
-## Future phases
+## Generic job runner (`job_service.py`)
 
-- Phase 6: OpenFOAM case scaffolding; MOOSE LSP; remote run abstraction.
+The run-layer abstraction for solver hooks. A request declares a working
+directory, command, optional environment overlay, artifact glob patterns,
+timeout, and log file path. The service creates the working directory, runs
+the command as a local subprocess, captures stdout/stderr, and returns the
+exit code plus any matched artifact paths. Remote/SSH/container execution can
+be added later without changing the request schema.
+
+## OpenFOAM service (`foam_service.py`)
+
+Scaffolds a solver-ready OpenFOAM case from the region manifest and
+optionally exports per-solid STL patch geometry from the canonical STEP file.
+
+Case scaffolding writes:
+
+- `system/controlDict` — solver application and time controls.
+- `system/fvSchemes` — conservative default schemes.
+- `system/fvSolution` — SIMPLE/linear solver settings.
+- `constant/transportProperties` — viscosity and optional Pr/TRef for
+  buoyant solvers.
+- `0/U`, `0/p`, and optionally `0/T` — field files with boundary conditions
+  derived from manifest surface names and a boundary-condition editor.
+
+STL export loads the canonical STEP file through OCP and writes one binary STL
+per solid, named by manifest selector or `solid_<index>.stl`. These files are
+intended for the `constant/triSurface` directory when the OpenFOAM meshing
+workflow uses surface meshes.
+
+Heavy OCP/build123d imports are optional so the module remains importable in
+the minimal pytest profile.

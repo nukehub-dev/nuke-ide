@@ -91,6 +91,24 @@ DAGMC export:
 CalculiX (`ccx`) must be available on `PATH` or pointed to with the `NUKE_CCX`
 environment variable.
 
+## OpenFOAM case scaffolding
+
+1. Build or import a CAD model so that a `model.step` file exists.
+2. Create a region manifest with named surfaces for boundary patches
+   (e.g., `inlet`, `outlet`, `walls`).
+3. Open the **OpenFOAM Case** panel from the Nuke Tools sidebar
+   (`CAD Studio → CFD`).
+4. Select a solver (icoFoam, simpleFoam, buoyantBoussinesqSimpleFoam, or
+   chtMultiRegionSimpleFoam).
+5. Edit boundary conditions: name, type, and value for each patch.
+6. Click **Scaffold Case** to create a case directory with controlDict,
+   fvSchemes, fvSolution, transportProperties, and field files.
+7. Click **Export STL** to write one STL file per solid from `model.step` into
+   `constant/triSurface` for surface-based OpenFOAM meshing.
+
+The case can then be meshed with `blockMesh` / `snappyHexMesh` or the STL
+patch geometry and run with the selected OpenFOAM solver.
+
 ## Next steps
 
 - Add the CAD toolchain and CalculiX to your active Python environment (see

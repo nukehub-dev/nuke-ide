@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resulting `.fem.vtk` in nuke-visualizer. FRD nodal displacements (`DISP`)
   and temperatures (`TEMP`) are parsed and written into the VTK file.
   `ccx` is resolved from `NUKE_CCX`, `PATH`, or an explicit request path.
+- nuke-cad: **generic job runner + OpenFOAM scaffolding** —
+  `job_service.py` implements a declarative run-layer abstraction
+  (working directory, command, environment overlay, artifact globs, timeout,
+  log capture) for future solver hooks. `foam_service.py` scaffolds
+  solver-ready OpenFOAM cases (controlDict, fvSchemes, fvSolution,
+  transportProperties, and 0/U/p/T field files) from the region manifest
+  and exports per-solid STL files from a canonical STEP file for patch
+  geometry. The **OpenFOAM Case** panel exposes solver selection, boundary
+  condition editing, case scaffolding, and STL export.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and
