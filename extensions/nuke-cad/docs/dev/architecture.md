@@ -23,19 +23,32 @@ the active interpreter, then spawns `python/geometry_service.py` with the user
 script as an argument. The Python service follows the repo's stdout-JSON
 protocol: progress lines on stderr, one final JSON object on stdout.
 
+Spawned services are tracked in a backend job registry with a one-hour default
+timeout, a 1 MB output tail, and a `cancelJob(jobId)` RPC that kills the
+process group (used by the FEM panel's **Stop** button); remaining jobs are
+killed when the backend stops. STEP-source models are always spawned with
+`--no-dagmc`/`--no-mesh` — DAGMC and FEM mesh export only run for script
+builds unless explicitly requested.
+
 The frontend receives the result, caches the active `CadModel` in
 `NukeCadStateManager`, and renders `model.tess.json` in a three.js viewport.
+Saving a script-source model's `.py` file debounce-triggers a rebuild; build
+errors surface in a dismissible banner inside the viewport.
 
 ## Python geometry service
 
 `geometry_service.py`:
 
-1. Executes the user script with `runpy.run_path` in a dedicated namespace.
+1. Executes the user script in an isolated subprocess (120 s default timeout,
+   `--script-timeout` to adjust) and reads back the normalized model payload;
+   `SystemExit` and unsupported model types are reported as structured errors.
 2. Extracts the `model` global and normalizes it to an OCP `TopoDS_Shape`.
 3. Writes a canonical STEP file.
 4. Tessellates with `BRepMesh_IncrementalMesh` and writes `model.tess.json`.
+   Selectors come from real build123d labels and CadQuery assembly names.
 5. Loads and validates `model.regions.json` if present.
-6. Exports a DAGMC `.h5m` file via `dagmc_export.py`.
+6. Exports a DAGMC `.h5m` file via `dagmc_export.py` (skipped for
+   `--from-step` imports unless `--dagmc`/`--mesh` opt in).
 
 ## DAGMC export (`dagmc_export.py`)
 
@@ -48,14 +61,23 @@ path. It uses gmsh's OpenCASCADE kernel for robust imprint/merge:
 3. Write the shape to a temporary STEP file.
 4. Load the temp STEP into gmsh and run `occ.fragment` on all volumes. This
    splits touching faces at their shared boundaries so adjacent solids receive
-   exact, coincident surfaces.
+   exact, coincident surfaces. Volume identity across the fragment uses the
+   fragment's returned mapping, followed by `removeAllDuplicates`; the temp
+   STEP rewrite is skipped entirely when the shape is unmodified.
 5. Generate a 2D surface mesh in gmsh.
 6. Extract triangle buffers and surface-to-volume adjacencies via
    `gmsh.model.getAdjacencies`.
 7. Write a tagged DAGMC H5M file via pymoab: `CATEGORY`, `GEOM_DIMENSION`,
    `GLOBAL_ID`, `NAME`, `GEOM_SENSE_2`, and `FACETING_TOL`.
 8. Bind region-manifest selectors to `mat:<name>` material groups; unmanifested
-   volumes fall back to `mat_<vol_id-1>`.
+   volumes fall back to `mat:mat_<vol_id-1>` (the `mat:` prefix is what OpenMC
+   recognizes).
+9. Verify the export: surface-sense verification is a hard error (every
+   exported surface must have sense 1 or 2), watertightness holes mark the
+   result `sealed=False` with a warning, edges shared by more than two
+   surfaces are reported as a `nonManifoldEdges` diagnostic (multi-volume
+   imprint seams legitimately have incidence 3), and a bbox +
+   `BRepClass3d_SolidClassifier` overlap check is reported as `overlapCheck`.
 
 ## Meshing service (`mesh_service.py`)
 
@@ -71,14 +93,16 @@ The meshing service turns the canonical STEP file into FEM volume meshes:
    (`Mesh.Algorithm3D = 10`).
 4. Write the native `.msh` file and convert it to:
    - `.e` ExodusII via a custom netCDF4 writer with named element blocks
-     and side sets.
+     and side sets (SEACAS TETRA(4) node-numbering convention).
    - `.inp` CalculiX/Abaqus via meshio.
    - `.vtk` VTK unstructured grid via meshio.
 5. Write a `mesh.report.json` with element counts and tetrahedral quality
-   metrics (dihedral angles and edge-length aspect ratios).
+   metrics (dihedral angles — a regular tetrahedron measures 70.53° — and
+   edge-length aspect ratios). An explicit `max_size` request overrides
+   `mesh_size`; second-order meshes report `elementTypes: tetra10`.
 
-Netgen is accepted as an `engine` value for forward compatibility but is
-not wired yet.
+Netgen is accepted as an `engine` value for forward compatibility but
+returns a structured "not yet implemented" error.
 
 ## FEM service (`fem_service.py`)
 
@@ -86,17 +110,21 @@ The FEM service generates a CalculiX input deck from a gmsh `.msh` file and
 optionally runs CalculiX:
 
 1. Read the gmsh `.msh` via the gmsh API and build dense node/element arrays
-   plus named volume blocks and surface sets from physical groups.
+   plus named volume blocks and surface sets from physical groups (vectorized
+   assignment; unnamed elements fall back to a single block).
 2. Write a CalculiX `.inp` file with nodes, elements, materials, solid
    sections, boundary conditions, gravity loads, and output requests.
 3. Optionally run the `ccx` executable (resolved from `NUKE_CCX`, `PATH`, or
-   an explicit request path) and capture its stdout/stderr to a log file.
-4. Parse the resulting `.frd` file for nodal displacements (`DISP`) and
-   temperatures (`TEMP`) and write a legacy VTK unstructured grid that
-   nuke-visualizer can open.
+   an explicit request path) with a one-hour default timeout (`ccxTimeout`
+   request field), streaming stdout/stderr to `<stem>.ccx.log` and returning
+   a 1 MB JSON tail.
+4. Parse the resulting `.frd` file (CalculiX's real fixed-width format) for
+   nodal displacements (`DISP`) and temperatures (`NDTEMP`) and write a
+   legacy VTK unstructured grid that nuke-visualizer can open.
 
 Boundary conditions are bound to named surface sets from the mesh or region
-manifest. Supported types: fixed (`ENCASTRE`), prescribed displacement,
+manifest. Supported types: fixed (dof-range `*Boundary` card, `nset, 1, 3` —
+CalculiX does not accept `ENCASTRE`), prescribed displacement,
 pressure (approximated as distributed nodal forces), temperature, and heat
 flux (approximated as nodal heat flow). Pressure and heat flux use the
 surface triangle area for distribution, so they are accurate in net load but
@@ -106,8 +134,10 @@ approximate in local distribution.
 
 The run-layer abstraction for solver hooks. A request declares a working
 directory, command, optional environment overlay, artifact glob patterns,
-timeout, and log file path. The service creates the working directory, runs
-the command as a local subprocess, captures stdout/stderr, and returns the
+timeout, and log file path (the full request schema is documented in the
+module docstring). The service creates the working directory, runs the
+command as a local subprocess in its own process group — so timeouts and
+cancellation kill the whole tree — captures stdout/stderr, and returns the
 exit code plus any matched artifact paths. Remote/SSH/container execution can
 be added later without changing the request schema.
 
@@ -126,10 +156,12 @@ Case scaffolding writes:
 - `0/U`, `0/p`, and optionally `0/T` — field files with boundary conditions
   derived from manifest surface names and a boundary-condition editor.
 
-STL export loads the canonical STEP file through OCP and writes one binary STL
-per solid, named by manifest selector or `solid_<index>.stl`. These files are
-intended for the `constant/triSurface` directory when the OpenFOAM meshing
-workflow uses surface meshes.
+STL export loads the canonical STEP file in-module via `STEPControl_Reader`
+(with the `ocp_compat` TopoDS downcast — there is no `cad_conversion`
+dependency) and writes one binary STL per solid, named by manifest selector
+or `solid_<index>.stl`, with sanitized filenames and a checked writer return.
+These files are intended for the `constant/triSurface` directory when the
+OpenFOAM meshing workflow uses surface meshes.
 
 Heavy OCP/build123d imports are optional so the module remains importable in
 the minimal pytest profile.

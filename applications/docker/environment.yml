@@ -33,6 +33,13 @@ dependencies:
   # cadquery_vtk here: their vtkmodules builds clobber conda's vtk files.
   - python-gmsh
   - cadquery
+  # nuke-cad full profile: build123d geometry authoring (conda build, links
+  # conda ocp), meshio for CalculiX/VTK mesh export, netCDF4 for the custom
+  # ExodusII writer. netgen/ngsolve stay optional and are intentionally not
+  # installed (the netgen mesh engine is not wired yet).
+  - build123d
+  - meshio
+  - netCDF4
   # OpenCASCADE bindings: pythonocc-core provides the OCC module
   - pythonocc-core
   - pip:

@@ -47,7 +47,7 @@ test.describe('nuke tools sidebar', () => {
         const topLevelLabels = await widget
             .locator('.nuke-tools-content > .nuke-tools-category > .nuke-tools-category-header > .nuke-tools-category-label')
             .allTextContents();
-        expect(topLevelLabels).toEqual(['Environment', 'Health & Diagnostics', 'OpenMC Studio', 'Visualizer']);
+        expect(topLevelLabels).toEqual(['Environment', 'CAD Studio', 'Health & Diagnostics', 'OpenMC Studio', 'Visualizer']);
 
         expect(errors, `console/page errors while opening sidebar:\n${errors.join('\n')}`).toEqual([]);
     });

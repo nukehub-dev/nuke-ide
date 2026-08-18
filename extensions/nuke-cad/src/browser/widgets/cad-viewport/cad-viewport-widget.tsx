@@ -30,7 +30,9 @@
  *
  * Renders the tessellated B-rep using three.js. Face/solid picking updates the
  * shared selection state; selecting a manifest row will highlight the matching
- * geometry.
+ * geometry. The scene is rebuilt only when the tessellation changes and is
+ * rendered on demand (orbit, selection, resize, theme change), never in a
+ * perpetual animation loop.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -39,14 +41,19 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandService } from '@theia/core/lib/common/command';
+import { Disposable } from '@theia/core/lib/common/disposable';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
+import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
+import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
 import * as THREE from 'three';
 
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import './cad-viewport.css';
 
@@ -76,6 +83,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
@@ -91,9 +101,36 @@ export class CadViewportWidget extends ReactWidget {
     @inject(NukeCadBackendService)
     protected readonly backendService: NukeCadBackendService;
 
+    @inject(MonacoWorkspace)
+    protected readonly monacoWorkspace: MonacoWorkspace;
+
     private tessData?: TessData;
     private loading = false;
     private loadingMessage = 'Loading CAD model...';
+    private buildError?: string;
+    /** Monotonically increasing token; stale tessellation loads are dropped. */
+    private tessLoadToken = 0;
+    private saveRebuildTimer?: ReturnType<typeof setTimeout>;
+
+    /**
+     * Stable callbacks handed to the React component so the three.js scene is
+     * only rebuilt when the tessellation itself changes.
+     */
+    protected readonly handleViewportSelect = (selection: CadSelection): void => {
+        this.stateManager.setSelection(selection);
+    };
+
+    protected readonly subscribeSelection = (listener: (selection: CadSelection) => void): Disposable => {
+        listener(this.stateManager.selection);
+        return this.stateManager.onSelectionChange(listener);
+    };
+
+    protected readonly subscribeThemeChange = (listener: () => void): Disposable => this.themeService.onDidColorThemeChange(listener);
+
+    protected readonly dismissBuildError = (): void => {
+        this.buildError = undefined;
+        this.update();
+    };
 
     @postConstruct()
     protected init(): void {
@@ -102,25 +139,89 @@ export class CadViewportWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-globe';
 
-        this.stateManager.onModelChange((model) => {
-            this.tessData = undefined;
-            this.loading = false;
-            if (model?.result.tessPath) {
-                this.loadTessellation(model.result.tessPath).catch((err) => {
-                    console.error('[CadViewport] Failed to load tessellation:', err);
-                });
-            }
-            this.update();
-        });
-
-        this.themeService.onDidColorThemeChange(() => this.update());
+        this.toDispose.push(this.stateManager.onModelChange((model) => this.handleModelChange(model)));
+        this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
+        this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.update();
     }
 
-    private async loadTessellation(path: string): Promise<void> {
-        const content = await this.fileService.readFile(new URI(path));
-        this.tessData = JSON.parse(content.value.toString()) as TessData;
+    /** Show a loading indicator over the current geometry while a rebuild runs. */
+    setLoading(loading: boolean, message = 'Rebuilding CAD geometry...'): void {
+        if (loading) {
+            // Invalidate any in-flight tessellation load; a rebuild supersedes it.
+            this.tessLoadToken++;
+            this.loadingMessage = message;
+            this.buildError = undefined;
+        }
+        this.loading = loading;
         this.update();
+    }
+
+    /** Surface a build failure as a dismissible banner inside the viewport. */
+    showBuildError(message: string): void {
+        this.loading = false;
+        this.buildError = message;
+        this.update();
+    }
+
+    private handleModelChange(model: CadModel | undefined): void {
+        const tessPath = model?.result.tessPath;
+        const token = ++this.tessLoadToken;
+        if (!tessPath) {
+            this.tessData = undefined;
+            this.loading = false;
+            this.update();
+            return;
+        }
+        // Keep the previous geometry on screen (with a loading indicator) until
+        // the new tessellation arrives to avoid flashing the empty state.
+        this.loading = true;
+        this.loadingMessage = 'Loading CAD model...';
+        this.buildError = undefined;
+        this.update();
+        this.loadTessellation(tessPath, token).catch((err) => {
+            console.error('[CadViewport] Failed to load tessellation:', err);
+            if (token === this.tessLoadToken) {
+                this.loading = false;
+                this.buildError = err instanceof Error ? err.message : String(err);
+                this.update();
+            }
+        });
+    }
+
+    private async loadTessellation(path: string, token: number): Promise<void> {
+        const content = await this.fileService.readFile(new URI(path));
+        if (token !== this.tessLoadToken) {
+            return; // A newer model or rebuild superseded this load.
+        }
+        this.tessData = JSON.parse(content.value.toString()) as TessData;
+        this.loading = false;
+        this.update();
+    }
+
+    /** Debounce saves of the active script-source model into a geometry rebuild. */
+    private onModelScriptSaved(document: MonacoEditorModel): void {
+        const scriptPath = this.stateManager.scriptPath;
+        if (!scriptPath || !scriptPath.toLowerCase().endsWith('.py')) {
+            return; // Only script-source models rebuild on save (STEP imports are read-only).
+        }
+        if (new URI(document.uri).path.toString() !== scriptPath) {
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.saveRebuildTimer = setTimeout(() => {
+            this.saveRebuildTimer = undefined;
+            this.commandService.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch((err) => {
+                console.error('[CadViewport] Save-triggered rebuild failed:', err);
+            });
+        }, 500);
+    }
+
+    private clearSaveRebuildTimer(): void {
+        if (this.saveRebuildTimer !== undefined) {
+            clearTimeout(this.saveRebuildTimer);
+            this.saveRebuildTimer = undefined;
+        }
     }
 
     /**
@@ -146,6 +247,7 @@ export class CadViewportWidget extends ReactWidget {
 
         this.loading = true;
         this.loadingMessage = sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...';
+        this.buildError = undefined;
         this.update();
 
         this.messageService.info(`Loading CAD model: ${filePath}`);
@@ -164,10 +266,14 @@ export class CadViewportWidget extends ReactWidget {
                 });
                 this.messageService.info(`Loaded ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
             } else {
-                this.messageService.error(result.error || 'Failed to load CAD model.');
+                const message = result.error || 'Failed to load CAD model.';
+                this.buildError = message;
+                this.messageService.error(message);
             }
         } catch (error) {
-            this.messageService.error(error instanceof Error ? error.message : String(error));
+            const message = error instanceof Error ? error.message : String(error);
+            this.buildError = message;
+            this.messageService.error(message);
         } finally {
             this.loading = false;
             this.update();
@@ -180,8 +286,11 @@ export class CadViewportWidget extends ReactWidget {
                 loading={this.loading}
                 loadingMessage={this.loadingMessage}
                 tessData={this.tessData}
-                selection={this.stateManager.selection}
-                onSelect={(selection) => this.stateManager.setSelection(selection)}
+                error={this.buildError}
+                onDismissError={this.dismissBuildError}
+                onSelect={this.handleViewportSelect}
+                subscribeSelection={this.subscribeSelection}
+                subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModel()}
             />
         );
@@ -192,21 +301,27 @@ interface CadViewportComponentProps {
     readonly loading: boolean;
     readonly loadingMessage: string;
     readonly tessData?: TessData;
-    readonly selection: CadSelection;
+    readonly error?: string;
+    readonly onDismissError: () => void;
     readonly onSelect: (selection: CadSelection) => void;
+    readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
+    readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
-    const rendererRef = React.useRef<THREE.WebGLRenderer | undefined>(undefined);
 
     React.useEffect(() => {
-        if (!containerRef.current || props.tessData === undefined) {
+        const container = containerRef.current;
+        if (!container || props.tessData === undefined) {
             return undefined;
         }
 
-        const container = containerRef.current;
+        const tessData = props.tessData;
+        const onSelect = props.onSelect;
+        const subscribeSelection = props.subscribeSelection;
+        const subscribeThemeChange = props.subscribeThemeChange;
         let disposed = false;
         let cleanup: (() => void) | undefined;
 
@@ -215,7 +330,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             if (disposed) {
                 return;
             }
-            cleanup = initViewport(container, props, OrbitControls, rendererRef);
+            cleanup = initViewport(container, tessData, onSelect, subscribeSelection, subscribeThemeChange, OrbitControls);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
         });
@@ -224,11 +339,24 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             disposed = true;
             cleanup?.();
         };
-    }, [props.tessData, props.selection, props.onSelect]);
+        // All non-tessData props are stable widget-bound callbacks; the scene is
+        // rebuilt only when a new tessellation arrives.
+    }, [props.tessData, props.onSelect, props.subscribeSelection, props.subscribeThemeChange]);
 
-    if (props.loading) {
+    const errorBanner = props.error ? (
+        <div className="cad-viewport-error-banner">
+            <span className="codicon codicon-error" />
+            <span className="cad-viewport-error-message">{props.error}</span>
+            <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissError} title="Dismiss">
+                <span className="codicon codicon-close" />
+            </button>
+        </div>
+    ) : undefined;
+
+    if (props.loading && props.tessData === undefined) {
         return (
             <div className="cad-viewport loading">
+                {errorBanner}
                 <LoadingAnimations />
                 <FancyLoadingSpinner message={props.loadingMessage} subMessage="This may take a moment for large models" />
             </div>
@@ -238,6 +366,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     if (props.tessData === undefined) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
+                {errorBanner}
                 <LoadingAnimations />
                 <div className="cad-viewport-empty-panel">
                     <span className="codicon codicon-globe cad-viewport-empty-icon" />
@@ -254,20 +383,35 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         );
     }
 
-    return <div ref={containerRef} className="cad-viewport" />;
+    return (
+        <div ref={containerRef} className="cad-viewport">
+            {errorBanner}
+            {props.loading && (
+                <div className="cad-viewport-loading-overlay">
+                    <span className="codicon codicon-loading codicon-modifier-spin" />
+                    <span>{props.loadingMessage}</span>
+                </div>
+            )}
+        </div>
+    );
 }
 
 function initViewport(
     container: HTMLDivElement,
-    props: CadViewportComponentProps,
+    tessData: TessData,
+    onSelect: (selection: CadSelection) => void,
+    subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable,
+    subscribeThemeChange: (listener: () => void) => Disposable,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
     ) => {
         target: THREE.Vector3;
         update: () => void;
-    },
-    rendererRef: React.MutableRefObject<THREE.WebGLRenderer | undefined>
+        addEventListener(type: string, listener: () => void): void;
+        removeEventListener(type: string, listener: () => void): void;
+        dispose(): void;
+    }
 ): () => void {
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 300;
@@ -277,7 +421,7 @@ function initViewport(
     scene.background = new THREE.Color(background);
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
-    const bbox = props.tessData!.boundingBox;
+    const bbox = tessData.boundingBox;
     const center = new THREE.Vector3((bbox.min[0] + bbox.max[0]) / 2, (bbox.min[1] + bbox.max[1]) / 2, (bbox.min[2] + bbox.max[2]) / 2);
     const diag = new THREE.Vector3(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]).length();
     camera.position.copy(center.clone().add(new THREE.Vector3(diag, diag, diag)));
@@ -287,7 +431,6 @@ function initViewport(
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
 
     const controls = new OrbitControlsCtor(camera, renderer.domElement);
     controls.target.copy(center);
@@ -300,7 +443,7 @@ function initViewport(
     const baseColor = new THREE.Color(readThemeColor(container, '--theia-foreground', '#cccccc'));
     const selectedColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
 
-    for (const solid of props.tessData!.solids) {
+    for (const solid of tessData.solids) {
         for (const face of solid.faces) {
             const geometry = buildFaceGeometry(face);
             const material = new THREE.MeshStandardMaterial({
@@ -322,6 +465,14 @@ function initViewport(
     directional.position.set(diag, diag, diag);
     scene.add(directional);
 
+    // Render on demand: the scene is static unless the user orbits, the
+    // selection changes, the theme changes, or the container resizes. No
+    // animation loop runs while the widget is idle, hidden, or detached.
+    const renderScene = (): void => {
+        renderer.render(scene, camera);
+    };
+    controls.addEventListener('change', renderScene);
+
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
 
@@ -333,30 +484,37 @@ function initViewport(
         const intersects = raycaster.intersectObjects(meshes, false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
-            props.onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
+            onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
         } else {
-            props.onSelect({});
+            onSelect({});
         }
     };
     renderer.domElement.addEventListener('click', onClick);
 
-    for (const mesh of meshes) {
-        const data = mesh.userData;
-        const isSelected =
-            props.selection.faceId !== undefined && data.faceId === props.selection.faceId && data.solidId === props.selection.solidId;
-        (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
-    }
-
-    let running = true;
-    const animate = () => {
-        if (!running) {
-            return;
+    let currentSelection: CadSelection = {};
+    const applyHighlight = (): void => {
+        for (const mesh of meshes) {
+            const data = mesh.userData;
+            const isSelected =
+                currentSelection.faceId !== undefined &&
+                data.faceId === currentSelection.faceId &&
+                data.solidId === currentSelection.solidId;
+            (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
         }
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
+        renderScene();
     };
-    animate();
+    // Fires immediately with the current selection, then on every change.
+    const selectionDisposable = subscribeSelection((selection) => {
+        currentSelection = selection;
+        applyHighlight();
+    });
+
+    const themeDisposable = subscribeThemeChange(() => {
+        scene.background = new THREE.Color(readThemeColor(container, '--theia-editor-background', '#1e1e1e'));
+        baseColor.set(readThemeColor(container, '--theia-foreground', '#cccccc'));
+        selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
+        applyHighlight();
+    });
 
     const resizeObserver = new ResizeObserver(() => {
         const w = container.clientWidth;
@@ -365,14 +523,20 @@ function initViewport(
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
+            renderScene();
         }
     });
     resizeObserver.observe(container);
 
+    renderScene();
+
     return () => {
-        running = false;
+        selectionDisposable.dispose();
+        themeDisposable.dispose();
         resizeObserver.disconnect();
         renderer.domElement.removeEventListener('click', onClick);
+        controls.removeEventListener('change', renderScene);
+        controls.dispose();
         renderer.dispose();
         if (renderer.domElement.parentElement === container) {
             container.removeChild(renderer.domElement);
@@ -381,24 +545,27 @@ function initViewport(
             mesh.geometry.dispose();
             (mesh.material as THREE.Material).dispose();
         }
-        rendererRef.current = undefined;
     };
 }
 
 function buildFaceGeometry(face: TessFace): THREE.BufferGeometry {
     const geometry = new THREE.BufferGeometry();
-    const vertices: number[] = [];
-    const indices: number[] = [];
-    for (const tri of face.triangles) {
-        const a = face.nodes[tri[0]];
-        const b = face.nodes[tri[1]];
-        const c = face.nodes[tri[2]];
-        const base = vertices.length / 3;
-        vertices.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-        indices.push(base, base + 1, base + 2);
+    // The tessellation already shares nodes across triangles; build an indexed
+    // geometry instead of un-indexing to per-triangle vertices.
+    const positions = new Float32Array(face.nodes.length * 3);
+    for (let i = 0; i < face.nodes.length; i++) {
+        positions[i * 3] = face.nodes[i][0];
+        positions[i * 3 + 1] = face.nodes[i][1];
+        positions[i * 3 + 2] = face.nodes[i][2];
     }
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    geometry.setIndex(indices);
+    const indices = new Uint32Array(face.triangles.length * 3);
+    for (let i = 0; i < face.triangles.length; i++) {
+        indices[i * 3] = face.triangles[i][0];
+        indices[i * 3 + 1] = face.triangles[i][1];
+        indices[i * 3 + 2] = face.triangles[i][2];
+    }
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     return geometry;
 }

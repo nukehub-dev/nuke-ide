@@ -19,6 +19,33 @@ Optional but recommended:
 | DAGMC         | Faceted geometry workflows                           |
 | Conda / Mamba | Python environment management                        |
 
+### Nuke CAD Python toolchain
+
+The nuke-cad extension (parametric CAD / meshing / FEM) needs these packages
+in the active Python environment; the Nuke Tools environment health check
+reports them as required or optional:
+
+| Package              | Required | Purpose                                                    |
+| -------------------- | -------- | ---------------------------------------------------------- |
+| OCP (`cadquery-ocp`) | yes      | OpenCASCADE B-rep kernel bindings                          |
+| `build123d`          | yes      | Script-based geometry authoring                            |
+| `gmsh`               | yes      | DAGMC imprint/merge and tetrahedral meshing                |
+| `cadquery`           | optional | CadQuery script support                                    |
+| `meshio`             | optional | CalculiX/VTK mesh export                                   |
+| `netCDF4`            | optional | ExodusII mesh export                                       |
+| `moab` + `h5py`      | optional | DAGMC `.h5m` export (`moab` wheels are on the index below) |
+| `netgen` / `ngsolve` | optional | Alternative meshing engine (not yet implemented)           |
+
+```bash
+pip install build123d cadquery-ocp gmsh meshio netCDF4
+pip install moab --extra-index-url https://shimwell.github.io/wheels
+```
+
+All of the above except netgen/ngsolve are preinstalled in the Docker image.
+The FEM analysis panel additionally needs the external `ccx` (CalculiX)
+executable on `PATH` or pointed to with `NUKE_CCX` — it is not a Python
+package.
+
 ## Clone and Install
 
 ```bash

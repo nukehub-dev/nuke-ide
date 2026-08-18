@@ -17,9 +17,13 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
 ```
 
 3. Right-click `model.py` and choose **Open in CAD Viewport**, or run the
-   **CAD Viewport** command from the Nuke Tools sidebar.
+   **CAD Viewport** command from the Nuke Tools sidebar. (Double-clicking a
+   `.py` file opens the text editor, not the viewport — use **Open With…** to
+   pick the CAD Viewport.)
 4. The geometry service builds a STEP file and a triangle stream beside your
    script (`model.step`, `model.tess.json`) and renders them in the viewport.
+   Saving the script automatically triggers a rebuild; build failures appear
+   in a dismissible error banner at the top of the viewport.
 
 ### From a STEP file
 
@@ -27,8 +31,9 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
    in nuke-cad by default.
 2. Or open the **CAD Viewport** and click **Open CAD Model...** to browse for a
    `.py` script or `.step` / `.stp` file.
-3. The file is read through OCP, tessellated, and displayed. The same DAGMC and
-   FEM export pipeline runs, writing artifacts beside the source file.
+3. The file is read through OCP, tessellated, and displayed. DAGMC and FEM
+   mesh export are skipped for STEP imports to keep loading fast — only
+   script builds produce `.h5m`/`.msh` artifacts by default.
 
 ## Region manifest
 
@@ -48,7 +53,8 @@ missing materials are reported as warnings.
 
 ## Export artifacts
 
-When the geometry service runs it writes several files beside `model.py`:
+When the geometry service runs a script build it writes several files beside
+`model.py` (STEP imports write only the STEP/tessellation pair):
 
 | File                      | Purpose                                            |
 | ------------------------- | -------------------------------------------------- |
@@ -84,7 +90,10 @@ DAGMC export:
    sidesets: fixed constraints, displacements, pressure, temperature, or heat
    flux.
 6. Click **Run FEM**. The service writes a `<stem>.fem.inp` file, runs
-   CalculiX, and produces `<stem>.fem.vtk`.
+   CalculiX, and produces `<stem>.fem.vtk`. While a run is in flight the
+   panel shows a **Stop** button that cancels the ccx process. Runs time out
+   after one hour by default (adjustable via the `ccxTimeout` request field),
+   and ccx output is streamed to `<stem>.ccx.log` next to the input deck.
 7. Click **Open VTK Result** to visualize displacements or temperatures in
    nuke-visualizer.
 
@@ -112,6 +121,8 @@ patch geometry and run with the selected OpenFOAM solver.
 ## Next steps
 
 - Add the CAD toolchain and CalculiX to your active Python environment (see
-  the Environment section in Nuke Tools).
+  the Environment section in Nuke Tools). The health check treats OCP,
+  build123d, and gmsh (plus numpy) as required and reports everything else
+  as optional; the required set is what a working CAD backend needs.
 - Refine mesh size per region with the optional `meshSize` field in the
   manifest.

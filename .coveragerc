@@ -12,6 +12,13 @@
 source =
     extensions/nuke-visualizer/python
     extensions/openmc-studio/python
+    # extensions/nuke-cad/python is intentionally NOT in the ratchet yet:
+    # its services are OCC/gmsh/pymoab-bound, so they are only exercised in the
+    # full-dependency profile (docker in-image pytest step, NUKE_TEST_PYTHON),
+    # and the measured baseline sits at ~94% with no headroom — including them
+    # would force the threshold down, which the ratchet forbids. Include them
+    # once the CI coverage env gains the nuke-cad toolchain AND their full-profile
+    # coverage alone clears the gate.
 
 omit =
     # trame/ParaView rendering servers and plugin registration glue

@@ -75,13 +75,24 @@ export class NukeCadCommandContribution implements CommandContribution {
                     this.messageService.warn('No CAD model is active.');
                     return;
                 }
-                const result = await this.backendService.buildGeometry({ scriptPath });
-                if (result.success) {
-                    this.stateManager.setModel({ scriptPath, result, manifest: result.regionManifest });
-                    this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
-                } else {
-                    this.messageService.error(result.error || 'CAD rebuild failed.');
-                    console.error('[NukeCad] Rebuild failed:', result.output);
+                const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                viewport?.setLoading(true, 'Rebuilding CAD geometry...');
+                try {
+                    const result = await this.backendService.buildGeometry({ scriptPath });
+                    if (result.success) {
+                        this.stateManager.setModel({ scriptPath, result, manifest: result.regionManifest });
+                        this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
+                    } else {
+                        const message = result.error || 'CAD rebuild failed.';
+                        viewport?.showBuildError(message);
+                        this.messageService.error(message);
+                        console.error('[NukeCad] Rebuild failed:', result.output);
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    viewport?.showBuildError(message);
+                    this.messageService.error(message);
+                    console.error('[NukeCad] Rebuild failed:', error);
                 }
             }
         });

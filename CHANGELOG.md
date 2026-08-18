@@ -294,6 +294,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and themed dropdown option lists.
 - CI: vitest job never compiled extensions (broken imports on fresh runners);
   setup-miniconda pinned Python 3.14, unsatisfiable for OpenMC.
+- nuke-cad: geometry builds now extract real selectors from build123d labels
+  and CadQuery assembly names — region-manifest `mat:<name>` groups, Exodus
+  block names, and per-region `meshSize` values resolve instead of falling
+  back to positional names.
+- nuke-cad: DAGMC export corrections — unmanifested volumes fall back to
+  OpenMC-recognized `mat:mat_<vol_id-1>` groups (previously missing the
+  `mat:` prefix), volume identity across the gmsh fragment step uses the
+  fragment's returned mapping (plus `removeAllDuplicates`), and the temp STEP
+  rewrite is skipped when the shape is unmodified.
+- nuke-cad: mesh service corrections — Exodus side-set numbering now follows
+  the SEACAS TETRA(4) convention, the dihedral-angle quality metric is fixed
+  (a regular tetrahedron reports 70.53°), an explicit `max_size` overrides
+  `mesh_size`, and `elementTypes` reports `tetra10` for second-order meshes.
+  Selecting the `netgen` engine returns a structured "not yet implemented"
+  error instead of silently meshing with gmsh.
+- nuke-cad: FEM service — fixed boundary conditions emit dof-range
+  `*Boundary` cards (`nset, 1, 3`) instead of the ccx-incompatible
+  `ENCASTRE`, the FRD parser handles CalculiX's real fixed-width output
+  (NDTEMP results now reach the VTK file), ccx runs time out after one hour
+  by default (`ccxTimeout` request field) and stream output to
+  `<stem>.ccx.log` with a 1 MB JSON tail, and physical-group/block
+  assignment is vectorized (was O(n²) on large meshes).
+- nuke-cad: OpenFOAM STL export works — the service loads STEP directly via
+  `STEPControl_Reader` with the correct `TopoDS` downcast (the broken
+  `cad_conversion` dependency is gone), output filenames are sanitized, the
+  writer's return status is checked, and `wall_boundaries` are wired into
+  the field files.
+- nuke-cad: user geometry scripts run in an isolated subprocess with a 120 s
+  default timeout (`--script-timeout`); `SystemExit` in a script is reported
+  as a structured error instead of taking down the service, and unsupported
+  model types raise a specific `TypeError`.
+- nuke-cad: the `.py` open handler no longer hijacks Python files from the
+  text editor (priority 50, below the editor's 100) — the CAD viewport is
+  reached via **Open With…**. STEP/STP/BREP files still open the viewport by
+  default.
+- nuke-cad: CAD viewport — face-pick highlighting works (in-place material
+  recolor), a tessellation load race is fixed (stale results are discarded),
+  the scene rebuilds only on new tessellation (indexed BufferGeometry,
+  on-demand rendering instead of a perpetual animation loop), rebuilds keep
+  the old model visible behind a loading overlay instead of flickering to
+  the empty state, and Python build errors surface in a dismissible error
+  banner in the viewport.
+- nuke-cad: job lifecycle — the backend tracks spawned services in a job
+  registry with a `cancelJob` RPC (process-group kill) and a one-hour
+  default timeout, caps captured output at a 1 MB tail, kills remaining jobs
+  when the backend stops, and the FEM panel gains a **Stop** button for
+  running CalculiX jobs; the Python `job_service` no longer leaks file
+  descriptors and kills timed-out solver processes as a group.
+- nuke-cad: the CAD environment health check is now truthful — the health
+  group requires OCP/build123d/gmsh (plus numpy) and reports
+  `missingOptional` packages; "pymoab" is renamed to its real distribution
+  name `moab` with the shimwell wheels extra index.
 
 ### Changed
 
@@ -313,6 +365,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   widgets, supported by Theia 1.74 — no component API changes were needed
   beyond qualifying the removed global `JSX.Element` namespace as
   `React.JSX.Element`.
+- nuke-cad: STEP/STP/BREP viewport imports skip DAGMC and FEM mesh export by
+  default so files load quickly (this shipped earlier without a changelog
+  entry, commit 2d0a0fc); script builds still export by default, and imports
+  opt in via `--dagmc`/`--mesh`. The backend enforces
+  `--no-dagmc`/`--no-mesh` for STEP-source models on every path, including
+  rebuilds.
+- nuke-cad: DAGMC surface-sense verification is now a hard error with
+  diagnostics (every exported surface must have sense 1 or 2);
+  watertightness holes mark the export `sealed=False` with a warning,
+  incidence > 2 edges are reported as a `nonManifoldEdges` diagnostic
+  (multi-volume imprint seams legitimately have incidence 3), and a new
+  overlap check (bbox + `BRepClass3d_SolidClassifier` sampling) is reported
+  as `overlapCheck` in the result.
+- nuke-cad: saving a script-source model's `.py` file debounce-triggers a
+  viewport rebuild (STEP-source models are unaffected).
 
 ## [0.1.3] - 2026-07-28
 

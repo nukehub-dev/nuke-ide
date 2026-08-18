@@ -96,10 +96,12 @@ export class FoamPanelWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-server-process';
 
         this.loadSolvers();
-        this.stateManager.onModelChange(() => {
-            this.resetForModel();
-            this.update();
-        });
+        this.toDispose.push(
+            this.stateManager.onModelChange(() => {
+                this.resetForModel();
+                this.update();
+            })
+        );
         this.update();
     }
 

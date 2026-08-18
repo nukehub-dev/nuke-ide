@@ -97,6 +97,9 @@ export class FemPanelWidget extends ReactWidget {
         builtInMaterials: []
     };
 
+    /** Job id of the in-flight FEM run, cancellable via the backend. */
+    private currentJobId?: string;
+
     @postConstruct()
     protected init(): void {
         this.id = FemPanelWidget.ID;
@@ -105,10 +108,12 @@ export class FemPanelWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-dashboard';
 
         this.loadMaterials();
-        this.stateManager.onModelChange(() => {
-            this.resetForModel();
-            this.update();
-        });
+        this.toDispose.push(
+            this.stateManager.onModelChange(() => {
+                this.resetForModel();
+                this.update();
+            })
+        );
         this.update();
     }
 
@@ -183,14 +188,17 @@ export class FemPanelWidget extends ReactWidget {
             };
         }
 
+        const jobId = `fem-${Date.now()}`;
         const request: FemRunRequest = {
             mshPath,
             materials,
             boundaryConditions: this.state.boundaryConditions,
             step,
-            run: true
+            run: true,
+            jobId
         };
 
+        this.currentJobId = jobId;
         this.state.isRunning = true;
         this.state.logOutput = 'Running FEM setup...\n';
         this.update();
@@ -201,6 +209,9 @@ export class FemPanelWidget extends ReactWidget {
             this.state.logOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
             if (result.success) {
                 this.messageService.info(`FEM analysis complete: ${result.vtkPath ? 'VTK written' : 'input deck written'}`);
+            } else if (result.error === 'Job cancelled.') {
+                this.state.logOutput += '\nFEM analysis cancelled.';
+                this.messageService.info('FEM analysis cancelled.');
             } else {
                 this.messageService.error(result.error || 'FEM analysis failed.');
             }
@@ -209,8 +220,24 @@ export class FemPanelWidget extends ReactWidget {
             this.state.logOutput += `\nError: ${msg}`;
             this.messageService.error(msg);
         } finally {
+            this.currentJobId = undefined;
             this.state.isRunning = false;
             this.update();
+        }
+    }
+
+    private async stopAnalysis(): Promise<void> {
+        const jobId = this.currentJobId;
+        if (!jobId) {
+            return;
+        }
+        try {
+            const cancelled = await this.backendService.cancelJob(jobId);
+            if (!cancelled) {
+                this.messageService.warn('The FEM job is no longer running.');
+            }
+        } catch (error) {
+            this.messageService.error(error instanceof Error ? error.message : String(error));
         }
     }
 
@@ -273,6 +300,7 @@ export class FemPanelWidget extends ReactWidget {
                 onAddBc={(bc) => this.addBoundaryCondition(bc)}
                 onRemoveBc={(id) => this.removeBoundaryCondition(id)}
                 onRun={() => this.runAnalysis()}
+                onStop={() => this.stopAnalysis()}
                 onOpenResult={() => this.openResult()}
             />
         );
@@ -293,6 +321,7 @@ interface FemPanelComponentProps {
     readonly onAddBc: (bc: FemBoundaryCondition) => void;
     readonly onRemoveBc: (id: string) => void;
     readonly onRun: () => void;
+    readonly onStop: () => void;
     readonly onOpenResult: () => void;
 }
 
@@ -339,6 +368,12 @@ function FemPanelComponent(props: FemPanelComponentProps): React.ReactElement {
                         <i className="codicon codicon-play" />
                         {props.state.isRunning ? 'Running...' : 'Run FEM'}
                     </button>
+                    {props.state.isRunning && (
+                        <button className="theia-button secondary" onClick={props.onStop}>
+                            <i className="codicon codicon-stop" />
+                            Stop
+                        </button>
+                    )}
                     {props.state.lastResult?.vtkPath && (
                         <button className="theia-button secondary" onClick={props.onOpenResult}>
                             <i className="codicon codicon-open-preview" />

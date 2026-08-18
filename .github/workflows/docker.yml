@@ -54,6 +54,7 @@ jobs:
           import vtk
           from paraview import simple
           import OCP, cadquery, OCC, gmsh
+          import build123d, meshio, netCDF4
           from pymoab import core
           import pydagmc
           print('python env OK')
