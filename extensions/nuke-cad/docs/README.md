@@ -19,6 +19,7 @@ build123d/CadQuery script (.py = source of truth)
 - Geometry service: script execution, STEP export, viewport tessellation stream, region manifest validation.
 - DAGMC export: gmsh OCC imprint/merge, named material groups, auto-graveyard.
 - FEM meshing: gmsh HXT volume meshing, ExodusII/CalculiX/VTK export, mesh quality report.
+- FEM analysis (CalculiX): input-deck writer, boundary-condition/material UI, `ccx` runner, FRD-to-VTK conversion.
 
 ## User guides
 

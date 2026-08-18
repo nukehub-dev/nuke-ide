@@ -72,9 +72,28 @@ DAGMC export:
    each manifest material name.
 4. Fill in nuclide compositions in the Materials tab and run.
 
+## FEM analysis with CalculiX
+
+1. Build or import a CAD model so that a `.msh` file exists beside it.
+2. Open the **FEM Analysis** panel from the Nuke Tools sidebar
+   (`CAD Studio → FEM`).
+3. Choose the analysis type (Static Structural, Steady-State Thermal, or
+   Frequency).
+4. Assign a material to each mesh block.
+5. Add boundary conditions on named surfaces from the region manifest or mesh
+   sidesets: fixed constraints, displacements, pressure, temperature, or heat
+   flux.
+6. Click **Run FEM**. The service writes a `<stem>.fem.inp` file, runs
+   CalculiX, and produces `<stem>.fem.vtk`.
+7. Click **Open VTK Result** to visualize displacements or temperatures in
+   nuke-visualizer.
+
+CalculiX (`ccx`) must be available on `PATH` or pointed to with the `NUKE_CCX`
+environment variable.
+
 ## Next steps
 
-- Add the CAD toolchain to your active Python environment (see the Environment
-  section in Nuke Tools).
+- Add the CAD toolchain and CalculiX to your active Python environment (see
+  the Environment section in Nuke Tools).
 - Refine mesh size per region with the optional `meshSize` field in the
   manifest.

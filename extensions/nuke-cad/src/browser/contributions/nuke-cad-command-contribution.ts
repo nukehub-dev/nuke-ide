@@ -39,6 +39,7 @@ import { NukeCadCommands } from '../commands';
 import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
+import { FemPanelWidget } from '../widgets/fem-panel/fem-panel-widget';
 
 @injectable()
 export class NukeCadCommandContribution implements CommandContribution {
@@ -92,6 +93,14 @@ export class NukeCadCommandContribution implements CommandContribution {
                 } else {
                     this.messageService.warn(`Missing packages: ${status.missing.join(', ')}`);
                 }
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_FEM_PANEL, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(FemPanelWidget.ID);
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
             }
         });
     }

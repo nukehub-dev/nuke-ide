@@ -30,6 +30,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   delegates to nuke-cad services: the **Import from nuke-cad...** command loads
   a nuke-cad `.h5m` + `.regions.json` into an OpenMC project, and the DAGMC
   editor's imprinted refacet routes through `dagmc_export.py` when available.
+- The FEM service (`python/fem_service.py`) generates CalculiX `.inp` decks
+  from gmsh `.msh` files, runs the external `ccx` executable, and converts
+  FRD results to VTK. `ccx` is resolved from `NUKE_CCX`, `PATH`, or an
+  explicit request path; it is not a Python package.
 
 ## Work Guidance
 
@@ -41,6 +45,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   minimal pytest profile (`pytest` + `numpy` only).
 - Region manifest volume entries may include an optional `meshSize` number
   for per-region mesh refinement.
+- Region manifest surface entries drive FEM boundary conditions in the FEM
+  analysis panel; `name` is the selector used to bind loads and constraints.
 
 ## Verification
 

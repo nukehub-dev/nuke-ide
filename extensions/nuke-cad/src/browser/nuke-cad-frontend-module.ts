@@ -44,6 +44,7 @@ import { NukeCadCommandContribution } from './contributions/nuke-cad-command-con
 import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
 import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contribution';
 import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
+import { FemPanelWidget } from './widgets/fem-panel/fem-panel-widget';
 
 export default new ContainerModule((bind) => {
     bind(NukeCadStateManager).toSelf().inSingletonScope();
@@ -72,4 +73,12 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadViewportWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: FemPanelWidget.ID,
+            createWidget: () => ctx.container.get(FemPanelWidget)
+        }))
+        .inSingletonScope();
+    bind(FemPanelWidget).toSelf();
 });

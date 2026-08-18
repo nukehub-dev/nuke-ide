@@ -37,9 +37,17 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import * as fs from 'fs';
 import * as path from 'path';
 
-import { NukeCadBackendService, GeometryBuildRequest, GeometryBuildResult } from '../common/nuke-cad-protocol';
+import {
+    NukeCadBackendService,
+    GeometryBuildRequest,
+    GeometryBuildResult,
+    FemRunRequest,
+    FemRunResult,
+    FemMaterial
+} from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 
 @injectable()
@@ -103,14 +111,28 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             args.push('--mesh-order', String(request.meshOrder));
         }
 
+        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
+    }
+
+    /**
+     * Spawn a Python service that emits a JSON result on stdout and return the
+     * parsed object.  Diagnostics on stderr are forwarded into the result's
+     * ``output`` field when the service does not provide one.
+     */
+    private async _spawnJsonService<T extends { success?: boolean; output?: string; error?: string }>(
+        pythonCommand: string,
+        args: string[],
+        cwd: string,
+        scriptPath?: string
+    ): Promise<T> {
         const { spawn } = await import('child_process');
         const pythonBinDir = path.dirname(pythonCommand);
         const currentPath = process.env.PATH || '';
         const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
 
-        return new Promise<GeometryBuildResult>((resolve) => {
+        return new Promise<T>((resolve) => {
             const child = spawn(pythonCommand, args, {
-                cwd: path.dirname(request.scriptPath),
+                cwd,
                 env: { ...process.env, PATH: newPath },
                 stdio: ['ignore', 'pipe', 'pipe']
             });
@@ -129,10 +151,10 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             child.on('error', (error) => {
                 resolve({
                     success: false,
-                    error: `Failed to start geometry service: ${error.message}`,
+                    error: `Failed to start service: ${error.message}`,
                     output: stderr,
-                    scriptPath: request.scriptPath
-                });
+                    scriptPath
+                } as unknown as T);
             });
 
             child.on('close', (code) => {
@@ -143,14 +165,17 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                         continue;
                     }
                     try {
-                        const parsed = JSON.parse(candidate) as GeometryBuildResult;
+                        const parsed = JSON.parse(candidate) as T;
                         const success = code !== 0 && parsed.success !== false ? false : parsed.success;
-                        const result: GeometryBuildResult = {
+                        const result: T = {
                             ...parsed,
                             success,
                             error: success === false ? parsed.error || `Process exited with code ${code}` : parsed.error,
                             output: parsed.output ?? stderr
                         };
+                        if (scriptPath !== undefined) {
+                            (result as any).scriptPath = scriptPath;
+                        }
                         resolve(result);
                         return;
                     } catch {
@@ -161,10 +186,97 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                 const detail = stderr.trim() || stdout.trim();
                 resolve({
                     success: false,
-                    error: `Geometry service exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,
+                    error: `Service exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,
                     output: stderr,
-                    scriptPath: request.scriptPath
-                });
+                    scriptPath
+                } as unknown as T);
+            });
+        });
+    }
+
+    /**
+     * Run the FEM service: write a CalculiX input deck and optionally run ccx.
+     */
+    async runFem(request: FemRunRequest): Promise<FemRunResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'fem_service.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'FEM service script not found.' };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.'
+            };
+        }
+
+        const requestPath = path.join(path.dirname(request.mshPath), `.nuke-cad-fem-request-${Date.now()}.json`);
+        fs.writeFileSync(
+            requestPath,
+            JSON.stringify({
+                mshPath: request.mshPath,
+                outputDir: path.dirname(request.mshPath),
+                materials: request.materials,
+                boundaryConditions: request.boundaryConditions,
+                step: request.step,
+                run: request.run ?? true,
+                ccxPath: request.ccxPath
+            }),
+            'utf-8'
+        );
+
+        try {
+            return await this._spawnJsonService<FemRunResult>(
+                pythonCommand,
+                [scriptPath, '--request', requestPath],
+                path.dirname(request.mshPath)
+            );
+        } finally {
+            try {
+                fs.unlinkSync(requestPath);
+            } catch {
+                // Temporary request file cleanup is best-effort.
+            }
+        }
+    }
+
+    /**
+     * Return the built-in FEM material database from the Python service.
+     */
+    async listFemMaterials(): Promise<FemMaterial[]> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'fem_service.py' });
+        if (!scriptPath) {
+            return [];
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return [];
+        }
+
+        return new Promise<FemMaterial[]>((resolve) => {
+            const { spawn } = require('child_process');
+            const child = spawn(pythonCommand, [scriptPath, '--list-materials'], {
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+            child.stdout?.on('data', (data: Buffer) => {
+                stdout += data.toString();
+            });
+
+            child.on('close', () => {
+                try {
+                    const parsed = JSON.parse(stdout);
+                    resolve(Object.values(parsed) as FemMaterial[]);
+                } catch {
+                    resolve([]);
+                }
+            });
+
+            child.on('error', () => {
+                resolve([]);
             });
         });
     }

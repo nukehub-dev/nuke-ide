@@ -83,5 +83,17 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             icon: 'pass',
             description: 'Verify that the active Python environment has the CAD toolchain.'
         });
+
+        registry.registerItem({
+            id: 'nuke.cad.openFemPanel',
+            label: 'FEM Analysis',
+            commandId: NukeCadCommands.OPEN_FEM_PANEL.id,
+            category: ['CAD Studio', 'FEM'],
+            sectionOrder: 'b',
+            categoryOrder: 'c',
+            order: 'a',
+            icon: 'dashboard',
+            description: 'Open the CalculiX FEM analysis panel for the active mesh.'
+        });
     }
 }

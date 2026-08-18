@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: **Open CAD Model button** — the empty CAD viewport shows an
   **Open CAD Model...** button that launches a file picker for `.py` scripts
   and `.step` / `.stp` files.
+- nuke-cad: **CalculiX FEM analysis** — `fem_service.py` reads a
+  gmsh `.msh` file and writes a CalculiX `.inp` deck with materials, solid
+  sections, gravity loads, and boundary conditions on named surface sets.
+  The **FEM Analysis** panel lets users configure analysis type, assign
+  built-in materials to mesh blocks, add fixed/displacement/pressure/
+  temperature/heat-flux boundary conditions, run `ccx`, and open the
+  resulting `.fem.vtk` in nuke-visualizer. FRD nodal displacements (`DISP`)
+  and temperatures (`TEMP`) are parsed and written into the VTK file.
+  `ccx` is resolved from `NUKE_CCX`, `PATH`, or an explicit request path.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and

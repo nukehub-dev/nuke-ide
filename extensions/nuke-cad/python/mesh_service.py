@@ -608,6 +608,7 @@ def _compute_mesh_report(
     points: np.ndarray,
     tets: np.ndarray,
     blocks: dict[str, np.ndarray],
+    sidesets: dict[str, list[tuple[int, int]]] | None = None,
 ) -> dict[str, Any]:
     """Compute element counts and tetrahedral quality metrics."""
     if np is None:
@@ -645,11 +646,21 @@ def _compute_mesh_report(
             }
         )
 
+    sideset_reports: list[dict[str, Any]] = []
+    for name, entries in (sidesets or {}).items():
+        sideset_reports.append(
+            {
+                "name": name,
+                "elementCount": int(len(entries)),
+            }
+        )
+
     return {
         "elementCount": int(len(tets)),
         "nodeCount": int(len(points)),
         "elementTypes": {"tetra": int(len(tets))},
         "blocks": block_reports,
+        "sidesets": sideset_reports,
         "quality": {
             "minDihedralDeg": float(min_dihedral),
             "maxDihedralDeg": float(max_dihedral),
@@ -769,7 +780,7 @@ def mesh_step(
             _print_progress(f"Writing VTK: {paths['vtk']}")
             _write_vtk(mesh, paths["vtk"])
 
-        report = _compute_mesh_report(mesh.points, tets, blocks)
+        report = _compute_mesh_report(mesh.points, tets, blocks, sidesets)
         paths["report"].write_text(json.dumps(report, indent=2), encoding="utf-8")
         result["report"] = report
 

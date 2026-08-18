@@ -11,7 +11,7 @@ extensions/nuke-cad/
 │   ├── browser/           # widgets, commands, contributions, state
 │   └── node/              # backend service that spawns Python
 ├── python/                # geometry_service.py, dagmc_export.py, mesh_service.py,
-│                          # region_manifest.py, ocp_compat.py
+│                          # fem_service.py, region_manifest.py, ocp_compat.py
 ├── tests/python/          # pytest suite
 └── docs/                  # user/dev docs
 ```
@@ -80,7 +80,28 @@ The meshing service turns the canonical STEP file into FEM volume meshes:
 Netgen is accepted as an `engine` value for forward compatibility but is
 not wired yet.
 
+## FEM service (`fem_service.py`)
+
+The FEM service generates a CalculiX input deck from a gmsh `.msh` file and
+optionally runs CalculiX:
+
+1. Read the gmsh `.msh` via the gmsh API and build dense node/element arrays
+   plus named volume blocks and surface sets from physical groups.
+2. Write a CalculiX `.inp` file with nodes, elements, materials, solid
+   sections, boundary conditions, gravity loads, and output requests.
+3. Optionally run the `ccx` executable (resolved from `NUKE_CCX`, `PATH`, or
+   an explicit request path) and capture its stdout/stderr to a log file.
+4. Parse the resulting `.frd` file for nodal displacements (`DISP`) and
+   temperatures (`TEMP`) and write a legacy VTK unstructured grid that
+   nuke-visualizer can open.
+
+Boundary conditions are bound to named surface sets from the mesh or region
+manifest. Supported types: fixed (`ENCASTRE`), prescribed displacement,
+pressure (approximated as distributed nodal forces), temperature, and heat
+flux (approximated as nodal heat flow). Pressure and heat flux use the
+surface triangle area for distribution, so they are accurate in net load but
+approximate in local distribution.
+
 ## Future phases
 
-- Phase 4: openmc-studio one-click import from nuke-cad.
-- Phase 5: CalculiX FEM job builder/runner.
+- Phase 6: OpenFOAM case scaffolding; MOOSE LSP; remote run abstraction.

@@ -32,7 +32,14 @@
  */
 
 import { injectable } from '@theia/core/shared/inversify';
-import { NukeCadBackendService, GeometryBuildRequest, GeometryBuildResult } from '../common/nuke-cad-protocol';
+import {
+    NukeCadBackendService,
+    GeometryBuildRequest,
+    GeometryBuildResult,
+    FemRunRequest,
+    FemRunResult,
+    FemMaterial
+} from '../common/nuke-cad-protocol';
 
 @injectable()
 export class NukeCadFrontendService implements NukeCadBackendService {
@@ -40,6 +47,14 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     buildGeometry(request: GeometryBuildRequest): Promise<GeometryBuildResult> {
         return this.proxy.buildGeometry(request);
+    }
+
+    runFem(request: FemRunRequest): Promise<FemRunResult> {
+        return this.proxy.runFem(request);
+    }
+
+    listFemMaterials(): Promise<FemMaterial[]> {
+        return this.proxy.listFemMaterials();
     }
 
     checkCadEnvironment(): Promise<{ ready: boolean; missing: string[] }> {

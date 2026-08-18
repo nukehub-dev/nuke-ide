@@ -47,6 +47,7 @@ export interface MeshQualityReport {
     readonly nodeCount: number;
     readonly elementTypes: Record<string, number>;
     readonly blocks: { readonly name: string; readonly elementCount: number; readonly dimension: number }[];
+    readonly sidesets?: { readonly name: string; readonly elementCount: number }[];
     readonly quality: {
         readonly minDihedralDeg: number;
         readonly maxDihedralDeg: number;
@@ -54,6 +55,67 @@ export interface MeshQualityReport {
         readonly maxAspectRatio: number;
         readonly meanAspectRatio: number;
     };
+}
+
+/** Built-in or custom material definition for a FEM analysis. */
+export interface FemMaterial {
+    readonly name: string;
+    readonly youngsModulus?: number;
+    readonly poissonsRatio?: number;
+    readonly density?: number;
+    readonly conductivity?: number;
+    readonly expansion?: number;
+}
+
+/** Boundary condition applied to a named surface set. */
+export interface FemBoundaryCondition {
+    readonly id: string;
+    readonly type: 'fixed' | 'displacement' | 'pressure' | 'temperature' | 'heatFlux';
+    readonly surfaceName: string;
+    readonly magnitude?: number;
+    readonly vector?: number[];
+    readonly temperature?: number;
+}
+
+/** Settings for the CalculiX analysis step. */
+export interface FemStepSettings {
+    readonly stepType: 'static' | 'heatTransfer' | 'frequency';
+    readonly time?: number;
+    readonly initialTimeIncrement?: number;
+    readonly gravity?: {
+        readonly magnitude: number;
+        readonly vector: number[];
+    };
+}
+
+/** Request to set up and optionally run a CalculiX FEM analysis. */
+export interface FemRunRequest {
+    /** Absolute path to the gmsh .msh file. */
+    readonly mshPath: string;
+    /** Material assignment for each mesh block name. */
+    readonly materials: Record<string, string | FemMaterial>;
+    /** Boundary conditions applied to named surface sets. */
+    readonly boundaryConditions: FemBoundaryCondition[];
+    /** Analysis step settings. */
+    readonly step: FemStepSettings;
+    /** Whether to run ccx after writing the input deck. */
+    readonly run?: boolean;
+    /** Optional explicit path to the ccx executable. */
+    readonly ccxPath?: string;
+}
+
+/** Result of a CalculiX FEM setup/run request. */
+export interface FemRunResult {
+    readonly success: boolean;
+    readonly error?: string;
+    readonly inpPath?: string;
+    readonly frdPath?: string;
+    readonly datPath?: string;
+    readonly vtkPath?: string;
+    readonly logPath?: string;
+    readonly stdout?: string;
+    readonly stderr?: string;
+    readonly warnings?: string[];
 }
 
 /** Result of a geometry build request. */
@@ -172,6 +234,16 @@ export interface NukeCadBackendService {
      * Build/update geometry from a script and return artifact paths + metadata.
      */
     buildGeometry(request: GeometryBuildRequest): Promise<GeometryBuildResult>;
+
+    /**
+     * Set up and optionally run a CalculiX FEM analysis from a gmsh mesh.
+     */
+    runFem(request: FemRunRequest): Promise<FemRunResult>;
+
+    /**
+     * Return the built-in FEM material database.
+     */
+    listFemMaterials(): Promise<FemMaterial[]>;
 
     /**
      * Check whether the active Python environment has the CAD toolchain.
