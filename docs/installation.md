@@ -48,15 +48,28 @@ package.
 
 ### Dedicated dev/test environment
 
-For running the Python test suites against real dependencies, a lean conda
-env works well (the Docker image's `environment.yml` minus the
-ParaView/trame visualization stack):
+For running the Python test suites against real dependencies, use a lean conda
+env (no ParaView/trame — the test profile doesn't need them, and conda-forge
+currently cannot co-solve paraview with a build123d-compatible ocp; see below).
+The verified recipe (`~/.conda/envs/nuke` on the maintainer machine; the root
+`AGENTS.md` `NUKE_TEST_PYTHON` example points there):
 
-- conda-forge: `python=3.13`, `cadquery`, `build123d`, `python-gmsh`,
-  `meshio`, `netCDF4`, `vtk`, `pytest`
-- pip from the shimwell index (`--extra-index-url
-https://shimwell.github.io/wheels`): `openmc`, `moab`; plus `pydagmc`
-  (commit-pinned, from GitHub)
+```bash
+conda create -n nuke -c conda-forge --strict-channel-priority python=3.13 \
+    "ocp=7.8.1.2" "cadquery=2.7.0" "build123d=0.9.1" python-gmsh meshio \
+    netCDF4 h5py numpy scipy matplotlib pandas pyyaml pytest pytest-cov
+~/.conda/envs/nuke/bin/python -m pip install \
+    --extra-index-url https://shimwell.github.io/wheels \
+    openmc moab "pydagmc @ git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+```
+
+The ocp pin matters: conda `ocp` 7.8.1.2 still provides the `TopoDS.*_s`
+downcast API that conda build123d requires, while conda `ocp` 7.9.3.1 dropped
+it (every conda build123d then fails with `TopoDS has no attribute
+'Vertex_s'`). The same API gap makes build123d uninstallable alongside
+paraview (paraview 6.1.1 forces the ocp 7.9 line via the vtk-base mutex), so
+the IDE runtime env (docker `environment.yml`) and this test env must stay
+separate until upstream conda-forge packaging heals.
 
 Keep netgen out of this env. Conda netgen and conda OCP register the same
 OCCT types with pybind11 in one process ("type gp_Pnt is already registered!"
