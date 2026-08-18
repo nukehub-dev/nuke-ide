@@ -39,21 +39,26 @@ import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol'
 
 import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
 import { NukeCadFrontendService } from './nuke-cad-frontend-service';
+import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { NukeCadCommandContribution } from './contributions/nuke-cad-command-contribution';
 import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
 import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contribution';
 import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
+import { CadOutlinePanelWidget } from './widgets/outline-panel/outline-panel-widget';
 import { FemPanelWidget } from './widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from './widgets/foam-panel/foam-panel-widget';
 
 export default new ContainerModule((bind) => {
+    bindNukeCadPreferences(bind);
+
     bind(NukeCadStateManager).toSelf().inSingletonScope();
 
     bind(NukeCadFrontendService)
         .toDynamicValue((ctx) => {
             const proxy = ctx.container.get(WebSocketConnectionProvider).createProxy<NukeCadBackendService>(NukeCadBackendServicePath);
-            return new NukeCadFrontendService(proxy);
+            const preferences = ctx.container.get<NukeCadPreferences>(NukeCadPreferences);
+            return new NukeCadFrontendService(proxy, preferences);
         })
         .inSingletonScope();
     bind(NukeCadBackendService).toService(NukeCadFrontendService);
@@ -74,6 +79,14 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadViewportWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadOutlinePanelWidget.ID,
+            createWidget: () => ctx.container.get(CadOutlinePanelWidget)
+        }))
+        .inSingletonScope();
+    bind(CadOutlinePanelWidget).toSelf();
 
     bind(WidgetFactory)
         .toDynamicValue((ctx) => ({

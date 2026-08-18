@@ -54,9 +54,10 @@ Script-first parametric CAD / meshing / FEM extension.
 
 - Author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
 - Live three.js viewport with face/solid picking and an **Open CAD Model...** button
+- Model Outline panel: manifest volume/surface tree with two-way viewport picking sync
 - Canonical STEP export and JSON region manifest
 - DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups
-- FEM volume meshing (gmsh `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)
+- FEM volume meshing (gmsh or optional netgen engine; `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)
 - One-click import into OpenMC Studio: `.h5m` + `.regions.json` → DAGMC project
 
 [User Guide](/nuke-cad/user/getting-started) · [Developer Guide](/nuke-cad/dev/architecture)

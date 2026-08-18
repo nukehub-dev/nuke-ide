@@ -1,0 +1,224 @@
+/* Model outline / region manifest panel. All colors come from Theia CSS
+   variables (case-preserved ids); the chrome mirrors openmc-studio's shared
+   patterns (.openmc-header, .category-header + .count-badge). */
+
+.cad-outline-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+.cad-outline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-outline-header .header-info h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.cad-outline-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+}
+
+.cad-outline-header .header-description {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    word-break: break-all;
+}
+
+.cad-outline-header .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.cad-outline-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+}
+
+/* Collapsible group headers with row-count badges */
+.cad-outline-panel .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cad-outline-panel .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.cad-outline-panel .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+.cad-outline-panel .category-header .count-badge {
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.outline-section {
+    margin-bottom: 16px;
+}
+
+.outline-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.outline-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.outline-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.outline-row.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    border-color: var(--theia-focusBorder);
+}
+
+.outline-row.unmapped {
+    cursor: default;
+    opacity: 0.7;
+}
+
+.outline-row-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-row-detail {
+    font-size: 11px;
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-descriptionForeground);
+}
+
+.outline-row.selected .outline-row-detail {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.outline-tag {
+    font-size: 10px;
+    padding: 0 6px;
+    border-radius: 8px;
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+}
+
+.outline-row-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-outline-warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 6px;
+}
+
+.cad-outline-warning-box > i {
+    font-size: 16px;
+    color: var(--theia-inputValidation-warningBorder);
+    flex-shrink: 0;
+}
+
+.cad-outline-warning-box .warning-content strong {
+    display: block;
+    font-size: 12px;
+    color: var(--theia-inputValidation-warningBorder);
+    margin-bottom: 4px;
+}
+
+.cad-outline-warning-box .warning-content p {
+    margin: 0 0 2px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.cad-outline-hint {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 12px;
+}
+
+.cad-outline-hint code {
+    font-family: var(--theia-code-font-family);
+}
+
+.cad-outline-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-outline-empty > i {
+    font-size: 40px;
+    opacity: 0.3;
+}
+
+.cad-outline-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.cad-outline-empty .empty-hint {
+    font-size: 12px;
+}

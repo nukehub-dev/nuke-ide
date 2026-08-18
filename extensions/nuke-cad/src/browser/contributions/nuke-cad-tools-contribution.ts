@@ -59,6 +59,18 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke.cad.openOutlinePanel',
+            label: 'Model Outline',
+            commandId: NukeCadCommands.OPEN_OUTLINE_PANEL.id,
+            category: ['CAD Studio', 'Geometry'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a1',
+            icon: 'list-tree',
+            description: 'Open the model outline and region manifest panel.'
+        });
+
+        registry.registerItem({
             id: 'nuke.cad.rebuild',
             label: 'Rebuild Geometry',
             commandId: NukeCadCommands.REBUILD_GEOMETRY.id,

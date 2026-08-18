@@ -46,13 +46,23 @@ import {
     FoamStlExportRequest,
     FoamStlExportResult
 } from '../common/nuke-cad-protocol';
+import { NukeCadPreferences } from './nuke-cad-preferences';
 
 @injectable()
 export class NukeCadFrontendService implements NukeCadBackendService {
-    constructor(private readonly proxy: NukeCadBackendService) {}
+    constructor(
+        private readonly proxy: NukeCadBackendService,
+        private readonly preferences: NukeCadPreferences
+    ) {}
 
     buildGeometry(request: GeometryBuildRequest): Promise<GeometryBuildResult> {
-        return this.proxy.buildGeometry(request);
+        // Fall back to the user preference when the caller did not pick a
+        // tolerance explicitly; the preference is read per build so changes
+        // apply to subsequent builds (no live-rebuild). The backend forwards
+        // it to geometry_service.py's --tolerance, which also feeds the DAGMC
+        // export faceting.
+        const tolerance = request.tolerance ?? this.preferences.get('nukeCad.facetingTolerance', 0.001);
+        return this.proxy.buildGeometry({ ...request, tolerance });
     }
 
     runFem(request: FemRunRequest): Promise<FemRunResult> {

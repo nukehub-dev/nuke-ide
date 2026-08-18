@@ -495,10 +495,12 @@ function initViewport(
     const applyHighlight = (): void => {
         for (const mesh of meshes) {
             const data = mesh.userData;
+            // A selection with only a solidId (outline-panel row click) highlights
+            // every face of the solid; a viewport pick stays face-precise.
             const isSelected =
-                currentSelection.faceId !== undefined &&
-                data.faceId === currentSelection.faceId &&
-                data.solidId === currentSelection.solidId;
+                currentSelection.solidId !== undefined &&
+                data.solidId === currentSelection.solidId &&
+                (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
             (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
         }
         renderScene();

@@ -3,15 +3,17 @@
 
 Turns a canonical STEP file into FEM-ready volume meshes:
 
-    <stem>.msh              gmsh native mesh
+    <stem>.msh              gmsh-compatible mesh (native for gmsh, via meshio for netgen)
     <stem>.e                ExodusII (via custom netCDF4 writer)
     <stem>.inp              CalculiX/Abaqus (via meshio)
     <stem>.vtk              VTK unstructured grid (via meshio)
     <stem>.mesh.report.json mesh quality report
 
 The gmsh backend is the primary engine and uses the HXT 3D tetrahedral
-algorithm. Netgen is accepted as an ``engine`` value but is only wired
-when the optional ``netgen``/``ngsolve`` stack is available.
+algorithm. Netgen is available as a fallback engine when the optional
+``netgen``/``ngsolve`` stack is installed; it produces linear tetrahedra and
+converts its mesh into the same meshio representation as the gmsh path, so
+quality reports and exports are engine-agnostic.
 
 Progress and diagnostics are emitted on stderr. One final JSON object is
 printed on stdout (stdout-JSON protocol used across NukeIDE backends).
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import traceback
 from pathlib import Path
@@ -65,11 +68,11 @@ except ImportError:
     HAS_NETCDF4 = False
 
 try:
-    import netgen
+    from netgen.occ import OCCGeometry
 
     HAS_NETGEN = True
 except ImportError:
-    netgen = None  # type: ignore
+    OCCGeometry = None  # type: ignore
     HAS_NETGEN = False
 
 
@@ -304,6 +307,169 @@ def _mesh_with_gmsh(
                 pass
 
 
+def _selector_coms_via_gmsh(
+    step_path: str,
+    manifest: Any | None,
+    selector_map: dict[str, list[int]],
+    warnings: list[str],
+) -> tuple[
+    list[tuple[str, tuple[float, ...], float | None]],
+    list[tuple[str, tuple[float, ...]]],
+    list[tuple[int, tuple[float, ...]]],
+]:
+    """Resolve manifest selectors to entity centers of mass via the gmsh OCC kernel.
+
+    Selector maps hold 1-based gmsh entity tags, so the tags are resolved with
+    the same OCC load (including the fragment step) as the gmsh engine.
+    Returns ``(named_volumes, named_surfaces, all_volumes)`` where
+    ``named_volumes`` holds ``(name, com, meshSize)`` triples,
+    ``named_surfaces`` holds ``(name, com)`` pairs, and ``all_volumes`` holds
+    ``(tag, com)`` for every volume (used for default block naming).
+    """
+    if gmsh is None:
+        raise RuntimeError("gmsh is required")
+
+    named_volumes: list[tuple[str, tuple[float, ...], float | None]] = []
+    named_surfaces: list[tuple[str, tuple[float, ...]]] = []
+    all_volumes: list[tuple[int, tuple[float, ...]]] = []
+
+    gmsh_initialized = False
+    try:
+        gmsh.initialize()
+        gmsh_initialized = True
+        gmsh.option.setNumber("General.Terminal", 0)
+        _load_step_into_gmsh(step_path)
+
+        for tag in _gmsh_volume_tags():
+            com = tuple(float(c) for c in gmsh.model.occ.getCenterOfMass(3, tag))
+            all_volumes.append((tag, com))
+
+        if manifest is not None:
+            for entry in manifest.volumes:
+                selector = entry.get("selector")
+                name = entry.get("name") or selector
+                size = entry.get("meshSize")
+                tags = selector_map.get(selector, [])
+                if not tags:
+                    warnings.append(
+                        f"Manifest volume '{name}' selector '{selector}' is not present "
+                        "in the selector map; netgen per-region sizing skipped."
+                    )
+                    continue
+                for tag in tags:
+                    com = tuple(float(c) for c in gmsh.model.occ.getCenterOfMass(3, int(tag)))
+                    named_volumes.append((name, com, float(size) if size is not None else None))
+
+            for entry in manifest.surfaces:
+                selector = entry.get("selector")
+                name = entry.get("name") or selector
+                tags = selector_map.get(selector, [])
+                if not tags:
+                    warnings.append(
+                        f"Manifest surface '{name}' selector '{selector}' is not present "
+                        "in the selector map; netgen sideset skipped."
+                    )
+                    continue
+                for tag in tags:
+                    com = tuple(float(c) for c in gmsh.model.occ.getCenterOfMass(2, int(tag)))
+                    named_surfaces.append((name, com))
+    finally:
+        if gmsh_initialized:
+            try:
+                gmsh.finalize()
+            except Exception:
+                pass
+
+    return named_volumes, named_surfaces, all_volumes
+
+
+def _closest_com(
+    point: tuple[float, ...],
+    candidates: list[tuple[float, ...]],
+    tol: float,
+) -> int | None:
+    """Return the index of the closest candidate COM within ``tol``, else None."""
+    best: int | None = None
+    best_dist = tol
+    for idx, candidate in enumerate(candidates):
+        dist = math.dist(point, candidate)
+        if dist <= best_dist:
+            best = idx
+            best_dist = dist
+    return best
+
+
+def _netgen_to_meshio(ng_mesh: Any, warnings: list[str]) -> Any:
+    """Convert a netgen volume mesh into the meshio form the gmsh path yields.
+
+    Builds one ``tetra`` cell block plus one ``triangle`` block for boundary
+    faces, named cell sets from netgen's material (volume) and
+    boundary-condition (surface) names, and gmsh physical tags so the written
+    .msh artifact keeps the same named groups.
+    """
+    if np is None or meshio is None:
+        raise RuntimeError("numpy and meshio are required")
+
+    elements3d = list(ng_mesh.Elements3D())
+    if not elements3d:
+        raise RuntimeError("netgen produced no tetrahedral elements")
+    elements2d = list(ng_mesh.Elements2D())
+    quad_like = [el for el in elements2d if len(el.vertices) != 3]
+    if quad_like:
+        warnings.append(
+            f"netgen engine: dropping {len(quad_like)} non-triangular boundary elements."
+        )
+    elements2d = [el for el in elements2d if len(el.vertices) == 3]
+
+    points = np.array(ng_mesh.Coordinates(), dtype=float)
+    tets = np.array([[v.nr - 1 for v in el.vertices] for el in elements3d], dtype=np.int32)
+    tris = np.array([[v.nr - 1 for v in el.vertices] for el in elements2d], dtype=np.int32)
+    tet_domain = np.array([el.index for el in elements3d], dtype=int)
+    tri_bc = np.array([el.index for el in elements2d], dtype=int)
+
+    # Element indices are 1-based domain/BC numbers; GetBCName is 0-based.
+    materials = [ng_mesh.GetMaterial(i) for i in range(1, ng_mesh.GetNDomains() + 1)]
+    bc_names = {i: ng_mesh.GetBCName(i - 1) for i in sorted(set(tri_bc.tolist()))}
+
+    cells: list[tuple[str, np.ndarray]] = [("tetra", tets)]
+    if len(tris) > 0:
+        cells.append(("triangle", tris))
+
+    field_data: dict[str, np.ndarray] = {}
+    phys_tet = np.zeros(len(tets), dtype=np.int32)
+    phys_tri = np.zeros(len(tris), dtype=np.int32)
+    cell_sets: dict[str, list[np.ndarray]] = {}
+    tag = 0
+    for domain, name in enumerate(materials, start=1):
+        tag += 1
+        field_data[name] = np.array([tag, 3])
+        mask = np.nonzero(tet_domain == domain)[0]
+        phys_tet[mask] = tag
+        cell_sets.setdefault(name, [np.array([], dtype=int) for _ in cells])[0] = mask
+    if len(tris) > 0:
+        for bc_index, name in bc_names.items():
+            if name == "default":
+                continue
+            tag += 1
+            field_data[name] = np.array([tag, 2])
+            mask = np.nonzero(tri_bc == bc_index)[0]
+            phys_tri[mask] = tag
+            cell_sets.setdefault(name, [np.array([], dtype=int) for _ in cells])[1] = mask
+
+    cell_data = {"gmsh:physical": [phys_tet], "gmsh:geometrical": [np.zeros(len(tets), np.int32)]}
+    if len(tris) > 0:
+        cell_data["gmsh:physical"].append(phys_tri)
+        cell_data["gmsh:geometrical"].append(np.zeros(len(tris), np.int32))
+
+    return meshio.Mesh(
+        points=points,
+        cells=cells,
+        cell_sets=cell_sets,
+        cell_data=cell_data,
+        field_data=field_data,
+    )
+
+
 def _mesh_with_netgen(
     step_path: str,
     output_msh: Path,
@@ -314,16 +480,89 @@ def _mesh_with_netgen(
     max_size: float | None,
     order: int,
     warnings: list[str],
-) -> None:
-    """Netgen fallback placeholder.
+) -> Any:
+    """Generate a 3D volume mesh with netgen and write a gmsh-compatible .msh file.
 
-    The interface matches ``_mesh_with_gmsh`` but Netgen is not wired yet;
-    it is accepted as an engine value for forward compatibility.
+    The STEP file is meshed with netgen's own OCC kernel and converted
+    in-memory to the same meshio representation the gmsh engine produces via
+    ``meshio.read``: a ``tetra`` cell block, a ``triangle`` boundary block,
+    and named cell sets for blocks and sidesets. The returned mesh feeds the
+    shared report/ExodusII/INP/VTK pipeline unchanged.
+
+    Manifest volume names become netgen material names (block names) and a
+    volume's ``meshSize`` maps to that solid's ``maxh``; manifest surface
+    names become boundary-condition names (sidesets). Selectors are matched
+    to netgen solids/faces by center of mass against the gmsh OCC numbering
+    the selector map refers to. Unmatched selectors produce warnings and
+    unnamed solids fall back to ``block_<tag>`` names.
+
+    Limitations compared to the gmsh engine: only linear tetrahedra are
+    produced (``order`` > 1 falls back with a warning) and ``min_size`` maps
+    to netgen's ``minh`` hint rather than a hard characteristic-length bound.
     """
-    raise NotImplementedError(
-        "Netgen engine is accepted but not yet implemented. "
-        "Use engine='gmsh' or install a future nuke-cad update."
+    if not HAS_NETGEN or OCCGeometry is None or np is None or meshio is None:
+        raise RuntimeError("netgen, numpy, and meshio are required")
+    if order > 1:
+        warnings.append(
+            "netgen engine: element order > 1 is not supported; generating linear tetrahedra."
+        )
+
+    named_volumes, named_surfaces, all_volumes = _selector_coms_via_gmsh(
+        step_path, manifest, selector_map or {}, warnings
     )
+
+    # Load the STEP shape, tag it with names/sizes, then hand the tagged shape
+    # to a fresh OCCGeometry: sub-shape meshing attributes are only honored
+    # when present before the OCCGeometry is constructed.
+    shape = OCCGeometry(step_path).shape
+    bb_min, bb_max = shape.bounding_box
+    tol = 1e-6 * max(math.dist(bb_min, bb_max), 1.0)
+
+    volume_coms = [com for _, com, _ in named_volumes]
+    default_coms = [com for _, com in all_volumes]
+    for idx, solid in enumerate(shape.solids):
+        center = tuple(float(c) for c in solid.center)
+        named_idx = _closest_com(center, volume_coms, tol) if volume_coms else None
+        if named_idx is not None:
+            name, _, region_size = named_volumes[named_idx]
+            if region_size is not None:
+                solid.maxh = region_size
+        else:
+            tag_idx = _closest_com(center, default_coms, tol) if default_coms else None
+            if tag_idx is not None:
+                name = f"block_{all_volumes[tag_idx][0]}"
+            else:
+                name = f"block_{idx + 1}"
+                warnings.append(
+                    f"netgen engine: could not match solid {idx + 1} to a gmsh volume "
+                    f"by center of mass; using fallback block name '{name}'."
+                )
+        solid.mat(name)
+
+    faces = list(shape.faces)
+    for name, com in named_surfaces:
+        matched = [face for face in faces if math.dist(tuple(face.center), com) <= tol]
+        if not matched:
+            warnings.append(
+                f"netgen engine: surface '{name}' could not be matched to a netgen face; "
+                "the sideset will be empty."
+            )
+        for face in matched:
+            face.bc(name)
+
+    mesh_kwargs: dict[str, float] = {}
+    maxh = max_size if max_size is not None else mesh_size
+    if maxh is not None:
+        mesh_kwargs["maxh"] = float(maxh)
+    if min_size is not None:
+        mesh_kwargs["minh"] = float(min_size)
+    ng_mesh = OCCGeometry(shape).GenerateMesh(**mesh_kwargs)
+
+    mesh = _netgen_to_meshio(ng_mesh, warnings)
+
+    output_msh.parent.mkdir(parents=True, exist_ok=True)
+    meshio.write(str(output_msh), mesh, file_format="gmsh22", binary=False)
+    return mesh
 
 
 def _cell_set_indices(mask: Any) -> np.ndarray:
@@ -699,7 +938,7 @@ def mesh_step(
         output_stem: Base file name; defaults to the STEP stem.
         manifest: Optional ``RegionManifest`` for block/sideset names and sizes.
         selector_map: Maps selectors to lists of 1-based gmsh volume/surface tags.
-        engine: ``"gmsh"`` (primary) or ``"netgen"`` (placeholder).
+        engine: ``"gmsh"`` (primary) or ``"netgen"`` (fallback, linear tetrahedra).
         mesh_size: Global target element size (sets max characteristic length).
         min_size: Minimum allowed element size.
         max_size: Maximum allowed element size.
@@ -733,6 +972,13 @@ def mesh_step(
     paths = _derive_output_paths(step_path, output_dir, output_stem)
     result["paths"] = {key: str(path) for key, path in paths.items()}
 
+    if engine == "netgen" and not HAS_NETGEN:
+        result["error"] = (
+            "Netgen engine is not available: install the optional netgen/ngsolve "
+            "packages (pip install ngsolve) to use it."
+        )
+        return result
+
     if selector_map is None:
         selector_map = {}
 
@@ -740,6 +986,7 @@ def mesh_step(
 
     try:
         _print_progress(f"Meshing STEP: {step_file} with engine={engine}")
+        mesh = None
         if engine == "gmsh":
             _mesh_with_gmsh(
                 str(step_file),
@@ -753,7 +1000,7 @@ def mesh_step(
                 warnings,
             )
         elif engine == "netgen":
-            _mesh_with_netgen(
+            mesh = _mesh_with_netgen(
                 str(step_file),
                 paths["msh"],
                 manifest,
@@ -767,8 +1014,9 @@ def mesh_step(
         else:
             raise ValueError(f"Unknown mesh engine: {engine}")
 
-        _print_progress(f"Reading gmsh mesh for conversion: {paths['msh']}")
-        mesh = meshio.read(str(paths["msh"]))
+        if mesh is None:
+            _print_progress(f"Reading gmsh mesh for conversion: {paths['msh']}")
+            mesh = meshio.read(str(paths["msh"]))
 
         tets, blocks = _extract_tetra_blocks(mesh)
         sidesets = _extract_sidesets(mesh, tets)
@@ -800,8 +1048,7 @@ def mesh_step(
             f"{report['nodeCount']} nodes, {len(blocks)} block(s)"
         )
     except NotImplementedError as exc:
-        # Documented stub (e.g. engine='netgen'): report a clean structured
-        # error instead of a traceback.
+        # Documented stubs: report a clean structured error instead of a traceback.
         result["error"] = str(exc)
         result["warnings"] = warnings
     except Exception as exc:

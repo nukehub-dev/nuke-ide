@@ -22,7 +22,7 @@
     {
       "name": "netgen",
       "required": false,
-      "installCommand": "pip install netgen-mesher"
+      "installCommand": "pip install ngsolve"
     },
     {
       "name": "ngsolve",
@@ -57,7 +57,7 @@
     {
       "name": "netgen",
       "required": false,
-      "installCommand": "pip install netgen-mesher"
+      "installCommand": "pip install ngsolve"
     },
     {
       "name": "ngsolve",

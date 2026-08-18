@@ -49,6 +49,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/checkEnvironment', 'Check CAD Environment')
     };
 
+    export const OPEN_OUTLINE_PANEL: Command = {
+        id: 'nuke.cad.openOutlinePanel',
+        label: nls.localize('nuke/cad/openOutlinePanel', 'Open Model Outline')
+    };
+
     export const OPEN_FEM_PANEL: Command = {
         id: 'nuke.cad.openFemPanel',
         label: nls.localize('nuke/cad/openFemPanel', 'Open FEM Analysis Panel')

@@ -8,11 +8,13 @@ extensions/nuke-cad/
 ├── tsconfig.json
 ├── src/
 │   ├── common/            # RPC protocol, packages.json
-│   ├── browser/           # widgets, commands, contributions, state
+│   ├── browser/           # widgets, commands, contributions, state, preferences
 │   └── node/              # backend service that spawns Python
 ├── python/                # geometry_service.py, dagmc_export.py, mesh_service.py,
-│                          # fem_service.py, region_manifest.py, ocp_compat.py
-├── tests/python/          # pytest suite
+│                          # fem_service.py, foam_service.py, region_manifest.py,
+│                          # job_service.py, ocp_compat.py
+├── tests/python/          # pytest unit suite (minimal profile)
+├── tests/e2e/             # pytest e2e layer (@pytest.mark.e2e, env-gated)
 └── docs/                  # user/dev docs
 ```
 
@@ -34,6 +36,22 @@ The frontend receives the result, caches the active `CadModel` in
 `NukeCadStateManager`, and renders `model.tess.json` in a three.js viewport.
 Saving a script-source model's `.py` file debounce-triggers a rebuild; build
 errors surface in a dismissible banner inside the viewport.
+
+`NukeCadFrontendService.buildGeometry` resolves the faceting tolerance from
+the `nukeCad.facetingTolerance` preference (default 0.001, schema in
+`src/browser/nuke-cad-preferences.ts`) unless the caller passes an explicit
+tolerance, so open, rebuild, and **Open CAD Model...** all honor the user's
+default. openmc-studio keeps its own `openmcStudio.defaultFacetingTolerance`;
+nuke-cad is optional and carries no dependency on it.
+
+The **Model Outline** panel (`src/browser/widgets/outline-panel/`, widget ID
+`nuke-cad-outline-panel-widget`) renders the active model's manifest volumes
+and surfaces as a read-only tree with count badges and a build-warnings box
+(positional `mat_<id>` rows when no manifest exists). Picking syncs both ways
+through `NukeCadStateManager`: a row click highlights the whole solid in the
+viewport (the viewport learned whole-solid highlight for solidId-only
+selections), and a viewport pick selects the row, scrolls it into view, and
+expands its section.
 
 ## Python geometry service
 
@@ -101,8 +119,24 @@ The meshing service turns the canonical STEP file into FEM volume meshes:
    edge-length aspect ratios). An explicit `max_size` request overrides
    `mesh_size`; second-order meshes report `elementTypes: tetra10`.
 
-Netgen is accepted as an `engine` value for forward compatibility but
-returns a structured "not yet implemented" error.
+Netgen is a supported alternative engine (`engine='netgen'`). It loads the
+STEP via `netgen.occ.OCCGeometry`, maps per-region `meshSize` to
+`solid.maxh`, maps surface names to boundary-condition names, resolves the
+selector map via gmsh COM matching, and converges into the same meshio-based
+report/Exodus/INP/VTK pipeline as gmsh. Limitations: linear tets only
+(order > 1 warns), and the `.msh` artifact is gmsh-2.2 ASCII via meshio. A
+missing netgen install returns a structured error. Netgen comes from the
+`ngsolve` pip wheel (installs netgen-mesher, which bundles its own OCCT
+7.8.1).
+
+## E2E tests (`tests/e2e/`)
+
+The e2e layer runs the full pipeline against real dependencies — e.g. the
+pincell DAGMC test builds a labeled build123d pincell, exports STEP, produces
+an imprinted h5m (asserting `mat:fuel/clad/moderator/graveyard` groups), and
+runs a real OpenMC simulation asserting zero lost particles. Tests carry the
+`@pytest.mark.e2e` marker, are gated on `NUKE_TEST_PYTHON` +
+`OPENMC_CROSS_SECTIONS`, and skip cleanly when those are unset.
 
 ## FEM service (`fem_service.py`)
 

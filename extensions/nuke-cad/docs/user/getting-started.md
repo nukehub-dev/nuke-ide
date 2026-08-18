@@ -51,6 +51,31 @@ Assign materials and names by creating a sidecar file named
 The manifest is validated when the geometry rebuilds. Unknown selectors and
 missing materials are reported as warnings.
 
+## Model Outline panel
+
+The **Model Outline** panel gives a structured tree view of the active model:
+
+- Open it with the **Open Model Outline** command, or from the Nuke Tools
+  sidebar under `CAD Studio → Geometry`. It docks in the right panel area.
+- Volumes are listed with their manifest name, material, and tags; surfaces
+  with their name and role. Sections are collapsible and carry count badges,
+  and build warnings appear in a box at the top. Models without a manifest
+  fall back to positional `mat_<id>` rows.
+- Picking is synced with the viewport in both directions: clicking a row
+  highlights the whole solid in the viewport, and picking a face/solid in the
+  viewport selects the matching row (scrolling it into view and expanding its
+  section).
+- The panel is read-only. Its manifest button opens the model's
+  `.regions.json` in the text editor (disabled when no manifest exists).
+
+## Preferences
+
+- `nukeCad.facetingTolerance` (default `0.001`) sets the faceting tolerance
+  used for geometry builds — both the viewport tessellation and the DAGMC
+  export. Smaller values give finer meshes at the cost of build time. It
+  applies to builds started after the change; an explicit per-build tolerance
+  still wins.
+
 ## Export artifacts
 
 When the geometry service runs a script build it writes several files beside
@@ -65,6 +90,17 @@ When the geometry service runs a script build it writes several files beside
 | `model.inp` / `model.vtk` | CalculiX/Abaqus and VTK mesh exports               |
 | `model.regions.json`      | Named volumes, materials, surfaces, and mesh sizes |
 | `model.mesh.report.json`  | Mesh quality metrics                               |
+
+### Meshing engines
+
+FEM volume meshing defaults to gmsh (HXT tetrahedral algorithm). Passing
+`engine='netgen'` to the mesh service switches to netgen (`netgen.occ`), which
+honors the same per-region `meshSize` refinement and named-surface boundary
+conditions and produces the same `.msh` / `.e` / `.inp` / `.vtk` artifacts and
+quality report. Netgen generates linear tets only (higher-order requests fall
+back with a warning) and requires the `ngsolve` pip wheel
+(`pip install ngsolve`); if netgen is not installed you get a structured
+error, not a silent gmsh fallback.
 
 ## Use in OpenMC Studio
 

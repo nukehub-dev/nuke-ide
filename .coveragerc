@@ -12,13 +12,13 @@
 source =
     extensions/nuke-visualizer/python
     extensions/openmc-studio/python
-    # extensions/nuke-cad/python is intentionally NOT in the ratchet yet:
-    # its services are OCC/gmsh/pymoab-bound, so they are only exercised in the
-    # full-dependency profile (docker in-image pytest step, NUKE_TEST_PYTHON),
-    # and the measured baseline sits at ~94% with no headroom — including them
-    # would force the threshold down, which the ratchet forbids. Include them
-    # once the CI coverage env gains the nuke-cad toolchain AND their full-profile
-    # coverage alone clears the gate.
+    extensions/nuke-cad/python
+    # nuke-cad's OCC/gmsh/pymoab-bound pipeline modules (geometry_service,
+    # dagmc_export, mesh_service, fem_service, foam_service, ocp_compat) stay
+    # out of the ratchet via `omit` below: they are only exercised in the
+    # full-dependency profile (docker in-image pytest step, NUKE_TEST_PYTHON)
+    # and including them would drag the total below the gate. Only the
+    # pure-logic modules (region_manifest, job_service) are measured here.
 
 omit =
     # trame/ParaView rendering servers and plugin registration glue
@@ -31,6 +31,14 @@ omit =
     extensions/nuke-visualizer/python/plugins/openmc/lib/geometry_viz.py
     extensions/nuke-visualizer/python/plugins/openmc/lib/reader.py
     extensions/nuke-visualizer/python/plugins/openmc/lib/slice_viz.py
+    # OCC/gmsh/pymoab-bound nuke-cad pipeline modules — full-profile-only,
+    # exercised by the docker in-image pytest step (see note above)
+    extensions/nuke-cad/python/geometry_service.py
+    extensions/nuke-cad/python/dagmc_export.py
+    extensions/nuke-cad/python/mesh_service.py
+    extensions/nuke-cad/python/fem_service.py
+    extensions/nuke-cad/python/foam_service.py
+    extensions/nuke-cad/python/ocp_compat.py
 
 [report]
 show_missing = true

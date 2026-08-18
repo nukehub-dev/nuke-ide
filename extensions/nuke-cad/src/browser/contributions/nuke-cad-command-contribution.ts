@@ -39,6 +39,7 @@ import { NukeCadCommands } from '../commands';
 import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
+import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
 import { FemPanelWidget } from '../widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from '../widgets/foam-panel/foam-panel-widget';
 
@@ -108,6 +109,14 @@ export class NukeCadCommandContribution implements CommandContribution {
                 } else {
                     this.messageService.warn(`Missing packages: ${status.missing.join(', ')}.${optionalNote}`);
                 }
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_OUTLINE_PANEL, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(CadOutlinePanelWidget.ID);
+                await this.shell.addWidget(widget, { area: 'right' });
+                await this.shell.activateWidget(widget.id);
             }
         });
 

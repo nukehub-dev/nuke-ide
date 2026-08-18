@@ -20,6 +20,22 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - The CAD viewport is a purpose-built three.js widget (documented exception to
   the "reuse nuke-visualizer" rule); heavy visualization results still route to
   nuke-visualizer. The empty viewport shows an **Open CAD Model...** button.
+- The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
+  `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
+  model's manifest volumes and surfaces and is read-only — no manifest editing
+  UI. Picking syncs both ways through the shared `NukeCadStateManager`: row
+  click highlights the whole solid in the viewport; a viewport pick selects the
+  row, scrolls it into view, and expands its section. Opened via the
+  `nuke.cad.openOutlinePanel` command (right shell area) or the Nuke Tools
+  sidebar (`CAD Studio → Geometry`).
+- Preferences live in `src/browser/nuke-cad-preferences.ts`.
+  `nukeCad.facetingTolerance` (number, default 0.001, exclusiveMinimum 0) is
+  the default faceting tolerance consumed by
+  `NukeCadFrontendService.buildGeometry` on open/rebuild/Open-CAD-Model; an
+  explicit per-call tolerance wins and changes apply to subsequent builds
+  only. It is deliberately separate from openmc-studio's
+  `openmcStudio.defaultFacetingTolerance` — nuke-cad is an optional extension
+  and cannot depend on openmc-studio.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. The `.py` open-handler
@@ -60,6 +76,25 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   with a job registry and a `cancelJob(jobId)` RPC (process-group kill,
   one-hour default timeout, 1 MB output tail, remaining jobs killed on
   backend stop); the FEM panel's **Stop** button uses it.
+- The mesh service (`python/mesh_service.py`) supports `engine='gmsh'`
+  (default) and `engine='netgen'` with interface parity: per-region `meshSize`
+  maps to `solid.maxh`, surface names become boundary-condition names, and the
+  result converges into the same meshio-based report/Exodus/INP/VTK pipeline.
+  Netgen produces linear tets only (order > 1 warns) and its `.msh` artifact is
+  gmsh-2.2 ASCII via meshio; a missing netgen install returns a structured
+  error. Install it with the `ngsolve` pip wheel (pulls in netgen-mesher,
+  which bundles its own OCCT 7.8.1).
+- The e2e layer lives in `tests/e2e/` (pytest, `@pytest.mark.e2e`): real
+  full-pipeline runs such as the pincell DAGMC test (labeled build123d pincell
+  → STEP → imprinted h5m → real OpenMC run asserting zero lost particles).
+  Tests are env-gated on `NUKE_TEST_PYTHON` + `OPENMC_CROSS_SECTIONS` and must
+  skip cleanly when unset.
+- Coverage split: only the pure-logic Python modules (`region_manifest.py`,
+  `job_service.py`) are measured in the `.coveragerc` ratchet; the
+  OCC/gmsh/pymoab-bound pipeline modules (`geometry_service`, `dagmc_export`,
+  `mesh_service`, `fem_service`, `foam_service`, `ocp_compat`) are omitted
+  because they are only exercised in the full-dependency profile (docker
+  in-image pytest step, `NUKE_TEST_PYTHON`) and would drag the gate down.
 - The OpenFOAM service (`python/foam_service.py`) scaffolds solver-ready
   cases (controlDict, fvSchemes, fvSolution, transportProperties, and
   0/U/p/T field files) and exports per-solid STL files from a STEP file.
@@ -85,9 +120,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 ```bash
 npx lerna run build --scope nuke-cad
-yarn test:python   # includes nuke-cad tests/python
+yarn test:python   # includes nuke-cad tests/python and tests/e2e (e2e skips without env gates)
 yarn lint
 ```
+
+E2e runs require the full profile: `NUKE_TEST_PYTHON` pointing at an env with
+openmc + the CAD toolchain, plus `OPENMC_CROSS_SECTIONS` for the model run —
+see the root `AGENTS.md` coverage/e2e bullets.
 
 ## Child NAD Index
 

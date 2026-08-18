@@ -63,6 +63,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and exports per-solid STL files from a canonical STEP file for patch
   geometry. The **OpenFOAM Case** panel exposes solver selection, boundary
   condition editing, case scaffolding, and STL export.
+- nuke-cad: **Model Outline panel** — a new right-area widget (**Open Model
+  Outline** command, also under `CAD Studio → Geometry` in the Nuke Tools
+  sidebar) listing the active model's manifest volumes (name/material/tags)
+  and surfaces (name/role) with count badges, collapsible sections, and a
+  build-warnings box; unmanifested models fall back to positional `mat_<id>`
+  rows. Picking is synced both ways through the shared CAD state manager:
+  clicking a row highlights the whole solid in the viewport, and picking in
+  the viewport selects the row, scrolls it into view, and expands its
+  section. The panel is read-only; its manifest button opens the model's
+  `.regions.json` in the editor.
+- nuke-cad: **`nukeCad.facetingTolerance` preference** — default faceting
+  tolerance (0.001) for geometry builds (tessellation and DAGMC export),
+  honored by open, rebuild, and **Open CAD Model...**; an explicit per-call
+  tolerance still wins, and changes apply to subsequent builds only.
+- nuke-cad: **netgen meshing engine** — `mesh_service.py` now accepts
+  `engine='netgen'` (netgen.occ OCCGeometry, per-region `meshSize` mapped to
+  `solid.maxh`, surface names mapped to boundary-condition names) and
+  converges into the same meshio-based report/Exodus/INP/VTK pipeline as
+  gmsh. Netgen produces linear tets only (order > 1 warns) and requires the
+  `ngsolve` pip wheel; a missing install returns a structured error.
 - build: **optional extensions are selectable at build time** —
   `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
   (deny-list) prune optional extensions from the browser/Electron bundles and
@@ -229,6 +249,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `yarn test:python:full` runs the full-dependency profile via `NUKE_TEST_PYTHON`;
   env-gated on `OPENMC_CROSS_SECTIONS` / `NUKE_E2E_CHAIN` / `NUKE_E2E_ENDF`,
   skipping cleanly otherwise.
+- Testing: nuke-cad **pincell DAGMC e2e** (`extensions/nuke-cad/tests/e2e/`) —
+  labeled build123d pincell → STEP → imprinted h5m (asserts
+  `mat:fuel/clad/moderator/graveyard` groups) → a real OpenMC run asserting
+  zero lost particles. Marked `@pytest.mark.e2e`, env-gated on
+  `NUKE_TEST_PYTHON` + `OPENMC_CROSS_SECTIONS`, skipping cleanly otherwise.
 
 ### Fixed
 

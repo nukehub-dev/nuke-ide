@@ -435,18 +435,181 @@ def test_mesh_report_quadratic_tet_element_type() -> None:
 def test_netgen_engine_returns_structured_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """engine='netgen' is a documented stub: clean JSON error, no traceback."""
+    """A missing netgen install yields a clean structured error, no traceback."""
     monkeypatch.setattr(mesh_service, "HAS_GMSH", True)
     monkeypatch.setattr(mesh_service, "HAS_MESHIO", True)
     monkeypatch.setattr(mesh_service, "HAS_NETCDF4", True)
+    monkeypatch.setattr(mesh_service, "HAS_NETGEN", False)
     step = tmp_path / "dummy.step"
     step.write_text("ISO-10303-21;\n", encoding="utf-8")
 
     result = mesh_service.mesh_step(str(step), output_dir=str(tmp_path), engine="netgen")
     assert result["success"] is False
     assert result["error"] is not None
-    assert "not yet implemented" in result["error"]
+    assert "netgen" in result["error"].lower()
     assert "traceback" not in result
+
+
+def _requires_netgen() -> None:
+    """Skip a test if netgen (or the full CAD/meshing profile) is unavailable."""
+    _requires_full_profile()
+    pytest.importorskip("netgen.occ", reason="netgen not installed")
+
+
+def test_netgen_mesh_single_box(tmp_path: Path) -> None:
+    """engine='netgen' meshes a box and produces all output files."""
+    _requires_netgen()
+
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+
+    mesh_result = mesh_service.mesh_step(
+        service_result["stepPath"],
+        output_dir=str(tmp_path),
+        output_stem="netgen_box",
+        engine="netgen",
+        mesh_size=4.0,
+        order=2,  # unsupported: must fall back to linear with a warning
+    )
+    assert mesh_result["success"] is True, mesh_result.get("error", "")
+    assert any("order" in w for w in mesh_result["warnings"])
+
+    report = mesh_result["report"]
+    assert report is not None
+    assert report["elementCount"] > 0
+    assert report["nodeCount"] > 0
+    assert "tetra" in report["elementTypes"]
+    quality = report["quality"]
+    assert 0.0 < quality["minDihedralDeg"] <= quality["maxDihedralDeg"] <= 180.0
+    assert quality["minAspectRatio"] >= 1.0
+    assert quality["minAspectRatio"] <= quality["meanAspectRatio"]
+
+    for key in ("msh", "e", "inp", "vtk", "report"):
+        assert Path(mesh_result["paths"][key]).exists(), f"{key} missing"
+
+    block_names = _read_exodus_names(Path(mesh_result["paths"]["e"]), "eb_names")
+    assert "block_1" in block_names
+
+
+def test_netgen_manifest_blocks_and_sidesets(tmp_path: Path) -> None:
+    """Manifest names become Exodus blocks/sidesets with engine='netgen'."""
+    _requires_netgen()
+
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+
+    # Discover entity tags by geometry instead of hardcoding gmsh tags.
+    left = _find_gmsh_tag_by_com(service_result["stepPath"], 3, (0.0, 0.0, 0.0))
+    right = _find_gmsh_tag_by_com(service_result["stepPath"], 3, (10.0, 0.0, 0.0))
+    shared = _find_gmsh_tag_by_com(service_result["stepPath"], 2, (5.0, 0.0, 0.0))
+    assert left is not None and right is not None and shared is not None
+
+    manifest = RegionManifest.from_dict(
+        {
+            "version": 1,
+            "volumes": [
+                {"selector": "left", "name": "left_block", "material": "mat1"},
+                {"selector": "right", "name": "right_block", "material": "mat2"},
+            ],
+            "surfaces": [
+                {"selector": "shared", "name": "shared_surface", "role": "interface"},
+            ],
+        }
+    )
+    mesh_result = mesh_service.mesh_step(
+        service_result["stepPath"],
+        output_dir=str(tmp_path),
+        output_stem="netgen_named",
+        engine="netgen",
+        manifest=manifest,
+        selector_map={"left": [left], "right": [right], "shared": [shared]},
+        mesh_size=4.0,
+    )
+    assert mesh_result["success"] is True, mesh_result.get("error", "")
+
+    block_names = _read_exodus_names(Path(mesh_result["paths"]["e"]), "eb_names")
+    assert "left_block" in block_names
+    assert "right_block" in block_names
+    sideset_names = _read_exodus_names(Path(mesh_result["paths"]["e"]), "ss_names")
+    assert "shared_surface" in sideset_names
+
+    report = mesh_result["report"]
+    assert report is not None
+    block_counts = {b["name"]: b["elementCount"] for b in report["blocks"]}
+    assert "left_block" in block_counts
+    assert "right_block" in block_counts
+    assert block_counts["left_block"] + block_counts["right_block"] == report["elementCount"]
+
+    # The Exodus file round-trips through meshio with one block per box.
+    import meshio
+
+    mesh = meshio.read(mesh_result["paths"]["e"])
+    tet_blocks = [c for c in mesh.cells if c.type == "tetra"]
+    assert len(tet_blocks) == 2
+    assert sum(len(c.data) for c in tet_blocks) == report["elementCount"]
+
+
+def test_netgen_per_region_mesh_size_changes_element_count(tmp_path: Path) -> None:
+    """A smaller per-region meshSize increases the netgen element count."""
+    _requires_netgen()
+
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+    step_path = service_result["stepPath"]
+
+    coarse = mesh_service.mesh_step(
+        step_path,
+        output_dir=str(tmp_path / "coarse"),
+        output_stem="coarse",
+        engine="netgen",
+        mesh_size=5.0,
+    )
+    assert coarse["success"] is True, coarse.get("error", "")
+
+    manifest = RegionManifest.from_dict(
+        {
+            "version": 1,
+            "volumes": [{"selector": "box", "name": "box", "material": "M", "meshSize": 1.0}],
+        }
+    )
+    fine = mesh_service.mesh_step(
+        step_path,
+        output_dir=str(tmp_path / "fine"),
+        output_stem="fine",
+        engine="netgen",
+        manifest=manifest,
+        selector_map={"box": [1]},
+        mesh_size=5.0,
+    )
+    assert fine["success"] is True, fine.get("error", "")
+
+    assert fine["report"]["elementCount"] > coarse["report"]["elementCount"]
 
 
 def test_exodus_sideset_side_numbers_match_geometry(tmp_path: Path) -> None:

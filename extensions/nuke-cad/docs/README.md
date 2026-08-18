@@ -17,8 +17,9 @@ build123d/CadQuery script (.py = source of truth)
 ## Current status
 
 - Geometry service: script execution, STEP export, viewport tessellation stream, region manifest validation.
+- Model Outline panel: read-only tree of manifest volumes/surfaces with two-way viewport picking sync.
 - DAGMC export: gmsh OCC imprint/merge, named material groups, auto-graveyard.
-- FEM meshing: gmsh HXT volume meshing, ExodusII/CalculiX/VTK export, mesh quality report.
+- FEM meshing: gmsh HXT volume meshing (or the optional netgen engine), ExodusII/CalculiX/VTK export, mesh quality report.
 - FEM analysis (CalculiX): input-deck writer, boundary-condition/material UI, `ccx` runner with timeout and Stop/cancel, FRD-to-VTK conversion.
 - Generic job runner: declarative local subprocess abstraction for solver hooks, with process-group timeout and cancellation.
 - OpenFOAM scaffolding: case directory + dictionary generation, per-solid STL export from STEP.

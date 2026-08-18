@@ -36,7 +36,9 @@ dependencies:
   # nuke-cad full profile: build123d geometry authoring (conda build, links
   # conda ocp), meshio for CalculiX/VTK mesh export, netCDF4 for the custom
   # ExodusII writer. netgen/ngsolve stay optional and are intentionally not
-  # installed (the netgen mesh engine is not wired yet).
+  # installed: the netgen mesh engine is an opt-in alternative to the default
+  # gmsh path, and the pip ngsolve wheel bundles its own OCCT, which risks the
+  # same vtkmodules/OCCT clobbering the pip cadquery warning above describes.
   - build123d
   - meshio
   - netCDF4
