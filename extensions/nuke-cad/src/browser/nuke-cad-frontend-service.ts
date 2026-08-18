@@ -67,6 +67,10 @@ export class NukeCadFrontendService implements NukeCadBackendService {
         return this.proxy.runJob(request);
     }
 
+    cancelJob(jobId: string): Promise<boolean> {
+        return this.proxy.cancelJob(jobId);
+    }
+
     buildFoamCase(request: FoamCaseRequest): Promise<FoamCaseResult> {
         return this.proxy.buildFoamCase(request);
     }
@@ -79,7 +83,7 @@ export class NukeCadFrontendService implements NukeCadBackendService {
         return this.proxy.listFoamSolvers();
     }
 
-    checkCadEnvironment(): Promise<{ ready: boolean; missing: string[] }> {
+    checkCadEnvironment(): Promise<{ ready: boolean; missing: string[]; missingOptional: string[] }> {
         return this.proxy.checkCadEnvironment();
     }
 }

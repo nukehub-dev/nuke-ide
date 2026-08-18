@@ -44,15 +44,6 @@ except ImportError:
     HAS_GMSH = False
 
 
-# CalculiX face labels for a C3D4 tetrahedron using gmsh node ordering.
-_C3D4_FACES = [
-    ("S1", (1, 2, 3)),  # opposite node 0
-    ("S2", (0, 3, 2)),  # opposite node 1
-    ("S3", (0, 1, 3)),  # opposite node 2
-    ("S4", (0, 2, 1)),  # opposite node 3
-]
-
-
 class MeshData:
     """Simple container for a gmsh volume mesh and its named sets."""
 
@@ -229,6 +220,15 @@ def _read_gmsh_mesh(msh_path: str) -> MeshData:
                         }
                     )
 
+        # Bucket element indices by parent entity tag once, so physical-group
+        # assignment is O(entities + elements) instead of O(entities x elements).
+        volume_by_parent: dict[int, list[int]] = {}
+        for idx, elem in enumerate(elements):
+            volume_by_parent.setdefault(elem["parentTag"], []).append(idx)
+        surface_by_parent: dict[int, list[int]] = {}
+        for idx, elem in enumerate(surface_elems):
+            surface_by_parent.setdefault(elem["parentTag"], []).append(idx)
+
         # Assign physical-group names to volume and surface blocks.
         blocks: dict[str, Any] = {}
         surface_sets: dict[str, Any] = {}
@@ -238,31 +238,30 @@ def _read_gmsh_mesh(msh_path: str) -> MeshData:
             if dim == 3:
                 indices: list[int] = []
                 for ent in entities:
-                    for idx, elem in enumerate(elements):
-                        if elem["parentTag"] == ent:
-                            elem["block"] = name
-                            indices.append(idx)
+                    for idx in volume_by_parent.get(int(ent), []):
+                        elements[idx]["block"] = name
+                        indices.append(idx)
                 if indices:
                     blocks[name] = np.array(indices, dtype=int)
             elif dim == 2:
                 indices = []
                 for ent in entities:
-                    for idx, elem in enumerate(surface_elems):
-                        if elem["parentTag"] == ent:
-                            elem["block"] = name
-                            indices.append(idx)
+                    for idx in surface_by_parent.get(int(ent), []):
+                        surface_elems[idx]["block"] = name
+                        indices.append(idx)
                 if indices:
                     surface_sets[name] = {
                         "indices": np.array(indices, dtype=int),
                         "elements": surface_elems,
                     }
 
-        # Any unnamed volume gets a default block so it still has a section.
-        for idx, elem in enumerate(elements):
-            if not elem["block"]:
-                elem["block"] = f"block_{idx}"
-                blocks.setdefault(elem["block"], np.array([], dtype=int))
-                blocks[elem["block"]] = np.append(blocks[elem["block"]], idx)
+        # Unnamed elements share a single fallback block (not one block each).
+        unnamed = [idx for idx, elem in enumerate(elements) if not elem["block"]]
+        if unnamed:
+            fallback = "block_1" if "block_1" not in blocks else "unnamed"
+            for idx in unnamed:
+                elements[idx]["block"] = fallback
+            blocks[fallback] = np.array(unnamed, dtype=int)
 
         return MeshData(np.array(points, dtype=np.float64), elements, blocks, surface_sets)
     finally:
@@ -407,8 +406,9 @@ def _write_boundary_conditions(
             continue
 
         if bc_type == "fixed":
-            for n in nodes:
-                fixed_lines.append(f"{n + 1}, ENCASTRE")
+            # CalculiX does not accept Abaqus predefined labels (ENCASTRE & co.);
+            # pin translational dofs 1-3 through the surface node set instead.
+            fixed_lines.append(f"{surf}, 1, 3")
         elif bc_type == "displacement":
             vector = bc.get("vector") or [0.0, 0.0, 1.0]
             magnitude = float(bc.get("magnitude", 0))
@@ -587,8 +587,15 @@ def _find_ccx(ccx_path: str | None = None) -> str:
 def _run_ccx(
     inp_path: Path,
     ccx_path: str,
+    timeout: float = 3600.0,
+    max_output_bytes: int = 1_048_576,
 ) -> dict[str, Any]:
-    """Run CalculiX on the input deck and return file paths and output."""
+    """Run CalculiX on the input deck and return file paths and output.
+
+    stdout/stderr are streamed to ``<stem>.ccx.log`` so memory stays bounded
+    no matter how chatty ccx gets; only a tail of at most
+    ``max_output_bytes`` (default 1 MB) is kept in the returned JSON dict.
+    """
     working_dir = inp_path.parent
     stem = inp_path.stem
     log_path = working_dir / f"{stem}.ccx.log"
@@ -603,22 +610,34 @@ def _run_ccx(
         "error": None,
     }
 
+    def _log_tail() -> str:
+        if not log_path.exists():
+            return ""
+        size = log_path.stat().st_size
+        with log_path.open("rb") as f:
+            if size > max_output_bytes:
+                f.seek(size - max_output_bytes)
+            return f.read().decode("utf-8", errors="replace")
+
     _print_progress(f"Running CalculiX: {ccx_path} -i {stem}")
     try:
-        proc = subprocess.run(
-            [ccx_path, "-i", stem],
-            cwd=str(working_dir),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        result["stdout"] = proc.stdout
-        result["stderr"] = proc.stderr
-        log_path.write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
+        with log_path.open("w", encoding="utf-8") as log:
+            proc = subprocess.run(
+                [ccx_path, "-i", stem],
+                cwd=str(working_dir),
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=False,
+                timeout=timeout,
+            )
+        result["stdout"] = _log_tail()
         if proc.returncode != 0:
             result["error"] = f"CalculiX exited with code {proc.returncode}"
             return result
         result["success"] = True
+    except subprocess.TimeoutExpired:
+        result["stdout"] = _log_tail()
+        result["error"] = f"CalculiX timed out after {timeout:.0f} s"
     except Exception as exc:
         result["error"] = f"Failed to run CalculiX: {exc}"
         result["traceback"] = traceback.format_exc()
@@ -628,6 +647,18 @@ def _run_ccx(
 
 def _parse_frd_results(frd_path: Path) -> dict[str, dict[int, list[float]]]:
     """Parse nodal results from a CalculiX FRD file.
+
+    Follows the real cgx/ccx fixed-width format (cgx manual "Result Format"
+    section; ccx ``frd.c``):
+
+    - ``-4`` record: result name in a fixed 8-char field after the key,
+      followed by bookkeeping integers. The name may be padded
+      (`` -4  NDTEMP      1    1``) or glued to the key (``-4DISP ...``).
+    - ``-5`` records: one per result component, plus a trailing ``ALL``
+      magnitude pseudo-component for vector/tensor results.
+    - ``-1`` records: 10-char node id, then one 12-char fixed-width float per
+      component; values may be concatenated without separating blanks
+      (e.g. ``-1.23456E-03-2.34567E-04``).
 
     Returns a mapping ``result_name -> {node_id -> [values]}``. Only the last
     increment is retained for each result name.
@@ -642,40 +673,51 @@ def _parse_frd_results(frd_path: Path) -> dict[str, dict[int, list[float]]]:
 
     with frd_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
-            stripped = line.strip()
+            stripped = line.lstrip()
             if stripped.startswith("-4"):
-                # New result block name.
-                if current_name is not None and ncomps > 0:
+                # Store the previous block; only the last increment survives.
+                if current_name is not None and current_values:
                     results[current_name] = current_values
-                current_name = stripped[2:].strip()
+                current_name = stripped[2:10].strip()
                 current_values = {}
                 ncomps = 0
             elif stripped.startswith("-5") and current_name is not None:
-                # Result type record.  The integer after the token is the
-                # number of components per node.
-                parts = stripped.split()
-                if len(parts) >= 3:
-                    try:
-                        ncomps = int(parts[2])
-                    except ValueError:
-                        ncomps = 1
-                else:
-                    ncomps = 1
-            elif stripped.startswith("-1") and current_name is not None and ncomps > 0:
-                parts = stripped.split()
-                if len(parts) < 2 + ncomps:
+                # One -5 record per component; "ALL" is a magnitude
+                # pseudo-component that carries no data column.
+                if stripped[2:10].strip() != "ALL":
+                    ncomps += 1
+            elif stripped.startswith("-1") and current_name is not None:
+                body = stripped[2:].rstrip()
+                count = ncomps
+                if count <= 0:
+                    # No -5 records seen: infer the component count from the
+                    # fixed 12-char value columns.
+                    count = max(0, (len(body) - 10) // 12)
+                if count <= 0:
                     continue
                 try:
-                    node_id = int(parts[1])
-                    values = [float(p) for p in parts[2 : 2 + ncomps]]
-                    current_values[node_id] = values
+                    node_id = int(body[:10])
+                    values = [float(body[10 + 12 * i : 22 + 12 * i]) for i in range(count)]
                 except ValueError:
-                    continue
-            elif stripped.startswith("-3") and current_name is not None and ncomps > 0:
+                    # Lenient fallback for space-separated values.
+                    parts = body.split()
+                    if len(parts) < 1 + count:
+                        continue
+                    try:
+                        node_id = int(parts[0])
+                        values = [float(p) for p in parts[1 : 1 + count]]
+                    except ValueError:
+                        continue
+                current_values[node_id] = values
+            elif stripped.startswith("-3") and current_name is not None:
                 results[current_name] = current_values
                 current_name = None
                 current_values = {}
                 ncomps = 0
+
+    # Tolerate a final block without a closing -3 record.
+    if current_name is not None and current_values:
+        results[current_name] = current_values
 
     return results
 
@@ -709,10 +751,12 @@ def _write_vtk_legacy(
             disp[i] = frd_results["DISP"].get(i + 1, [0.0, 0.0, 0.0])[:3]
 
     temp = np.zeros(n_points, dtype=np.float64)
-    has_temp = "TEMP" in frd_results
+    # ccx writes nodal temperatures under the NDTEMP result name.
+    temp_result = frd_results.get("NDTEMP") or frd_results.get("TEMP")
+    has_temp = temp_result is not None
     if has_temp:
         for i in range(n_points):
-            temp[i] = frd_results["TEMP"].get(i + 1, [0.0])[0]
+            temp[i] = temp_result.get(i + 1, [0.0])[0]
 
     n_cells = sum(len(v) for v in mesh.blocks.values())
     total_conn = sum(
@@ -767,6 +811,7 @@ def run_fem(
     run: bool = False,
     ccx_path: str | None = None,
     write_vtk: bool = True,
+    ccx_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Generate a CalculiX input deck and optionally run the analysis.
 
@@ -823,7 +868,10 @@ def run_fem(
 
         if run:
             ccx = _find_ccx(ccx_path)
-            ccx_result = _run_ccx(inp_path, ccx)
+            if ccx_timeout is None:
+                ccx_result = _run_ccx(inp_path, ccx)
+            else:
+                ccx_result = _run_ccx(inp_path, ccx, timeout=ccx_timeout)
             result.update(
                 {
                     "success": ccx_result["success"],
@@ -918,6 +966,7 @@ def main() -> None:
             run=request.get("run", False),
             ccx_path=request.get("ccxPath", args.ccx),
             write_vtk=not args.no_vtk,
+            ccx_timeout=request.get("ccxTimeout"),
         )
         print(json.dumps(result))
         sys.stdout.flush()

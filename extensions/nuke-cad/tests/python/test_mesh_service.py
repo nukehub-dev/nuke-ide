@@ -1,5 +1,6 @@
 """Tests for the nuke-cad meshing service."""
 
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,37 @@ def _requires_full_profile() -> None:
     pytest.importorskip("gmsh", reason="gmsh not installed")
     pytest.importorskip("meshio", reason="meshio not installed")
     pytest.importorskip("netCDF4", reason="netCDF4 not installed")
+
+
+def _find_gmsh_tag_by_com(
+    step_path: str,
+    dim: int,
+    target_com: tuple[float, float, float],
+    tol: float = 1e-6,
+) -> int | None:
+    """Return the tag of the gmsh entity whose center of mass is ``target_com``.
+
+    Replicates ``mesh_service._load_step_into_gmsh`` (including the fragment
+    step for multi-volume models) so the discovered tags are the ones the
+    meshing service will actually see — no hardcoded entity tags.
+    """
+    gmsh = pytest.importorskip("gmsh", reason="gmsh not installed")
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.open(step_path)
+        gmsh.model.occ.synchronize()
+        volumes = gmsh.model.getEntities(3)
+        if len(volumes) > 1:
+            gmsh.model.occ.fragment(volumes, volumes)
+            gmsh.model.occ.synchronize()
+        for entity_dim, tag in gmsh.model.getEntities(dim):
+            com = gmsh.model.occ.getCenterOfMass(entity_dim, tag)
+            if all(abs(c - t) < tol for c, t in zip(com, target_com, strict=True)):
+                return int(tag)
+        return None
+    finally:
+        gmsh.finalize()
 
 
 def _read_exodus_names(h5m_path: Path, variable: str) -> list[str]:
@@ -228,6 +260,12 @@ def test_manifest_surface_becomes_sideset(tmp_path: Path) -> None:
     )
     assert service_result["success"] is True
 
+    # Discover entity tags by geometry instead of hardcoding gmsh tags.
+    left = _find_gmsh_tag_by_com(service_result["stepPath"], 3, (0.0, 0.0, 0.0))
+    right = _find_gmsh_tag_by_com(service_result["stepPath"], 3, (10.0, 0.0, 0.0))
+    shared = _find_gmsh_tag_by_com(service_result["stepPath"], 2, (5.0, 0.0, 0.0))
+    assert left is not None and right is not None and shared is not None
+
     manifest = RegionManifest.from_dict(
         {
             "version": 1,
@@ -245,7 +283,7 @@ def test_manifest_surface_becomes_sideset(tmp_path: Path) -> None:
         output_dir=str(tmp_path),
         output_stem="sidesets",
         manifest=manifest,
-        selector_map={"left": [1], "right": [2], "shared": [7]},
+        selector_map={"left": [left], "right": [right], "shared": [shared]},
         mesh_size=3.0,
     )
     assert mesh_result["success"] is True, mesh_result.get("error", "")
@@ -312,3 +350,167 @@ def test_no_mesh_export_skips_files(tmp_path: Path) -> None:
     assert service_result["success"] is True
     assert Path(service_result["meshPath"]).exists() is False
     assert Path(service_result["exodusPath"]).exists() is False
+
+
+def test_regular_tet_dihedral_angle() -> None:
+    """A regular tetrahedron must measure ~70.53 degrees, not 109.47."""
+    np = pytest.importorskip("numpy", reason="numpy not installed")
+
+    # Regular tetrahedron inscribed in a cube.
+    points = np.array(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ],
+        dtype=float,
+    )
+    dmin, dmax = mesh_service._tet_dihedral_angles(points, np.array([0, 1, 2, 3]))
+    expected = math.degrees(math.acos(1.0 / 3.0))  # 70.5288 deg
+    assert dmin == pytest.approx(expected, abs=1e-6)
+    assert dmax == pytest.approx(expected, abs=1e-6)
+
+
+def test_mesh_report_dihedral_min_max_genuine() -> None:
+    """minDihedralDeg/maxDihedralDeg must be the true extrema across tets."""
+    np = pytest.importorskip("numpy", reason="numpy not installed")
+
+    points = np.array(
+        [
+            # Regular tetrahedron (all dihedrals ~70.53 deg).
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+            # Sliver tetrahedron: apex just above the base centroid, giving
+            # dihedrals near 0 deg and near 180 deg.
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.5, 0.5, 0.01],
+        ],
+        dtype=float,
+    )
+    tets = np.array([[0, 1, 2, 3], [4, 5, 6, 7]], dtype=np.int32)
+    blocks = {"block_1": np.array([0, 1], dtype=int)}
+    report = mesh_service._compute_mesh_report(points, tets, blocks)
+
+    regular = math.degrees(math.acos(1.0 / 3.0))
+    quality = report["quality"]
+    assert quality["minDihedralDeg"] < regular
+    assert quality["maxDihedralDeg"] > 170.0
+    assert quality["minDihedralDeg"] <= quality["maxDihedralDeg"]
+
+
+def test_mesh_report_quadratic_tet_element_type() -> None:
+    """Quadratic tets must be reported as tetra10, not tetra."""
+    np = pytest.importorskip("numpy", reason="numpy not installed")
+
+    corners = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    midpoints = np.array(
+        [
+            0.5 * (corners[0] + corners[1]),
+            0.5 * (corners[1] + corners[2]),
+            0.5 * (corners[0] + corners[2]),
+            0.5 * (corners[0] + corners[3]),
+            0.5 * (corners[1] + corners[3]),
+            0.5 * (corners[2] + corners[3]),
+        ]
+    )
+    points = np.vstack([corners, midpoints])
+    tets = np.array([list(range(10))], dtype=np.int32)
+    blocks = {"block_1": np.array([0], dtype=int)}
+    report = mesh_service._compute_mesh_report(points, tets, blocks)
+    assert report["elementTypes"] == {"tetra10": 1}
+
+
+def test_netgen_engine_returns_structured_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """engine='netgen' is a documented stub: clean JSON error, no traceback."""
+    monkeypatch.setattr(mesh_service, "HAS_GMSH", True)
+    monkeypatch.setattr(mesh_service, "HAS_MESHIO", True)
+    monkeypatch.setattr(mesh_service, "HAS_NETCDF4", True)
+    step = tmp_path / "dummy.step"
+    step.write_text("ISO-10303-21;\n", encoding="utf-8")
+
+    result = mesh_service.mesh_step(str(step), output_dir=str(tmp_path), engine="netgen")
+    assert result["success"] is False
+    assert result["error"] is not None
+    assert "not yet implemented" in result["error"]
+    assert "traceback" not in result
+
+
+def test_exodus_sideset_side_numbers_match_geometry(tmp_path: Path) -> None:
+    """Exodus side indices must follow the SEACAS TETRA(4) face convention.
+
+    Writes a box mesh with a side set on the x = -5 face, reads the Exodus
+    file back with raw netCDF4, and asserts that for every (element, side)
+    entry the face selected by the SEACAS side-number-to-node-set mapping is
+    exactly the geometric face lying on the x = -5 plane.
+    """
+    _requires_full_profile()
+
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        mesh_size=4.0,
+    )
+    assert service_result["success"] is True
+
+    left = _find_gmsh_tag_by_com(service_result["stepPath"], 2, (-5.0, 0.0, 0.0))
+    assert left is not None, "could not locate the x=-5 face by center of mass"
+
+    manifest = RegionManifest.from_dict(
+        {
+            "version": 1,
+            "surfaces": [{"selector": "left", "name": "left_face", "role": "boundary"}],
+        }
+    )
+    mesh_result = mesh_service.mesh_step(
+        service_result["stepPath"],
+        output_dir=str(tmp_path),
+        output_stem="sideset_geom",
+        manifest=manifest,
+        selector_map={"left": [left]},
+        mesh_size=4.0,
+        write_inp=False,
+        write_vtk=False,
+    )
+    assert mesh_result["success"] is True, mesh_result.get("error", "")
+
+    import netCDF4
+
+    # SEACAS TETRA(4): side 1 = {1,2,4}, side 2 = {2,3,4}, side 3 = {1,4,3},
+    # side 4 = {1,3,2} (1-based local numbering) -> 0-based corner indices.
+    seacas_faces = {1: (0, 1, 3), 2: (1, 2, 3), 3: (0, 2, 3), 4: (0, 1, 2)}
+
+    with netCDF4.Dataset(str(mesh_result["paths"]["e"])) as ds:
+        # The single unnamed volume produces exactly one block whose
+        # connectivity rows map 1:1 onto the combined tet array.
+        assert "connect1" in ds.variables
+        assert "connect2" not in ds.variables
+        connect = ds.variables["connect1"][:] - 1  # to 0-based node ids
+        coords = ds.variables["coord"][:]  # (num_dim, num_nodes)
+        elems = ds.variables["elem_ss1"][:] - 1  # to 0-based element ids
+        sides = ds.variables["side_ss1"][:]
+
+        assert len(elems) > 0
+        for elem_id, side in zip(elems, sides, strict=True):
+            tet = connect[int(elem_id)]
+            face_nodes = [int(tet[i]) for i in seacas_faces[int(side)]]
+            xs = coords[0, face_nodes]
+            assert all(abs(float(x) + 5.0) < 1e-6 for x in xs), (
+                f"side {int(side)} of element {int(elem_id) + 1} does not lie on x=-5"
+            )

@@ -49,3 +49,13 @@ def brep_gprop_volume_properties(brep_gprop_class: Any, shape: Any, props: Any) 
 def interface_static_set_cval(static_class: Any, key: str, value: str) -> None:
     """Set a string-valued STEP writer static parameter."""
     return _resolve(static_class, "SetCVal")(key, value)
+
+
+def brep_tools_write(brep_tools_class: Any, shape: Any, file_path: str) -> bool:
+    """Write a shape to a BREP file; returns True on success."""
+    return bool(_resolve(brep_tools_class, "Write")(shape, file_path))
+
+
+def brep_tools_read(brep_tools_class: Any, shape: Any, builder: Any, file_path: str) -> bool:
+    """Read a BREP file into ``shape`` using ``builder``; returns True on success."""
+    return bool(_resolve(brep_tools_class, "Read")(shape, file_path, builder))

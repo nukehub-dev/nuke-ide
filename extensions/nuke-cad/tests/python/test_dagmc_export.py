@@ -55,6 +55,32 @@ def test_module_imports_without_heavy_deps() -> None:
     assert dagmc_export.HAS_NUMPY is True
 
 
+def test_fallback_material_name_uses_mat_prefix() -> None:
+    """Positional fallback groups follow openmc-studio's mat:mat_<id-1> convention."""
+    assert dagmc_export._fallback_material_name(1) == "mat:mat_0"
+    assert dagmc_export._fallback_material_name(3) == "mat:mat_2"
+
+
+def test_verify_surface_senses_accepts_one_or_two_adjacent() -> None:
+    dagmc_export._verify_surface_senses(
+        {1: None, 2: None},
+        {1: [1], 2: [1, 2]},
+    )
+
+
+def test_verify_surface_senses_errors_with_diagnostics() -> None:
+    """Zero- or 3+-adjacency surfaces are a hard error listing the offenders."""
+    with pytest.raises(RuntimeError) as excinfo:
+        dagmc_export._verify_surface_senses(
+            {1: None, 2: None, 5: None},
+            {1: [1], 2: [], 5: [1, 2, 3]},
+        )
+    message = str(excinfo.value)
+    assert "surface 2 (adjacent volumes: 0)" in message
+    assert "surface 5 (adjacent volumes: 3)" in message
+    assert "surface 1 " not in message
+
+
 def test_two_touching_boxes_share_one_surface(tmp_path: Path) -> None:
     """Two touching boxes must produce exactly one shared surface."""
     _requires_full_profile()
@@ -219,3 +245,195 @@ def test_export_dagmc_false_skips_h5m(tmp_path: Path) -> None:
     )
     assert result["success"] is True, result.get("error", "")
     assert Path(result["dagmcPath"]).exists() is False
+
+
+def test_fallback_groups_use_mat_prefix(tmp_path: Path) -> None:
+    """Unmanifested volumes get mat:mat_<vol_id-1> groups (OpenMC recognizes mat:)."""
+    _requires_full_profile()
+
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=True,
+        export_mesh=False,
+        add_graveyard=False,
+        tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert result["dagmcSuccess"] is True, result.get("dagmcError", "")
+
+    groups = _load_h5m_groups(Path(result["dagmcPath"]))
+    assert "mat:mat_0" in groups
+    assert "mat:mat_1" in groups
+
+
+def test_labeled_script_manifest_resolves_to_groups(tmp_path: Path) -> None:
+    """End-to-end: build123d labels -> selector map -> manifest -> mat:<name> groups."""
+    _requires_full_profile()
+
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box1.label = 'left'\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "box2.label = 'right'\n"
+        "model = Compound(children=[box1, box2])\n"
+    )
+    manifest = tmp_path / "boxes.regions.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "volumes": [
+                    {"selector": "left", "name": "left_block", "material": "mat1"},
+                    {"selector": "right", "name": "right_block", "material": "mat2"},
+                ],
+            }
+        )
+    )
+    result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=True,
+        export_mesh=False,
+        add_graveyard=False,
+        tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert result["selectorMap"] == {"left": [1], "right": [2]}
+    assert result["dagmcSuccess"] is True, result.get("dagmcError", "")
+
+    groups = _load_h5m_groups(Path(result["dagmcPath"]))
+    assert "mat:left_block" in groups
+    assert "mat:right_block" in groups
+
+
+def test_watertight_two_touching_boxes(tmp_path: Path) -> None:
+    """A conformal two-box imprint is sealed: no non-manifold or hole edges."""
+    _requires_full_profile()
+
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    build_result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert build_result["success"] is True, build_result.get("error", "")
+
+    result = dagmc_export.convert_to_dagmc(
+        build_result["stepPath"],
+        output_path=str(tmp_path / "boxes.h5m"),
+        add_graveyard=False,
+        faceting_tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    watertight = result["watertight"]
+    assert watertight["holeEdges"] == 0, watertight
+    # Seam edges where the shared face meets the outer faces are legitimately
+    # shared by 3 triangles; they are diagnostics, not defects.
+    assert watertight["nonManifoldEdges"] == 20, watertight
+    assert watertight["sealed"] is True
+    assert result["overlapCheck"]["overlappingPairs"] == []
+
+
+def test_watertight_check_flags_open_sheet() -> None:
+    """An open two-triangle sheet has 4 hole edges and is not sealed."""
+    pytest.importorskip("pymoab", reason="pymoab not installed")
+    import numpy as np
+    from pymoab import core as moab_core
+    from pymoab import types as moab_types
+
+    mb = moab_core.Core()
+    verts = mb.create_vertices(
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]], dtype=np.float64)
+    )
+    sset = mb.create_meshset()
+    tri1 = mb.create_element(moab_types.MBTRI, (verts[0], verts[1], verts[2]))
+    tri2 = mb.create_element(moab_types.MBTRI, (verts[1], verts[3], verts[2]))
+    mb.add_entity(sset, tri1)
+    mb.add_entity(sset, tri2)
+
+    warnings: list[str] = []
+    report = dagmc_export._watertight_check(mb, {1: sset}, warnings)
+    assert report["holeEdges"] == 4
+    assert report["nonManifoldEdges"] == 0
+    assert report["sealed"] is False
+    assert any("hole" in w.lower() for w in warnings)
+
+
+def test_watertight_check_sealed_tetrahedron() -> None:
+    """A closed tetrahedron has every edge shared by exactly two triangles."""
+    pytest.importorskip("pymoab", reason="pymoab not installed")
+    import numpy as np
+    from pymoab import core as moab_core
+    from pymoab import types as moab_types
+
+    mb = moab_core.Core()
+    verts = mb.create_vertices(
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float64)
+    )
+    sset = mb.create_meshset()
+    for a, b, c in [(0, 2, 1), (0, 1, 3), (1, 2, 3), (2, 0, 3)]:
+        tri = mb.create_element(moab_types.MBTRI, (verts[a], verts[b], verts[c]))
+        mb.add_entity(sset, tri)
+
+    warnings: list[str] = []
+    report = dagmc_export._watertight_check(mb, {1: sset}, warnings)
+    assert report["holeEdges"] == 0
+    assert report["nonManifoldEdges"] == 0
+    assert report["sealed"] is True
+    assert warnings == []
+
+
+def test_overlap_check_detects_overlapping_boxes() -> None:
+    """Sampling + BRepClass3d reports overlapping volume pairs only."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    from build123d import Box, Compound, Pos
+
+    touching = Compound([Box(10, 10, 10), Pos(10, 0, 0) * Box(10, 10, 10)])
+    report = dagmc_export._check_volume_overlaps(touching.wrapped)
+    assert report["checkedVolumes"] == 2
+    assert report["overlappingPairs"] == []
+
+    overlapping = Compound([Box(10, 10, 10), Pos(5, 0, 0) * Box(10, 10, 10)])
+    report = dagmc_export._check_volume_overlaps(overlapping.wrapped)
+    assert [1, 2] in report["overlappingPairs"]
+
+
+def test_overlapping_boxes_reported_in_export(tmp_path: Path) -> None:
+    """The export result surfaces overlapping volume pairs as warnings + report."""
+    _requires_full_profile()
+
+    script = tmp_path / "overlap.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(5, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    build_result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert build_result["success"] is True, build_result.get("error", "")
+
+    result = dagmc_export.convert_to_dagmc(
+        build_result["stepPath"],
+        output_path=str(tmp_path / "overlap.h5m"),
+        add_graveyard=False,
+        faceting_tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert [1, 2] in result["overlapCheck"]["overlappingPairs"]
+    assert any("overlap" in w.lower() for w in result["warnings"])

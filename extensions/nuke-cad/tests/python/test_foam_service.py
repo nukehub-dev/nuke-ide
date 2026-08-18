@@ -117,10 +117,79 @@ def test_build_case_cli(tmp_path: Path) -> None:
 
 def test_export_stl_missing_ocp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """STL export fails gracefully when OCP is not available."""
+    step_path = tmp_path / "model.step"
+    step_path.write_text("ISO-10303-21;")
     monkeypatch.setattr(foam_service, "HAS_OCP", False)
-    result = foam_service.export_stl({"stepPath": "model.step", "outputDir": str(tmp_path)})
+    result = foam_service.export_stl(
+        {"stepPath": str(step_path), "outputDir": str(tmp_path / "stl")}
+    )
     assert result["success"] is False
     assert "OCP" in result["error"]
+
+
+def test_export_stl_missing_step(tmp_path: Path) -> None:
+    """A nonexistent STEP file returns a structured error in any profile."""
+    result = foam_service.export_stl(
+        {"stepPath": str(tmp_path / "nope.step"), "outputDir": str(tmp_path / "stl")}
+    )
+    assert result["success"] is False
+    assert "not found" in result["error"].lower()
+
+
+def test_sanitize_stl_name() -> None:
+    """Region names are made safe for use as file names."""
+    assert foam_service._sanitize_stl_name("plasma chamber", "fb") == "plasma_chamber"
+    assert foam_service._sanitize_stl_name("wall/panel", "fb") == "wall_panel"
+    assert foam_service._sanitize_stl_name("../..", "fb") == "fb"
+    assert foam_service._sanitize_stl_name("name", "fb") == "name"
+
+
+def _requires_full_profile() -> None:
+    """Skip a test if the full CAD dependency profile is unavailable."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    pytest.importorskip("OCP", reason="OCP not installed")
+
+
+def test_export_stl_per_solid_named(tmp_path: Path) -> None:
+    """Full profile: each STEP solid becomes a named, sanitized binary STL."""
+    _requires_full_profile()
+    from build123d import Box, Compound, Pos, export_step
+
+    step_path = tmp_path / "model.step"
+    model = Compound([Box(10, 10, 10), Pos(20, 0, 0) * Box(10, 10, 10)])
+    export_step(model, str(step_path))
+
+    result = foam_service.export_stl(
+        {
+            "stepPath": str(step_path),
+            "outputDir": str(tmp_path / "stl"),
+            "names": {"1": "plasma chamber", "2": "wall/panel"},
+        }
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert len(result["stlFiles"]) == 2
+    assert {Path(p).name for p in result["stlFiles"]} == {"plasma_chamber.stl", "wall_panel.stl"}
+    for stl in result["stlFiles"]:
+        data = Path(stl).read_bytes()
+        # Binary STL: 80-byte header + uint32 facet count + 50 bytes per facet.
+        facet_count = int.from_bytes(data[80:84], "little")
+        assert facet_count > 0
+        assert len(data) == 84 + 50 * facet_count
+
+
+def test_export_stl_default_names(tmp_path: Path) -> None:
+    """Full profile: without a names map, solids are exported as solid_N."""
+    _requires_full_profile()
+    from build123d import Box, export_step
+
+    step_path = tmp_path / "box.step"
+    export_step(Box(5, 5, 5), str(step_path))
+
+    result = foam_service.export_stl(
+        {"stepPath": str(step_path), "outputDir": str(tmp_path / "stl")}
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert [Path(p).name for p in result["stlFiles"]] == ["solid_1.stl"]
 
 
 def test_solver_default_unknown() -> None:

@@ -37,7 +37,9 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
+import type { ChildProcess } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import {
@@ -56,8 +58,52 @@ import {
 } from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 
+/**
+ * Maximum characters of a service's stdout/stderr kept in memory, mirroring
+ * openmc-studio's runner. The stdout-JSON services print their one small JSON
+ * summary line last, so keeping only the trailing 1 MB preserves the backwards
+ * scan for the final JSON line while bounding memory for chatty services.
+ */
+const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
+
+/** Append a chunk to a captured-output buffer, keeping only the trailing {@link MAX_CAPTURED_OUTPUT_CHARS} characters. */
+function appendOutputTail(buffer: string, chunk: string): string {
+    const combined = buffer + chunk;
+    return combined.length > MAX_CAPTURED_OUTPUT_CHARS ? combined.slice(combined.length - MAX_CAPTURED_OUTPUT_CHARS) : combined;
+}
+
+/** Per-spawn options for {@link NukeCadBackendServiceImpl._spawnJsonService}. */
+interface SpawnJobOptions {
+    /** Job id for the process registry; generated when omitted. */
+    jobId?: string;
+    /** Process timeout in seconds; the backend default applies when omitted. */
+    timeoutSeconds?: number;
+}
+
+/** A spawned Python service tracked for cancellation, timeout, and shutdown. */
+interface RunningCadJob {
+    jobId: string;
+    process: ChildProcess;
+    timer?: NodeJS.Timeout;
+    cancelled: boolean;
+    timedOut: boolean;
+}
+
 @injectable()
 export class NukeCadBackendServiceImpl implements NukeCadBackendService {
+    /** Default backend process timeout: one hour (ccx/gmsh runs can be long). */
+    protected static readonly DEFAULT_PROCESS_TIMEOUT_SECONDS = 3600;
+
+    /** Timeout for quick metadata spawns (material/solver lists). */
+    protected static readonly LIST_TIMEOUT_SECONDS = 30;
+
+    /** Disambiguates temp request files from concurrent calls. */
+    private static tempFileCounter = 0;
+
+    private static jobCounter = 0;
+
+    private readonly runningJobs = new Map<string, RunningCadJob>();
+
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
 
@@ -84,7 +130,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         }
 
         const ext = request.scriptPath.split('.').pop()?.toLowerCase();
-        const sourceType = request.sourceType ?? (ext === 'step' || ext === 'stp' ? 'step' : 'script');
+        const sourceType = request.sourceType ?? (ext === 'step' || ext === 'stp' || ext === 'brep' ? 'step' : 'script');
         const args = [scriptPath, request.scriptPath];
         if (sourceType === 'step') {
             args.push('--from-step');
@@ -95,10 +141,14 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         if (request.tolerance !== undefined) {
             args.push('--tolerance', String(request.tolerance));
         }
-        if (request.exportDagmc === false) {
+        // STEP imports are interactive viewport loads where DAGMC/mesh export is
+        // slow and off by default. Enforce the skip in the backend — not only at
+        // the open call sites — so every code path (e.g. REBUILD_GEOMETRY, which
+        // sends neither flag) is safe. Callers can still opt in with `true`.
+        if (request.exportDagmc === false || (sourceType === 'step' && request.exportDagmc === undefined)) {
             args.push('--no-dagmc');
         }
-        if (request.exportMesh === false) {
+        if (request.exportMesh === false || (sourceType === 'step' && request.exportMesh === undefined)) {
             args.push('--no-mesh');
         }
         if (request.meshEngine) {
@@ -124,46 +174,81 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
      * Spawn a Python service that emits a JSON result on stdout and return the
      * parsed object.  Diagnostics on stderr are forwarded into the result's
      * ``output`` field when the service does not provide one.
+     *
+     * The child is registered under a job id so it can be cancelled via
+     * {@link cancelJob}, is killed after ``options.timeoutSeconds`` (default
+     * {@link NukeCadBackendServiceImpl.DEFAULT_PROCESS_TIMEOUT_SECONDS}), and is
+     * killed on application stop. The job id is echoed back on the result.
      */
     private async _spawnJsonService<T extends { success?: boolean; output?: string; error?: string }>(
         pythonCommand: string,
         args: string[],
         cwd: string,
-        scriptPath?: string
+        scriptPath?: string,
+        options: SpawnJobOptions = {}
     ): Promise<T> {
         const { spawn } = await import('child_process');
-        const pythonBinDir = path.dirname(pythonCommand);
-        const currentPath = process.env.PATH || '';
-        const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
+        const jobId = options.jobId ?? `cad-job-${Date.now()}-${NukeCadBackendServiceImpl.jobCounter++}`;
+        const timeoutSeconds = options.timeoutSeconds ?? NukeCadBackendServiceImpl.DEFAULT_PROCESS_TIMEOUT_SECONDS;
 
         return new Promise<T>((resolve) => {
             const child = spawn(pythonCommand, args, {
                 cwd,
-                env: { ...process.env, PATH: newPath },
-                stdio: ['ignore', 'pipe', 'pipe']
+                env: this.buildPythonEnvironment(pythonCommand),
+                stdio: ['ignore', 'pipe', 'pipe'],
+                // Own process group on POSIX so cancellation/timeout can kill the
+                // whole tree (the service may exec long-running ccx/gmsh children).
+                detached: process.platform !== 'win32'
             });
 
             let stdout = '';
             let stderr = '';
 
+            const job: RunningCadJob = { jobId, process: child, cancelled: false, timedOut: false };
+
+            const finish = (result: T): void => {
+                if (job.timer) {
+                    clearTimeout(job.timer);
+                }
+                this.runningJobs.delete(jobId);
+                resolve(result);
+            };
+
+            job.timer = setTimeout(() => {
+                job.timedOut = true;
+                console.warn(`[NukeCad] Job ${jobId} timed out after ${timeoutSeconds}s; killing process tree.`);
+                this.killJob(job);
+            }, timeoutSeconds * 1000);
+            job.timer.unref?.();
+            this.runningJobs.set(jobId, job);
+
             child.stdout?.on('data', (data: Buffer) => {
-                stdout += data.toString();
+                stdout = appendOutputTail(stdout, data.toString());
             });
 
             child.stderr?.on('data', (data: Buffer) => {
-                stderr += data.toString();
+                stderr = appendOutputTail(stderr, data.toString());
             });
 
             child.on('error', (error) => {
-                resolve({
+                const result = {
                     success: false,
                     error: `Failed to start service: ${error.message}`,
-                    output: stderr,
-                    scriptPath
-                } as unknown as T);
+                    output: stderr
+                } as unknown as T;
+                (result as any).jobId = jobId;
+                if (scriptPath !== undefined) {
+                    (result as any).scriptPath = scriptPath;
+                }
+                finish(result);
             });
 
             child.on('close', (code) => {
+                const lifecycleError = job.cancelled
+                    ? 'Job cancelled.'
+                    : job.timedOut
+                      ? `Job timed out after ${timeoutSeconds} seconds.`
+                      : undefined;
                 const lines = stdout.trim().split('\n');
                 for (let i = lines.length - 1; i >= 0; i--) {
                     const candidate = lines[i].trim();
@@ -172,17 +257,19 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                     }
                     try {
                         const parsed = JSON.parse(candidate) as T;
-                        const success = code !== 0 && parsed.success !== false ? false : parsed.success;
+                        const success = lifecycleError ? false : code !== 0 && parsed.success !== false ? false : parsed.success;
                         const result: T = {
                             ...parsed,
                             success,
-                            error: success === false ? parsed.error || `Process exited with code ${code}` : parsed.error,
+                            error:
+                                lifecycleError ?? (success === false ? parsed.error || `Process exited with code ${code}` : parsed.error),
                             output: parsed.output ?? stderr
                         };
+                        (result as any).jobId = jobId;
                         if (scriptPath !== undefined) {
                             (result as any).scriptPath = scriptPath;
                         }
-                        resolve(result);
+                        finish(result);
                         return;
                     } catch {
                         // Not JSON; keep scanning backwards.
@@ -190,14 +277,75 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                 }
 
                 const detail = stderr.trim() || stdout.trim();
-                resolve({
+                const result = {
                     success: false,
-                    error: `Service exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,
-                    output: stderr,
-                    scriptPath
-                } as unknown as T);
+                    error: lifecycleError ?? `Service exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,
+                    output: stderr
+                } as unknown as T;
+                (result as any).jobId = jobId;
+                if (scriptPath !== undefined) {
+                    (result as any).scriptPath = scriptPath;
+                }
+                finish(result);
             });
         });
+    }
+
+    /**
+     * Build the child environment with the Python interpreter's bin directory
+     * prepended to PATH so the service can find its sibling executables.
+     */
+    private buildPythonEnvironment(pythonCommand: string): NodeJS.ProcessEnv {
+        const pythonBinDir = path.dirname(pythonCommand);
+        const currentPath = process.env.PATH || '';
+        const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}${path.delimiter}${currentPath}`;
+        return { ...process.env, PATH: newPath };
+    }
+
+    /**
+     * Kill a running job's whole process tree. On POSIX the child was spawned
+     * detached and leads its own process group, so signal the group; on Windows
+     * fall back to killing the direct child.
+     */
+    private killJob(job: RunningCadJob): void {
+        const child = job.process;
+        try {
+            if (process.platform !== 'win32' && child.pid !== undefined) {
+                process.kill(-child.pid, 'SIGTERM');
+            } else {
+                child.kill();
+            }
+        } catch {
+            // Process group already gone; best-effort direct kill.
+            try {
+                child.kill();
+            } catch {
+                // Process already exited.
+            }
+        }
+    }
+
+    /**
+     * Cancel a running job started via {@link runFem} or {@link runJob}.
+     * The pending call resolves with ``success: false`` and a cancellation error.
+     */
+    async cancelJob(jobId: string): Promise<boolean> {
+        const job = this.runningJobs.get(jobId);
+        if (!job) {
+            return false;
+        }
+        job.cancelled = true;
+        this.killJob(job);
+        return true;
+    }
+
+    /** BackendApplicationContribution hook: kill any jobs still running on shutdown. */
+    onStop(): void {
+        for (const job of this.runningJobs.values()) {
+            job.cancelled = true;
+            this.killJob(job);
+        }
+        this.runningJobs.clear();
     }
 
     /**
@@ -217,7 +365,10 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             };
         }
 
-        const requestPath = path.join(path.dirname(request.mshPath), `.nuke-cad-fem-request-${Date.now()}.json`);
+        const requestPath = path.join(
+            path.dirname(request.mshPath),
+            `.nuke-cad-fem-request-${Date.now()}-${NukeCadBackendServiceImpl.tempFileCounter++}.json`
+        );
         fs.writeFileSync(
             requestPath,
             JSON.stringify({
@@ -236,7 +387,9 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             return await this._spawnJsonService<FemRunResult>(
                 pythonCommand,
                 [scriptPath, '--request', requestPath],
-                path.dirname(request.mshPath)
+                path.dirname(request.mshPath),
+                undefined,
+                { jobId: request.jobId, timeoutSeconds: request.processTimeoutSeconds }
             );
         } finally {
             try {
@@ -261,18 +414,27 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             return [];
         }
 
+        const { spawn } = await import('child_process');
+
         return new Promise<FemMaterial[]>((resolve) => {
-            const { spawn } = require('child_process');
             const child = spawn(pythonCommand, [scriptPath, '--list-materials'], {
+                env: this.buildPythonEnvironment(pythonCommand),
                 stdio: ['ignore', 'pipe', 'pipe']
             });
 
+            // Panel metadata call: bound the wait so a hung interpreter cannot pin the promise forever.
+            const timer = setTimeout(() => {
+                child.kill();
+            }, NukeCadBackendServiceImpl.LIST_TIMEOUT_SECONDS * 1000);
+            timer.unref?.();
+
             let stdout = '';
             child.stdout?.on('data', (data: Buffer) => {
-                stdout += data.toString();
+                stdout = appendOutputTail(stdout, data.toString());
             });
 
             child.on('close', () => {
+                clearTimeout(timer);
                 try {
                     const parsed = JSON.parse(stdout);
                     resolve(Object.values(parsed) as FemMaterial[]);
@@ -282,6 +444,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             });
 
             child.on('error', () => {
+                clearTimeout(timer);
                 resolve([]);
             });
         });
@@ -305,14 +468,22 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             };
         }
 
-        const requestPath = path.join(request.workingDirectory, `.nuke-cad-job-request-${Date.now()}.json`);
+        // The protocol promises the working directory is created if missing;
+        // the request file is written into it before the service runs.
+        fs.mkdirSync(request.workingDirectory, { recursive: true });
+        const requestPath = path.join(
+            request.workingDirectory,
+            `.nuke-cad-job-request-${Date.now()}-${NukeCadBackendServiceImpl.tempFileCounter++}.json`
+        );
         fs.writeFileSync(requestPath, JSON.stringify(request), 'utf-8');
 
         try {
             return await this._spawnJsonService<JobRunResult>(
                 pythonCommand,
                 [scriptPath, '--request', requestPath],
-                request.workingDirectory
+                request.workingDirectory,
+                undefined,
+                { jobId: request.jobId, timeoutSeconds: request.processTimeoutSeconds }
             );
         } finally {
             try {
@@ -351,14 +522,19 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             return [];
         }
 
-        const requestPath = path.join(path.dirname(scriptPath), `.nuke-cad-foam-list-${Date.now()}.json`);
+        // Temp request files go to the OS temp dir: the installed extension
+        // directory (scriptPath's parent) is read-only in packaged Electron.
+        const requestPath = path.join(os.tmpdir(), `.nuke-cad-foam-list-${Date.now()}-${NukeCadBackendServiceImpl.tempFileCounter++}.json`);
         fs.writeFileSync(requestPath, JSON.stringify({ operation: 'listSolvers', caseDir: path.dirname(scriptPath) }), 'utf-8');
 
         try {
             const result = await this._spawnJsonService<{ success: boolean; solvers?: string[]; error?: string }>(
                 pythonCommand,
                 [scriptPath, '--request', requestPath],
-                path.dirname(scriptPath)
+                path.dirname(scriptPath),
+                undefined,
+                // Panel metadata call: bound the wait so a hung interpreter cannot pin the promise forever.
+                { timeoutSeconds: NukeCadBackendServiceImpl.LIST_TIMEOUT_SECONDS }
             );
             return result.success && result.solvers ? result.solvers : [];
         } catch {
@@ -397,7 +573,13 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             : request.stepPath
               ? path.dirname(request.stepPath)
               : path.dirname(scriptPath);
-        const requestPath = path.join(workingDirectory, `.nuke-cad-foam-request-${Date.now()}.json`);
+        // The request file itself goes to the OS temp dir: the fallback working
+        // directory above is the installed extension dir, read-only in packaged
+        // Electron, and Date.now() names can collide across concurrent calls.
+        const requestPath = path.join(
+            os.tmpdir(),
+            `.nuke-cad-foam-request-${Date.now()}-${NukeCadBackendServiceImpl.tempFileCounter++}.json`
+        );
         fs.writeFileSync(requestPath, JSON.stringify(payload), 'utf-8');
 
         try {
@@ -414,13 +596,18 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     /**
      * Verify that the active environment has the CAD toolchain.
      */
-    async checkCadEnvironment(): Promise<{ ready: boolean; missing: string[] }> {
+    async checkCadEnvironment(): Promise<{ ready: boolean; missing: string[]; missingOptional: string[] }> {
         const pythonCommand = await this.nukeCoreService.getPythonCommand();
         if (!pythonCommand) {
-            return { ready: false, missing: ['python'] };
+            return { ready: false, missing: ['python'], missingOptional: [] };
         }
 
         const check = await this.nukeCoreService.checkDependencies(CAD_HEALTH_PACKAGES, pythonCommand);
-        return { ready: check.available, missing: check.missing };
+        // nuke-core only counts required packages into `missing`; surface absent
+        // optional packages separately so the health check stays informative.
+        const missingOptional = CAD_HEALTH_PACKAGES.filter((pkg) => pkg.required === false && !(pkg.name in check.versions)).map(
+            (pkg) => pkg.name
+        );
+        return { ready: check.available, missing: check.missing, missingOptional };
     }
 }

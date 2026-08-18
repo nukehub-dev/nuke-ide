@@ -153,12 +153,13 @@ def _apply_size_fields(
 
     if min_size is not None:
         gmsh.option.setNumber("Mesh.CharacteristicLengthMin", min_size)
+    # An explicit max_size wins over the looser mesh_size target.
     if max_size is not None:
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", max_size)
-    if mesh_size is not None:
+    elif mesh_size is not None:
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", mesh_size)
-        if min_size is None:
-            gmsh.option.setNumber("Mesh.CharacteristicLengthMin", mesh_size * 0.1)
+    if mesh_size is not None and min_size is None:
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", mesh_size * 0.1)
 
     if manifest is None or selector_map is None:
         return
@@ -413,13 +414,16 @@ def _extract_sidesets(mesh: Any, tets: np.ndarray) -> dict[str, list[tuple[int, 
     all_triangles = np.concatenate([arr for _, arr, _ in tri_blocks], axis=0)
 
     # Map each triangular face (corner nodes only) to owning tetrahedra.
+    # Face order follows the SEACAS ExodusII TETRA(4) side convention
+    # (1-based local node numbering): side 1 = {1,2,4}, side 2 = {2,3,4},
+    # side 3 = {1,4,3}, side 4 = {1,3,2}.
     face_owners: dict[frozenset[int], list[tuple[int, int]]] = {}
     for tet_idx, tet in enumerate(tets):
         faces = [
-            frozenset([int(tet[0]), int(tet[1]), int(tet[2])]),
-            frozenset([int(tet[0]), int(tet[1]), int(tet[3])]),
-            frozenset([int(tet[1]), int(tet[2]), int(tet[3])]),
-            frozenset([int(tet[0]), int(tet[2]), int(tet[3])]),
+            frozenset([int(tet[0]), int(tet[1]), int(tet[3])]),  # side 1
+            frozenset([int(tet[1]), int(tet[2]), int(tet[3])]),  # side 2
+            frozenset([int(tet[0]), int(tet[2]), int(tet[3])]),  # side 3
+            frozenset([int(tet[0]), int(tet[1]), int(tet[2])]),  # side 4
         ]
         for side_idx, face in enumerate(faces):
             face_owners.setdefault(face, []).append((tet_idx, side_idx))
@@ -572,8 +576,9 @@ def _tet_dihedral_angles(points: np.ndarray, tet: np.ndarray) -> tuple[float, fl
 
     angles: list[float] = []
     for f1, f2 in face_pairs:
-        # used to flip the normal so it points outward.
+
         def outward_normal(face: tuple[int, int, int], opposite: int) -> np.ndarray:
+            """Face normal flipped so it points away from the opposite vertex."""
             a, b, c = verts[face[0]], verts[face[1]], verts[face[2]]
             n = np.cross(b - a, c - a)
             if np.dot(n, verts[opposite] - a) > 0:
@@ -585,9 +590,8 @@ def _tet_dihedral_angles(points: np.ndarray, tet: np.ndarray) -> tuple[float, fl
         n2 = outward_normal(f2, opposite=(set(range(4)) - set(f2)).pop())
 
         dot = float(np.clip(np.dot(n1, n2), -1.0, 1.0))
-        plane_angle = float(np.arccos(-dot))  # angle between outward normals
-        interior = float(np.pi - plane_angle)
-        angles.append(np.degrees(interior))
+        # arccos(-dot) of the outward normals is already the interior dihedral.
+        angles.append(float(np.degrees(np.arccos(-dot))))
 
     return float(min(angles)), float(max(angles))
 
@@ -655,10 +659,11 @@ def _compute_mesh_report(
             }
         )
 
+    element_type = "tetra10" if tets.shape[1] == 10 else "tetra"
     return {
         "elementCount": int(len(tets)),
         "nodeCount": int(len(points)),
-        "elementTypes": {"tetra": int(len(tets))},
+        "elementTypes": {element_type: int(len(tets))},
         "blocks": block_reports,
         "sidesets": sideset_reports,
         "quality": {
@@ -794,6 +799,11 @@ def mesh_step(
             f"Done: {report['elementCount']} tetrahedra, "
             f"{report['nodeCount']} nodes, {len(blocks)} block(s)"
         )
+    except NotImplementedError as exc:
+        # Documented stub (e.g. engine='netgen'): report a clean structured
+        # error instead of a traceback.
+        result["error"] = str(exc)
+        result["warnings"] = warnings
     except Exception as exc:
         result["error"] = f"Meshing failed: {exc}"
         result["traceback"] = traceback.format_exc()

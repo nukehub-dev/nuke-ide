@@ -4,14 +4,19 @@ Pipeline
 --------
 1. Load the canonical STEP file into an OCP shape.
 2. Optionally auto-create a mat:graveyard bounding volume (OCP boolean cut).
-3. Write the (graveyard-augmented) shape to a temporary STEP file.
-4. Load the temp STEP into the gmsh OpenCASCADE kernel and run ``fragment``
-   on all volumes. This is the imprint/merge stage: touching solids receive
-   exact, shared coincident faces.
+3. Sampling-based overlap check between volumes (BRepClass3d classification).
+4. Feed gmsh the original STEP (or a temp STEP only when the graveyard stage
+   modified the shape), load it in the OpenCASCADE kernel, and run
+   ``fragment`` on all volumes — the imprint/merge stage: touching solids
+   receive exact, shared coincident faces. The fragment output map binds
+   post-fragment volume tags back to pre-fragment volume indices for naming.
+   ``removeAllDuplicates`` then merges duplicate entities.
 5. Generate a 2D surface mesh in gmsh.
-6. Extract triangles, surface-to-volume adjacencies, and build a tagged
+6. Verify every surface borders exactly 1 or 2 volumes (hard error otherwise).
+7. Extract triangles, surface-to-volume adjacencies, and build a tagged
    DAGMC H5M file via pymoab.
-7. Validate surface senses and report watertightness diagnostics.
+8. Report watertightness diagnostics (edge incidence: non-manifold >2,
+   hole edges == 1).
 
 The module stays importable in the minimal pytest profile (``pytest`` +
 ``numpy`` only). All heavy imports are guarded with module-level flags and
@@ -143,6 +148,92 @@ def _bbox_contains(
         and oymax >= iymax - padding
         and ozmax >= izmax - padding
     )
+
+
+def _bbox_overlaps(
+    a: tuple[float, float, float, float, float, float],
+    b: tuple[float, float, float, float, float, float],
+    padding: float = 1e-6,
+) -> bool:
+    """Check whether two axis-aligned bounding boxes overlap (with padding)."""
+    return all(a[i] <= b[i + 3] + padding and a[i + 3] >= b[i] - padding for i in range(3))
+
+
+def _check_volume_overlaps(
+    shape: Any,
+    skip_vol_ids: set[int] | None = None,
+    samples_per_volume: int = 8,
+    grid_divisions: int = 4,
+) -> dict[str, Any]:
+    """Sampling-based overlap check between volumes (BRepClass3d classification).
+
+    For each volume, up to ``samples_per_volume`` interior points are found by
+    classifying a uniform bbox grid against the volume itself; each candidate
+    pair (overlapping bboxes) is then checked by classifying one volume's
+    interior samples against the other. Volumes in ``skip_vol_ids`` (1-based,
+    e.g. a graveyard built by boolean cut) are excluded.
+
+    Returns ``{"checkedVolumes", "overlappingPairs", "samplesPerVolume"}``.
+    Limitation: volumes whose interior grid samples cannot be found (extremely
+    thin or pathological shapes) are effectively skipped for that pair.
+    """
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+
+    solids = _solids_from_shape(shape)
+    n = len(solids)
+    report: dict[str, Any] = {
+        "checkedVolumes": n,
+        "overlappingPairs": [],
+        "samplesPerVolume": samples_per_volume,
+    }
+    if n < 2:
+        return report
+    skip = skip_vol_ids or set()
+
+    def _inside(solid: Any, x: float, y: float, z: float) -> bool:
+        classifier = BRepClass3d_SolidClassifier(solid, gp_Pnt(x, y, z), 1e-6)
+        return bool(classifier.State() == TopAbs_IN)
+
+    bboxes = [_solid_bounding_box(s) for s in solids]
+
+    interior: list[list[tuple[float, float, float]]] = []
+    for solid, (xmin, ymin, zmin, xmax, ymax, zmax) in zip(solids, bboxes, strict=True):
+        points: list[tuple[float, float, float]] = []
+        done = False
+        for i in range(grid_divisions):
+            for j in range(grid_divisions):
+                for k in range(grid_divisions):
+                    x = xmin + (i + 0.5) / grid_divisions * (xmax - xmin)
+                    y = ymin + (j + 0.5) / grid_divisions * (ymax - ymin)
+                    z = zmin + (k + 0.5) / grid_divisions * (zmax - zmin)
+                    if _inside(solid, x, y, z):
+                        points.append((x, y, z))
+                        if len(points) >= samples_per_volume:
+                            done = True
+                            break
+                if done:
+                    break
+            if done:
+                break
+        interior.append(points)
+
+    pairs: list[list[int]] = []
+    for i in range(n):
+        if (i + 1) in skip:
+            continue
+        for j in range(i + 1, n):
+            if (j + 1) in skip:
+                continue
+            if not _bbox_overlaps(bboxes[i], bboxes[j]):
+                continue
+            if any(_inside(solids[j], *p) for p in interior[i]) or any(
+                _inside(solids[i], *p) for p in interior[j]
+            ):
+                pairs.append([i + 1, j + 1])
+    report["overlappingPairs"] = pairs
+    return report
 
 
 def _collect_step_names(file_path: str) -> set[str]:
@@ -369,6 +460,11 @@ def _load_shape(step_path: str) -> Any:
     return reader.OneShape()
 
 
+def _fallback_material_name(vol_id: int) -> str:
+    """Positional fallback group name (openmc-studio convention: mat:mat_<id-1>)."""
+    return f"mat:mat_{vol_id - 1}"
+
+
 def _volume_name_from_manifest(
     vol_id: int,
     manifest: Any | None,
@@ -392,7 +488,7 @@ def _volume_name_from_manifest(
                 name = entry.get("name") or selector
                 return f"mat:{name}"
 
-    return f"mat_{vol_id - 1}"
+    return _fallback_material_name(vol_id)
 
 
 def _extract_gmsh_surface_mesh(
@@ -453,7 +549,6 @@ def _build_moab_model(
     face_to_volumes: dict[int, list[int]],
     material_names: dict[int, str],
     faceting_tolerance: float,
-    warnings: list[str],
 ) -> Any:
     """Build a pymoab Core with the DAGMC tags and return it."""
     if moab_core is None or moab_types is None:
@@ -539,7 +634,7 @@ def _build_moab_model(
     for vol_id in sorted(volume_sets.keys()):
         mat_name = material_names.get(vol_id)
         if mat_name is None:
-            mat_name = f"mat_{vol_id - 1}"
+            mat_name = _fallback_material_name(vol_id)
         gset = mb.create_meshset()
         mb.tag_set_data(tag_cat, gset, "Group")
         mb.tag_set_data(tag_gdim, gset, 4)
@@ -549,7 +644,9 @@ def _build_moab_model(
 
     # GEOM_SENSE_2 tags.
     for face_tag, vols in face_to_volumes.items():
-        sset = surface_sets[face_tag]
+        sset = surface_sets.get(face_tag)
+        if sset is None:
+            continue
         if len(vols) == 2 and vols[0] in volume_sets and vols[1] in volume_sets:
             sense_data = np.array([volume_sets[vols[0]], volume_sets[vols[1]]], dtype=np.uint64)
         elif len(vols) >= 1 and vols[0] in volume_sets:
@@ -561,25 +658,38 @@ def _build_moab_model(
     root = mb.get_root_set()
     mb.tag_set_data(tag_facet_tol, root, float(faceting_tolerance))
 
-    # Validation: every surface must have 1 or 2 adjacent volumes.
-    for face_tag, vols in face_to_volumes.items():
-        if len(vols) > 2:
-            warnings.append(
-                f"Surface {face_tag} is adjacent to {len(vols)} volumes; DAGMC expects 1 or 2."
-            )
-        if not vols:
-            warnings.append(f"Surface {face_tag} has no adjacent volumes.")
-
     return mb
+
+
+def _verify_surface_senses(
+    face_triangles: dict[int, Any], face_to_volumes: dict[int, list[int]]
+) -> None:
+    """Verify every exported surface borders exactly 1 or 2 volumes.
+
+    Anything else is a hard error (DAGMC cannot interpret it); the message
+    lists the offending surfaces with their adjacency counts.
+    """
+    offending: list[str] = []
+    for face_tag in sorted(face_triangles.keys()):
+        vols = face_to_volumes.get(face_tag, [])
+        if len(vols) not in (1, 2):
+            offending.append(f"surface {face_tag} (adjacent volumes: {len(vols)})")
+    if offending:
+        raise RuntimeError(
+            "DAGMC surface sense verification failed: every surface must border "
+            "exactly 1 or 2 volumes. Offending surfaces: " + "; ".join(offending)
+        )
 
 
 def _watertight_check(mb: Any, surface_sets: dict[int, Any], warnings: list[str]) -> dict[str, Any]:
     """Return edge-to-triangle incidence statistics for the faceted model.
 
-    A sealed model has no edge shared by more than two triangles and no
-    interior edge shared by fewer than two. This routine reports the raw
-    histogram; ``sealed`` is True when every edge has at most two adjacent
-    triangles (a necessary condition for watertightness).
+    The watertightness criterion for DAGMC is holes: an edge shared by only
+    one triangle is a boundary edge matched by no neighboring surface, i.e. a
+    leak. Edges shared by more than two triangles occur legitimately at
+    imprint seams (three or more surfaces meet there) and are reported as a
+    diagnostic count, not flagged as defects. ``sealed`` is True when no hole
+    edges exist.
     """
     edge_to_tris: dict[tuple[int, int], set[Any]] = {}
     for sset in surface_sets.values():
@@ -596,18 +706,20 @@ def _watertight_check(mb: Any, surface_sets: dict[int, Any], warnings: list[str]
     for c in counts:
         histogram[str(c)] = histogram.get(str(c), 0) + 1
 
-    non_manifold = sum(1 for c in counts if c > 3)
-    if non_manifold:
+    non_manifold = sum(1 for c in counts if c > 2)
+    hole_edges = sum(1 for c in counts if c == 1)
+    if hole_edges:
         warnings.append(
-            f"Found {non_manifold} edges shared by more than three triangles; "
-            "the facet mesh may not be watertight."
+            f"Found {hole_edges} edges shared by only one triangle; "
+            "the facet mesh has holes and is not watertight."
         )
 
     return {
         "totalEdges": len(edge_to_tris),
         "edgeHistogram": histogram,
         "nonManifoldEdges": non_manifold,
-        "sealed": non_manifold == 0,
+        "holeEdges": hole_edges,
+        "sealed": hole_edges == 0,
     }
 
 
@@ -636,7 +748,7 @@ def convert_to_dagmc(
     Returns:
         Dict with ``success``, ``output_path``, ``warnings``, ``error``,
         ``solid_count``, ``surface_count``, ``triangle_count``,
-        ``watertight`` metrics.
+        ``watertight`` metrics, and the ``overlapCheck`` report.
     """
     result: dict[str, Any] = {
         "success": False,
@@ -673,16 +785,39 @@ def convert_to_dagmc(
         # 1. Load STEP and optionally add graveyard via OCP.
         # ------------------------------------------------------------------
         shape = _load_shape(str(step_file))
+        original_shape = shape
         graveyard_vol_ids: set[int] = set()
         if add_graveyard:
             shape, graveyard_vol_ids = _maybe_add_graveyard(shape, str(step_file), warnings)
 
+        # Overlap check on the pre-fragment volumes (1-based explorer order,
+        # the same indexing convention as the selector map and graveyard IDs).
+        overlap_report: dict[str, Any] = {
+            "checkedVolumes": 0,
+            "overlappingPairs": [],
+            "samplesPerVolume": 0,
+        }
+        try:
+            overlap_report = _check_volume_overlaps(shape, skip_vol_ids=graveyard_vol_ids)
+            for pair in overlap_report["overlappingPairs"]:
+                warnings.append(
+                    f"Volumes {pair[0]} and {pair[1]} overlap "
+                    "(sampled point is inside both); DAGMC requires disjoint volumes."
+                )
+        except Exception as exc:
+            warnings.append(f"Overlap check skipped: {exc}")
+
         # ------------------------------------------------------------------
-        # 2. Write (possibly graveyard-augmented) shape to a temp STEP.
+        # 2. Feed gmsh the original STEP when nothing changed; only pay the
+        #    temp-STEP rewrite when the graveyard stage modified the shape.
         # ------------------------------------------------------------------
         with tempfile.TemporaryDirectory() as tmpdir:
-            temp_step = Path(tmpdir) / "with_graveyard.step"
-            _write_step(shape, temp_step)
+            if shape is original_shape:
+                gmsh_input = str(step_file)
+            else:
+                temp_step = Path(tmpdir) / "with_graveyard.step"
+                _write_step(shape, temp_step)
+                gmsh_input = str(temp_step)
 
             # ------------------------------------------------------------------
             # 3. gmsh imprint/merge and surface mesh.
@@ -691,14 +826,43 @@ def convert_to_dagmc(
             gmsh_initialized = True
             gmsh.option.setNumber("General.Terminal", 0)
 
-            gmsh.open(str(temp_step))
+            gmsh.open(gmsh_input)
             volumes = gmsh.model.getEntities(3)
             if not volumes:
                 raise RuntimeError("No volumes found in STEP file")
 
-            # Imprint/merge: fragment all volumes with all volumes.
-            gmsh.model.occ.fragment(volumes, volumes)
+            # Imprint/merge: fragment all volumes with all volumes. The
+            # fragment map binds each post-fragment volume tag back to its
+            # pre-fragment 1-based volume index (position in ``volumes``,
+            # assumed to match the STEP solid order — the same assumption the
+            # selector map already relies on).
+            _, fragment_map = gmsh.model.occ.fragment(volumes, volumes)
             gmsh.model.occ.synchronize()
+
+            # Merge/unify stage: drop duplicate entities introduced by imprint.
+            gmsh.model.occ.removeAllDuplicates()
+            gmsh.model.occ.synchronize()
+
+            post_to_pre: dict[int, int] = {}
+            for pre_index, outputs in enumerate(fragment_map[: len(volumes)]):
+                for dim, tag in outputs:
+                    if int(dim) == 3:
+                        post_to_pre[int(tag)] = pre_index + 1
+            # Residual limitation: if removeAllDuplicates renumbered or dropped
+            # a volume, fall back to the identity (index-based) assumption for
+            # that tag and say so.
+            current_vol_tags = {int(tag) for _, tag in gmsh.model.getEntities(3)}
+            stale = [tag for tag in post_to_pre if tag not in current_vol_tags]
+            unmapped = [tag for tag in current_vol_tags if tag not in post_to_pre]
+            if stale or unmapped:
+                warnings.append(
+                    "Post-fragment volume mapping was disturbed by duplicate removal; "
+                    "falling back to index-based volume identity for affected volumes."
+                )
+                for tag in stale:
+                    del post_to_pre[tag]
+                for tag in unmapped:
+                    post_to_pre[tag] = tag
 
             tol = faceting_tolerance
             if auto_adjust_tolerance:
@@ -729,14 +893,21 @@ def convert_to_dagmc(
             gmsh_initialized = False
 
             # ------------------------------------------------------------------
-            # 4. Build MOAB model.
+            # 4. Verify surface senses before building the MOAB model.
             # ------------------------------------------------------------------
-            material_names = {
-                vol_id: _volume_name_from_manifest(
-                    vol_id, manifest, selector_map, graveyard_vol_ids
+            _verify_surface_senses(face_triangles, face_to_volumes)
+
+            # ------------------------------------------------------------------
+            # 5. Build MOAB model. Material names are resolved through the
+            #    pre-fragment volume index so manifest selectors and graveyard
+            #    IDs (both pre-fragment 1-based) bind correctly.
+            # ------------------------------------------------------------------
+            material_names = {}
+            for vol_id in {v for vols in face_to_volumes.values() for v in vols}:
+                pre_index = post_to_pre.get(vol_id, vol_id)
+                material_names[vol_id] = _volume_name_from_manifest(
+                    pre_index, manifest, selector_map, graveyard_vol_ids
                 )
-                for vol_id in {v for vols in face_to_volumes.values() for v in vols}
-            }
 
             if length_scale != 1.0:
                 vertices *= length_scale
@@ -747,7 +918,6 @@ def convert_to_dagmc(
                 face_to_volumes,
                 material_names,
                 tol,
-                warnings,
             )
 
             # Re-fetch surface meshsets from MOAB for watertight check.
@@ -783,6 +953,7 @@ def convert_to_dagmc(
                     "triangle_count": int(sum(len(t) for t in face_triangles.values())),
                     "warnings": warnings,
                     "watertight": watertight,
+                    "overlapCheck": overlap_report,
                 }
             )
 

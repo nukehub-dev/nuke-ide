@@ -89,10 +89,13 @@ export class NukeCadCommandContribution implements CommandContribution {
         commands.registerCommand(NukeCadCommands.CHECK_CAD_ENVIRONMENT, {
             execute: async () => {
                 const status = await this.backendService.checkCadEnvironment();
+                const optionalNote = status.missingOptional.length
+                    ? ` Missing optional packages: ${status.missingOptional.join(', ')}.`
+                    : '';
                 if (status.ready) {
-                    this.messageService.info('CAD environment is ready.');
+                    this.messageService.info(`CAD environment is ready.${optionalNote}`);
                 } else {
-                    this.messageService.warn(`Missing packages: ${status.missing.join(', ')}`);
+                    this.messageService.warn(`Missing packages: ${status.missing.join(', ')}.${optionalNote}`);
                 }
             }
         });

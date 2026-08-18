@@ -67,7 +67,11 @@ export class NukeCadOpenHandler implements OpenHandler {
     canHandle(uri: URI): number {
         const ext = uri.path.ext.toLowerCase();
         if (ext === '.py') {
-            return 200;
+            // Stay below the editor's priority (EditorManager.canHandle === 100):
+            // plain .py files (e.g. openmc-studio model.py) must keep opening in
+            // the text editor by default. The CAD viewport remains available for
+            // .py via "Open With…" without hijacking every Python file in the IDE.
+            return 50;
         }
         if (['.step', '.stp', '.brep'].includes(ext)) {
             // Higher priority than nuke-visualizer so STEP files open in nuke-cad by default.

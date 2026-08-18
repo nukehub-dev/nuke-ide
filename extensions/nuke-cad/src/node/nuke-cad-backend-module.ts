@@ -33,12 +33,15 @@
 
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging';
+import { BackendApplicationContribution } from '@theia/core/lib/node';
 import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
 import { NukeCadBackendServiceImpl } from './nuke-cad-backend-service';
 
 export default new ContainerModule((bind) => {
     bind(NukeCadBackendServiceImpl).toSelf().inSingletonScope();
     bind(NukeCadBackendService).toService(NukeCadBackendServiceImpl);
+    // Kills still-running Python service process trees (ccx/gmsh/...) on shutdown.
+    bind(BackendApplicationContribution).toService(NukeCadBackendServiceImpl);
 
     bind(ConnectionHandler)
         .toDynamicValue((ctx) => new RpcConnectionHandler(NukeCadBackendServicePath, () => ctx.container.get(NukeCadBackendService)))

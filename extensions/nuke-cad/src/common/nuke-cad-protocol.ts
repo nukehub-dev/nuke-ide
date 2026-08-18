@@ -102,12 +102,21 @@ export interface FemRunRequest {
     readonly run?: boolean;
     /** Optional explicit path to the ccx executable. */
     readonly ccxPath?: string;
+    /**
+     * Optional caller-chosen job id for cancellation via {@link NukeCadBackendService.cancelJob}.
+     * The backend generates one when omitted and echoes it back on the result.
+     */
+    readonly jobId?: string;
+    /** Optional backend process timeout in seconds (kills the ccx process tree); the backend default applies when omitted. */
+    readonly processTimeoutSeconds?: number;
 }
 
 /** Result of a CalculiX FEM setup/run request. */
 export interface FemRunResult {
     readonly success: boolean;
     readonly error?: string;
+    /** Job id under which the backend ran (or is still running) this request; pass it to {@link NukeCadBackendService.cancelJob}. */
+    readonly jobId?: string;
     readonly inpPath?: string;
     readonly frdPath?: string;
     readonly datPath?: string;
@@ -128,16 +137,25 @@ export interface JobRunRequest {
     readonly env?: Record<string, string>;
     /** Glob patterns for output files to report back. */
     readonly artifacts?: string[];
-    /** Optional timeout in seconds. */
+    /** Optional timeout in seconds (enforced inside the job runner). */
     readonly timeout?: number;
     /** Optional path to tee stdout/stderr into. */
     readonly logFile?: string;
+    /**
+     * Optional caller-chosen job id for cancellation via {@link NukeCadBackendService.cancelJob}.
+     * The backend generates one when omitted and echoes it back on the result.
+     */
+    readonly jobId?: string;
+    /** Optional backend process timeout in seconds (kills the job process tree); the backend default applies when omitted. */
+    readonly processTimeoutSeconds?: number;
 }
 
 /** Result of a generic job run. */
 export interface JobRunResult {
     readonly success: boolean;
     readonly error?: string;
+    /** Job id under which the backend ran (or is still running) this request; pass it to {@link NukeCadBackendService.cancelJob}. */
+    readonly jobId?: string;
     readonly exitCode?: number | null;
     readonly artifacts: string[];
     readonly logFile?: string;
@@ -330,6 +348,19 @@ export interface NukeCadBackendService {
     runJob(request: JobRunRequest): Promise<JobRunResult>;
 
     /**
+     * Cancel a running job started via {@link runFem} or {@link runJob}.
+     *
+     * Stop contract for the panels: pass a `jobId` on the request (or read the
+     * one echoed back on the result) and call this RPC with it. The backend
+     * kills the job's whole process tree (ccx, gmsh, ...) and the pending call
+     * resolves with `success: false` and a cancellation error.
+     *
+     * @param jobId - The job id from the request/result
+     * @returns Whether a running job with that id was found and signalled
+     */
+    cancelJob(jobId: string): Promise<boolean>;
+
+    /**
      * Scaffold a new OpenFOAM case directory.
      */
     buildFoamCase(request: FoamCaseRequest): Promise<FoamCaseResult>;
@@ -346,6 +377,8 @@ export interface NukeCadBackendService {
 
     /**
      * Check whether the active Python environment has the CAD toolchain.
+     * `missing` lists absent required packages; `missingOptional` lists absent
+     * optional packages (missing optionals never block `ready`).
      */
-    checkCadEnvironment(): Promise<{ readonly ready: boolean; readonly missing: string[] }>;
+    checkCadEnvironment(): Promise<{ readonly ready: boolean; readonly missing: string[]; readonly missingOptional: string[] }>;
 }

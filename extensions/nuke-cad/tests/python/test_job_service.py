@@ -20,7 +20,7 @@ def test_run_job_success(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "print('hello')"],
+            "command": [sys.executable, "-c", "print('hello')"],
             "artifacts": ["*.txt"],
         }
     )
@@ -37,7 +37,7 @@ def test_run_job_artifact_collection(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "print('done')"],
+            "command": [sys.executable, "-c", "print('done')"],
             "artifacts": ["*.txt", "*.log"],
         }
     )
@@ -50,7 +50,7 @@ def test_run_job_timeout(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "import time; time.sleep(10)"],
+            "command": [sys.executable, "-c", "import time; time.sleep(10)"],
             "timeout": 0.1,
         }
     )
@@ -63,7 +63,7 @@ def test_run_job_failure(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "import sys; sys.exit(2)"],
+            "command": [sys.executable, "-c", "import sys; sys.exit(2)"],
         }
     )
     assert result["success"] is False
@@ -76,7 +76,7 @@ def test_run_job_log_file(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "print('logged')"],
+            "command": [sys.executable, "-c", "print('logged')"],
             "logFile": str(log_path),
         }
     )
@@ -99,7 +99,7 @@ def test_cli(tmp_path: Path) -> None:
         json.dumps(
             {
                 "workingDirectory": str(tmp_path),
-                "command": ["python", "-c", "print(1+1)"],
+                "command": [sys.executable, "-c", "print(1+1)"],
             }
         )
     )
@@ -122,7 +122,7 @@ def test_collect_artifacts_absolute_glob(tmp_path: Path) -> None:
     result = job_service.run_job(
         {
             "workingDirectory": str(tmp_path),
-            "command": ["python", "-c", "print('ok')"],
+            "command": [sys.executable, "-c", "print('ok')"],
             "artifacts": [str(artifact)],
         }
     )

@@ -31,19 +31,19 @@
     }
   ],
   "dagmc": [
-    { "name": "pymoab", "required": false },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
     { "name": "h5py", "required": false }
   ],
   "health": [
     { "name": "numpy", "required": true },
     {
       "name": "OCP",
-      "required": false,
+      "required": true,
       "installCommand": "pip install cadquery-ocp==7.9.3.1.1"
     },
     {
       "name": "build123d",
-      "required": false,
+      "required": true,
       "installCommand": "pip install build123d"
     },
     {
@@ -51,7 +51,7 @@
       "required": false,
       "installCommand": "pip install cadquery"
     },
-    { "name": "gmsh", "required": false },
+    { "name": "gmsh", "required": true },
     { "name": "meshio", "required": false },
     { "name": "netCDF4", "required": false },
     {
@@ -64,7 +64,7 @@
       "required": false,
       "installCommand": "pip install ngsolve"
     },
-    { "name": "pymoab", "required": false },
+    { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
     { "name": "h5py", "required": false }
   ]
 }

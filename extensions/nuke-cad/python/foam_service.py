@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import traceback
 from pathlib import Path
@@ -28,21 +29,17 @@ if str(_SCRIPT_DIR) not in sys.path:
 # Optional heavy dependencies. The module must remain importable without them.
 try:
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPControl import STEPControl_Reader
     from OCP.StlAPI import StlAPI_Writer
     from OCP.TopAbs import TopAbs_SOLID
     from OCP.TopExp import TopExp_Explorer
-    from OCP.TopoDS import topods_Solid
+    from OCP.TopoDS import TopoDS
+    from ocp_compat import topods_solid
 
     HAS_OCP = True
 except ImportError:
     HAS_OCP = False
-
-try:
-    from cad_conversion.ocp_compat import load_step
-
-    HAS_STEP_LOADER = True
-except ImportError:
-    HAS_STEP_LOADER = False
 
 
 def _print_progress(message: str) -> None:
@@ -54,12 +51,6 @@ def _require_ocp() -> None:
     """Raise a clear error if OCP is not available."""
     if not HAS_OCP:
         raise RuntimeError("OpenFOAM STL export requires OCP (cadquery-ocp/build123d).")
-
-
-def _require_step_loader() -> None:
-    """Raise a clear error if the STEP loader is not available."""
-    if not HAS_STEP_LOADER:
-        raise RuntimeError("STEP loading requires the cad_conversion package.")
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +512,7 @@ def build_case(request: dict[str, Any]) -> dict[str, Any]:
     if "U" in write_fields:
         # Default inlet velocity if a boundary named 'inlet' exists.
         u_boundaries = []
-        for bc in boundaries:
+        for bc in wall_boundaries:
             name = bc.get("name", "patch")
             bctype = bc.get("type", "fixedValue")
             value = bc.get("value", "(0 0 0)")
@@ -536,7 +527,7 @@ def build_case(request: dict[str, Any]) -> dict[str, Any]:
 
     if "p" in write_fields:
         p_boundaries = []
-        for bc in boundaries:
+        for bc in wall_boundaries:
             name = bc.get("name", "patch")
             bctype = bc.get("type", "fixedValue")
             value = bc.get("value", "0")
@@ -552,7 +543,7 @@ def build_case(request: dict[str, Any]) -> dict[str, Any]:
 
     if "T" in write_fields:
         t_boundaries = []
-        for bc in boundaries:
+        for bc in wall_boundaries:
             name = bc.get("name", "patch")
             bctype = bc.get("type", "fixedValue")
             value = bc.get("value", "300")
@@ -593,8 +584,23 @@ def build_case(request: dict[str, Any]) -> dict[str, Any]:
 
 def _shape_from_step(step_path: str) -> Any:
     """Load a STEP file and return the root TopoDS_Shape."""
-    _require_step_loader()
-    return load_step(step_path)
+    path = Path(step_path)
+    reader = STEPControl_Reader()
+    status = reader.ReadFile(str(path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"STEP reader returned status {status} for {path}")
+    reader.TransferRoots()
+    return reader.OneShape()
+
+
+def _sanitize_stl_name(name: Any, fallback: str) -> str:
+    """Make a solid name safe to use as an STL file name.
+
+    Strips path separators, whitespace, and anything outside
+    ``[A-Za-z0-9._-]`` so region names cannot escape the output directory.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name)).strip("._")
+    return cleaned or fallback
 
 
 def export_stl(request: dict[str, Any]) -> dict[str, Any]:
@@ -607,20 +613,25 @@ def export_stl(request: dict[str, Any]) -> dict[str, Any]:
         linearDeflection (float): tessellation quality.
         angularDeflection (float): tessellation quality.
     """
+    step_path = request.get("stepPath", "")
+    if not Path(step_path).is_file():
+        return {"success": False, "error": f"STEP file not found: {step_path}"}
+
     try:
         _require_ocp()
-        _require_step_loader()
     except RuntimeError as exc:
         return {"success": False, "error": str(exc)}
 
-    step_path = request.get("stepPath", "")
     output_dir = Path(request.get("outputDir", os.getcwd())).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     names = request.get("names") or {}
     linear_deflection = float(request.get("linearDeflection", 0.1))
     angular_deflection = float(request.get("angularDeflection", 0.5))
 
-    shape = _shape_from_step(step_path)
+    try:
+        shape = _shape_from_step(step_path)
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
     BRepMesh_IncrementalMesh(shape, linear_deflection, False, angular_deflection, True)
 
     writer = StlAPI_Writer()
@@ -631,12 +642,20 @@ def export_stl(request: dict[str, Any]) -> dict[str, Any]:
     solid_index = 0
     while explorer.More():
         solid_index += 1
-        solid = topods_Solid(explorer.Current())
-        name = names.get(str(solid_index), names.get(solid_index, f"solid_{solid_index}"))
+        solid = topods_solid(TopoDS, explorer.Current())
+        raw_name = names.get(str(solid_index), names.get(solid_index, f"solid_{solid_index}"))
+        name = _sanitize_stl_name(raw_name, f"solid_{solid_index}")
         stl_path = output_dir / f"{name}.stl"
-        writer.Write(solid, str(stl_path))
+        if not writer.Write(solid, str(stl_path)):
+            return {
+                "success": False,
+                "error": f"Failed to write STL for solid '{raw_name}' to {stl_path}",
+            }
         stl_files.append(str(stl_path))
         explorer.Next()
+
+    if not stl_files:
+        return {"success": False, "error": f"No solids found in STEP file: {step_path}"}
 
     return {
         "success": True,

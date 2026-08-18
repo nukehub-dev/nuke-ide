@@ -5,6 +5,24 @@ Implements a small declarative run-layer: a working directory, a command, an
 optional environment overlay, artifact globs, and a timeout.  Progress and
 diagnostics are emitted on stderr; one final JSON object is printed on stdout.
 
+Request schema (JSON object):
+    workingDirectory (str): directory to run in (created if missing).
+    command (list[str]): command + arguments (required).
+    env (dict[str, str] | None): extra environment variables.
+    artifacts (list[str] | None): glob patterns for output files to report.
+    timeout (float | None): seconds; None means no timeout.
+    logFile (str | None): path to tee stdout/stderr into.
+
+Result payload (JSON object):
+    success (bool): True only when the process exits with code 0.
+    exitCode (int | None): process return code (None when the job never
+        started, e.g. missing command or spawn failure).
+    artifacts (list[str]): absolute paths matching the artifact globs.
+    logFile (str | None): the logFile request field, echoed back.
+    stdout (str): captured standard output.
+    stderr (str): captured standard error.
+    error (str | None): human-readable failure reason; None on success.
+
 This is intentionally simple (local subprocess only).  Remote/SSH/container
 submit is the planned future extension and will use the same request schema so
 frontends do not need redesigning.
@@ -15,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import traceback
@@ -30,6 +49,30 @@ if str(_SCRIPT_DIR) not in sys.path:
 def _print_progress(message: str) -> None:
     """Emit a progress line on stderr."""
     print(message, file=sys.stderr, flush=True)
+
+
+def _write_log(log_stream: Any, stdout: str, stderr: str) -> None:
+    """Write captured output to the log stream and close it."""
+    log_stream.write(stdout)
+    log_stream.write(stderr)
+    log_stream.close()
+
+
+def _terminate_process(process: subprocess.Popen) -> None:
+    """Kill a timed-out/erring job, including its whole process group on POSIX.
+
+    The child is spawned with ``start_new_session=True``, so on POSIX it leads
+    its own process group and ``os.killpg`` also kills any grandchildren it
+    spawned (solver wrappers routinely fork workers).  On Windows there is no
+    process-group kill; fall back to killing the direct child only.
+    """
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    process.kill()
 
 
 def _collect_artifacts(root: Path, patterns: list[str]) -> list[str]:
@@ -112,9 +155,6 @@ def run_job(request: dict[str, Any]) -> dict[str, Any]:
 
     _print_progress(f"Running job in {working_directory}: {' '.join(command)}")
 
-    stdout_buffer: list[str] = []
-    stderr_buffer: list[str] = []
-
     try:
         process = subprocess.Popen(
             command,
@@ -124,8 +164,12 @@ def run_job(request: dict[str, Any]) -> dict[str, Any]:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            # New session so a timeout can kill the whole process group.
+            start_new_session=True,
         )
     except Exception as exc:  # noqa: BLE001
+        if log_stream:
+            log_stream.close()
         return {
             "success": False,
             "exitCode": None,
@@ -139,14 +183,10 @@ def run_job(request: dict[str, Any]) -> dict[str, Any]:
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.kill()
+        _terminate_process(process)
         stdout, stderr = process.communicate()
-        stdout_buffer.append(stdout)
-        stderr_buffer.append(stderr)
         if log_stream:
-            log_stream.write(stdout)
-            log_stream.write(stderr)
-            log_stream.close()
+            _write_log(log_stream, stdout, stderr)
         return {
             "success": False,
             "exitCode": process.returncode,
@@ -157,14 +197,10 @@ def run_job(request: dict[str, Any]) -> dict[str, Any]:
             "error": f"Job timed out after {timeout} seconds",
         }
     except Exception as exc:  # noqa: BLE001
-        process.kill()
+        _terminate_process(process)
         stdout, stderr = process.communicate()
-        stdout_buffer.append(stdout)
-        stderr_buffer.append(stderr)
         if log_stream:
-            log_stream.write(stdout)
-            log_stream.write(stderr)
-            log_stream.close()
+            _write_log(log_stream, stdout, stderr)
         return {
             "success": False,
             "exitCode": process.returncode,
@@ -178,9 +214,7 @@ def run_job(request: dict[str, Any]) -> dict[str, Any]:
     stdout_text = stdout or ""
     stderr_text = stderr or ""
     if log_stream:
-        log_stream.write(stdout_text)
-        log_stream.write(stderr_text)
-        log_stream.close()
+        _write_log(log_stream, stdout_text, stderr_text)
 
     found_artifacts = _collect_artifacts(working_directory, artifacts)
     _print_progress(

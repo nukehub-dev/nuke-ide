@@ -22,6 +22,10 @@ that holds the canonical geometry object. Supported types:
 * ``build123d.Part``, ``build123d.Compound`` (primary)
 * ``cadquery.Workplane`` (compat)
 * ``OCP.TopoDS.TopoDS_Shape`` (escape hatch)
+
+Scripts execute in an isolated child process (timeout enforced, stdout/stderr
+captured); the normalized shape is handed back as a BREP file. A ``sys.exit``
+or crash in the user script is reported as a normal error result.
 """
 
 import argparse
@@ -38,6 +42,8 @@ if str(_SCRIPT_DIR) not in sys.path:
 from ocp_compat import (  # noqa: E402
     brep_bnd_lib_add,
     brep_tool_triangulation,
+    brep_tools_read,
+    brep_tools_write,
     interface_static_set_cval,
     topods_face,
     topods_solid,
@@ -68,12 +74,91 @@ def _print_progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def _solids_in_explorer_order(shape: object) -> list[object]:
+    """Return all TopoDS_Solid instances nested in ``shape`` in explorer order."""
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    solids: list[object] = []
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp.More():
+        solids.append(topods_solid(TopoDS, exp.Current()))
+        exp.Next()
+    return solids
+
+
+def _solid_indices_of(sub_shape: object, final_solids: list[object]) -> list[int]:
+    """Return the 1-based indices of ``sub_shape``'s solids within ``final_solids``."""
+    indices: list[int] = []
+    for solid in _solids_in_explorer_order(sub_shape):
+        for i, final in enumerate(final_solids):
+            if solid.IsSame(final):
+                indices.append(i + 1)
+                break
+    return indices
+
+
+def _extract_build123d_selectors(result: object) -> dict[str, list[int]]:
+    """Map build123d labels to 1-based solid indices of the final shape.
+
+    Walks the Part/Compound children tree; every node with a non-empty
+    ``label`` contributes the solids it contains. Labels are only preserved
+    when the model keeps its children (e.g. ``Compound(children=[...])``);
+    wrapping shapes in a plain ``Compound([...])`` list discards them inside
+    build123d itself.
+    """
+    final_solids = _solids_in_explorer_order(result.wrapped)
+    selector_map: dict[str, list[int]] = {}
+
+    def _visit(node: object) -> None:
+        label = getattr(node, "label", None)
+        if isinstance(label, str) and label:
+            indices = _solid_indices_of(node.wrapped, final_solids)
+            if indices:
+                existing = selector_map.setdefault(label, [])
+                for idx in indices:
+                    if idx not in existing:
+                        existing.append(idx)
+                        existing.sort()
+        for child in getattr(node, "children", None) or []:
+            _visit(child)
+
+    _visit(result)
+    return selector_map
+
+
+def _extract_cadquery_selectors(
+    assembly: object, final_solids: list[object]
+) -> dict[str, list[int]]:
+    """Map CadQuery Assembly child names to 1-based solid indices (best-effort)."""
+    selector_map: dict[str, list[int]] = {}
+
+    def _visit(node: object) -> None:
+        name = getattr(node, "name", None)
+        obj = getattr(node, "obj", None)
+        if isinstance(name, str) and name and obj is not None:
+            wrapped = getattr(obj, "wrapped", None)
+            if wrapped is None and hasattr(obj, "val"):
+                wrapped = getattr(obj.val(), "wrapped", None)
+            if wrapped is not None:
+                indices = _solid_indices_of(wrapped, final_solids)
+                if indices:
+                    selector_map[name] = indices
+        for child in getattr(node, "children", None) or []:
+            _visit(child)
+
+    _visit(assembly)
+    return selector_map
+
+
 def _extract_shape(result: object) -> tuple[object | None, dict[str, list[int]]]:
     """Normalize a build123d/CadQuery/OCP result to ``(topods_shape, selector_map)``.
 
     The selector map associates user-assigned labels/part names with the
-    1-based solid indices that carry them. Label extraction is best-effort:
-    build123d objects expose labels, CadQuery objects do not.
+    1-based solid indices that carry them (build123d ``label`` on Part/Compound
+    children, CadQuery Assembly child names). Type errors for recognized but
+    unsupported model types are raised to the caller, not swallowed.
     """
     selector_map: dict[str, list[int]] = {}
 
@@ -83,41 +168,218 @@ def _extract_shape(result: object) -> tuple[object | None, dict[str, list[int]]]
 
         if isinstance(result, TopoDS_Shape):
             return result, selector_map
-    except Exception:
+    except ImportError:
         pass
 
-    # build123d Part / Compound / Assembly.
+    # build123d Part / Compound (Part subclasses Compound in build123d).
     try:
         import build123d as bd
+    except ImportError:
+        bd = None  # type: ignore
 
+    if bd is not None and isinstance(result, bd.Shape):
         if isinstance(result, (bd.Part, bd.Compound)):
-            labels = getattr(result, "labels", None) or {}
-            for label, indices in labels.items():
-                # build123d labels are 0-based internally; expose 1-based externally.
-                selector_map[label] = [(i + 1) for i in indices]
+            selector_map = _extract_build123d_selectors(result)
             return result.wrapped, selector_map
-
-        if isinstance(result, bd.Assembly):
-            # Assemblies are not directly supported; flattening is future work.
-            raise TypeError(
-                "build123d Assembly is not supported. Define the model as a Part or Compound."
-            )
-    except Exception:
-        pass
+        raise TypeError(
+            f"Unsupported build123d model type {type(result).__name__}. "
+            "Define the model as a Part or Compound of solids."
+        )
 
     # CadQuery Workplane / Assembly.
     try:
         import cadquery as cq
+    except ImportError:
+        cq = None  # type: ignore
 
-        if isinstance(result, cq.Workplane):
+    if cq is not None:
+        workplane = getattr(cq, "Workplane", None)
+        assembly_type = getattr(cq, "Assembly", None)
+        if workplane is not None and isinstance(result, workplane):
             shape = result.val()
             return shape.wrapped, selector_map
-        if hasattr(result, "obj") and result.obj is not None:
-            return result.obj.wrapped, selector_map
-    except Exception:
-        pass
+        if assembly_type is not None and isinstance(result, assembly_type):
+            compound = result.toCompound()
+            selector_map = _extract_cadquery_selectors(
+                result, _solids_in_explorer_order(compound.wrapped)
+            )
+            return compound.wrapped, selector_map
 
     return None, selector_map
+
+
+def _execute_script_child(script_path: str, out_dir: str) -> dict:
+    """Child-process entry point: execute the user script and dump the model.
+
+    Runs the script with ``runpy``, normalizes ``model`` to an OCP shape,
+    writes it as BREP to ``out_dir``, and returns the stdout-JSON payload
+    (shape + selector map). Always returns a dict so the parent never sees a
+    bare process death for ordinary script failures (including ``sys.exit``).
+    """
+    import runpy
+
+    script_file = Path(script_path).resolve()
+    try:
+        namespace = runpy.run_path(str(script_file), run_name="__nuke_cad_model__")
+    except SystemExit as exc:
+        return {
+            "success": False,
+            "error": f"Script called sys.exit({exc.code}) during execution",
+            "traceback": traceback.format_exc(),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Script execution failed: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+    if "model" not in namespace:
+        return {
+            "success": False,
+            "error": (
+                "Script did not define a top-level 'model' variable. "
+                "Assign your build123d Part/Compound or CadQuery Workplane to 'model'."
+            ),
+        }
+
+    try:
+        shape, selector_map = _extract_shape(namespace["model"])
+    except TypeError as exc:
+        return {"success": False, "error": str(exc), "traceback": traceback.format_exc()}
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to normalize 'model': {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+    if shape is None:
+        return {
+            "success": False,
+            "error": (
+                "Could not extract an OCP B-rep from 'model'. "
+                "Supported types: build123d Part/Compound, CadQuery Workplane, OCP TopoDS_Shape."
+            ),
+        }
+
+    brep_path = Path(out_dir) / "model.brep"
+    try:
+        from OCP.BRepTools import BRepTools
+
+        if not brep_tools_write(BRepTools, shape, str(brep_path)):
+            return {"success": False, "error": f"Failed to write BREP handoff: {brep_path}"}
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to serialize model shape: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+    return {"success": True, "brepPath": str(brep_path), "selectorMap": selector_map}
+
+
+DEFAULT_SCRIPT_TIMEOUT = 120.0
+
+
+def _execute_script_isolated(
+    script_file: Path, timeout: float = DEFAULT_SCRIPT_TIMEOUT
+) -> tuple[object | None, dict[str, list[int]], dict | None]:
+    """Execute a user script in a child process with a timeout.
+
+    Returns ``(shape, selector_map, error)``; ``error`` is a stdout-JSON
+    result dict on failure, else None. The child writes the normalized shape
+    as BREP (lossless, unlike a STEP round-trip) plus the selector map.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="nuke_cad_exec_") as tmpdir:
+        cmd = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--exec-script",
+            str(script_file),
+            "--exec-dir",
+            tmpdir,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return (
+                None,
+                {},
+                {
+                    "success": False,
+                    "error": f"Script execution timed out after {timeout:g} seconds",
+                    "scriptPath": str(script_file),
+                },
+            )
+
+        # Forward child progress/diagnostics to our stderr.
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+            sys.stderr.flush()
+
+        # The protocol payload is the last JSON line on stdout; the user
+        # script may have printed arbitrary output before it.
+        payload: dict | None = None
+        for line in reversed(proc.stdout.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and "success" in candidate:
+                payload = candidate
+                break
+
+        if payload is None:
+            tail = (proc.stderr or "").strip().splitlines()[-5:]
+            detail = "\n".join(tail) if tail else "no output"
+            return (
+                None,
+                {},
+                {
+                    "success": False,
+                    "error": (
+                        f"Script process exited with code {proc.returncode} "
+                        f"without a result:\n{detail}"
+                    ),
+                    "scriptPath": str(script_file),
+                },
+            )
+
+        if not payload.get("success"):
+            payload.setdefault("scriptPath", str(script_file))
+            return None, {}, payload
+
+        # Read the BREP handoff back into this process.
+        try:
+            from OCP.BRep import BRep_Builder
+            from OCP.BRepTools import BRepTools
+            from OCP.TopoDS import TopoDS_Shape
+
+            shape = TopoDS_Shape()
+            builder = BRep_Builder()
+            if not brep_tools_read(BRepTools, shape, builder, payload["brepPath"]):
+                raise RuntimeError(f"BREP reader failed for {payload['brepPath']}")
+        except Exception as exc:
+            return (
+                None,
+                {},
+                {
+                    "success": False,
+                    "error": f"Failed to read script result shape: {exc}",
+                    "traceback": traceback.format_exc(),
+                    "scriptPath": str(script_file),
+                },
+            )
+
+        selector_map = payload.get("selectorMap") or {}
+        return shape, selector_map, None
 
 
 def _write_step(shape: object, step_path: Path) -> None:
@@ -431,10 +693,13 @@ def build_geometry(
     mesh_min_size: float | None = None,
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
+    script_timeout: float = DEFAULT_SCRIPT_TIMEOUT,
 ) -> dict:
     """Execute ``script_path`` and write canonical artifacts.
 
-    Returns the stdout-JSON result dict.
+    The user script runs in an isolated child process (timeout enforced,
+    stdout/stderr captured); ``sys.exit`` or a crash in the script is reported
+    as a normal error result. Returns the stdout-JSON result dict.
     """
     script_file = Path(script_path).resolve()
     if not script_file.exists():
@@ -446,54 +711,15 @@ def build_geometry(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Execute user script and locate ``model``.
+    # 1. Execute the user script in a child process and read back the model.
     # ------------------------------------------------------------------
     _print_progress(f"Executing script: {script_file}")
-    try:
-        import runpy
-
-        namespace = runpy.run_path(str(script_file), run_name="__nuke_cad_model__")
-    except Exception as exc:
-        return {
-            "success": False,
-            "error": f"Script execution failed: {exc}",
-            "traceback": traceback.format_exc(),
-            "scriptPath": str(script_file),
-        }
-
-    if "model" not in namespace:
-        return {
-            "success": False,
-            "error": (
-                "Script did not define a top-level 'model' variable. "
-                "Assign your build123d Part/Compound or CadQuery Workplane to 'model'."
-            ),
-            "scriptPath": str(script_file),
-        }
-
-    raw_model = namespace["model"]
+    shape, selector_map, error = _execute_script_isolated(script_file, timeout=script_timeout)
+    if error is not None:
+        return error
 
     # ------------------------------------------------------------------
-    # 2. Normalize to OCP shape.
-    # ------------------------------------------------------------------
-    _print_progress("Normalizing to OCP B-rep")
-    try:
-        shape, selector_map = _extract_shape(raw_model)
-    except TypeError as exc:
-        return {"success": False, "error": str(exc), "scriptPath": str(script_file)}
-
-    if shape is None:
-        return {
-            "success": False,
-            "error": (
-                "Could not extract an OCP B-rep from 'model'. "
-                "Supported types: build123d Part/Compound, CadQuery Workplane, OCP TopoDS_Shape."
-            ),
-            "scriptPath": str(script_file),
-        }
-
-    # ------------------------------------------------------------------
-    # 3. Load manifest and process shape.
+    # 2. Load manifest and process shape.
     # ------------------------------------------------------------------
     manifest, manifest_warnings = _load_manifest(script_file)
     result = _process_shape(
@@ -521,9 +747,9 @@ def import_step_file(
     step_path: str,
     output_dir: str | None = None,
     tolerance: float = 0.001,
-    export_dagmc: bool = True,
+    export_dagmc: bool = False,
     add_graveyard: bool = True,
-    export_mesh: bool = True,
+    export_mesh: bool = False,
     mesh_engine: str = "gmsh",
     mesh_size: float | None = None,
     mesh_min_size: float | None = None,
@@ -532,7 +758,8 @@ def import_step_file(
 ) -> dict:
     """Import an existing STEP file and write canonical artifacts.
 
-    Returns the stdout-JSON result dict.
+    STEP imports skip DAGMC/mesh export by default (opt in explicitly);
+    script builds keep them on by default. Returns the stdout-JSON result dict.
     """
     step_file = Path(step_path).resolve()
     if not step_file.exists():
@@ -575,14 +802,28 @@ def import_step_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="nuke-cad geometry service")
-    parser.add_argument("script", help="Path to the build123d/CadQuery script or STEP file")
+    parser.add_argument(
+        "script",
+        nargs="?",
+        default=None,
+        help="Path to the build123d/CadQuery script or STEP file",
+    )
     parser.add_argument("--from-step", action="store_true", help="Treat the input as a STEP file")
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
+    # Internal child-process entry point used by build_geometry for isolated
+    # script execution; not part of the public CLI.
+    parser.add_argument("--exec-script", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--exec-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--tolerance",
         type=float,
         default=0.001,
         help="BRepMesh faceting tolerance (default: 0.001)",
+    )
+    parser.add_argument(
+        "--dagmc",
+        action="store_true",
+        help="Enable DAGMC .h5m export for --from-step imports (off by default there)",
     )
     parser.add_argument(
         "--no-dagmc",
@@ -593,6 +834,11 @@ def main() -> None:
         "--no-graveyard",
         action="store_true",
         help="Do not auto-create a mat:graveyard bounding volume",
+    )
+    parser.add_argument(
+        "--mesh",
+        action="store_true",
+        help="Enable FEM volume mesh export for --from-step imports (off by default there)",
     )
     parser.add_argument(
         "--no-mesh",
@@ -609,16 +855,33 @@ def main() -> None:
     parser.add_argument("--mesh-min-size", type=float, default=None, help="Minimum element size")
     parser.add_argument("--mesh-max-size", type=float, default=None, help="Maximum element size")
     parser.add_argument("--mesh-order", type=int, default=1, help="Element order (1 or 2)")
+    parser.add_argument(
+        "--script-timeout",
+        type=float,
+        default=DEFAULT_SCRIPT_TIMEOUT,
+        help=f"User script execution timeout in seconds (default: {DEFAULT_SCRIPT_TIMEOUT:g})",
+    )
     args = parser.parse_args()
 
+    if args.exec_script is not None:
+        # Child-process mode: emit the protocol payload and exit.
+        result = _execute_script_child(args.exec_script, args.exec_dir or ".")
+        print(json.dumps(result))
+        sys.stdout.flush()
+        sys.exit(0 if result.get("success") else 1)
+
+    if args.script is None:
+        parser.error("the following arguments are required: script")
+
     if args.from_step:
+        # STEP imports skip DAGMC/mesh export unless explicitly requested.
         result = import_step_file(
             args.script,
             output_dir=args.output_dir,
             tolerance=args.tolerance,
-            export_dagmc=not args.no_dagmc,
+            export_dagmc=args.dagmc and not args.no_dagmc,
             add_graveyard=not args.no_graveyard,
-            export_mesh=not args.no_mesh,
+            export_mesh=args.mesh and not args.no_mesh,
             mesh_engine=args.mesh_engine,
             mesh_size=args.mesh_size,
             mesh_min_size=args.mesh_min_size,
@@ -638,6 +901,7 @@ def main() -> None:
             mesh_min_size=args.mesh_min_size,
             mesh_max_size=args.mesh_max_size,
             mesh_order=args.mesh_order,
+            script_timeout=args.script_timeout,
         )
     print(json.dumps(result))
     sys.stdout.flush()
