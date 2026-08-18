@@ -55,6 +55,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   the result: `sealed=False` + warning for hole edges, `nonManifoldEdges` for
   incidence > 2 (imprint seams legitimately have incidence 3), and
   `overlapCheck` from bbox + `BRepClass3d_SolidClassifier` sampling.
+- `ocp_compat.py` owns the OCP 7.8/7.9 dual-flavor support. OCP 7.9 removed
+  the `TopoDS.TopoDS.<X>_s` downcast statics (7.8 has only the `_s` names);
+  `ensure_topo_ds_static_aliases()` re-attaches them from the non-suffixed
+  callables so build123d 0.9.x runs on 7.9. The geometry-service child
+  process applies it eagerly before `runpy`; `install_build123d_import_hook()`
+  registers a one-shot meta-path finder so container images can activate the
+  shim via a site-packages `.pth` line without paying the OCP import cost at
+  every interpreter startup. `BRep_Tool` keeps its `_s` statics on both
+  flavors — do not shim it.
 - Widget CSS is copied to `lib/` by the `copy-css` build step.
 - Python package requirements live in `src/common/packages.json`; never inline
   package lists in services or widgets. The `health` group's required set

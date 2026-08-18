@@ -23,10 +23,13 @@ yarn docker:up
 
 - **Stage 1 (build)** — `node:22-bookworm`: `yarn install`, `yarn build:browser`,
   `yarn download:plugins`.
-- **Stage 2 (runtime)** — `condaforge/miniforge3` with the `trame` conda env
+- **Stage 2 (runtime)** — `condaforge/miniforge3` with the `ide` conda env
   (`environment.yml`): Python 3.13, Node 22, OpenMC, Trame, ParaView/VTK,
-  gmsh, CadQuery (`OCP`), `pythonocc-core` (`OCC`), pydagmc/moab.
-  VTK runs headless (`QT_QPA_PLATFORM=offscreen`, `VTK_USE_OFFSCREEN=1`).
+  gmsh, CadQuery (`OCP`), `pythonocc-core` (`OCC`), pydagmc/moab, and
+  build123d (pip-installed `--no-deps` by the Dockerfile with nuke-cad's OCP
+  7.9 alias shim — see the CAD comment in `environment.yml` for why it is
+  not a conda dependency). VTK runs headless (`QT_QPA_PLATFORM=offscreen`,
+  `VTK_USE_OFFSCREEN=1`).
 
 The IDE's environment auto-detection finds the `ide` conda env because it
 satisfies all package requirements — no in-container configuration needed.

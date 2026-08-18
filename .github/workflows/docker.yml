@@ -55,6 +55,10 @@ jobs:
           from paraview import simple
           import OCP, cadquery, OCC, gmsh
           import build123d, meshio, netCDF4
+          # Guard: conda-forge offers a broken build123d 0.7.0 that the solver
+          # picks if the image recipe ever reintroduces conda build123d (the
+          # real 0.9.1 is pip-installed --no-deps by the Dockerfile).
+          assert tuple(int(p) for p in build123d.__version__.split('.')[:2]) >= (0, 9), build123d.__version__
           from pymoab import core
           import pydagmc
           print('python env OK')

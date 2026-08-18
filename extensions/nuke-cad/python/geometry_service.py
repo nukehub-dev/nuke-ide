@@ -44,6 +44,7 @@ from ocp_compat import (  # noqa: E402
     brep_tool_triangulation,
     brep_tools_read,
     brep_tools_write,
+    ensure_topo_ds_static_aliases,
     interface_static_set_cval,
     topods_face,
     topods_solid,
@@ -252,6 +253,11 @@ def _execute_script_child(script_path: str, out_dir: str) -> dict:
     bare process death for ordinary script failures (including ``sys.exit``).
     """
     import runpy
+
+    # Re-attach the TopoDS <X>_s downcast aliases removed in OCP 7.9 so user
+    # scripts doing ``from build123d import *`` work on both OCP flavors.
+    # No-op on OCP 7.8 and when OCP is absent (the script will fail anyway).
+    ensure_topo_ds_static_aliases()
 
     script_file = Path(script_path).resolve()
     try:

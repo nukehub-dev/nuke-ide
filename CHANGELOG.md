@@ -265,6 +265,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: geometry scripts now run on OCP 7.9 — `ocp_compat` re-attaches
+  the `TopoDS.TopoDS.<X>_s` downcast aliases removed in OCP 7.9 (build123d
+  0.9.x still calls them), applied eagerly in the geometry-service child
+  process and optionally via a one-shot `build123d` import hook that
+  container images can activate with a site-packages `.pth` line.
+- docker: the image's Python env now ships a working build123d 0.9.1. The
+  conda solver (with paraview pinned, hence the ocp 7.9 line) silently
+  selected the broken build123d 0.7.0; the Dockerfile now installs
+  build123d/ocpsvg via pip `--no-deps` (pure Python, no binary conflicts) and
+  activates the OCP 7.9 alias shim image-wide through a `.pth` hook. A CI
+  version guard in the docker workflow prevents a silent regression.
 - nukelab-integration: IDE file downloads and uploads no longer hang on
   "Preparing download..." after the NukeLab server access token expires
   (5 minutes after opening the environment) — a 401 from the container auth

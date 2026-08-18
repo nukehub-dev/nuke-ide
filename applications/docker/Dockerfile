@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# NukeIDE all-in-one image: Theia browser IDE + the 'trame' conda environment
+# NukeIDE all-in-one image: Theia browser IDE + the 'ide' conda environment
 # with all Python backends (OpenMC, Trame/ParaView, CAD toolchain).
 #
 # Build:  docker compose -f applications/docker/compose.yml build
@@ -47,7 +47,7 @@ RUN yarn install --frozen-lockfile \
     node_modules/typescript
 
 ###############################################################################
-# Stage 2 — runtime: miniforge + 'trame' conda env + built app
+# Stage 2 — runtime: miniforge + 'ide' conda env + built app
 ###############################################################################
 FROM docker.io/condaforge/miniforge3:latest AS runtime
 
@@ -74,6 +74,19 @@ RUN conda config --set remote_max_retries 10 \
     && conda clean -afy \
     && rm /tmp/environment.yml \
     # Keep pip's download cache out of the image layers
+    && rm -rf /root/.cache
+
+# build123d for nuke-cad script authoring. It is intentionally not a conda
+# dependency (see the CAD comment in environment.yml): installed --no-deps so
+# the pure-Python package cannot disturb conda's binary stack, and made to work
+# on this env's OCP 7.9 via nuke-cad's alias shim — copied into site-packages
+# and activated by a .pth hook so a bare `import build123d` works for user
+# scripts and the CI import check. The site-packages path tracks the
+# python=3.13 pin in environment.yml.
+COPY extensions/nuke-cad/python/ocp_compat.py /opt/conda/envs/ide/lib/python3.13/site-packages/ocp_compat.py
+RUN /opt/conda/envs/ide/bin/pip install --no-deps build123d==0.9.1 ocpsvg==0.6.0 \
+    && echo 'import ocp_compat; ocp_compat.install_build123d_import_hook()' \
+        > /opt/conda/envs/ide/lib/python3.13/site-packages/_nuke_ocp79.pth \
     && rm -rf /root/.cache
 
 # Built application (browser bundle, extensions, plugins, node_modules)

@@ -64,12 +64,16 @@ conda create -n nuke -c conda-forge --strict-channel-priority python=3.13 \
 ```
 
 The ocp pin matters: conda `ocp` 7.8.1.2 still provides the `TopoDS.*_s`
-downcast API that conda build123d requires, while conda `ocp` 7.9.3.1 dropped
-it (every conda build123d then fails with `TopoDS has no attribute
-'Vertex_s'`). The same API gap makes build123d uninstallable alongside
-paraview (paraview 6.1.1 forces the ocp 7.9 line via the vtk-base mutex), so
-the IDE runtime env (docker `environment.yml`) and this test env must stay
-separate until upstream conda-forge packaging heals.
+downcast API that conda build123d requires, while `ocp` 7.9.x dropped it
+(build123d then fails with `TopoDS has no attribute 'Vertex_s'`). That API gap
+is also why build123d cannot be a conda dependency alongside paraview
+(paraview 6.1.1 forces the ocp 7.9 line via occt's vtk-base pin): the Docker
+runtime env (`applications/docker/environment.yml`) instead pip-installs
+build123d 0.9.1 `--no-deps` (pure Python — it cannot clobber conda's binary
+stack) and re-attaches the removed aliases via nuke-cad's OCP 7.9 shim
+(`extensions/nuke-cad/python/ocp_compat.py`, activated image-wide through a
+site-packages `.pth` hook). The shim is a no-op on ocp 7.8, so both flavors
+run the same code.
 
 Keep netgen out of this env. Conda netgen and conda OCP register the same
 OCCT types with pybind11 in one process ("type gp_Pnt is already registered!"
@@ -103,7 +107,7 @@ The `yarn` command will:
 ### Docker (all-in-one)
 
 A ready-to-use image with the browser IDE and the full Python backend
-environment (`trame` conda env: OpenMC, Trame/ParaView, CAD toolchain) is
+environment (`ide` conda env: OpenMC, Trame/ParaView, CAD toolchain) is
 available:
 
 ```bash

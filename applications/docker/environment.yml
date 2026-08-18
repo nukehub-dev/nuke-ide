@@ -33,21 +33,37 @@ dependencies:
   # cadquery_vtk here: their vtkmodules builds clobber conda's vtk files.
   - python-gmsh
   - cadquery
-  # nuke-cad full profile: build123d geometry authoring (conda build, links
-  # conda ocp), meshio for CalculiX/VTK mesh export, netCDF4 for the custom
-  # ExodusII writer. netgen/ngsolve stay optional and are intentionally not
-  # installed, for two confirmed reasons: conda netgen and conda OCP register
-  # the same OCCT types with pybind11 in one process ("type gp_Pnt is already
-  # registered!" in either import order, and build123d+netgen breaks too), and
-  # the pip ngsolve wheel (netgen-occt) dumps its own OCCT 7.8.1 .so files
-  # into the env's lib/, clobbering conda's occt (empirically confirmed:
-  # cadquery import broke with undefined-symbol errors until the pip packages
-  # were removed and conda occt force-reinstalled). The netgen mesh engine is
-  # an opt-in alternative to the default gmsh path; run its tests in a pip-OCP
-  # env (pip cadquery-ocp + pip ngsolve coexist fine).
-  - build123d
+  # nuke-cad full profile: meshio for CalculiX/VTK mesh export, netCDF4 for the
+  # custom ExodusII writer, plus build123d's pure-Python dependencies. build123d
+  # itself is deliberately NOT a conda dependency here: with paraview pinned
+  # above, the solver is forced onto the ocp 7.9 line and would silently pick
+  # the broken build123d 0.7.0 (0.9.1 declares cadquery-ocp <7.9,>=7.8, and OCP
+  # 7.9 removed the TopoDS `*_s` downcast statics build123d uses). Instead the
+  # Dockerfile installs build123d==0.9.1 via `pip install --no-deps` (pure
+  # Python — no binary wheels, so it cannot clobber conda's stack) and activates
+  # nuke-cad's OCP 7.9 alias shim (extensions/nuke-cad/python/ocp_compat.py)
+  # through a site-packages .pth file. Never add `build123d` back as a conda dep
+  # here, and never pip-install it with deps (that drags in the cadquery-ocp
+  # wheel, which shadows conda's OCP module). ocpsvg is pip-installed --no-deps
+  # for the same reason: conda ocpsvg 0.5.0 requires ocp <7.9, so the solver
+  # would walk back to the ancient 0.2.1, while pip 0.6.0 targets OCP 7.9.
+  - svgpathtools
+  - svgelements
+  - anytree
+  - ezdxf
+  - trianglesolver
   - meshio
   - netCDF4
+  # netgen/ngsolve stay optional and are intentionally not installed, for two
+  # confirmed reasons: conda netgen and conda OCP register the same OCCT types
+  # with pybind11 in one process ("type gp_Pnt is already registered!" in either
+  # import order, and build123d+netgen breaks too), and the pip ngsolve wheel
+  # (netgen-occt) dumps its own OCCT 7.8.1 .so files into the env's lib/,
+  # clobbering conda's occt (empirically confirmed: cadquery import broke with
+  # undefined-symbol errors until the pip packages were removed and conda occt
+  # force-reinstalled). The netgen mesh engine is an opt-in alternative to the
+  # default gmsh path; run its tests in a pip-OCP env (pip cadquery-ocp + pip
+  # ngsolve coexist fine).
   # OpenCASCADE bindings: pythonocc-core provides the OCC module
   - pythonocc-core
   - pip:
@@ -63,5 +79,9 @@ dependencies:
       - --extra-index-url https://shimwell.github.io/wheels
       - openmc
       - moab
-      # Convenience for interactive sessions
-      - ipython
+      # build123d dependency that is not on conda-forge (pure Python, zero
+      # deps of its own); build123d itself is installed --no-deps by the
+      # Dockerfile, see environment.yml's CAD comment.
+      - py-lib3mf
+      # Convenience for interactive sessions (build123d declares ipython<9)
+      - 'ipython<9'

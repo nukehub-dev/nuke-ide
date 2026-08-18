@@ -48,6 +48,16 @@ jobs:
           sed 's/- paraview=.*/- paraview/' applications/docker/environment.yml > /tmp/environment-latest.yml
           conda env create -n ide -f /tmp/environment-latest.yml
 
+      - name: Install build123d + OCP 7.9 shim
+        # Mirrors the docker image: build123d is pip-installed --no-deps (never
+        # a conda dep — see the CAD comment in environment.yml) and made to work
+        # on OCP 7.9 via nuke-cad's alias shim + a site-packages .pth hook.
+        run: |
+          SP="$CONDA/envs/ide/lib/python3.13/site-packages"
+          cp extensions/nuke-cad/python/ocp_compat.py "$SP/ocp_compat.py"
+          echo 'import ocp_compat; ocp_compat.install_build123d_import_hook()' > "$SP/_nuke_ocp79.pth"
+          "$CONDA/envs/ide/bin/pip" install -q --no-deps build123d==0.9.1 ocpsvg==0.6.0
+
       - name: Run extension test suite
         run: |
           pip install -q pytest
