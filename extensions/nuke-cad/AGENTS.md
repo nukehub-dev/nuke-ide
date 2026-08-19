@@ -98,6 +98,36 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   delegates to nuke-cad services: the **Import from nuke-cad...** command loads
   a nuke-cad `.h5m` + `.regions.json` into an OpenMC project, and the DAGMC
   editor's imprinted refacet routes through `dagmc_export.py` when available.
+- `.nuke-cad` document build path (headless backend):
+  - `python/sketch_builder.py` consumes the solved sketch primitives stored in
+    the document and emits build123d `Face` objects on the sketch datum plane.
+  - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`
+    features in topological order over explicit `dependsOn` edges, fusing
+    additive features into and cutting subtractive features from one accumulated
+    body. Cycles are rejected with a readable member list.
+  - `geometry_service.py` exposes `build_document()` plus a `--from-document`
+    CLI flag; it validates references lightly, runs the feature builder, and
+    reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
+    match script builds.
+  - The geometric constraint solver is client-side only. The document stores
+    planegcs-verbatim primitives with solved coordinates; the Python backend
+    never re-solves.
+  - Tier 1 performs a full document rebuild on every `buildDocument` call.
+    Per-feature shape caching is deferred until the modeler needs it.
+  - Datum support in Tier 1 is limited to `XY`/`YZ`/`XZ`/`offset`. `offset`
+    datums are interpreted as offsets of the XY plane along +Z; `face` datums
+    (sketch-on-face) are rejected with a clear error.
+  - Feature labels map to 1-based solid indices in `selector_map`, feeding the
+    same region-manifest/DAGMC/mesh pipeline used by script builds.
+  - Sketch primitive JSON contract (planegcs-verbatim, with camelCase aliases
+    accepted for compatibility): each primitive is an object with `id`, `type`,
+    and optional boolean `construction` (default `false`). Type-specific fields:
+    - `point`: `x`, `y`
+    - `line`: `p1_id` (alias `p1Id`), `p2_id` (alias `p2Id`)
+    - `circle`: `c_id` (alias `centerId`), `radius`
+    - `arc`: `c_id` (alias `centerId`), `radius`, `start_angle` (alias
+      `startAngle`), `end_angle` (alias `endAngle`), `start_id` (alias
+      `startId`), `end_id` (alias `endId`). Angles are stored in radians.
 - The FEM service (`python/fem_service.py`) generates CalculiX `.inp` decks
   from gmsh `.msh` files, runs the external `ccx` executable (3600 s default
   timeout via the `ccxTimeout` request field, output streamed to

@@ -238,6 +238,24 @@ interface CoordinateY extends PgConstraintBase {
     y: number | string | PgObjectParam;
 }
 
+interface PointOnLine extends PgConstraintBase {
+    type: 'point_on_line_pl';
+    p_id: string;
+    l_id: string;
+}
+
+interface PointOnCircle extends PgConstraintBase {
+    type: 'point_on_circle';
+    p_id: string;
+    c_id: string;
+}
+
+interface PointOnArc extends PgConstraintBase {
+    type: 'point_on_arc';
+    p_id: string;
+    a_id: string;
+}
+
 interface PgObjectParam {
     o_id: string;
     prop: 'x' | 'y' | 'radius' | 'start_angle' | 'end_angle' | 'radmin';
@@ -269,7 +287,10 @@ type PgConstraint =
     | P2PSymmetric_PPP
     | Difference
     | CoordinateX
-    | CoordinateY;
+    | CoordinateY
+    | PointOnLine
+    | PointOnCircle
+    | PointOnArc;
 
 type PgSketchPrimitive = PgSketchGeometry | PgConstraint;
 
@@ -470,6 +491,20 @@ export interface SketchSolver {
 
     /** Read back the last solved primitive by id. */
     getPrimitive(id: string): SketchPrimitive | undefined;
+
+    /** Remove a primitive and any constraints that reference it. */
+    removePrimitive(id: string): void;
+
+    /**
+     * Drive a point to the given coordinates.
+     *
+     * Replaces any previously set coordinate constraints for this point so
+     * repeated drags do not accumulate constraints.
+     */
+    setPointCoordinates(id: string, x: number, y: number): { xConstraintId: string; yConstraintId: string };
+
+    /** Constrain a point to lie on a line, circle, or arc. */
+    addConstraintPointOnObject(id: string, pointId: string, targetId: string, options?: ConstraintOptions): void;
 }
 
 /** Options for creating the planegcs-backed solver. */
@@ -512,6 +547,24 @@ function isPgArc(pg: PgSketchPrimitive): pg is PgSketchArc {
     return pg.type === 'arc';
 }
 
+function constraintReferencesId(pg: PgConstraint | PgConstraint[], id: string): boolean {
+    if (Array.isArray(pg)) {
+        return pg.some((c) => constraintReferencesId(c, id));
+    }
+    for (const [key, value] of Object.entries(pg)) {
+        if (key === 'id' || key === 'driving' || key === 'temporary' || key === 'scale') {
+            continue;
+        }
+        if (typeof value === 'string' && value === id) {
+            return true;
+        }
+        if (typeof value === 'object' && value !== null && 'o_id' in value && (value as PgObjectParam).o_id === id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function resolveWasmPath(path: string): string {
     try {
         // Keep the import traceless for webpack: create the require dynamically.
@@ -543,6 +596,8 @@ export class PlanegcsSketchSolver implements SketchSolver {
     private readonly fixes = new Map<string, string>();
     private readonly fixedPointIds = new Set<string>();
     private readonly lastSolved = new Map<string, SketchPrimitive>();
+    private readonly coordinateConstraints = new Map<string, { xId: string; yId: string }>();
+    private coordCounter = 0;
     private disposed = false;
 
     private constructor(
@@ -892,6 +947,11 @@ export class PlanegcsSketchSolver implements SketchSolver {
         }
         this.constraints.delete(id);
         this.temporaryConstraints.delete(id);
+        for (const [pointId, coords] of this.coordinateConstraints.entries()) {
+            if (coords.xId === id || coords.yId === id) {
+                this.coordinateConstraints.delete(pointId);
+            }
+        }
     }
 
     async solve(): Promise<SolverResult> {
@@ -925,6 +985,77 @@ export class PlanegcsSketchSolver implements SketchSolver {
     getPrimitive(id: string): SketchPrimitive | undefined {
         this.assertNotDisposed();
         return this.lastSolved.get(id);
+    }
+
+    removePrimitive(id: string): void {
+        this.assertNotDisposed();
+        const primitive = this.primitives.get(id);
+        if (primitive === undefined) {
+            return;
+        }
+
+        const coords = this.coordinateConstraints.get(id);
+        if (coords !== undefined) {
+            this.removeConstraint(coords.xId);
+            this.removeConstraint(coords.yId);
+            this.coordinateConstraints.delete(id);
+        }
+
+        for (const constraintId of [...this.constraints.keys()]) {
+            const constraint = this.constraints.get(constraintId)!;
+            if (constraintReferencesId(constraint.pg, id)) {
+                this.removeConstraint(constraintId);
+            }
+        }
+
+        this.primitives.delete(id);
+        this.lastSolved.delete(id);
+    }
+
+    setPointCoordinates(id: string, x: number, y: number): { xConstraintId: string; yConstraintId: string } {
+        this.assertNotDisposed();
+        this.assertFiniteNumber(x, `Point '${id}' x`);
+        this.assertFiniteNumber(y, `Point '${id}' y`);
+        this.requirePrimitive(id, ['point'], `setPointCoordinates '${id}'`);
+
+        const existing = this.coordinateConstraints.get(id);
+        if (existing !== undefined) {
+            this.removeConstraint(existing.xId);
+            this.removeConstraint(existing.yId);
+        }
+
+        const suffix = ++this.coordCounter;
+        const xId = `${id}:coord-x:${suffix}`;
+        const yId = `${id}:coord-y:${suffix}`;
+        this.assertUniqueId(xId, 'Coordinate constraint');
+        this.assertUniqueId(yId, 'Coordinate constraint');
+
+        const cx: CoordinateX = { id: xId, type: 'coordinate_x', p_id: id, x, driving: true };
+        const cy: CoordinateY = { id: yId, type: 'coordinate_y', p_id: id, y, driving: true };
+        this.constraints.set(xId, { id: xId, pg: cx, driving: true, temporary: false });
+        this.constraints.set(yId, { id: yId, pg: cy, driving: true, temporary: false });
+        this.coordinateConstraints.set(id, { xId, yId });
+
+        return { xConstraintId: xId, yConstraintId: yId };
+    }
+
+    addConstraintPointOnObject(id: string, pointId: string, targetId: string, options?: ConstraintOptions): void {
+        this.assertNotDisposed();
+        this.assertUniqueId(id, 'Constraint');
+        this.requirePrimitive(pointId, ['point'], `Point-on-object constraint '${id}'`);
+        const target = this.requirePrimitive(targetId, ['line', 'circle', 'arc'], `Point-on-object constraint '${id}' target`);
+        const driving = options?.driving ?? true;
+
+        if (target.type === 'line') {
+            const pg: PointOnLine = { id, type: 'point_on_line_pl', p_id: pointId, l_id: targetId, driving };
+            this.constraints.set(id, { id, pg, driving, temporary: false });
+        } else if (target.type === 'circle') {
+            const pg: PointOnCircle = { id, type: 'point_on_circle', p_id: pointId, c_id: targetId, driving };
+            this.constraints.set(id, { id, pg, driving, temporary: false });
+        } else {
+            const pg: PointOnArc = { id, type: 'point_on_arc', p_id: pointId, a_id: targetId, driving };
+            this.constraints.set(id, { id, pg, driving, temporary: false });
+        }
     }
 
     private async runSolve(extraConstraints: InternalConstraint[]): Promise<SolverResult> {

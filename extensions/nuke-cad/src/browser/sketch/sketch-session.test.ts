@@ -1,0 +1,483 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+import { describe, it, expect, beforeEach } from 'vitest';
+import { PlanegcsSketchSolver, type SketchPoint, type SketchLine } from '../../common/sketch-solver';
+import { SketchSession, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
+
+describe('SketchSession', () => {
+    async function makeSession(tool: SketchTool = 'select'): Promise<SketchSession> {
+        const solver = await PlanegcsSketchSolver.create();
+        const session = await SketchSession.create(solver, {
+            id: 'sketch-test',
+            name: 'Test Sketch',
+            datumId: 'xy',
+            snap: { radius: 0.25, gridPitch: 1 }
+        });
+        session.setTool(tool);
+        return session;
+    }
+
+    function point(session: SketchSession, id: string): SketchPoint {
+        return session.getPrimitive(id) as SketchPoint;
+    }
+
+    function expectPoint(session: SketchSession, id: string, x: number, y: number): void {
+        const p = point(session, id);
+        expect(p.x).toBeCloseTo(x, 10);
+        expect(p.y).toBeCloseTo(y, 10);
+    }
+
+    beforeEach(() => {
+        // Each test creates its own solver via makeSession.
+    });
+
+    describe('tool click sequences', () => {
+        it('places a point with the point tool', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 3, y: 4 });
+            expect(session.getPrimitives().filter((p) => p.type === 'point')).toHaveLength(1);
+            const id = session.getPrimitiveIds()[0];
+            expectPoint(session, id, 3, 4);
+        });
+
+        it('places a line with two clicks', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line');
+            expect(lines).toHaveLength(1);
+            const l = lines[0] as SketchLine;
+            expectPoint(session, l.p1Id, 0, 0);
+            expectPoint(session, l.p2Id, 10, 0);
+        });
+
+        it('cancels an in-progress line', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            expect(session.getPrimitives().filter((p) => p.type === 'point')).toHaveLength(1);
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+            expect(session.getTool()).toBe('line');
+        });
+
+        it('places a circle with center + radius click', async () => {
+            const session = await makeSession('circle');
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const circles = session.getPrimitives().filter((p) => p.type === 'circle');
+            expect(circles).toHaveLength(1);
+            expect(circles[0].radius).toBeCloseTo(5, 10);
+        });
+
+        it('cancels an in-progress circle', async () => {
+            const session = await makeSession('circle');
+            await session.click({ x: 0, y: 0 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+
+        it('places a 3-point arc', async () => {
+            const session = await makeSession('arc3');
+            await session.click({ x: 5, y: 0 }); // start
+            await session.click({ x: 2.5, y: 2.5 }); // mid
+            await session.click({ x: 0, y: 0 }); // end
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc');
+            expect(arcs).toHaveLength(1);
+        });
+
+        it('cancels an in-progress arc', async () => {
+            const session = await makeSession('arc3');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 5 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+
+        it('places a rectangle with two corner clicks', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line');
+            expect(lines).toHaveLength(4);
+            const points = session.getPrimitives().filter((p) => p.type === 'point');
+            expect(points).toHaveLength(4);
+        });
+
+        it('cancels an in-progress rectangle', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+    });
+
+    describe('hover previews', () => {
+        it('previews a line after the first click', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            const preview = session.hover({ x: 10, y: 5 });
+            expect(preview.type).toBe('line');
+            const linePreview = preview as Extract<SketchPreview, { type: 'line' }>;
+            expect(linePreview.p1).toEqual({ x: 0, y: 0 });
+            expect(linePreview.p2).toEqual({ x: 10, y: 5 });
+        });
+
+        it('previews a circle after the center click', async () => {
+            const session = await makeSession('circle');
+            await session.click({ x: 0, y: 0 });
+            const preview = session.hover({ x: 5, y: 0 });
+            expect(preview.type).toBe('circle');
+            const circlePreview = preview as Extract<SketchPreview, { type: 'circle' }>;
+            expect(circlePreview.radius).toBeCloseTo(5, 10);
+        });
+
+        it('previews a rectangle after the first corner click', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            const preview = session.hover({ x: 10, y: 5 });
+            expect(preview.type).toBe('rectangle');
+        });
+    });
+
+    describe('snap and auto-constraints', () => {
+        it('adds a coincident auto-constraint when placing near an existing point', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 0.1, y: 0.1 });
+            const coincident = session.getConstraints().filter((c) => c.kind === 'coincident');
+            expect(coincident).toHaveLength(1);
+            expect(session.getStatus().lastAutoConstraints.some((a) => a.kind === 'coincident')).toBe(true);
+        });
+
+        it('does not add coincident when snapping is disabled', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 0.1, y: 0.1 }, { disableSnap: true });
+            const coincident = session.getConstraints().filter((c) => c.kind === 'coincident');
+            expect(coincident).toHaveLength(0);
+        });
+
+        it('auto-adds horizontal constraint for near-horizontal lines', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0.05 });
+            const horizontals = session.getConstraints().filter((c) => c.kind === 'horizontal');
+            expect(horizontals).toHaveLength(1);
+            expect(session.getStatus().lastAutoConstraints.some((a) => a.kind === 'horizontal')).toBe(true);
+        });
+
+        it('auto-adds vertical constraint for near-vertical lines', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 0.05, y: 10 });
+            const verticals = session.getConstraints().filter((c) => c.kind === 'vertical');
+            expect(verticals).toHaveLength(1);
+        });
+
+        it('auto-adds a point-on-object constraint when snapping to a line', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+
+            await session.setTool('point');
+            // Click near the line but away from the midpoint so on-curve wins
+            // over midpoint snap (snap radius is 0.25).
+            await session.click({ x: 3, y: 0.1 });
+
+            const po = session.getConstraints().filter((c) => c.kind === 'pointOnObject');
+            expect(po).toHaveLength(1);
+            expect(session.getStatus().lastAutoConstraints.some((a) => a.kind === 'pointOnObject')).toBe(true);
+
+            const point = session
+                .getPrimitives()
+                .filter((p) => p.type === 'point')
+                .pop() as SketchPoint;
+            expect(point.y).toBeCloseTo(0, 10);
+        });
+    });
+
+    describe('constraint arity validation', () => {
+        async function setupForConstraint(kind: ConstraintKind): Promise<SketchSession> {
+            const session = await makeSession('select');
+            if (kind === 'coincident' || kind === 'fix' || kind === 'distance') {
+                await session.setTool('point');
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 10, y: 0 });
+            } else if (
+                kind === 'horizontal' ||
+                kind === 'vertical' ||
+                kind === 'parallel' ||
+                kind === 'perpendicular' ||
+                kind === 'angle'
+            ) {
+                await session.setTool('line');
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 10, y: 0 });
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 0, y: 10 });
+            } else if (kind === 'radius' || kind === 'concentric' || kind === 'equal' || kind === 'tangent') {
+                await session.setTool('circle');
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 5, y: 0 });
+                await session.setTool('circle');
+                await session.click({ x: 10, y: 0 });
+                await session.click({ x: 14, y: 0 });
+            }
+            if (kind === 'symmetry') {
+                await session.setTool('point');
+                await session.click({ x: -1, y: 0 });
+                await session.click({ x: 1, y: 0 });
+                await session.setTool('line');
+                await session.click({ x: 0, y: -1 });
+                await session.click({ x: 0, y: 1 });
+            }
+            return session;
+        }
+
+        const cases: Array<{ kind: ConstraintKind; wrongIds: string[]; expected: string }> = [
+            { kind: 'coincident', wrongIds: ['point-1'], expected: 'requires exactly 2' },
+            { kind: 'fix', wrongIds: ['point-1', 'point-2'], expected: 'requires exactly 1' },
+            { kind: 'horizontal', wrongIds: ['point-1', 'point-2'], expected: 'requires exactly 1' },
+            { kind: 'vertical', wrongIds: ['point-1', 'point-2'], expected: 'requires exactly 1' },
+            { kind: 'parallel', wrongIds: ['line-1'], expected: 'requires exactly 2' },
+            { kind: 'perpendicular', wrongIds: ['line-1'], expected: 'requires exactly 2' },
+            { kind: 'angle', wrongIds: ['line-1'], expected: 'requires exactly 2' },
+            { kind: 'distance', wrongIds: ['point-1'], expected: 'requires exactly 2' },
+            { kind: 'radius', wrongIds: ['circle-1', 'circle-2'], expected: 'requires exactly 1' },
+            { kind: 'concentric', wrongIds: ['circle-1'], expected: 'requires exactly 2' },
+            { kind: 'equal', wrongIds: ['circle-1'], expected: 'requires exactly 2' },
+            { kind: 'tangent', wrongIds: ['circle-1'], expected: 'requires exactly 2' },
+            { kind: 'symmetry', wrongIds: ['point-1', 'point-2'], expected: 'requires exactly 3' }
+        ];
+
+        it.each(cases)('rejects $kind with wrong arity', async ({ kind, wrongIds, expected }) => {
+            const session = await setupForConstraint(kind);
+            const result = await session.addConstraint(kind, wrongIds, kind === 'distance' || kind === 'radius' ? 5 : undefined);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain(expected);
+        });
+
+        it('rejects distance without a value', async () => {
+            const session = await setupForConstraint('distance');
+            const result = await session.addConstraint('distance', ['point-1', 'point-2']);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('value');
+        });
+
+        it('rejects radius without a value', async () => {
+            const session = await setupForConstraint('radius');
+            const result = await session.addConstraint('radius', ['circle-1']);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('value');
+        });
+
+        it('rejects a constraint referencing an unknown primitive', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const result = await session.addConstraint('horizontal', ['missing']);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Unknown');
+        });
+    });
+
+    describe('fully constrained rectangle', () => {
+        it('reaches DOF 0 with rectangle, coincident corners, and driving distances', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+
+            // Auto-constraints already added horizontal/vertical for sides.
+            const horizontals = session
+                .getConstraints()
+                .filter((c) => c.kind === 'horizontal')
+                .map((c) => c.id);
+            const verticals = session
+                .getConstraints()
+                .filter((c) => c.kind === 'vertical')
+                .map((c) => c.id);
+            expect(horizontals.length).toBeGreaterThanOrEqual(2);
+            expect(verticals.length).toBeGreaterThanOrEqual(2);
+
+            const points = session.getPrimitives().filter((p) => p.type === 'point');
+            const lines = session.getPrimitives().filter((p) => p.type === 'line');
+            expect(points).toHaveLength(4);
+            expect(lines).toHaveLength(4);
+
+            // Identify bottom-left and bottom-right-ish points by solved coords.
+            const sortedByX = [...points].sort((a, b) => (a as SketchPoint).x - (b as SketchPoint).x);
+            const leftIds = sortedByX.slice(0, 2).map((p) => p.id);
+            const rightIds = sortedByX.slice(2).map((p) => p.id);
+            const bottomLeft = leftIds.map((id) => point(session, id)).sort((a, b) => a.y - b.y)[0];
+            const bottomRight = rightIds.map((id) => point(session, id)).sort((a, b) => a.y - b.y)[0];
+            const topLeft = leftIds.map((id) => point(session, id)).sort((a, b) => b.y - a.y)[0];
+
+            // Fix the bottom-left corner.
+            await session.addConstraint('fix', [bottomLeft.id]);
+
+            // Constrain width and height.
+            await session.addConstraint('distance', [bottomLeft.id, bottomRight.id], 10);
+            await session.addConstraint('distance', [bottomLeft.id, topLeft.id], 5, { direction: 'vertical' });
+
+            expect(session.getStatus().dof).toBe(0);
+            expect(session.getStatus().fullyConstrained).toBe(true);
+        });
+    });
+
+    describe('drag solving', () => {
+        it('moves a point during drag and commits on endDrag', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            const id = session.getPrimitiveIds()[0];
+
+            session.beginDrag([id]);
+            await session.dragTo({ x: 3, y: 4 });
+            let during = point(session, id);
+            expect(during.x).toBeCloseTo(3, 10);
+            expect(during.y).toBeCloseTo(4, 10);
+
+            await session.endDrag();
+            const after = point(session, id);
+            expect(after.x).toBeCloseTo(3, 10);
+            expect(after.y).toBeCloseTo(4, 10);
+        });
+
+        it('leaves committed geometry untouched when a drag solve fails', async () => {
+            const session = await makeSession('select');
+            // Two points locked 5 units apart.
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addConstraint('fix', [ids[0]]);
+            await session.addConstraint('distance', [ids[0], ids[1]], 5);
+
+            // Dragging the second point to (10,0) conflicts with the distance constraint.
+            session.beginDrag([ids[1]]);
+            await session.dragTo({ x: 10, y: 0 });
+            await session.endDrag();
+
+            expectPoint(session, ids[1], 5, 0);
+        });
+    });
+
+    describe('delete', () => {
+        it('removes a primitive and cascades attached constraints', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            const id = session.getPrimitiveIds()[0];
+            await session.addConstraint('fix', [id]);
+            expect(session.getConstraints()).toHaveLength(1);
+
+            await session.deletePrimitive(id);
+            expect(session.getPrimitive(id)).toBeUndefined();
+            expect(session.getConstraints()).toHaveLength(0);
+        });
+
+        it('removes a constraint by id', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            const result = await session.addConstraint('fix', [session.getPrimitiveIds()[0]]);
+            expect(result.success).toBe(true);
+
+            await session.deleteConstraint(result.constraintId!);
+            expect(session.getConstraints()).toHaveLength(0);
+        });
+    });
+
+    describe('serialization', () => {
+        it('round-trips coordinates through SketchDef', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+
+            const def = session.toSketchDef();
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+
+            const originalPoints = session.getPrimitives().filter((p) => p.type === 'point');
+            const restoredPoints = restored.getPrimitives().filter((p) => p.type === 'point');
+            expect(restoredPoints).toHaveLength(originalPoints.length);
+
+            for (const original of originalPoints) {
+                const rp = restored.getPrimitive(original.id) as SketchPoint;
+                expect(rp.x).toBeCloseTo((original as SketchPoint).x, 10);
+                expect(rp.y).toBeCloseTo((original as SketchPoint).y, 10);
+            }
+        });
+
+        it('produces a SketchDef that validates as a document', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+            const validation = session.validateDocument();
+            expect(validation.valid).toBe(true);
+            expect(validation.issues).toHaveLength(0);
+        });
+
+        it('preserves construction flag through round-trip', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            await session.setConstruction(lineId, true);
+            expect(session.getPrimitive(lineId)?.construction).toBe(true);
+
+            const def = session.toSketchDef();
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+            expect(restored.getPrimitive(lineId)?.construction).toBe(true);
+        });
+
+        it('preserves fixed points through round-trip', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 2, y: 3 });
+            const id = session.getPrimitiveIds()[0];
+            await session.addConstraint('fix', [id]);
+
+            const def = session.toSketchDef();
+            expect(def.primitives.find((p) => p.id === id)?.fixed).toBe(true);
+
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+            expect(restored.getConstraints().some((c) => c.kind === 'fix' && c.targetIds[0] === id)).toBe(true);
+        });
+    });
+
+    describe('change events', () => {
+        it('emits a change event after adding geometry', async () => {
+            const session = await makeSession('point');
+            let count = 0;
+            session.onChange(() => {
+                count++;
+            });
+            await session.click({ x: 1, y: 1 });
+            expect(count).toBeGreaterThan(0);
+        });
+    });
+});

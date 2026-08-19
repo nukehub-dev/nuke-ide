@@ -318,4 +318,88 @@ describe('PlanegcsSketchSolver', () => {
         solver.destroy();
         expect(() => solver.destroy()).not.toThrow();
     });
+
+    it('removePrimitive removes the primitive and constraints that reference it', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('a', 0, 0);
+        solver.addPoint('b', 10, 0);
+        solver.addConstraintCoincident('coincident', 'a', 'b');
+        solver.addConstraintFix('fix', 'a');
+        await solver.solve();
+
+        solver.removePrimitive('a');
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        expect(solver.getPrimitive('a')).toBeUndefined();
+        // Coincident and fix constraints attached to 'a' were cascaded away;
+        // point b survives as an independent point.
+        expect(solver.getPrimitive('b')).toBeDefined();
+    });
+
+    it('setPointCoordinates drives a point to new coordinates', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        solver.addPoint('p', 0, 0);
+        await solver.solve();
+
+        solver.setPointCoordinates('p', 3, 4);
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        const point = solver.getPrimitive('p') as SketchPoint;
+        expect(point.x).toBeCloseTo(3, 10);
+        expect(point.y).toBeCloseTo(4, 10);
+    });
+
+    it('setPointCoordinates replaces prior coordinates without accumulating', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        solver.addPoint('p', 0, 0);
+        await solver.solve();
+
+        solver.setPointCoordinates('p', 1, 1);
+        await solver.solve();
+        solver.setPointCoordinates('p', 5, 5);
+        const result = await solver.solve();
+
+        const point = solver.getPrimitive('p') as SketchPoint;
+        expect(point.x).toBeCloseTo(5, 10);
+        expect(point.y).toBeCloseTo(5, 10);
+        expect(result.dof).toBe(0);
+    });
+
+    it('addConstraintPointOnObject constrains a point to a line', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('p1', 0, 0);
+        solver.addPoint('p2', 10, 0);
+        solver.addLine('l', 'p1', 'p2');
+        solver.addConstraintFix('fixP1', 'p1');
+        solver.addConstraintFix('fixP2', 'p2');
+
+        solver.addPoint('p', 5, 2);
+        solver.addConstraintPointOnObject('po', 'p', 'l');
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        const p = solver.getPrimitive('p') as SketchPoint;
+        expect(p.y).toBeCloseTo(0, 10);
+    });
+
+    it('addConstraintPointOnObject constrains a point to a circle', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('c', 0, 0);
+        solver.addCircle('circle', 'c', 5);
+        solver.addConstraintFix('fixC', 'c');
+        solver.addConstraintRadius('r', 'circle', 5);
+
+        solver.addPoint('p', 7, 0);
+        solver.addConstraintPointOnObject('po', 'p', 'circle');
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        const p = solver.getPrimitive('p') as SketchPoint;
+        expect(Math.hypot(p.x, p.y)).toBeCloseTo(5, 10);
+    });
 });

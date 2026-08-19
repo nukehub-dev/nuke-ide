@@ -33,6 +33,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
 
 # Ensure sibling modules are importable when run as a script.
 _SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -50,6 +51,23 @@ from ocp_compat import (  # noqa: E402
     topods_solid,
 )
 from region_manifest import ManifestValidationError, RegionManifest  # noqa: E402
+
+# Document builder modules are optional; they guard their own build123d imports.
+try:
+    import feature_builder  # noqa: E402
+
+    HAS_FEATURE_BUILDER = True
+except Exception:
+    feature_builder = None  # type: ignore
+    HAS_FEATURE_BUILDER = False
+
+try:
+    import sketch_builder  # noqa: E402
+
+    HAS_SKETCH_BUILDER = True
+except Exception:
+    sketch_builder = None  # type: ignore
+    HAS_SKETCH_BUILDER = False
 
 # DAGMC export is optional; failure is reported but does not break STEP/tessellation.
 try:
@@ -595,6 +613,7 @@ def _process_shape(
         "meshError": None,
         "meshReport": None,
         "warnings": [],
+        "selectorMap": selector_map,
     }
 
     # ------------------------------------------------------------------
@@ -841,15 +860,197 @@ def import_step_file(
     )
 
 
+def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict | None:
+    """Light structural validation of a ``.nuke-cad`` document.
+
+    The TypeScript validator is the front gate; this only checks that ids the
+    builder must resolve actually exist.
+    """
+    datum_ids = {d.get("id") for d in document.get("datums", []) if isinstance(d, dict)}
+    sketch_ids = {s.get("id") for s in document.get("sketches", []) if isinstance(s, dict)}
+    feature_ids = {f.get("id") for f in document.get("features", []) if isinstance(f, dict)}
+
+    for i, sketch in enumerate(document.get("sketches", [])):
+        if not isinstance(sketch, dict):
+            continue
+        datum_id = sketch.get("datumId")
+        if datum_id not in datum_ids:
+            return {
+                "success": False,
+                "error": f"Document references unknown datum '{datum_id}' at sketches[{i}].datumId",
+                "scriptPath": str(source_file),
+            }
+
+    for i, feature in enumerate(document.get("features", [])):
+        if not isinstance(feature, dict):
+            continue
+        fid = feature.get("id", f"[{i}]")
+        sketch_id = feature.get("sketchId")
+        if sketch_id is not None and sketch_id not in sketch_ids:
+            return {
+                "success": False,
+                "error": f"Feature '{fid}' references unknown sketch '{sketch_id}'",
+                "scriptPath": str(source_file),
+            }
+        for j, dep in enumerate(feature.get("dependsOn", [])):
+            if dep not in feature_ids:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' references unknown dependency '{dep}' at dependsOn[{j}]",
+                    "scriptPath": str(source_file),
+                }
+
+    return None
+
+
+def build_document(
+    document_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
+    export_mesh: bool = True,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+) -> dict:
+    """Build geometry from a ``.nuke-cad`` document and write canonical artifacts.
+
+    Mirrors ``build_geometry`` in signature and behavior. The built shape is fed
+    through ``_process_shape`` verbatim so STEP, tessellation, DAGMC, and mesh
+    artifacts are identical to script builds. Per-feature status is returned in
+    ``featureResults``.
+    """
+    document_file = Path(document_path).resolve()
+    if not document_file.exists():
+        return {"success": False, "error": f"Document not found: {document_path}"}
+
+    if (
+        not HAS_FEATURE_BUILDER
+        or not HAS_SKETCH_BUILDER
+        or feature_builder is None
+        or sketch_builder is None
+    ):
+        return {
+            "success": False,
+            "error": "Document build requires build123d, which is not available in the active Python environment",
+            "scriptPath": str(document_file),
+        }
+
+    if output_dir is None:
+        output_dir = document_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Loading document: {document_file}")
+    try:
+        with document_file.open("r", encoding="utf-8") as fh:
+            document = json.load(fh)
+    except json.JSONDecodeError as exc:
+        return {
+            "success": False,
+            "error": f"Failed to parse .nuke-cad document: {exc}",
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read document: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    if not isinstance(document, dict):
+        return {
+            "success": False,
+            "error": ".nuke-cad document must be a JSON object",
+            "scriptPath": str(document_file),
+        }
+
+    version = document.get("version")
+    if version != 1:
+        return {
+            "success": False,
+            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1",
+            "scriptPath": str(document_file),
+        }
+
+    ref_error = _validate_document_refs(document, document_file)
+    if ref_error is not None:
+        return ref_error
+
+    _print_progress("Building document features")
+    try:
+        build_result = feature_builder.build_document_shape(document)
+    except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Document build failed: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    shape = build_result.get("shape")
+    if shape is None:
+        return {
+            "success": False,
+            "error": "Document produced no solids; check feature results for failures",
+            "scriptPath": str(document_file),
+            "featureResults": build_result.get("featureResults", []),
+        }
+
+    wrapped = getattr(shape, "wrapped", None)
+    if wrapped is None:
+        return {
+            "success": False,
+            "error": "Document produced an unrecognized shape type",
+            "scriptPath": str(document_file),
+            "featureResults": build_result.get("featureResults", []),
+        }
+
+    manifest, manifest_warnings = _load_manifest(document_file)
+    result = _process_shape(
+        wrapped,
+        document_file,
+        out_dir,
+        document_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map=build_result.get("selectorMap", {}),
+        manifest=manifest,
+    )
+    result["featureResults"] = build_result.get("featureResults", [])
+    result["warnings"] = (result.get("warnings") or []) + manifest_warnings
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="nuke-cad geometry service")
     parser.add_argument(
         "script",
         nargs="?",
         default=None,
-        help="Path to the build123d/CadQuery script or STEP file",
+        help="Path to the build123d/CadQuery script, STEP file, or .nuke-cad document",
     )
     parser.add_argument("--from-step", action="store_true", help="Treat the input as a STEP file")
+    parser.add_argument(
+        "--from-document", action="store_true", help="Treat the input as a .nuke-cad document"
+    )
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
     # Internal child-process entry point used by build_geometry for isolated
     # script execution; not part of the public CLI.
@@ -923,6 +1124,20 @@ def main() -> None:
             export_dagmc=args.dagmc and not args.no_dagmc,
             add_graveyard=not args.no_graveyard,
             export_mesh=args.mesh and not args.no_mesh,
+            mesh_engine=args.mesh_engine,
+            mesh_size=args.mesh_size,
+            mesh_min_size=args.mesh_min_size,
+            mesh_max_size=args.mesh_max_size,
+            mesh_order=args.mesh_order,
+        )
+    elif args.from_document:
+        result = build_document(
+            args.script,
+            output_dir=args.output_dir,
+            tolerance=args.tolerance,
+            export_dagmc=not args.no_dagmc,
+            add_graveyard=not args.no_graveyard,
+            export_mesh=not args.no_mesh,
             mesh_engine=args.mesh_engine,
             mesh_size=args.mesh_size,
             mesh_min_size=args.mesh_min_size,

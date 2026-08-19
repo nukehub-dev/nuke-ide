@@ -36,6 +36,7 @@ import {
     NukeCadBackendService,
     GeometryBuildRequest,
     GeometryBuildResult,
+    BuildDocumentRequest,
     FemRunRequest,
     FemRunResult,
     FemMaterial,
@@ -63,6 +64,12 @@ export class NukeCadFrontendService implements NukeCadBackendService {
         // export faceting.
         const tolerance = request.tolerance ?? this.preferences.get('nukeCad.facetingTolerance', 0.001);
         return this.proxy.buildGeometry({ ...request, tolerance });
+    }
+
+    buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult> {
+        // Apply the same faceting-tolerance preference fallback as script builds.
+        const tolerance = request.tolerance ?? this.preferences.get('nukeCad.facetingTolerance', 0.001);
+        return this.proxy.buildDocument({ ...request, tolerance });
     }
 
     runFem(request: FemRunRequest): Promise<FemRunResult> {

@@ -46,6 +46,7 @@ import {
     NukeCadBackendService,
     GeometryBuildRequest,
     GeometryBuildResult,
+    BuildDocumentRequest,
     FemRunRequest,
     FemRunResult,
     FemMaterial,
@@ -149,6 +150,61 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             args.push('--no-dagmc');
         }
         if (request.exportMesh === false || (sourceType === 'step' && request.exportMesh === undefined)) {
+            args.push('--no-mesh');
+        }
+        if (request.meshEngine) {
+            args.push('--mesh-engine', request.meshEngine);
+        }
+        if (request.meshSize !== undefined) {
+            args.push('--mesh-size', String(request.meshSize));
+        }
+        if (request.meshMinSize !== undefined) {
+            args.push('--mesh-min-size', String(request.meshMinSize));
+        }
+        if (request.meshMaxSize !== undefined) {
+            args.push('--mesh-max-size', String(request.meshMaxSize));
+        }
+        if (request.meshOrder !== undefined) {
+            args.push('--mesh-order', String(request.meshOrder));
+        }
+
+        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
+    }
+
+    /**
+     * Build geometry from a ``.nuke-cad`` document by invoking ``python/geometry_service.py``
+     * with ``--from-document``.
+     */
+    async buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'geometry_service.py' });
+        if (!scriptPath) {
+            return {
+                success: false,
+                error: 'Geometry service script not found.',
+                scriptPath: request.scriptPath
+            };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.',
+                scriptPath: request.scriptPath
+            };
+        }
+
+        const args = [scriptPath, request.scriptPath, '--from-document'];
+        if (request.outputDirectory) {
+            args.push('--output-dir', request.outputDirectory);
+        }
+        if (request.tolerance !== undefined) {
+            args.push('--tolerance', String(request.tolerance));
+        }
+        if (request.exportDagmc === false) {
+            args.push('--no-dagmc');
+        }
+        if (request.exportMesh === false) {
             args.push('--no-mesh');
         }
         if (request.meshEngine) {

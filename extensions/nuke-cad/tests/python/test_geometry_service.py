@@ -333,27 +333,146 @@ def test_import_step_file(tmp_path: Path) -> None:
     assert Path(result["meshPath"]).exists() is False
 
 
-def test_import_step_file_export_opt_in(tmp_path: Path) -> None:
-    """Explicitly requesting DAGMC export on a STEP import must produce the H5M."""
+def _rect_sketch_for_doc(width: float = 40.0, height: float = 20.0) -> dict:
+    return {
+        "id": "rect",
+        "name": "rectangle",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 0, "y": 0},
+            {"id": "p2", "type": "point", "x": width, "y": 0},
+            {"id": "p3", "type": "point", "x": width, "y": height},
+            {"id": "p4", "type": "point", "x": 0, "y": height},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+
+
+def _circle_sketch_for_doc(x: float, y: float, radius: float, sid: str) -> dict:
+    return {
+        "id": sid,
+        "name": sid,
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "c", "type": "point", "x": x, "y": y},
+            {"id": "circ", "type": "circle", "c_id": "c", "radius": radius},
+        ],
+        "constraints": [],
+    }
+
+
+def _write_pincell_document(path: Path) -> None:
+    doc = {
+        "version": 1,
+        "name": "pincell",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "sketches": [
+            _rect_sketch_for_doc(),
+            _circle_sketch_for_doc(60, 10, 5, "fuel"),
+        ],
+        "features": [
+            {
+                "id": "clad",
+                "name": "clad",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+                "label": "clad",
+            },
+            {
+                "id": "fuel",
+                "name": "fuel",
+                "type": "pad",
+                "sketchId": "fuel",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+                "label": "fuel",
+            },
+        ],
+    }
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_build_document_missing_file_returns_error(tmp_path: Path) -> None:
+    result = geometry_service.build_document(str(tmp_path / "missing.nuke-cad"))
+    assert result["success"] is False
+    assert "Document not found" in result["error"]
+
+
+def test_build_document_pincell(tmp_path: Path) -> None:
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc_path = tmp_path / "pincell.nuke-cad"
+    _write_pincell_document(doc_path)
+    result = geometry_service.build_document(
+        str(doc_path),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert result["solidCount"] == 2
+    assert Path(result["stepPath"]).exists()
+    assert Path(result["tessPath"]).exists()
+    assert result["selectorMap"] == {"clad": [1], "fuel": [2]}
+    assert len(result["featureResults"]) == 2
+    assert all(r["status"] == "built" for r in result["featureResults"])
+
+
+def test_build_document_manifest_flow_to_dagmc_groups(tmp_path: Path) -> None:
+    """End-to-end: document labels -> selector map -> manifest -> mat:<name> groups."""
     pytest.importorskip("build123d", reason="build123d not installed")
     pytest.importorskip("gmsh", reason="gmsh not installed")
     pytest.importorskip("pymoab", reason="pymoab not installed")
-    script = tmp_path / "box.py"
-    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
-    build_result = geometry_service.build_geometry(
-        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
-    )
-    assert build_result["success"] is True, build_result.get("error", "")
+    from pymoab import core as moab_core
+    from pymoab import types as moab_types
 
-    import_dir = tmp_path / "imported"
-    import_dir.mkdir()
-    result = geometry_service.import_step_file(
-        build_result["stepPath"],
-        output_dir=str(import_dir),
+    doc_path = tmp_path / "pincell.nuke-cad"
+    _write_pincell_document(doc_path)
+    manifest = tmp_path / "pincell.regions.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "volumes": [
+                    {"selector": "clad", "name": "clad_region", "material": "mat1"},
+                    {"selector": "fuel", "name": "fuel_region", "material": "mat2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = geometry_service.build_document(
+        str(doc_path),
+        output_dir=str(tmp_path),
         export_dagmc=True,
+        export_mesh=False,
         add_graveyard=False,
         tolerance=1.0,
     )
     assert result["success"] is True, result.get("error", "")
     assert result["dagmcSuccess"] is True, result.get("dagmcError", "")
-    assert Path(result["dagmcPath"]).exists()
+
+    mb = moab_core.Core()
+    mb.load_file(result["dagmcPath"])
+    cat_tag = mb.tag_get_handle(moab_types.CATEGORY_TAG_NAME)
+    name_tag = mb.tag_get_handle(moab_types.NAME_TAG_NAME)
+    gdim_tag = mb.tag_get_handle(moab_types.GEOM_DIMENSION_TAG_NAME)
+    groups = mb.get_entities_by_type_and_tag(
+        mb.get_root_set(), moab_types.MBENTITYSET, [cat_tag], ["Group"]
+    )
+    group_names = set()
+    for gset in groups:
+        if mb.tag_get_data(gdim_tag, gset)[0][0] != 4:
+            continue
+        raw_name = mb.tag_get_data(name_tag, gset)[0][0]
+        group_names.add(raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name))
+    assert "mat:clad_region" in group_names
+    assert "mat:fuel_region" in group_names

@@ -215,6 +215,19 @@ export interface FoamStlExportResult {
     readonly stlFiles: string[];
 }
 
+/** Status of a single feature in a document build result. */
+export type FeatureResultStatus = 'built' | 'failed' | 'stale';
+
+/** Per-feature result returned by a document build. */
+export interface FeatureResult {
+    /** Feature id from the document feature tree. */
+    readonly featureId: string;
+    /** Build status of the feature. */
+    readonly status: FeatureResultStatus;
+    /** Human-readable error message when ``status`` is ``failed``. */
+    readonly error?: string;
+}
+
 /** Result of a geometry build request. */
 export interface GeometryBuildResult {
     /** Whether the build succeeded. */
@@ -245,6 +258,8 @@ export interface GeometryBuildResult {
     readonly regionManifest?: RegionManifestData;
     /** Mapping of selector -> 1-based solid indices. */
     readonly selectorMap?: Record<string, number[]>;
+    /** Per-feature build status for document builds. */
+    readonly featureResults?: FeatureResult[];
     /** Absolute path to the generated DAGMC .h5m file. */
     readonly dagmcPath?: string;
     /** Whether the DAGMC export succeeded (non-fatal if false). */
@@ -301,6 +316,30 @@ export interface GeometryBuildRequest {
     readonly meshOrder?: number;
 }
 
+/** Request to build geometry from a ``.nuke-cad`` document. */
+export interface BuildDocumentRequest {
+    /** Absolute path to the ``.nuke-cad`` document (carried in ``scriptPath`` for service dispatch). */
+    readonly scriptPath: string;
+    /** Optional output directory; defaults to the document file's directory. */
+    readonly outputDirectory?: string;
+    /** BRepMesh faceting tolerance. */
+    readonly tolerance?: number;
+    /** Whether to export DAGMC .h5m (default true). */
+    readonly exportDagmc?: boolean;
+    /** Whether to export FEM volume meshes (default true). */
+    readonly exportMesh?: boolean;
+    /** Meshing engine: ``gmsh`` or ``netgen``. */
+    readonly meshEngine?: string;
+    /** Global target element size for the volume mesh. */
+    readonly meshSize?: number;
+    /** Minimum element size for the volume mesh. */
+    readonly meshMinSize?: number;
+    /** Maximum element size for the volume mesh. */
+    readonly meshMaxSize?: number;
+    /** Element order (1 = linear, 2 = quadratic). */
+    readonly meshOrder?: number;
+}
+
 /** Single volume entry in the region manifest. */
 export interface RegionManifestVolume {
     readonly selector: string;
@@ -331,6 +370,15 @@ export interface NukeCadBackendService {
      * Build/update geometry from a script and return artifact paths + metadata.
      */
     buildGeometry(request: GeometryBuildRequest): Promise<GeometryBuildResult>;
+
+    /**
+     * Build/update geometry from a ``.nuke-cad`` document.
+     *
+     * The request's ``scriptPath`` carries the absolute path to the document;
+     * this keeps the service dispatch identical to ``buildGeometry`` while the
+     * backend passes ``--from-document`` to the geometry service.
+     */
+    buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult>;
 
     /**
      * Set up and optionally run a CalculiX FEM analysis from a gmsh mesh.
