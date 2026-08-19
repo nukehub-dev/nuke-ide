@@ -542,4 +542,228 @@ describe('SketchSession', () => {
             expect(count).toBeGreaterThan(0);
         });
     });
+
+    describe('dimensions', () => {
+        it('creates a dimension when adding a driving distance constraint', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+
+            const result = await session.addConstraint('distance', [ids[0], ids[1]], 5);
+            expect(result.success).toBe(true);
+            expect(result.dimensionId).toBeDefined();
+
+            const dimensions = session.getDimensions();
+            expect(dimensions).toHaveLength(1);
+            expect(dimensions[0].kind).toBe('distance');
+            expect(dimensions[0].value).toBeCloseTo(5, 10);
+            expect(dimensions[0].driving).toBe(true);
+        });
+
+        it('creates a diameter dimension via addDimension', async () => {
+            const session = await makeSession('circle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+
+            const result = await session.addDimension('diameter', [circleId], 12);
+            expect(result.success).toBe(true);
+
+            const dimension = session.getDimension(result.dimensionId!);
+            expect(dimension).toBeDefined();
+            expect(dimension!.kind).toBe('diameter');
+            expect(dimension!.value).toBe(12);
+
+            const circle = session.getPrimitive(circleId) as import('../../common/sketch-solver').SketchCircle;
+            expect(circle.radius).toBeCloseTo(6, 10);
+        });
+
+        it('edits a dimension value and re-solves', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addConstraint('fix', [ids[0]]);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 5);
+            expect(result.success).toBe(true);
+
+            const edit = await session.editDimension(result.dimensionId!, { value: 8 });
+            expect(edit.success).toBe(true);
+
+            const b = session.getPrimitive(ids[1]) as SketchPoint;
+            expect(b.x).toBeCloseTo(8, 10);
+        });
+
+        it('toggles a dimension between driving and reference', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addConstraint('fix', [ids[0]]);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 5);
+            const dimensionId = result.dimensionId!;
+
+            const reference = await session.editDimension(dimensionId, { driving: false });
+            expect(reference.success).toBe(true);
+            expect(session.getDimension(dimensionId)!.driving).toBe(false);
+
+            const driving = await session.editDimension(dimensionId, { driving: true });
+            expect(driving.success).toBe(true);
+            expect(session.getDimension(dimensionId)!.driving).toBe(true);
+        });
+
+        it('binds a dimension to a parameter and re-solves on parameter change', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addConstraint('fix', [ids[0]]);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 5);
+
+            await session.addParameter('width', 5);
+            const bind = await session.editDimension(result.dimensionId!, { parameter: 'width' });
+            expect(bind.success).toBe(true);
+
+            await session.setParameter('width', 9);
+            const b = session.getPrimitive(ids[1]) as SketchPoint;
+            expect(b.x).toBeCloseTo(9, 10);
+            expect(session.getDimension(result.dimensionId!)!.value).toBeCloseTo(9, 10);
+        });
+
+        it('rejects binding to an unknown parameter', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 5);
+
+            const bind = await session.editDimension(result.dimensionId!, { parameter: 'missing' });
+            expect(bind.success).toBe(false);
+            expect(bind.error).toContain("Unknown parameter 'missing'");
+        });
+
+        it('deletes a dimension and its constraint', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 5);
+
+            const deleted = await session.deleteDimension(result.dimensionId!);
+            expect(deleted.success).toBe(true);
+            expect(session.getDimensions()).toHaveLength(0);
+            expect(session.getConstraints().some((c) => c.id === result.constraintId)).toBe(false);
+        });
+
+        it('round-trips dimension metadata through SketchDef', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addParameter('width', 5);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 'width', {
+                driving: true,
+                labelOffset: [1, 2]
+            });
+
+            const def = session.toSketchDef();
+            expect(def.dimensions).toHaveLength(1);
+            expect(def.dimensions![0].parameter).toBe('width');
+            expect(def.dimensions![0].labelOffset).toEqual([1, 2]);
+
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+            const dimension = restored.getDimension(result.dimensionId!);
+            expect(dimension).toBeDefined();
+            expect(dimension!.parameter).toBe('width');
+            expect(dimension!.labelOffset).toEqual([1, 2]);
+            expect(dimension!.driving).toBe(true);
+        });
+    });
+
+    describe('parameters', () => {
+        it('creates and updates a parameter', async () => {
+            const session = await makeSession('select');
+            const add = await session.addParameter('width', 10);
+            expect(add.success).toBe(true);
+
+            const update = await session.setParameter('width', 20);
+            expect(update.success).toBe(true);
+            expect(session.getParameters().width).toBe(20);
+        });
+
+        it('rejects non-finite parameter values', async () => {
+            const session = await makeSession('select');
+            const result = await session.setParameter('bad', NaN);
+            expect(result.success).toBe(false);
+        });
+
+        it('rejects removing a parameter used by a driving dimension', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addParameter('width', 5);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 'width');
+
+            const removed = session.removeParameter('width');
+            expect(removed.success).toBe(false);
+            expect(removed.error).toContain(result.dimensionId);
+        });
+
+        it('allows removing a parameter used only by reference dimensions', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            await session.addParameter('width', 5);
+            const result = await session.addDimension('distance', [ids[0], ids[1]], 'width', { driving: false });
+
+            const removed = session.removeParameter('width');
+            expect(removed.success).toBe(true);
+            expect(session.getDimension(result.dimensionId!)!.parameter).toBeUndefined();
+        });
+    });
+
+    describe('symmetry constraint arity', () => {
+        it('rejects symmetry with fewer than three primitives', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: -1, y: 0 });
+            await session.click({ x: 1, y: 0 });
+            const ids = session.getPrimitiveIds();
+
+            const result = await session.addConstraint('symmetry', [ids[0], ids[1]]);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('requires exactly 3');
+        });
+
+        it('accepts symmetry with a line mirror', async () => {
+            const session = await makeSession('select');
+            await session.setTool('point');
+            await session.click({ x: -1, y: 0 });
+            await session.click({ x: 1, y: 0 });
+            await session.setTool('line');
+            await session.click({ x: 0, y: -1 });
+            await session.click({ x: 0, y: 1 });
+            const pointIds = session
+                .getPrimitives()
+                .filter((p) => p.type === 'point')
+                .map((p) => p.id);
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+
+            const result = await session.addConstraint('symmetry', [pointIds[0], pointIds[1], lineId]);
+            expect(result.success).toBe(true);
+        });
+    });
 });

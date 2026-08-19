@@ -638,7 +638,7 @@ function initViewport(
     renderer.domElement.addEventListener('click', onClick);
 
     const onPointerDown = (event: PointerEvent): void => {
-        if (!controller.isActive || event.button !== 0) {
+        if (!controller.isActive) {
             return;
         }
         controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
@@ -655,9 +655,17 @@ function initViewport(
         }
         void controller.onPointerUp(event.clientX, event.clientY);
     };
+    const onWheel = (event: WheelEvent): void => {
+        if (!controller.isActive) {
+            return;
+        }
+        event.preventDefault();
+        controller.onWheel(event.clientX, event.clientY, event.deltaY);
+    };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     const onKeyDown = (event: KeyboardEvent): void => {
         if (!controller.isActive) {
@@ -713,6 +721,7 @@ function initViewport(
             renderer.domElement.removeEventListener('pointerdown', onPointerDown);
             renderer.domElement.removeEventListener('pointermove', onPointerMove);
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
+            renderer.domElement.removeEventListener('wheel', onWheel);
             window.removeEventListener('keydown', onKeyDown);
             controls.removeEventListener('change', renderScene);
             controls.dispose();

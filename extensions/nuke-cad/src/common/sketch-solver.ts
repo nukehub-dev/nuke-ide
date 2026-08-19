@@ -482,6 +482,14 @@ export interface SketchSolver {
     /** Remove a committed constraint by its caller-assigned id. */
     removeConstraint(id: string): void;
 
+    /**
+     * Change the scalar value of a driving constraint without removing its id.
+     *
+     * The constraint must reference a scalar value (distance, radius, diameter,
+     * angle, or signed difference). Parameter names are accepted as values.
+     */
+    setDrivingValue(id: string, value: number | string): void;
+
     /** Solve the committed sketch and update committed geometry. */
     solve(): Promise<SolverResult>;
     /** Solve with additional temporary constraints; does not mutate committed geometry. */
@@ -952,6 +960,57 @@ export class PlanegcsSketchSolver implements SketchSolver {
                 this.coordinateConstraints.delete(pointId);
             }
         }
+    }
+
+    setDrivingValue(id: string, value: number | string): void {
+        this.assertNotDisposed();
+        const constraint = this.constraints.get(id);
+        if (constraint === undefined) {
+            throw new Error(`Unknown constraint '${id}'`);
+        }
+        constraint.pg = this.setPgValue(constraint.pg, value);
+    }
+
+    private setPgValue(pg: PgConstraint | PgConstraint[], value: number | string): PgConstraint | PgConstraint[] {
+        if (Array.isArray(pg)) {
+            if (pg.length === 0) {
+                throw new Error('Constraint has no scalar value to update');
+            }
+            return pg.map((c) => this.setPgValue(c, value) as PgConstraint);
+        }
+        const copy = clonePrimitive(pg) as PgConstraint;
+        switch (copy.type) {
+            case 'p2p_distance':
+                copy.distance = value;
+                break;
+            case 'l2l_angle_ll':
+                copy.angle = value;
+                break;
+            case 'circle_radius':
+                copy.radius = value;
+                break;
+            case 'arc_radius':
+                copy.radius = value;
+                break;
+            case 'circle_diameter':
+                copy.diameter = value;
+                break;
+            case 'arc_diameter':
+                copy.diameter = value;
+                break;
+            case 'difference':
+                copy.difference = value;
+                break;
+            case 'coordinate_x':
+                copy.x = value as number;
+                break;
+            case 'coordinate_y':
+                copy.y = value as number;
+                break;
+            default:
+                throw new Error(`Constraint type '${copy.type}' does not have an updatable scalar value`);
+        }
+        return copy;
     }
 
     async solve(): Promise<SolverResult> {

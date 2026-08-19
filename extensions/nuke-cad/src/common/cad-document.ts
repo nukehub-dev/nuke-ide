@@ -53,6 +53,32 @@ export interface DatumPlane {
     reference?: TopologyRef;
 }
 
+/** Supported dimension kinds. */
+export type DimensionKind = 'distance' | 'distanceH' | 'distanceV' | 'angle' | 'radius' | 'diameter';
+
+/**
+ * First-class dimension metadata for a driving or reference dimension.
+ *
+ * Dimensions are stored alongside planegcs-verbatim constraints. The constraint
+ * itself remains the solve source of truth; this record carries UI state such
+ * as label position and the bound parameter name.
+ */
+export interface SketchDimension {
+    id: string;
+    /** Id of the planegcs-verbatim constraint driving this dimension. */
+    constraintId: string;
+    kind: DimensionKind;
+    targetIds: string[];
+    /** When false the dimension is a reference/measurement (default true). */
+    driving: boolean;
+    /** Optional sketch-local parameter name that drives the value. */
+    parameter?: string;
+    /** Current solved/reference value (always a finite number). */
+    value: number;
+    /** Optional 2D label offset from the default anchor in sketch units. */
+    labelOffset?: [number, number];
+}
+
 /**
  * Sketch definition. Primitives and constraints are stored verbatim in the
  * planegcs JSON form so the solver adapter can load them without translation.
@@ -67,6 +93,8 @@ export interface SketchDef {
     constraints: Record<string, unknown>[];
     /** Sketch-local named parameters referenced by constraint values. */
     parameters?: Record<string, number>;
+    /** Dimension metadata (label position, parameter binding) for the UI. */
+    dimensions?: SketchDimension[];
 }
 
 /** Feature types for solid features. */
@@ -314,6 +342,62 @@ function validateSketch(ctx: MutableValidationContext, sketch: SketchDef, index:
             issue(ctx, `${cpath}.id`, `constraint id '${cid}' collides with a primitive id in sketch`);
         } else {
             constraintIds.add(cid);
+        }
+    }
+    const dimensionIds = new Set<string>();
+    const knownDimensionKinds: DimensionKind[] = ['distance', 'distanceH', 'distanceV', 'angle', 'radius', 'diameter'];
+    for (const [i, dimension] of (sketch.dimensions ?? []).entries()) {
+        const dpath = `${path}.dimensions[${i}]`;
+        if (!isPlainObject(dimension)) {
+            issue(ctx, dpath, 'dimension must be an object');
+            continue;
+        }
+        const did = dimension.id;
+        if (!isString(did) || did.length === 0) {
+            issue(ctx, `${dpath}.id`, 'dimension must have a string id');
+        } else if (dimensionIds.has(did)) {
+            issue(ctx, `${dpath}.id`, `duplicate dimension id '${did}' in sketch`);
+        } else if (primitiveIds.has(did) || constraintIds.has(did)) {
+            issue(ctx, `${dpath}.id`, `dimension id '${did}' collides with another id in sketch`);
+        } else {
+            dimensionIds.add(did);
+        }
+        if (!isString(dimension.constraintId) || dimension.constraintId.length === 0) {
+            issue(ctx, `${dpath}.constraintId`, 'dimension must reference a constraint id');
+        } else if (!constraintIds.has(dimension.constraintId)) {
+            issue(ctx, `${dpath}.constraintId`, `dimension references unknown constraint '${dimension.constraintId}'`);
+        }
+        if (!knownDimensionKinds.includes(dimension.kind as DimensionKind)) {
+            issue(ctx, `${dpath}.kind`, `unknown dimension kind '${dimension.kind}'`);
+        }
+        if (!Array.isArray(dimension.targetIds) || dimension.targetIds.length === 0) {
+            issue(ctx, `${dpath}.targetIds`, 'dimension targetIds must be a non-empty array');
+        } else {
+            for (const [j, tid] of dimension.targetIds.entries()) {
+                if (!isString(tid) || tid.length === 0) {
+                    issue(ctx, `${dpath}.targetIds[${j}]`, 'target id must be a string');
+                }
+            }
+        }
+        if (typeof dimension.driving !== 'boolean') {
+            issue(ctx, `${dpath}.driving`, 'dimension driving flag must be a boolean');
+        }
+        if (dimension.parameter !== undefined && !isString(dimension.parameter)) {
+            issue(ctx, `${dpath}.parameter`, 'dimension parameter must be a string when present');
+        }
+        if (!isFiniteNumber(dimension.value)) {
+            issue(ctx, `${dpath}.value`, 'dimension value must be a finite number');
+        }
+        if (dimension.labelOffset !== undefined) {
+            if (!Array.isArray(dimension.labelOffset) || dimension.labelOffset.length !== 2) {
+                issue(ctx, `${dpath}.labelOffset`, 'labelOffset must be a [x, y] tuple');
+            } else {
+                for (const [j, v] of dimension.labelOffset.entries()) {
+                    if (!isFiniteNumber(v)) {
+                        issue(ctx, `${dpath}.labelOffset[${j}]`, 'labelOffset component must be finite');
+                    }
+                }
+            }
         }
     }
 }

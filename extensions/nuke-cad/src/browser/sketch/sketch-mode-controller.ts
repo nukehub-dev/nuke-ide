@@ -48,13 +48,27 @@ import {
     type Vec3,
     intersectRayPlane,
     worldToSketch,
+    sketchToWorld,
     pixelRadiusToModelUnits,
     defaultSketchViewSize
 } from './sketch-math';
 import { snap, createSnapConfig, type SnapResult } from './snap';
+import { type SketchDimension } from '../../common/cad-document';
 
 /** Listener invoked after any mutation that changes the sketch UI state. */
 export type SketchControllerChangeListener = () => void;
+
+/** A dimension label projected to screen coordinates for the HTML overlay. */
+export interface DimensionLabel {
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+    selected: boolean;
+}
+
+/** Distance threshold in pixels for clicking a dimension label. */
+const LABEL_HIT_RADIUS_PX = 12;
 
 /** Constraint kinds that require a numeric value from the user. */
 const VALUE_CONSTRAINTS: ReadonlySet<ConstraintKind> = new Set(['distance', 'radius', 'angle']);
@@ -127,6 +141,9 @@ export class SketchModeController {
     private dragFramePending = false;
     private lastPointer?: Point2;
     private lastSnap?: SnapResult;
+    private selectedDimensionId?: string;
+    private labelDrag?: { dimensionId: string; startOffset: [number, number]; startPointer: Point2 };
+    private panState?: { startCamera: THREE.OrthographicCamera; startPointer: Point2 };
     private status: SketchStatus = {
         dof: 0,
         conflicting: [],
@@ -141,6 +158,7 @@ export class SketchModeController {
     private readonly snapMarker: THREE.Points;
     private readonly selectionMarker: THREE.Group;
     private readonly committedGroup: THREE.Group;
+    private readonly dimensionGroup: THREE.Group;
 
     private savedCamera?: THREE.PerspectiveCamera;
     private orthoCamera?: THREE.OrthographicCamera;
@@ -196,6 +214,8 @@ export class SketchModeController {
         this.sketchGroup.name = 'sketch-layer';
         this.committedGroup = new THREE.Group();
         this.committedGroup.name = 'sketch-committed';
+        this.dimensionGroup = new THREE.Group();
+        this.dimensionGroup.name = 'sketch-dimensions';
         this.previewObject = new THREE.Group();
         this.previewObject.name = 'sketch-preview';
         this.selectionMarker = new THREE.Group();
@@ -205,6 +225,7 @@ export class SketchModeController {
         this.grid.visible = false;
         this.sketchGroup.add(this.grid);
         this.sketchGroup.add(this.committedGroup);
+        this.sketchGroup.add(this.dimensionGroup);
         this.sketchGroup.add(this.previewObject);
         this.sketchGroup.add(this.selectionMarker);
 
@@ -264,6 +285,37 @@ export class SketchModeController {
         return this.selectedIds;
     }
 
+    /** All dimensions in the active sketch. */
+    getDimensions(): SketchDimension[] {
+        return this.session?.getDimensions() ?? [];
+    }
+
+    /** Currently selected dimension id, if any. */
+    getSelectedDimension(): string | undefined {
+        return this.selectedDimensionId;
+    }
+
+    /** Select a dimension (deselects primitives). */
+    selectDimension(id: string | undefined): void {
+        this.selectedDimensionId = id;
+        if (id !== undefined) {
+            this.selectedIds.clear();
+            this.renderSelection();
+        }
+        this.renderDimensions();
+        this.emitChange();
+        this.renderCallback();
+    }
+
+    /** Delete the currently selected dimension. */
+    async deleteSelectedDimension(): Promise<void> {
+        if (this.selectedDimensionId === undefined || this.session === undefined) {
+            return;
+        }
+        await this.session.deleteDimension(this.selectedDimensionId);
+        this.selectedDimensionId = undefined;
+    }
+
     /** True when construction geometry toggle is on. */
     getConstruction(): boolean {
         return this.construction;
@@ -280,6 +332,35 @@ export class SketchModeController {
     /** Current datum plane. */
     getDatumPlane(): DatumPlane {
         return this.datumPlane;
+    }
+
+    /**
+     * Project all dimension labels to screen coordinates for the HTML overlay.
+     *
+     * The overlay calls this on every render so labels stay anchored during
+     * pan/zoom.
+     */
+    getDimensionLabels(): DimensionLabel[] {
+        if (this.session === undefined || this.orthoCamera === undefined) {
+            return [];
+        }
+        const labels: DimensionLabel[] = [];
+        for (const dimension of this.session.getDimensions()) {
+            const anchor = this.computeDimensionAnchor(dimension);
+            if (anchor === undefined) {
+                continue;
+            }
+            const world = sketchToWorld(anchor, this.datumPlane);
+            const screen = this.worldToScreen(new THREE.Vector3(world.x, world.y, world.z));
+            labels.push({
+                id: dimension.id,
+                text: this.formatDimensionText(dimension),
+                x: screen.x,
+                y: screen.y,
+                selected: dimension.id === this.selectedDimensionId
+            });
+        }
+        return labels;
     }
 
     /** The camera that should be used for rendering. */
@@ -493,8 +574,8 @@ export class SketchModeController {
         this.emitChange();
     }
 
-    /** Apply a constraint with a numeric value (for distance/radius/angle). */
-    async applyConstraintValue(kind: ConstraintKind, value: number): Promise<void> {
+    /** Apply a constraint with a numeric value or parameter name (for distance/radius/angle). */
+    async applyConstraintValue(kind: ConstraintKind, value: number | string, options?: { diameter?: boolean }): Promise<void> {
         if (this.session === undefined || this.constraintInput === undefined || this.constraintInput.kind !== kind) {
             return;
         }
@@ -504,7 +585,7 @@ export class SketchModeController {
             this.emitChange();
             return;
         }
-        const result = await this.session.addConstraint(kind, targetIds, value);
+        const result = await this.session.addConstraint(kind, targetIds, value, { diameter: options?.diameter });
         if (result.success) {
             this.constraintInput = undefined;
         } else {
@@ -550,6 +631,21 @@ export class SketchModeController {
         this.lastSnap = this.computeSnap(sketchPoint);
         const snapped = this.lastSnap.point;
 
+        if (this.panState !== undefined) {
+            this.panTo(sketchPoint);
+            return;
+        }
+        if (this.labelDrag !== undefined) {
+            const dx = sketchPoint.x - this.labelDrag.startPointer.x;
+            const dy = sketchPoint.y - this.labelDrag.startPointer.y;
+            const dimension = this.session.getDimension(this.labelDrag.dimensionId);
+            if (dimension !== undefined) {
+                dimension.labelOffset = [this.labelDrag.startOffset[0] + dx, this.labelDrag.startOffset[1] + dy];
+            }
+            this.renderDimensions();
+            this.renderCallback();
+            return;
+        }
         if (this.drag !== undefined) {
             if (!this.dragFramePending) {
                 this.dragFramePending = true;
@@ -571,7 +667,7 @@ export class SketchModeController {
 
     /** Pointer down handler. */
     onPointerDown(clientX: number, clientY: number, shiftKey: boolean, button = 0): void {
-        if (this.session === undefined || button !== 0) {
+        if (this.session === undefined) {
             return;
         }
         const sketchPoint = this.pointerToSketch(clientX, clientY);
@@ -582,6 +678,15 @@ export class SketchModeController {
         this.lastSnap = this.computeSnap(sketchPoint);
         const snapResult = this.lastSnap;
 
+        // Middle button or shift-left starts a pan.
+        if (button === 1 || (button === 0 && shiftKey)) {
+            this.beginPan(sketchPoint);
+            return;
+        }
+        if (button !== 0) {
+            return;
+        }
+
         if (this.constraintInput !== undefined) {
             this.handleConstraintClick(snapResult, shiftKey).catch((err) => {
                 console.error('[SketchMode] constraint click failed:', err);
@@ -591,6 +696,23 @@ export class SketchModeController {
 
         const tool = this.session.getTool();
         if (tool === 'select') {
+            // Check for a dimension label hit before geometry drag.
+            const labelId = this.dimensionLabelAt(clientX, clientY);
+            if (labelId !== undefined) {
+                this.selectedDimensionId = labelId;
+                this.selectedIds.clear();
+                this.renderSelection();
+                this.labelDrag = {
+                    dimensionId: labelId,
+                    startOffset: [...(this.session.getDimension(labelId)?.labelOffset ?? [0, 0])] as [number, number],
+                    startPointer: sketchPoint
+                };
+                this.renderDimensions();
+                this.emitChange();
+                this.renderCallback();
+                return;
+            }
+
             const pointId = this.draggablePointAt(snapResult);
             if (pointId !== undefined) {
                 this.drag = { pointIds: [pointId] };
@@ -599,7 +721,9 @@ export class SketchModeController {
                     console.error('[SketchMode] initial dragTo failed:', err);
                 });
             } else {
+                this.selectedDimensionId = undefined;
                 this.handleSelectClick(snapResult, shiftKey);
+                this.renderDimensions();
             }
         }
     }
@@ -607,6 +731,14 @@ export class SketchModeController {
     /** Pointer up handler. */
     async onPointerUp(_clientX: number, _clientY: number): Promise<void> {
         if (this.session === undefined) {
+            return;
+        }
+        if (this.panState !== undefined) {
+            this.panState = undefined;
+            return;
+        }
+        if (this.labelDrag !== undefined) {
+            this.labelDrag = undefined;
             return;
         }
         if (this.drag !== undefined) {
@@ -625,6 +757,12 @@ export class SketchModeController {
 
     /** Delete key handler. */
     onDeleteKey(): void {
+        if (this.selectedDimensionId !== undefined) {
+            this.deleteSelectedDimension().catch((err) => {
+                console.error('[SketchMode] delete dimension failed:', err);
+            });
+            return;
+        }
         this.deleteSelection().catch((err) => {
             console.error('[SketchMode] delete selection failed:', err);
         });
@@ -717,6 +855,74 @@ export class SketchModeController {
         return worldToSketch(hit, this.datumPlane);
     }
 
+    private dimensionLabelAt(clientX: number, clientY: number): string | undefined {
+        if (this.session === undefined) {
+            return undefined;
+        }
+        for (const label of this.getDimensionLabels()) {
+            const dx = label.x - clientX;
+            const dy = label.y - clientY;
+            if (dx * dx + dy * dy <= LABEL_HIT_RADIUS_PX * LABEL_HIT_RADIUS_PX) {
+                return label.id;
+            }
+        }
+        return undefined;
+    }
+
+    private beginPan(sketchPoint: Point2): void {
+        if (this.orthoCamera === undefined) {
+            return;
+        }
+        this.panState = { startCamera: this.orthoCamera.clone() as THREE.OrthographicCamera, startPointer: sketchPoint };
+    }
+
+    private panTo(sketchPoint: Point2): void {
+        if (this.panState === undefined || this.orthoCamera === undefined) {
+            return;
+        }
+        const dx = sketchPoint.x - this.panState.startPointer.x;
+        const dy = sketchPoint.y - this.panState.startPointer.y;
+        const start = this.panState.startCamera;
+        this.orthoCamera.left = start.left - dx;
+        this.orthoCamera.right = start.right - dx;
+        this.orthoCamera.top = start.top - dy;
+        this.orthoCamera.bottom = start.bottom - dy;
+        this.orthoCamera.updateProjectionMatrix();
+        const target = this.toThree(this.datumPlane.origin).add(this.toThree(this.datumPlane.normal).multiplyScalar(10));
+        this.orthoCamera.position.copy(target);
+        this.orthoCamera.lookAt(this.toThree(this.datumPlane.origin));
+        this.controls.target.copy(this.toThree(this.datumPlane.origin));
+        this.controls.update();
+        this.renderSketch();
+    }
+
+    /** Zoom the orthographic camera around the given screen point. */
+    onWheel(clientX: number, clientY: number, deltaY: number): void {
+        if (this.orthoCamera === undefined) {
+            return;
+        }
+        const zoomFactor = deltaY > 0 ? 1.1 : 1 / 1.1;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const nx = (clientX - rect.left) / rect.width;
+        const ny = 1 - (clientY - rect.top) / rect.height;
+
+        const left = this.orthoCamera.left;
+        const right = this.orthoCamera.right;
+        const top = this.orthoCamera.top;
+        const bottom = this.orthoCamera.bottom;
+        const width = right - left;
+        const height = top - bottom;
+        const newWidth = width * zoomFactor;
+        const newHeight = height * zoomFactor;
+
+        this.orthoCamera.left = left + (width - newWidth) * nx;
+        this.orthoCamera.right = this.orthoCamera.left + newWidth;
+        this.orthoCamera.bottom = bottom + (height - newHeight) * ny;
+        this.orthoCamera.top = this.orthoCamera.bottom + newHeight;
+        this.orthoCamera.updateProjectionMatrix();
+        this.renderSketch();
+    }
+
     private getOrthoHeight(): number {
         const cam = this.orthoCamera;
         if (cam === undefined) {
@@ -727,6 +933,7 @@ export class SketchModeController {
 
     private renderSketch(): void {
         this.clearCommitted();
+        this.renderDimensions();
         if (this.session === undefined) {
             return;
         }
@@ -972,6 +1179,222 @@ export class SketchModeController {
             }
         }
         this.renderCallback();
+    }
+
+    private renderDimensions(): void {
+        while (this.dimensionGroup.children.length > 0) {
+            const child = this.dimensionGroup.children[0];
+            this.dimensionGroup.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+        if (this.session === undefined) {
+            return;
+        }
+        const color = this.themeColors.normal;
+        const z = 0.005;
+        for (const dimension of this.session.getDimensions()) {
+            const lines = this.buildDimensionLines(dimension, z);
+            for (const geometry of lines) {
+                const material = new THREE.LineBasicMaterial({
+                    color: dimension.id === this.selectedDimensionId ? this.themeColors.selected : color
+                });
+                this.dimensionGroup.add(new THREE.Line(geometry, material));
+            }
+        }
+    }
+
+    private buildDimensionLines(dimension: SketchDimension, z: number): THREE.BufferGeometry[] {
+        const result: THREE.BufferGeometry[] = [];
+        if (dimension.kind === 'distance' || dimension.kind === 'distanceH' || dimension.kind === 'distanceV') {
+            const a = this.session!.getPrimitive(dimension.targetIds[0]) as SketchPoint | undefined;
+            const b = this.session!.getPrimitive(dimension.targetIds[1]) as SketchPoint | undefined;
+            if (a === undefined || b === undefined) {
+                return result;
+            }
+            const anchor = this.computeDimensionAnchor(dimension);
+            if (anchor === undefined) {
+                return result;
+            }
+            const offset = dimension.labelOffset ?? [0, 0];
+            const p1 = new THREE.Vector3(a.x + offset[0], a.y + offset[1], z);
+            const p2 = new THREE.Vector3(b.x + offset[0], b.y + offset[1], z);
+            result.push(new THREE.BufferGeometry().setFromPoints([p1, p2]));
+            return result;
+        }
+        if (dimension.kind === 'radius') {
+            const primitive = this.session!.getPrimitive(dimension.targetIds[0]);
+            if (primitive?.type !== 'circle' && primitive?.type !== 'arc') {
+                return result;
+            }
+            const center = this.session!.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return result;
+            }
+            const anchor = this.computeDimensionAnchor(dimension);
+            if (anchor === undefined) {
+                return result;
+            }
+            result.push(
+                new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(center.x, center.y, z),
+                    new THREE.Vector3(anchor.x, anchor.y, z)
+                ])
+            );
+            return result;
+        }
+        if (dimension.kind === 'diameter') {
+            const primitive = this.session!.getPrimitive(dimension.targetIds[0]);
+            if (primitive?.type !== 'circle' && primitive?.type !== 'arc') {
+                return result;
+            }
+            const center = this.session!.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return result;
+            }
+            const anchor = this.computeDimensionAnchor(dimension);
+            if (anchor === undefined) {
+                return result;
+            }
+            const dx = anchor.x - center.x;
+            const dy = anchor.y - center.y;
+            result.push(
+                new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(center.x - dx, center.y - dy, z),
+                    new THREE.Vector3(center.x + dx, center.y + dy, z)
+                ])
+            );
+            return result;
+        }
+        if (dimension.kind === 'angle') {
+            const l1 = this.session!.getPrimitive(dimension.targetIds[0]);
+            const l2 = this.session!.getPrimitive(dimension.targetIds[1]);
+            if (l1?.type !== 'line' || l2?.type !== 'line') {
+                return result;
+            }
+            const a1 = this.session!.getPrimitive(l1.p1Id) as SketchPoint | undefined;
+            const a2 = this.session!.getPrimitive(l1.p2Id) as SketchPoint | undefined;
+            const b1 = this.session!.getPrimitive(l2.p1Id) as SketchPoint | undefined;
+            const b2 = this.session!.getPrimitive(l2.p2Id) as SketchPoint | undefined;
+            if (a1 === undefined || a2 === undefined || b1 === undefined || b2 === undefined) {
+                return result;
+            }
+            // Find the common vertex of the two lines.
+            const common = [a1.id, a2.id].find((id) => id === b1.id || id === b2.id);
+            if (common === undefined) {
+                return result;
+            }
+            const vertex = common === a1.id ? a1 : a2;
+            const otherA = common === a1.id ? a2 : a1;
+            const otherB = common === b1.id ? b2 : b1;
+            const dirA = { x: otherA.x - vertex.x, y: otherA.y - vertex.y };
+            const dirB = { x: otherB.x - vertex.x, y: otherB.y - vertex.y };
+            const lenA = Math.hypot(dirA.x, dirA.y);
+            const lenB = Math.hypot(dirB.x, dirB.y);
+            if (lenA < 1e-12 || lenB < 1e-12) {
+                return result;
+            }
+            const radius = Math.min(lenA, lenB) * 0.25;
+            const start = Math.atan2(dirA.y, dirA.x);
+            const end = Math.atan2(dirB.y, dirB.x);
+            result.push(this.arcGeometry(vertex, radius, start, end, z, 16));
+            return result;
+        }
+        return result;
+    }
+
+    private computeDimensionAnchor(dimension: SketchDimension): Point2 | undefined {
+        if (dimension.kind === 'distance' || dimension.kind === 'distanceH' || dimension.kind === 'distanceV') {
+            const a = this.session!.getPrimitive(dimension.targetIds[0]) as SketchPoint | undefined;
+            const b = this.session!.getPrimitive(dimension.targetIds[1]) as SketchPoint | undefined;
+            if (a === undefined || b === undefined) {
+                return undefined;
+            }
+            const offset = dimension.labelOffset ?? [0, 0];
+            return { x: (a.x + b.x) / 2 + offset[0], y: (a.y + b.y) / 2 + offset[1] };
+        }
+        if (dimension.kind === 'radius' || dimension.kind === 'diameter') {
+            const primitive = this.session!.getPrimitive(dimension.targetIds[0]);
+            if (primitive?.type !== 'circle' && primitive?.type !== 'arc') {
+                return undefined;
+            }
+            const center = this.session!.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return undefined;
+            }
+            const radius = primitive.type === 'circle' ? primitive.radius : primitive.radius;
+            const offset = dimension.labelOffset ?? [0, 0];
+            const angle = Math.PI / 4;
+            return {
+                x: center.x + radius * Math.cos(angle) + offset[0],
+                y: center.y + radius * Math.sin(angle) + offset[1]
+            };
+        }
+        if (dimension.kind === 'angle') {
+            const l1 = this.session!.getPrimitive(dimension.targetIds[0]);
+            const l2 = this.session!.getPrimitive(dimension.targetIds[1]);
+            if (l1?.type !== 'line' || l2?.type !== 'line') {
+                return undefined;
+            }
+            const a1 = this.session!.getPrimitive(l1.p1Id) as SketchPoint | undefined;
+            const a2 = this.session!.getPrimitive(l1.p2Id) as SketchPoint | undefined;
+            const b1 = this.session!.getPrimitive(l2.p1Id) as SketchPoint | undefined;
+            const b2 = this.session!.getPrimitive(l2.p2Id) as SketchPoint | undefined;
+            if (a1 === undefined || a2 === undefined || b1 === undefined || b2 === undefined) {
+                return undefined;
+            }
+            const common = [a1.id, a2.id].find((id) => id === b1.id || id === b2.id);
+            if (common === undefined) {
+                return undefined;
+            }
+            const vertex = common === a1.id ? a1 : a2;
+            const otherA = common === a1.id ? a2 : a1;
+            const otherB = common === b1.id ? b2 : b1;
+            const dirA = { x: otherA.x - vertex.x, y: otherA.y - vertex.y };
+            const dirB = { x: otherB.x - vertex.x, y: otherB.y - vertex.y };
+            const lenA = Math.hypot(dirA.x, dirA.y);
+            const lenB = Math.hypot(dirB.x, dirB.y);
+            if (lenA < 1e-12 || lenB < 1e-12) {
+                return undefined;
+            }
+            const offset = dimension.labelOffset ?? [0, 0];
+            const bisect = { x: dirA.x / lenA + dirB.x / lenB, y: dirA.y / lenA + dirB.y / lenB };
+            const bisectLen = Math.hypot(bisect.x, bisect.y);
+            const radius = Math.min(lenA, lenB) * 0.3;
+            if (bisectLen < 1e-12) {
+                return { x: vertex.x + offset[0], y: vertex.y + radius + offset[1] };
+            }
+            return {
+                x: vertex.x + (bisect.x / bisectLen) * radius + offset[0],
+                y: vertex.y + (bisect.y / bisectLen) * radius + offset[1]
+            };
+        }
+        return undefined;
+    }
+
+    private formatDimensionText(dimension: SketchDimension): string {
+        const prefix = dimension.parameter !== undefined ? `${dimension.parameter} = ` : '';
+        const valueText = dimension.value.toFixed(2).replace(/\.?0+$/, '');
+        const text = dimension.kind === 'diameter' ? `⌀${valueText}` : `${prefix}${valueText}`;
+        return dimension.driving ? text : `(${text})`;
+    }
+
+    private worldToScreen(world: THREE.Vector3): { x: number; y: number } {
+        const camera = this.getActiveCamera();
+        const ndc = world.clone().project(camera);
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        return {
+            x: ((ndc.x + 1) / 2) * rect.width + rect.left,
+            y: ((-ndc.y + 1) / 2) * rect.height + rect.top
+        };
     }
 
     private primitiveColor(primitive: SketchPrimitive & { construction: boolean }, isSelected: boolean): THREE.Color {

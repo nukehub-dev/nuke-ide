@@ -402,4 +402,84 @@ describe('PlanegcsSketchSolver', () => {
         const p = solver.getPrimitive('p') as SketchPoint;
         expect(Math.hypot(p.x, p.y)).toBeCloseTo(5, 10);
     });
+
+    it('setDrivingValue updates a distance constraint value', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('a', 0, 0);
+        solver.addPoint('b', 0, 0);
+        solver.addConstraintFix('fixA', 'a');
+        // Use a signed horizontal distance (b.x - a.x) so the solve is determinate.
+        solver.addConstraintDistance('d', 'b', 'a', 5, { direction: 'horizontal' });
+        await solver.solve();
+        expect((solver.getPrimitive('b') as SketchPoint).x).toBeCloseTo(5, 10);
+
+        solver.setDrivingValue('d', 12);
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+        expect((solver.getPrimitive('b') as SketchPoint).x).toBeCloseTo(12, 10);
+    });
+
+    it('setDrivingValue updates a radius constraint value', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('c', 0, 0);
+        solver.addCircle('circle', 'c', 1);
+        solver.addConstraintFix('fixC', 'c');
+        solver.addConstraintRadius('r', 'circle', 3);
+        await solver.solve();
+        expect((solver.getPrimitive('circle') as SketchCircle).radius).toBeCloseTo(3, 10);
+
+        solver.setDrivingValue('r', 7);
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+        expect((solver.getPrimitive('circle') as SketchCircle).radius).toBeCloseTo(7, 10);
+    });
+
+    it('setDrivingValue updates a diameter constraint value', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('c', 0, 0);
+        solver.addCircle('circle', 'c', 1);
+        solver.addConstraintFix('fixC', 'c');
+        solver.addConstraintDiameter('d', 'circle', 10);
+        await solver.solve();
+        expect((solver.getPrimitive('circle') as SketchCircle).radius).toBeCloseTo(5, 10);
+
+        solver.setDrivingValue('d', 16);
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+        expect((solver.getPrimitive('circle') as SketchCircle).radius).toBeCloseTo(8, 10);
+    });
+
+    it('setDrivingValue updates an angle constraint value', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('a', 0, 0);
+        solver.addPoint('b', 1, 0);
+        solver.addPoint('c', 1, 1);
+        solver.addLine('l1', 'a', 'b');
+        solver.addLine('l2', 'a', 'c');
+        solver.addConstraintFix('fixA', 'a');
+        solver.addConstraintFix('fixB', 'b');
+        solver.addConstraintAngle('ang', 'l1', 'l2', Math.PI / 4);
+        await solver.solve();
+
+        solver.setDrivingValue('ang', Math.PI / 2);
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        const a = solver.getPrimitive('a') as SketchPoint;
+        const b = solver.getPrimitive('b') as SketchPoint;
+        const c = solver.getPrimitive('c') as SketchPoint;
+        const v1 = { x: b.x - a.x, y: b.y - a.y };
+        const v2 = { x: c.x - a.x, y: c.y - a.y };
+        const angle = Math.atan2(v1.x * v2.y - v1.y * v2.x, v1.x * v2.x + v1.y * v2.y);
+        expect(Math.abs(angle)).toBeCloseTo(Math.PI / 2, 10);
+    });
+
+    it('setDrivingValue rejects unknown constraint ids', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        expect(() => solver.setDrivingValue('missing', 5)).toThrow(/Unknown constraint/);
+    });
 });

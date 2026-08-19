@@ -34,8 +34,9 @@
 import * as React from '@theia/core/shared/react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
-import { type SketchTool, type ConstraintKind } from '../../sketch/sketch-session';
+import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
+import { type SketchDimension, type DimensionKind } from '../../../common/cad-document';
 
 interface CadSketchOverlayProps {
     readonly controller: SketchModeController;
@@ -85,10 +86,20 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const construction = controller.getConstruction();
     const status = controller.getStatus();
     const constraintInput = controller.getConstraintInput();
+    const dimensions = active ? controller.getDimensions() : [];
+    const dimensionLabels = active ? controller.getDimensionLabels() : [];
+    const session = controller.getSession();
 
     const [value, setValue] = React.useState('');
+    const [useDiameter, setUseDiameter] = React.useState(false);
     const [datumKind, setDatumKind] = React.useState<DatumKind>('XY');
     const [offset, setOffset] = React.useState('0');
+    const [paramsOpen, setParamsOpen] = React.useState(false);
+    const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
+    const [editingDimension, setEditingDimension] = React.useState<SketchDimension | undefined>();
+    const [editDimValue, setEditDimValue] = React.useState('');
+    const [editDimDriving, setEditDimDriving] = React.useState(true);
+    const [paramErrors, setParamErrors] = React.useState<Record<string, string>>({});
 
     const needsValue =
         constraintInput !== undefined &&
@@ -97,17 +108,27 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
     React.useEffect(() => {
         setValue('');
+        setUseDiameter(false);
     }, [constraintInput?.kind, constraintInput?.targetIds.length]);
+
+    React.useEffect(() => {
+        if (editingDimension !== undefined) {
+            setEditDimValue(editingDimension.parameter ?? String(editingDimension.value));
+            setEditDimDriving(editingDimension.driving);
+        }
+    }, [editingDimension?.id]);
 
     const applyValue = (): void => {
         if (constraintInput === undefined) {
             return;
         }
         const num = Number(value);
-        if (!Number.isFinite(num)) {
+        if (value.trim() !== '' && !Number.isFinite(num)) {
             return;
         }
-        void controller.applyConstraintValue(constraintInput.kind, num);
+        const effectiveValue = Number.isFinite(num) ? num : value;
+        const options = constraintInput.kind === 'radius' && useDiameter ? { diameter: true } : undefined;
+        void controller.applyConstraintValue(constraintInput.kind, effectiveValue, options);
     };
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -118,7 +139,62 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         }
     };
 
+    const openDimensionEdit = (dimension: SketchDimension): void => {
+        setEditingDimension(dimension);
+        controller.selectDimension(dimension.id);
+    };
+
+    const closeDimensionEdit = (): void => {
+        setEditingDimension(undefined);
+    };
+
+    const applyDimensionEdit = async (): Promise<void> => {
+        if (editingDimension === undefined || session === undefined) {
+            return;
+        }
+        const num = Number(editDimValue);
+        const isLiteral = editDimValue.trim() !== '' && Number.isFinite(num);
+        const result = await session.editDimension(editingDimension.id, {
+            value: isLiteral ? num : undefined,
+            parameter: isLiteral ? '' : editDimValue.trim(),
+            driving: editDimDriving
+        });
+        if (result.success) {
+            setEditingDimension(undefined);
+        }
+    };
+
+    const deleteDimension = async (): Promise<void> => {
+        await controller.deleteSelectedDimension();
+        setEditingDimension(undefined);
+    };
+
+    const addParameter = async (name: string, value: number): Promise<void> => {
+        if (session === undefined) {
+            return;
+        }
+        const result = await session.addParameter(name, value);
+        setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
+    };
+
+    const removeParameter = (name: string): void => {
+        if (session === undefined) {
+            return;
+        }
+        const result = session.removeParameter(name);
+        setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
+    };
+
+    const setParameter = async (name: string, value: number): Promise<void> => {
+        if (session === undefined) {
+            return;
+        }
+        const result = await session.setParameter(name, value);
+        setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
+    };
+
     const statusText = buildStatusText(status);
+    const hasDiagnostics = status.conflicting.length > 0 || status.redundant.length > 0;
 
     return (
         <div className="cad-sketch-overlay">
@@ -191,6 +267,14 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 <span className="codicon codicon-edit" />
                             </button>
                         </Tooltip>
+                        <Tooltip content="Parameters" position="right">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
+                                onClick={() => setParamsOpen(!paramsOpen)}
+                            >
+                                <span className="codicon codicon-symbol-variable" />
+                            </button>
+                        </Tooltip>
                         <Tooltip content="Exit Sketch" position="right">
                             <button className="theia-button secondary cad-sketch-tool-button" onClick={onExitSketch}>
                                 <span className="codicon codicon-close" />
@@ -230,13 +314,20 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             <label>
                                 {labelForValue(constraintInput.kind)}
                                 <input
-                                    type="number"
+                                    type="text"
                                     value={value}
+                                    placeholder="value or param"
                                     onChange={(e) => setValue(e.target.value)}
                                     onKeyDown={onKeyDown}
                                     autoFocus
                                 />
                             </label>
+                            {constraintInput.kind === 'radius' && (
+                                <label className="cad-sketch-diameter-toggle">
+                                    <input type="checkbox" checked={useDiameter} onChange={(e) => setUseDiameter(e.target.checked)} />
+                                    Diameter
+                                </label>
+                            )}
                             <button className="theia-button secondary" onClick={applyValue}>
                                 <span className="codicon codicon-check" />
                             </button>
@@ -249,10 +340,316 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     {constraintInput?.error !== undefined && (
                         <div className="cad-sketch-status cad-sketch-status-error">{constraintInput.error}</div>
                     )}
+
+                    {dimensionLabels.map((label) => (
+                        <div
+                            key={label.id}
+                            className={`cad-sketch-dimension-label ${label.selected ? 'selected' : ''}`}
+                            style={{ left: label.x, top: label.y }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const dimension = dimensions.find((d) => d.id === label.id);
+                                if (dimension !== undefined) {
+                                    openDimensionEdit(dimension);
+                                }
+                            }}
+                        >
+                            {label.text}
+                        </div>
+                    ))}
+
+                    {editingDimension !== undefined && (
+                        <DimensionEditPopover
+                            dimension={editingDimension}
+                            value={editDimValue}
+                            driving={editDimDriving}
+                            onValueChange={setEditDimValue}
+                            onDrivingChange={setEditDimDriving}
+                            onApply={applyDimensionEdit}
+                            onDelete={deleteDimension}
+                            onClose={closeDimensionEdit}
+                        />
+                    )}
+
+                    {paramsOpen && session !== undefined && (
+                        <ParametersPanel
+                            parameters={session.getParameters()}
+                            dimensions={dimensions}
+                            errors={paramErrors}
+                            onAdd={addParameter}
+                            onRename={() => {
+                                // Rename is intentionally not supported in Tier 1.
+                            }}
+                            onSet={setParameter}
+                            onRemove={removeParameter}
+                            onClose={() => setParamsOpen(false)}
+                        />
+                    )}
+
+                    {diagnosticsOpen && (
+                        <DiagnosticsPopover
+                            status={status}
+                            constraints={session?.getConstraints() ?? []}
+                            onHighlight={(kind) => controller.highlightDiagnostics(kind)}
+                            onClose={() => setDiagnosticsOpen(false)}
+                        />
+                    )}
                 </>
             )}
 
-            {active && <div className="cad-sketch-status-line">{statusText}</div>}
+            {active && (
+                <div
+                    className={`cad-sketch-status-line ${hasDiagnostics ? 'has-diagnostics' : ''}`}
+                    onClick={() => hasDiagnostics && setDiagnosticsOpen(!diagnosticsOpen)}
+                >
+                    {statusText}
+                </div>
+            )}
+        </div>
+    );
+}
+
+interface DimensionEditPopoverProps {
+    dimension: SketchDimension;
+    value: string;
+    driving: boolean;
+    onValueChange: (value: string) => void;
+    onDrivingChange: (driving: boolean) => void;
+    onApply: () => void;
+    onDelete: () => void;
+    onClose: () => void;
+}
+
+function DimensionEditPopover(props: DimensionEditPopoverProps): React.ReactElement {
+    const { dimension, value, driving, onValueChange, onDrivingChange, onApply, onDelete, onClose } = props;
+    return (
+        <div className="cad-sketch-dimension-popover">
+            <div className="cad-sketch-dimension-popover-title">{dimensionLabel(dimension.kind)}</div>
+            <label className="cad-sketch-dimension-popover-row">
+                Value
+                <input
+                    type="text"
+                    value={value}
+                    placeholder="value or param"
+                    onChange={(e) => onValueChange(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            onApply();
+                        } else if (e.key === 'Escape') {
+                            onClose();
+                        }
+                    }}
+                    autoFocus
+                />
+            </label>
+            <label className="cad-sketch-dimension-popover-row">
+                <input type="checkbox" checked={driving} onChange={(e) => onDrivingChange(e.target.checked)} />
+                Driving
+            </label>
+            <div className="cad-sketch-dimension-popover-actions">
+                <button className="theia-button secondary" onClick={onApply}>
+                    <span className="codicon codicon-check" /> Apply
+                </button>
+                <button className="theia-button secondary" onClick={onDelete}>
+                    <span className="codicon codicon-trash" /> Delete
+                </button>
+                <button className="theia-button secondary" onClick={onClose}>
+                    <span className="codicon codicon-close" /> Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+interface ParametersPanelProps {
+    parameters: Record<string, number>;
+    dimensions: SketchDimension[];
+    errors: Record<string, string>;
+    onAdd: (name: string, value: number) => void;
+    onRename: (oldName: string, newName: string) => void;
+    onSet: (name: string, value: number) => void;
+    onRemove: (name: string) => void;
+    onClose: () => void;
+}
+
+function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
+    const { parameters, dimensions, errors, onAdd, onSet, onRemove, onClose } = props;
+    const [newName, setNewName] = React.useState('');
+    const [newValue, setNewValue] = React.useState('');
+    const [editingName, setEditingName] = React.useState<string | undefined>();
+    const [editValue, setEditValue] = React.useState('');
+
+    const boundCount = (name: string): number => dimensions.filter((d) => d.parameter === name).length;
+
+    const submitNew = (): void => {
+        const name = newName.trim();
+        const value = Number(newValue);
+        if (name.length > 0 && Number.isFinite(value)) {
+            onAdd(name, value);
+            setNewName('');
+            setNewValue('');
+        }
+    };
+
+    const startEdit = (name: string): void => {
+        setEditingName(name);
+        setEditValue(String(parameters[name]));
+    };
+
+    const submitEdit = (): void => {
+        if (editingName === undefined) {
+            return;
+        }
+        const value = Number(editValue);
+        if (Number.isFinite(value)) {
+            onSet(editingName, value);
+            setEditingName(undefined);
+        }
+    };
+
+    return (
+        <div className="cad-sketch-parameters-panel">
+            <div className="cad-sketch-parameters-header">
+                <span>Parameters</span>
+                <button className="theia-button secondary" onClick={onClose}>
+                    <span className="codicon codicon-close" />
+                </button>
+            </div>
+            <div className="cad-sketch-parameters-list">
+                {Object.entries(parameters).map(([name, value]) => (
+                    <div key={name} className="cad-sketch-parameter-row">
+                        {editingName === name ? (
+                            <>
+                                <span className="cad-sketch-parameter-name">{name}</span>
+                                <input
+                                    type="number"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            submitEdit();
+                                        } else if (e.key === 'Escape') {
+                                            setEditingName(undefined);
+                                        }
+                                    }}
+                                    autoFocus
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <span className="cad-sketch-parameter-name">{name}</span>
+                                <span className="cad-sketch-parameter-value">{value}</span>
+                            </>
+                        )}
+                        <span className="cad-sketch-parameter-hint">{boundCount(name)} bound</span>
+                        <div className="cad-sketch-parameter-actions">
+                            <Tooltip content="Edit value" position="left">
+                                <button className="theia-button secondary" onClick={() => startEdit(name)}>
+                                    <span className="codicon codicon-edit" />
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Delete" position="left">
+                                <button className="theia-button secondary" onClick={() => onRemove(name)}>
+                                    <span className="codicon codicon-trash" />
+                                </button>
+                            </Tooltip>
+                        </div>
+                        {errors[name] !== undefined && errors[name].length > 0 && (
+                            <div className="cad-sketch-parameter-error">{errors[name]}</div>
+                        )}
+                    </div>
+                ))}
+            </div>
+            <div className="cad-sketch-parameters-new">
+                <input
+                    type="text"
+                    placeholder="name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            submitNew();
+                        }
+                    }}
+                />
+                <input
+                    type="number"
+                    placeholder="value"
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            submitNew();
+                        }
+                    }}
+                />
+                <button className="theia-button secondary" onClick={submitNew}>
+                    <span className="codicon codicon-add" /> Add
+                </button>
+            </div>
+        </div>
+    );
+}
+
+interface DiagnosticsPopoverProps {
+    status: SketchStatus;
+    constraints: Array<{ id: string; kind: ConstraintKind; targetIds: string[] }>;
+    onHighlight: (kind: 'conflicting' | 'redundant') => void;
+    onClose: () => void;
+}
+
+function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement {
+    const { status, constraints, onHighlight, onClose } = props;
+    const findConstraint = (id: string) => constraints.find((c) => c.id === id);
+
+    return (
+        <div className="cad-sketch-diagnostics-popover">
+            <div className="cad-sketch-diagnostics-header">
+                <span>Solver Diagnostics</span>
+                <button className="theia-button secondary" onClick={onClose}>
+                    <span className="codicon codicon-close" />
+                </button>
+            </div>
+            {status.conflicting.length > 0 && (
+                <div className="cad-sketch-diagnostics-section">
+                    <div className="cad-sketch-diagnostics-title">
+                        Conflicting ({status.conflicting.length})
+                        <button className="theia-button secondary" onClick={() => onHighlight('conflicting')}>
+                            Highlight
+                        </button>
+                    </div>
+                    {status.conflicting.map((id) => (
+                        <DiagnosticRow key={id} id={id} constraint={findConstraint(id)} />
+                    ))}
+                </div>
+            )}
+            {status.redundant.length > 0 && (
+                <div className="cad-sketch-diagnostics-section">
+                    <div className="cad-sketch-diagnostics-title">
+                        Redundant ({status.redundant.length})
+                        <button className="theia-button secondary" onClick={() => onHighlight('redundant')}>
+                            Highlight
+                        </button>
+                    </div>
+                    {status.redundant.map((id) => (
+                        <DiagnosticRow key={id} id={id} constraint={findConstraint(id)} />
+                    ))}
+                </div>
+            )}
+            {status.conflicting.length === 0 && status.redundant.length === 0 && (
+                <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>
+            )}
+        </div>
+    );
+}
+
+function DiagnosticRow(props: { id: string; constraint?: { kind: ConstraintKind; targetIds: string[] } }): React.ReactElement {
+    const { id, constraint } = props;
+    return (
+        <div className="cad-sketch-diagnostics-row">
+            <span className="cad-sketch-diagnostics-id">{id}</span>
+            <span className="cad-sketch-diagnostics-kind">{constraint?.kind ?? 'unknown'}</span>
+            <span className="cad-sketch-diagnostics-targets">{constraint?.targetIds.join(', ') ?? ''}</span>
         </div>
     );
 }
@@ -282,7 +679,7 @@ function labelForValue(kind: ConstraintKind): string {
         case 'distance':
             return 'Distance';
         case 'radius':
-            return 'Radius';
+            return 'Radius / Diameter';
         case 'angle':
             return 'Angle (rad)';
         default:
@@ -290,7 +687,24 @@ function labelForValue(kind: ConstraintKind): string {
     }
 }
 
-function buildStatusText(status: import('../../sketch/sketch-session').SketchStatus): string {
+function dimensionLabel(kind: DimensionKind): string {
+    switch (kind) {
+        case 'distance':
+            return 'Distance';
+        case 'distanceH':
+            return 'Horizontal Distance';
+        case 'distanceV':
+            return 'Vertical Distance';
+        case 'angle':
+            return 'Angle';
+        case 'radius':
+            return 'Radius';
+        case 'diameter':
+            return 'Diameter';
+    }
+}
+
+function buildStatusText(status: SketchStatus): string {
     const parts: string[] = [];
     if (status.conflicting.length > 0) {
         parts.push(`${status.conflicting.length} conflicting`);

@@ -45,7 +45,14 @@ import {
     type TemporaryConstraint,
     type SolverResult
 } from '../../common/sketch-solver';
-import { NUKE_CAD_SCHEMA_VERSION, type SketchDef, type NukeCadDocument, validateNukeCadDocument } from '../../common/cad-document';
+import {
+    NUKE_CAD_SCHEMA_VERSION,
+    type SketchDef,
+    type NukeCadDocument,
+    validateNukeCadDocument,
+    type SketchDimension,
+    type DimensionKind
+} from '../../common/cad-document';
 import { snap, createSnapConfig, type Point2, type SnapConfig, type SnapResult } from './snap';
 
 /** Tools supported by the sketch session. */
@@ -74,6 +81,8 @@ export interface AddConstraintOptions {
     driving?: boolean;
     /** Distance direction, only used by distance constraints. */
     direction?: 'point-point' | 'horizontal' | 'vertical';
+    /** When true a radius constraint becomes a diameter constraint. */
+    diameter?: boolean;
 }
 
 /** Feedback for one auto-constraint applied by the last action. */
@@ -108,6 +117,8 @@ export interface ConstraintRecord {
     driving: boolean;
     /** Distance direction, only present for distance constraints. */
     direction?: 'point-point' | 'horizontal' | 'vertical';
+    /** True when the radius constraint is actually a diameter constraint. */
+    diameter?: boolean;
 }
 
 /** Preview geometry returned by hover() for the current tool and in-progress state. */
@@ -140,6 +151,37 @@ export type ChangeListener = () => void;
 export interface AddConstraintResult {
     success: boolean;
     constraintId?: string;
+    dimensionId?: string;
+    error?: string;
+}
+
+/** Result of {@link SketchSession.addDimension}. */
+export interface AddDimensionResult {
+    success: boolean;
+    dimensionId?: string;
+    constraintId?: string;
+    error?: string;
+}
+
+/** Options for {@link SketchSession.editDimension}. */
+export interface EditDimensionOptions {
+    /** New literal value; ignored when parameter is set. */
+    value?: number;
+    /** New parameter name to bind; pass an empty string to unbind. */
+    parameter?: string;
+    /** Toggle driving (true) vs reference (false). */
+    driving?: boolean;
+}
+
+/** Result of dimension edit operations. */
+export interface EditDimensionResult {
+    success: boolean;
+    error?: string;
+}
+
+/** Result of parameter CRUD operations. */
+export interface ParameterResult {
+    success: boolean;
     error?: string;
 }
 
@@ -190,6 +232,13 @@ function finite(value: number, name: string): void {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new Error(`${name} must be a finite number, got ${value}`);
     }
+}
+
+function validateParameterValue(value: number, name: string): string | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return `Parameter '${name}' must be a finite number, got ${value}`;
+    }
+    return undefined;
 }
 
 function circleCenterFromThreePoints(a: Point2, b: Point2, c: Point2): Point2 {
@@ -269,6 +318,7 @@ export class SketchSession {
     private readonly constraints = new Map<string, ConstraintRecord>();
     private readonly fixConstraintIds = new Map<string, string>(); // pointId -> constraintId
     private readonly parameters = new Map<string, number>();
+    private readonly dimensions = new Map<string, SketchDimension>();
 
     private tool: SketchTool = 'select';
     private inProgress: InProgressState | undefined;
@@ -379,6 +429,26 @@ export class SketchSession {
             session.fixConstraintIds.set(pointId, constraintId);
         }
 
+        // Restore dimension metadata after constraints are loaded so constraintId
+        // references are valid.
+        for (const raw of def.dimensions ?? []) {
+            const dimension = raw as SketchDimension;
+            const numericValue =
+                typeof dimension.value === 'number' && Number.isFinite(dimension.value)
+                    ? dimension.value
+                    : session.resolveParameterValue(dimension.parameter ?? dimension.value);
+            session.dimensions.set(dimension.id, {
+                id: dimension.id,
+                constraintId: dimension.constraintId,
+                kind: dimension.kind,
+                targetIds: [...dimension.targetIds],
+                driving: dimension.driving,
+                parameter: dimension.parameter,
+                value: numericValue,
+                labelOffset: dimension.labelOffset
+            });
+        }
+
         await session.solve();
         return session;
     }
@@ -457,6 +527,16 @@ export class SketchSession {
         return [...this.constraints.values()];
     }
 
+    /** All committed dimensions. */
+    getDimensions(): SketchDimension[] {
+        return [...this.dimensions.values()];
+    }
+
+    /** Read a single dimension by id. */
+    getDimension(id: string): SketchDimension | undefined {
+        return this.dimensions.get(id);
+    }
+
     /** Sketch-local parameter values. */
     getParameters(): Record<string, number> {
         const result: Record<string, number> = {};
@@ -467,10 +547,20 @@ export class SketchSession {
     }
 
     /** Define or update a sketch-local parameter. */
-    addParameter(name: string, value: number): void {
-        finite(value, `Parameter '${name}'`);
-        this.addParameterInternal(name, value);
-        this.solveAndNotify();
+    async setParameter(name: string, value: number): Promise<ParameterResult> {
+        const error = validateParameterValue(value, name);
+        if (error !== undefined) {
+            return { success: false, error };
+        }
+        this.parameters.set(name, value);
+        this.solver.setParameter(name, value);
+        await this.solveAndNotify();
+        return { success: true };
+    }
+
+    /** Alias for {@link setParameter}. */
+    addParameter(name: string, value: number): Promise<ParameterResult> {
+        return this.setParameter(name, value);
     }
 
     private addParameterInternal(name: string, value: number): void {
@@ -478,11 +568,29 @@ export class SketchSession {
         this.solver.addParameter(name, value);
     }
 
-    /** Remove a sketch-local parameter. */
-    removeParameter(name: string): void {
+    /** Remove a sketch-local parameter. Rejects when a driving dimension is bound to it. */
+    removeParameter(name: string): ParameterResult {
+        const dependents: string[] = [];
+        for (const dimension of this.dimensions.values()) {
+            if (dimension.parameter === name && dimension.driving) {
+                dependents.push(dimension.id);
+            }
+        }
+        if (dependents.length > 0) {
+            return {
+                success: false,
+                error: `Cannot remove parameter '${name}' because it is driving dimension(s): ${dependents.join(', ')}`
+            };
+        }
+        for (const dimension of this.dimensions.values()) {
+            if (dimension.parameter === name) {
+                dimension.parameter = undefined;
+            }
+        }
         this.parameters.delete(name);
         this.solver.removeParameter(name);
         this.solveAndNotify();
+        return { success: true };
     }
 
     /** Switch the active tool. Any in-progress entity is cancelled. */
@@ -835,10 +943,74 @@ export class SketchSession {
             fullyConstrained: result.dof === 0,
             lastAutoConstraints: this.status.lastAutoConstraints
         };
+        this.refreshDimensionValues();
     }
 
-    private solveAndNotify(): void {
-        this.solve()
+    private refreshDimensionValues(): void {
+        for (const dimension of this.dimensions.values()) {
+            if (dimension.parameter !== undefined) {
+                const paramValue = this.parameters.get(dimension.parameter);
+                if (paramValue !== undefined) {
+                    dimension.value = paramValue;
+                }
+                continue;
+            }
+            if (!dimension.driving) {
+                const measured = this.measureDimension(dimension);
+                if (measured !== undefined) {
+                    dimension.value = measured;
+                }
+            }
+        }
+    }
+
+    private measureDimension(dimension: SketchDimension): number | undefined {
+        if (dimension.kind === 'distance' || dimension.kind === 'distanceH' || dimension.kind === 'distanceV') {
+            const a = this.getPointPosition(dimension.targetIds[0]);
+            const b = this.getPointPosition(dimension.targetIds[1]);
+            if (a === undefined || b === undefined) {
+                return undefined;
+            }
+            if (dimension.kind === 'distanceH') {
+                return b.x - a.x;
+            }
+            if (dimension.kind === 'distanceV') {
+                return b.y - a.y;
+            }
+            return Math.hypot(b.x - a.x, b.y - a.y);
+        }
+        if (dimension.kind === 'radius' || dimension.kind === 'diameter') {
+            const primitive = this.primitives.get(dimension.targetIds[0]);
+            if (primitive?.type === 'circle' || primitive?.type === 'arc') {
+                const solved = this.solver.getPrimitive(primitive.id);
+                const radius = solved?.type === 'circle' || solved?.type === 'arc' ? solved.radius : primitive.radius;
+                return dimension.kind === 'diameter' ? radius * 2 : radius;
+            }
+        }
+        if (dimension.kind === 'angle') {
+            const l1 = this.primitives.get(dimension.targetIds[0]);
+            const l2 = this.primitives.get(dimension.targetIds[1]);
+            if (l1?.type !== 'line' || l2?.type !== 'line') {
+                return undefined;
+            }
+            const a1 = this.getPointPosition(l1.p1Id);
+            const a2 = this.getPointPosition(l1.p2Id);
+            const b1 = this.getPointPosition(l2.p1Id);
+            const b2 = this.getPointPosition(l2.p2Id);
+            if (a1 === undefined || a2 === undefined || b1 === undefined || b2 === undefined) {
+                return undefined;
+            }
+            const va = { x: a2.x - a1.x, y: a2.y - a1.y };
+            const vb = { x: b2.x - b1.x, y: b2.y - b1.y };
+            const dot = va.x * vb.x + va.y * vb.y;
+            const det = va.x * vb.y - va.y * vb.x;
+            return Math.atan2(det, dot);
+        }
+        return undefined;
+    }
+
+    private solveAndNotify(): Promise<void> {
+        return this.solve()
             .then(() => this.emitChange())
             .catch(() => this.emitChange());
     }
@@ -948,9 +1120,14 @@ export class SketchSession {
                 case 'angle':
                     this.solver.addConstraintAngle(id, targetIds[0], targetIds[1], value as number | string, { driving });
                     break;
-                case 'radius':
-                    this.solver.addConstraintRadius(id, targetIds[0], value as number | string, { driving });
+                case 'radius': {
+                    if (options?.diameter) {
+                        this.solver.addConstraintDiameter(id, targetIds[0], value as number | string, { driving });
+                    } else {
+                        this.solver.addConstraintRadius(id, targetIds[0], value as number | string, { driving });
+                    }
                     break;
+                }
                 case 'symmetry':
                     this.solver.addConstraintSymmetry(id, targetIds[0], targetIds[1], targetIds[2], { driving });
                     break;
@@ -970,14 +1147,200 @@ export class SketchSession {
         if (kind === 'distance') {
             record.direction = options?.direction ?? 'point-point';
         }
+        if (kind === 'radius' && options?.diameter) {
+            record.diameter = true;
+        }
         this.constraints.set(id, record);
         if (kind === 'fix') {
             this.fixConstraintIds.set(targetIds[0], id);
         }
 
+        let dimensionId: string | undefined;
+        if (kind === 'distance' || kind === 'radius' || kind === 'angle') {
+            const dimensionKind = this.inferDimensionKind(kind, options);
+            dimensionId = this.createDimensionForConstraint(id, dimensionKind, targetIds, driving, value);
+        }
+
         await this.commit([]);
         this.emitChange();
-        return { success: true, constraintId: id };
+        return { success: true, constraintId: id, dimensionId };
+    }
+
+    private inferDimensionKind(kind: ConstraintKind, options?: AddConstraintOptions): DimensionKind {
+        if (kind === 'distance') {
+            const direction = options?.direction ?? 'point-point';
+            if (direction === 'horizontal') {
+                return 'distanceH';
+            }
+            if (direction === 'vertical') {
+                return 'distanceV';
+            }
+            return 'distance';
+        }
+        if (kind === 'radius' && options?.diameter) {
+            return 'diameter';
+        }
+        if (kind === 'radius') {
+            return 'radius';
+        }
+        return 'angle';
+    }
+
+    private createDimensionForConstraint(
+        constraintId: string,
+        kind: DimensionKind,
+        targetIds: string[],
+        driving: boolean,
+        value?: number | string
+    ): string {
+        const dimensionId = this.nextId('dimension');
+        const numericValue = typeof value === 'number' ? value : this.resolveParameterValue(value);
+        const parameter = typeof value === 'string' ? value : undefined;
+        this.dimensions.set(dimensionId, {
+            id: dimensionId,
+            constraintId,
+            kind,
+            targetIds: [...targetIds],
+            driving,
+            parameter,
+            value: numericValue
+        });
+        return dimensionId;
+    }
+
+    private resolveParameterValue(value?: number | string): number {
+        if (typeof value === 'number') {
+            return value;
+        }
+        if (typeof value === 'string') {
+            return this.parameters.get(value) ?? 0;
+        }
+        return 0;
+    }
+
+    /**
+     * Add a dimension explicitly.
+     *
+     * This is the preferred UI entry point for dimension tools: it creates the
+     * underlying driving constraint and a first-class dimension record in one
+     * step.
+     */
+    async addDimension(
+        kind: DimensionKind,
+        targetIds: string[],
+        value: number | string,
+        options?: { driving?: boolean; labelOffset?: [number, number] }
+    ): Promise<AddDimensionResult> {
+        const driving = options?.driving ?? true;
+        if (typeof value === 'string' && !this.parameters.has(value)) {
+            return { success: false, error: `Unknown parameter '${value}'` };
+        }
+
+        let constraintKind: ConstraintKind;
+        let addOptions: AddConstraintOptions = { driving };
+        if (kind === 'distance' || kind === 'distanceH' || kind === 'distanceV') {
+            constraintKind = 'distance';
+            addOptions.direction = kind === 'distanceH' ? 'horizontal' : kind === 'distanceV' ? 'vertical' : 'point-point';
+        } else if (kind === 'angle') {
+            constraintKind = 'angle';
+        } else if (kind === 'radius') {
+            constraintKind = 'radius';
+        } else if (kind === 'diameter') {
+            constraintKind = 'radius';
+            addOptions.diameter = true;
+        } else {
+            return { success: false, error: `Unsupported dimension kind '${kind}'` };
+        }
+
+        const result = await this.addConstraint(constraintKind, targetIds, value, addOptions);
+        if (!result.success || result.dimensionId === undefined) {
+            return { success: false, error: result.error ?? 'Failed to create dimension constraint' };
+        }
+        const dimension = this.dimensions.get(result.dimensionId);
+        if (dimension !== undefined && options?.labelOffset !== undefined) {
+            dimension.labelOffset = options.labelOffset;
+        }
+        return { success: true, dimensionId: result.dimensionId, constraintId: result.constraintId };
+    }
+
+    /** Edit a dimension's value, parameter binding, or driving/reference state. */
+    async editDimension(id: string, options: EditDimensionOptions): Promise<EditDimensionResult> {
+        const dimension = this.dimensions.get(id);
+        if (dimension === undefined) {
+            return { success: false, error: `Unknown dimension '${id}'` };
+        }
+        const record = this.constraints.get(dimension.constraintId);
+        if (record === undefined) {
+            return { success: false, error: `Dimension '${id}' references missing constraint '${dimension.constraintId}'` };
+        }
+
+        // Parameter binding takes precedence over a literal value.
+        if (options.parameter !== undefined) {
+            if (options.parameter.length > 0 && !this.parameters.has(options.parameter)) {
+                return { success: false, error: `Unknown parameter '${options.parameter}'` };
+            }
+            dimension.parameter = options.parameter.length > 0 ? options.parameter : undefined;
+        }
+        if (options.value !== undefined && options.parameter === undefined) {
+            if (!Number.isFinite(options.value)) {
+                return { success: false, error: `Dimension value must be finite, got ${options.value}` };
+            }
+            dimension.value = options.value;
+        }
+        if (options.driving !== undefined) {
+            dimension.driving = options.driving;
+        }
+
+        // Recompute the effective constraint value.
+        const effectiveValue = dimension.parameter ?? dimension.value;
+
+        // Driving/reference conversion requires removing and re-adding the constraint
+        // because planegcs bakes the driving flag into the constraint at creation.
+        if (options.driving !== undefined) {
+            const oldDimensionId = dimension.id;
+            this.dimensions.delete(oldDimensionId);
+            this.removeConstraintInternal(dimension.constraintId);
+            const addResult = await this.addConstraint(record.kind, record.targetIds, effectiveValue, {
+                driving: dimension.driving,
+                direction: record.direction,
+                diameter: dimension.kind === 'diameter'
+            });
+            if (!addResult.success || addResult.constraintId === undefined || addResult.dimensionId === undefined) {
+                return { success: false, error: addResult.error ?? 'Failed to re-create constraint' };
+            }
+            // Replace the auto-created dimension with the original metadata.
+            this.dimensions.delete(addResult.dimensionId);
+            this.dimensions.set(oldDimensionId, {
+                ...dimension,
+                id: oldDimensionId,
+                constraintId: addResult.constraintId
+            });
+            record.id = addResult.constraintId;
+            record.driving = dimension.driving;
+            record.value = effectiveValue;
+            this.constraints.set(addResult.constraintId, record);
+        } else {
+            record.value = effectiveValue;
+            this.constraints.set(dimension.constraintId, record);
+            this.solver.setDrivingValue(dimension.constraintId, effectiveValue);
+        }
+
+        await this.commit([]);
+        this.emitChange();
+        return { success: true };
+    }
+
+    /** Delete a dimension and its underlying driving constraint. */
+    async deleteDimension(id: string): Promise<EditDimensionResult> {
+        const dimension = this.dimensions.get(id);
+        if (dimension === undefined) {
+            return { success: false, error: `Unknown dimension '${id}'` };
+        }
+        this.removeConstraintInternal(dimension.constraintId);
+        this.dimensions.delete(id);
+        await this.commit([]);
+        this.emitChange();
+        return { success: true };
     }
 
     private validateConstraint(kind: ConstraintKind, targetIds: string[], value?: number | string): string | undefined {
@@ -1022,8 +1385,22 @@ export class SketchSession {
                 return arity(1) ?? requireType(targetIds, ['circle', 'arc']);
             case 'concentric':
                 return arity(2) ?? requireType(targetIds, ['circle', 'arc']);
-            case 'symmetry':
-                return arity(3) ?? requireType(targetIds, ['point']);
+            case 'symmetry': {
+                const err = arity(3);
+                if (err !== undefined) {
+                    return err;
+                }
+                const t1 = typeOf(targetIds[0]);
+                const t2 = typeOf(targetIds[1]);
+                const t3 = typeOf(targetIds[2]);
+                if (t1 !== 'point' || t2 !== 'point') {
+                    return `symmetry requires the first two targets to be points, got ${t1}/${t2}`;
+                }
+                if (t3 !== 'point' && t3 !== 'line') {
+                    return `symmetry mirror must be a point or line, got ${t3}`;
+                }
+                return undefined;
+            }
             case 'pointOnObject': {
                 const err = arity(2);
                 if (err !== undefined) {
@@ -1145,6 +1522,11 @@ export class SketchSession {
         }
         this.solver.removeConstraint(id);
         this.constraints.delete(id);
+        for (const [dimensionId, dimension] of this.dimensions.entries()) {
+            if (dimension.constraintId === id) {
+                this.dimensions.delete(dimensionId);
+            }
+        }
     }
 
     /** Toggle or set the construction flag on a primitive. */
@@ -1331,13 +1713,16 @@ export class SketchSession {
             parameters[name] = value;
         }
 
+        const dimensions = [...this.dimensions.values()];
+
         return {
             id: this.id,
             name: this.name,
             datumId: this.datumId,
             primitives,
             constraints,
-            parameters
+            parameters,
+            dimensions
         };
     }
 
@@ -1347,8 +1732,14 @@ export class SketchSession {
         const value = record.value;
         switch (record.kind) {
             case 'coincident':
-            case 'symmetry':
                 return { id: record.id, type: 'p2p_coincident', p1_id: ids[0], p2_id: ids[1], driving };
+            case 'symmetry': {
+                const mirrorType = this.primitives.get(ids[2])?.type;
+                if (mirrorType === 'line') {
+                    return { id: record.id, type: 'p2p_symmetric_ppl', p1_id: ids[0], p2_id: ids[1], l_id: ids[2], driving };
+                }
+                return { id: record.id, type: 'p2p_symmetric_ppp', p1_id: ids[0], p2_id: ids[1], p_id: ids[2], driving };
+            }
             case 'horizontal':
                 return { id: record.id, type: 'horizontal_l', l_id: ids[0], driving };
             case 'vertical':
@@ -1381,6 +1772,12 @@ export class SketchSession {
             }
             case 'radius': {
                 const p = this.primitives.get(ids[0])!;
+                if (record.diameter) {
+                    if (p.type === 'circle') {
+                        return { id: record.id, type: 'circle_diameter', c_id: ids[0], diameter: value, driving };
+                    }
+                    return { id: record.id, type: 'arc_diameter', a_id: ids[0], diameter: value, driving };
+                }
                 if (p.type === 'circle') {
                     return { id: record.id, type: 'circle_radius', c_id: ids[0], radius: value, driving };
                 }
@@ -1525,12 +1922,12 @@ export class SketchSession {
             const cId = String(pg.c_id ?? pg.cId);
             const diameter = pg.diameter as number | string;
             this.solver.addConstraintDiameter(id, cId, diameter, { driving });
-            this.constraints.set(id, { id, kind: 'radius', targetIds: [cId], value: diameter, driving });
+            this.constraints.set(id, { id, kind: 'radius', targetIds: [cId], value: diameter, driving, diameter: true });
         } else if (type === 'arc_diameter') {
             const aId = String(pg.a_id ?? pg.aId);
             const diameter = pg.diameter as number | string;
             this.solver.addConstraintDiameter(id, aId, diameter, { driving });
-            this.constraints.set(id, { id, kind: 'radius', targetIds: [aId], value: diameter, driving });
+            this.constraints.set(id, { id, kind: 'radius', targetIds: [aId], value: diameter, driving, diameter: true });
         } else if (type === 'tangent_lc') {
             const lId = String(pg.l_id ?? pg.lId);
             const cId = String(pg.c_id ?? pg.cId);

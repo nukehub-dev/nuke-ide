@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered
   as an optional extension in the browser and Electron apps.
+- nuke-cad: **sketcher Phase 3** — first-class dimensions stored alongside
+  PlaneGCS constraints, named sketch-local parameters with driving/reference
+  binding, solver diagnostics UI (DOF/conflicts/redundancies), and sketch
+  navigation with pan/zoom. Dimension labels are editable in the viewport and
+  serialize through `SketchDef`.
 - nuke-cad: **DAGMC export** — `dagmc_export.py` converts the
   canonical STEP file to a tagged `.h5m` using gmsh OCC imprint/merge so
   touching solids share exact coincident faces. Region-manifest volume names

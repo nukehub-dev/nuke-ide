@@ -288,3 +288,251 @@
     color: var(--theia-editorError-foreground);
     border: 1px solid var(--theia-editorError-foreground);
 }
+
+.cad-sketch-diameter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-sketch-diameter-toggle input {
+    width: auto;
+}
+
+.cad-sketch-dimension-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 2px 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.cad-sketch-dimension-label.selected {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    background: var(--theia-focusBorder);
+}
+
+.cad-sketch-dimension-popover {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 220px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+}
+
+.cad-sketch-dimension-popover-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    text-align: center;
+}
+
+.cad-sketch-dimension-popover-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-dimension-popover-row input[type='text'] {
+    flex: 1;
+    min-width: 100px;
+}
+
+.cad-sketch-dimension-popover-row input[type='checkbox'] {
+    width: auto;
+}
+
+.cad-sketch-dimension-popover-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.cad-sketch-parameters-panel {
+    position: absolute;
+    top: 44px;
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 260px;
+    max-height: calc(100% - 88px);
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+    overflow: auto;
+}
+
+.cad-sketch-parameters-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.cad-sketch-parameters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-sketch-parameter-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 50px auto;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-parameter-row input {
+    width: 100%;
+    min-width: 0;
+}
+
+.cad-sketch-parameter-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-sketch-parameter-value {
+    text-align: right;
+}
+
+.cad-sketch-parameter-hint {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+    text-align: right;
+}
+
+.cad-sketch-parameter-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.cad-sketch-parameter-actions button {
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.cad-sketch-parameter-error {
+    grid-column: 1 / -1;
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-sketch-parameters-new {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.cad-sketch-parameters-new input {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-sketch-diagnostics-popover {
+    position: absolute;
+    bottom: 40px;
+    left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 260px;
+    max-height: 240px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+    overflow: auto;
+}
+
+.cad-sketch-diagnostics-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.cad-sketch-diagnostics-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cad-sketch-diagnostics-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-sketch-diagnostics-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size0);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.cad-sketch-diagnostics-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-sketch-diagnostics-id {
+    opacity: 0.8;
+}
+
+.cad-sketch-diagnostics-kind {
+    font-weight: 600;
+}
+
+.cad-sketch-diagnostics-targets {
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-sketch-diagnostics-empty {
+    font-size: var(--theia-ui-font-size1);
+    opacity: 0.7;
+}
+
+.cad-sketch-status-line.has-diagnostics {
+    cursor: pointer;
+    border-color: var(--theia-editorWarning-foreground);
+}
+
+.cad-sketch-status-line.has-diagnostics:hover {
+    background: var(--theia-list-hoverBackground);
+}

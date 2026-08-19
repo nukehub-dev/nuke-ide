@@ -26,7 +26,13 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { NUKE_CAD_SCHEMA_VERSION, validateNukeCadDocument, migrateNukeCadDocument, type NukeCadDocument } from './cad-document';
+import {
+    NUKE_CAD_SCHEMA_VERSION,
+    validateNukeCadDocument,
+    migrateNukeCadDocument,
+    type NukeCadDocument,
+    type DimensionKind
+} from './cad-document';
 
 function makeDocument(): NukeCadDocument {
     return {
@@ -148,6 +154,57 @@ describe('validateNukeCadDocument', () => {
         const result = validateNukeCadDocument(doc);
         expect(result.valid).toBe(false);
         expect(result.issues.some((i) => i.path === 'parameters.width')).toBe(true);
+    });
+
+    it('accepts dimensions on a sketch', () => {
+        const doc = makeDocument();
+        doc.sketches[0].constraints.push({ id: 'dimConstraint', type: 'p2p_distance', p1_id: 'p1', p2_id: 'p2', distance: 5 });
+        doc.sketches[0].dimensions = [
+            { id: 'dim1', constraintId: 'dimConstraint', kind: 'distance', targetIds: ['p1', 'p2'], driving: true, value: 5 }
+        ];
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('reports dimension id collisions', () => {
+        const doc = makeDocument();
+        doc.sketches[0].constraints.push({ id: 'dimConstraint', type: 'p2p_distance', p1_id: 'p1', p2_id: 'p2', distance: 5 });
+        doc.sketches[0].dimensions = [
+            { id: 'p1', constraintId: 'dimConstraint', kind: 'distance', targetIds: ['p1', 'p2'], driving: true, value: 5 }
+        ];
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'sketches[0].dimensions[0].id')).toBe(true);
+    });
+
+    it('reports dimensions referencing unknown constraints', () => {
+        const doc = makeDocument();
+        doc.sketches[0].dimensions = [
+            { id: 'dim1', constraintId: 'missing', kind: 'distance', targetIds: ['p1', 'p2'], driving: true, value: 5 }
+        ];
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'sketches[0].dimensions[0].constraintId')).toBe(true);
+    });
+
+    it('reports invalid dimension kinds and values', () => {
+        const doc = makeDocument();
+        doc.sketches[0].constraints.push({ id: 'dimConstraint', type: 'p2p_distance', p1_id: 'p1', p2_id: 'p2', distance: 5 });
+        doc.sketches[0].dimensions = [
+            {
+                id: 'dim1',
+                constraintId: 'dimConstraint',
+                kind: 'unknown' as unknown as DimensionKind,
+                targetIds: ['p1', 'p2'],
+                driving: true,
+                value: NaN
+            }
+        ];
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'sketches[0].dimensions[0].kind')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'sketches[0].dimensions[0].value')).toBe(true);
     });
 
     it('reports unknown feature types', () => {
