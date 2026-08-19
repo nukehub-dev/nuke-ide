@@ -65,7 +65,7 @@ export class DocsWidget extends ReactWidget {
             nav: [],
             currentPath: '/product/index.md',
             content: '',
-            expanded: new Set(['/product', '/nuke-core', '/nuke-visualizer', '/openmc-studio']),
+            expanded: new Set(['/product', '/nuke-core', '/nuke-visualizer', '/openmc-studio', '/nuke-cad']),
             loading: false,
             error: null,
             sidebarCollapsed: false,

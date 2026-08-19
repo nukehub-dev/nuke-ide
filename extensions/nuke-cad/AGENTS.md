@@ -2,9 +2,11 @@
 
 ## Purpose
 
-Script-first parametric CAD / meshing / FEM extension for NukeIDE: turn
-build123d/CadQuery B-rep scripts into simulation-ready artifacts (STEP,
-DAGMC, FEM meshes) consumed by openmc-studio and future physics extensions.
+Parametric CAD / meshing / FEM extension for NukeIDE with two authoring modes:
+script-based build123d/CadQuery `.py` files and GUI-edited `.nuke-cad`
+parametric documents. Both paths feed the same geometry-service pipeline and
+produce identical simulation-ready artifacts (STEP, DAGMC, FEM meshes) consumed
+by openmc-studio and future physics extensions.
 
 ## Ownership
 
@@ -76,7 +78,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   exported surface must have sense 1 or 2) and reports geometry diagnostics in
   the result: `sealed=False` + warning for hole edges, `nonManifoldEdges` for
   incidence > 2 (imprint seams legitimately have incidence 3), and
-  `overlapCheck` from bbox + `BRepClass3d_SolidClassifier` sampling.
+  `overlapCheck` from bbox + `BRepClass3d_SolidClassifier` sampling. The
+  imprint/merge pass runs in gmsh (`occ.fragment` + `removeAllDuplicates`) and
+  the optional `mat:graveyard` bounding box is added and fragmented in gmsh as
+  well; the old OCP boolean graveyard cut is avoided because it re-duplicates
+  coincident model-model faces and causes DAGMC particle leaks.
 - `ocp_compat.py` owns the OCP 7.8/7.9 dual-flavor support. OCP 7.9 removed
   the `TopoDS.TopoDS.<X>_s` downcast statics (7.8 has only the `_s` names);
   `ensure_topo_ds_static_aliases()` re-attaches them from the non-suffixed
@@ -98,6 +104,53 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   delegates to nuke-cad services: the **Import from nuke-cad...** command loads
   a nuke-cad `.h5m` + `.regions.json` into an OpenMC project, and the DAGMC
   editor's imprinted refacet routes through `dagmc_export.py` when available.
+- Two authoring modes converge on the same geometry pipeline:
+  - **Script mode**: a `.py` file defines a top-level `model` variable;
+    `geometry_service.py` executes it in an isolated child process and hands the
+    normalized OCP shape to `_process_shape`.
+  - **Document mode**: a `.nuke-cad` JSON file stores parameters, datum planes,
+    sketches, and features; `geometry_service.py` runs `build_document()` and
+    feeds the same `_process_shape` so STEP, tessellation, DAGMC, and mesh
+    artifacts are authoring-mode-agnostic.
+- `.nuke-cad` document schema lives in `src/common/cad-document.ts` (version 1).
+  Validate with `validateNukeCadDocument`; migrate with
+  `migrateNukeCadDocument`. The document store
+  (`src/browser/document/cad-document-store.ts`) holds the active document,
+  performs immutable updates validated against the schema, tracks dirty state,
+  sketch/feature selection, and per-feature build results. Sketch-local
+  parameters are merged into document-level parameters when a sketch is saved.
+- Sketch mode is split into three layers so each has a single responsibility:
+  - `src/browser/sketch/sketch-session.ts` — pure TypeScript controller that
+    owns tool state, snap, auto-constraints, constraint/dimension management,
+    drag solving, and serialization to/from `SketchDef`. No UI or three.js
+    dependencies.
+  - `src/browser/sketch/sketch-mode-controller.ts` — wires the session into the
+    three.js viewport: orthographic camera, pointer-to-plane mapping, rendering,
+    and pointer event routing.
+  - `src/browser/widgets/cad-viewport/cad-sketch-overlay.tsx` — React UI chrome:
+    sketch toolbar, datum picker, document toolbar, feature-creation dialog,
+    constraint value input, dimension labels/popover, parameters panel,
+    diagnostics popover, and status line.
+- The geometric constraint solver is client-side only. The document stores
+  planegcs-verbatim primitives with solved coordinates; the Python backend never
+  re-solves. `src/common/sketch-solver.ts` exports the solver-agnostic
+  `SketchSolver` interface and the `PlanegcsSketchSolver` implementation. No
+  other source file imports `@salusoft89/planegcs` directly.
+- PlaneGCS dependency posture: `@salusoft89/planegcs` is pinned exact in
+  `package.json` (1.2.0 today). The bundled WASM library is
+  LGPL-2.0-or-later and is loaded dynamically. In the browser the WASM is
+  bundled via webpack `asset/resource` and its public URL is obtained through a
+  `require()` in `src/browser/sketch/planegcs-wasm-url.ts`. Vendoring the WASM is
+  the documented fallback if the npm package stalls.
+- Sketch primitive JSON contract (planegcs-verbatim, with camelCase aliases
+  accepted for compatibility): each primitive is an object with `id`, `type`,
+  and optional boolean `construction` (default `false`). Type-specific fields:
+  - `point`: `x`, `y`
+  - `line`: `p1_id` (alias `p1Id`), `p2_id` (alias `p2Id`)
+  - `circle`: `c_id` (alias `centerId`), `radius`
+  - `arc`: `c_id` (alias `centerId`), `radius`, `start_angle` (alias
+    `startAngle`), `end_angle` (alias `endAngle`), `start_id` (alias
+    `startId`), `end_id` (alias `endId`). Angles are stored in radians.
 - `.nuke-cad` document build path (headless backend):
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
@@ -109,25 +162,24 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     CLI flag; it validates references lightly, runs the feature builder, and
     reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
     match script builds.
-  - The geometric constraint solver is client-side only. The document stores
-    planegcs-verbatim primitives with solved coordinates; the Python backend
-    never re-solves.
-  - Tier 1 performs a full document rebuild on every `buildDocument` call.
-    Per-feature shape caching is deferred until the modeler needs it.
-  - Datum support in Tier 1 is limited to `XY`/`YZ`/`XZ`/`offset`. `offset`
+  - The first release performs a full document rebuild on every `buildDocument`
+    call. Per-feature shape caching is deferred until the modeler needs it.
+  - Datum support in this release is limited to `XY`/`YZ`/`XZ`/`offset`. `offset`
     datums are interpreted as offsets of the XY plane along +Z; `face` datums
     (sketch-on-face) are rejected with a clear error.
   - Feature labels map to 1-based solid indices in `selector_map`, feeding the
     same region-manifest/DAGMC/mesh pipeline used by script builds.
-  - Sketch primitive JSON contract (planegcs-verbatim, with camelCase aliases
-    accepted for compatibility): each primitive is an object with `id`, `type`,
-    and optional boolean `construction` (default `false`). Type-specific fields:
-    - `point`: `x`, `y`
-    - `line`: `p1_id` (alias `p1Id`), `p2_id` (alias `p2Id`)
-    - `circle`: `c_id` (alias `centerId`), `radius`
-    - `arc`: `c_id` (alias `centerId`), `radius`, `start_angle` (alias
-      `startAngle`), `end_angle` (alias `endAngle`), `start_id` (alias
-      `startId`), `end_id` (alias `endId`). Angles are stored in radians.
+- `.nuke-cad` shell integration:
+  - `.nuke-cad` files open in the CAD viewport by default (open-handler priority
+    500). The handler parses the JSON, loads it into the document store, and
+    triggers a document build.
+  - Document commands: `nuke.cad.newDocument`, `nuke.cad.saveDocument`,
+    `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
+    `nuke.cad.openFeatureTree`.
+  - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
+    `nuke-cad-feature-tree-widget`, label "Feature Tree") lists datums,
+    sketches, and features in document order with selection, suppression toggle,
+    edit, delete, and build-status markers from the last rebuild.
 - The FEM service (`python/fem_service.py`) generates CalculiX `.inp` decks
   from gmsh `.msh` files, runs the external `ccx` executable (3600 s default
   timeout via the `ccxTimeout` request field, output streamed to

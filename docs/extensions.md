@@ -50,17 +50,19 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 ### Nuke CAD
 
-Script-first parametric CAD / meshing / FEM extension.
+Parametric CAD / meshing / FEM extension with two authoring modes.
 
-- Author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
+- Script mode: author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
+- GUI document mode: `.nuke-cad` parametric documents with a sketcher, constraints, dimensions, feature tree, and document-level parameters
 - Live three.js viewport with face/solid picking and an **Open CAD Model...** button
 - Model Outline panel: manifest volume/surface tree with two-way viewport picking sync
+- Feature Tree panel for `.nuke-cad` documents: datums, sketches, features, suppression, and build-status markers
 - Canonical STEP export and JSON region manifest
 - DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups
 - FEM volume meshing (gmsh or optional netgen engine; `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)
 - One-click import into OpenMC Studio: `.h5m` + `.regions.json` → DAGMC project
 
-[User Guide](/nuke-cad/user/getting-started) · [Developer Guide](/nuke-cad/dev/architecture)
+[User Guide](/nuke-cad/user/getting-started) · [GUI Modeler](/nuke-cad/user/gui-modeler) · [Developer Guide](/nuke-cad/dev/architecture)
 
 ## Utility Extensions
 

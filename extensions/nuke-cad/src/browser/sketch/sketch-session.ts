@@ -37,7 +37,7 @@
 
 import {
     type SketchSolver,
-    type SketchPrimitive,
+    type SketchPrimitive as SolverSketchPrimitive,
     type SketchPoint,
     type SketchLine,
     type SketchCircle,
@@ -54,6 +54,9 @@ import {
     type DimensionKind
 } from '../../common/cad-document';
 import { snap, createSnapConfig, type Point2, type SnapConfig, type SnapResult } from './snap';
+
+/** Sketch primitive as exposed by the session, including the construction flag. */
+export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
 
 /** Tools supported by the sketch session. */
 export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle';

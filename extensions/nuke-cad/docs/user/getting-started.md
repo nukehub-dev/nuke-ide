@@ -1,7 +1,8 @@
 # Getting started with Nuke CAD
 
-Nuke CAD is a script-first parametric CAD extension. Your geometry source of
-truth is a Python script using **build123d** or **CadQuery**.
+Nuke CAD has two authoring modes: script-based `.py` files and GUI-edited
+`.nuke-cad` documents. This guide covers scripts and STEP imports; the
+[GUI parametric modeler guide](gui-modeler.md) covers the document workflow.
 
 ## Quick start
 

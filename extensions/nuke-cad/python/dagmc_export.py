@@ -2,20 +2,20 @@
 
 Pipeline
 --------
-1. Load the canonical STEP file into an OCP shape.
-2. Optionally auto-create a mat:graveyard bounding volume (OCP boolean cut).
-3. Sampling-based overlap check between volumes (BRepClass3d classification).
-4. Feed gmsh the original STEP (or a temp STEP only when the graveyard stage
-   modified the shape), load it in the OpenCASCADE kernel, and run
-   ``fragment`` on all volumes — the imprint/merge stage: touching solids
-   receive exact, shared coincident faces. The fragment output map binds
-   post-fragment volume tags back to pre-fragment volume indices for naming.
-   ``removeAllDuplicates`` then merges duplicate entities.
-5. Generate a 2D surface mesh in gmsh.
-6. Verify every surface borders exactly 1 or 2 volumes (hard error otherwise).
-7. Extract triangles, surface-to-volume adjacencies, and build a tagged
+1. Load the canonical STEP file into an OCP shape for overlap checks and
+   existing-graveyard detection.
+2. Sampling-based overlap check between volumes (BRepClass3d classification).
+3. Load the STEP in gmsh's OpenCASCADE kernel, fragment the model volumes with
+   each other so touching solids receive exact shared coincident faces, then
+   optionally create and fragment a mat:graveyard bounding box in gmsh (the
+   OCP boolean graveyard cut is no longer used because it re-duplicates
+   coincident model-model faces). ``removeAllDuplicates`` merges duplicate
+   entities.
+4. Generate a 2D surface mesh in gmsh.
+5. Verify every surface borders exactly 1 or 2 volumes (hard error otherwise).
+6. Extract triangles, surface-to-volume adjacencies, and build a tagged
    DAGMC H5M file via pymoab.
-8. Report watertightness diagnostics (edge incidence: non-manifold >2,
+7. Report watertightness diagnostics (edge incidence: non-manifold >2,
    hole edges == 1).
 
 The module stays importable in the minimal pytest profile (``pytest`` +
@@ -28,7 +28,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -782,13 +781,24 @@ def convert_to_dagmc(
 
     try:
         # ------------------------------------------------------------------
-        # 1. Load STEP and optionally add graveyard via OCP.
+        # 1. Load STEP for overlap check and existing-graveyard detection.
         # ------------------------------------------------------------------
         shape = _load_shape(str(step_file))
-        original_shape = shape
         graveyard_vol_ids: set[int] = set()
+        has_existing_graveyard = False
         if add_graveyard:
-            shape, graveyard_vol_ids = _maybe_add_graveyard(shape, str(step_file), warnings)
+            has_existing_graveyard, _, existing_gy_index = _detect_existing_graveyard(
+                shape, str(step_file)
+            )
+            if has_existing_graveyard:
+                if existing_gy_index is not None:
+                    graveyard_vol_ids.add(existing_gy_index + 1)
+                    warnings.append("Existing graveyard volume detected; skipping auto-creation.")
+                else:
+                    warnings.append(
+                        "Existing graveyard name found but could not be matched to a solid; "
+                        "material tag may need manual correction."
+                    )
 
         # Overlap check on the pre-fragment volumes (1-based explorer order,
         # the same indexing convention as the selector map and graveyard IDs).
@@ -808,154 +818,198 @@ def convert_to_dagmc(
             warnings.append(f"Overlap check skipped: {exc}")
 
         # ------------------------------------------------------------------
-        # 2. Feed gmsh the original STEP when nothing changed; only pay the
-        #    temp-STEP rewrite when the graveyard stage modified the shape.
+        # 2. gmsh imprint/merge, optional graveyard, and surface mesh.
         # ------------------------------------------------------------------
-        with tempfile.TemporaryDirectory() as tmpdir:
-            if shape is original_shape:
-                gmsh_input = str(step_file)
-            else:
-                temp_step = Path(tmpdir) / "with_graveyard.step"
-                _write_step(shape, temp_step)
-                gmsh_input = str(temp_step)
+        gmsh.initialize()
+        gmsh_initialized = True
+        gmsh.option.setNumber("General.Terminal", 0)
 
-            # ------------------------------------------------------------------
-            # 3. gmsh imprint/merge and surface mesh.
-            # ------------------------------------------------------------------
-            gmsh.initialize()
-            gmsh_initialized = True
-            gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.open(str(step_file))
+        volumes = gmsh.model.getEntities(3)
+        if not volumes:
+            raise RuntimeError("No volumes found in STEP file")
 
-            gmsh.open(gmsh_input)
-            volumes = gmsh.model.getEntities(3)
-            if not volumes:
-                raise RuntimeError("No volumes found in STEP file")
+        # Imprint/merge the model volumes first so touching solids share faces.
+        # Adding the graveyard through an OCP boolean cut before this stage
+        # re-duplicates those coincident faces and makes DAGMC leak particles.
+        _, fragment_map = gmsh.model.occ.fragment(volumes, volumes)
+        gmsh.model.occ.synchronize()
 
-            # Imprint/merge: fragment all volumes with all volumes. The
-            # fragment map binds each post-fragment volume tag back to its
-            # pre-fragment 1-based volume index (position in ``volumes``,
-            # assumed to match the STEP solid order — the same assumption the
-            # selector map already relies on).
-            _, fragment_map = gmsh.model.occ.fragment(volumes, volumes)
+        # Merge/unify stage: drop duplicate entities introduced by imprint.
+        gmsh.model.occ.removeAllDuplicates()
+        gmsh.model.occ.synchronize()
+
+        post_to_pre: dict[int, int] = {}
+        for pre_index, outputs in enumerate(fragment_map[: len(volumes)]):
+            for dim, tag in outputs:
+                if int(dim) == 3:
+                    post_to_pre[int(tag)] = pre_index + 1
+
+        # Optional auto-created graveyard: add a bounding box in gmsh and
+        # fragment again. This preserves model-model shared faces because the
+        # graveyard is never routed through an OCP boolean cut.
+        if add_graveyard and not has_existing_graveyard:
+            bbox = gmsh.model.getBoundingBox(-1, -1)
+            xmin, ymin, zmin, xmax, ymax, zmax = bbox
+            dx = xmax - xmin
+            dy = ymax - ymin
+            dz = zmax - zmin
+            max_dim = max(dx, dy, dz)
+            padding = max(1.0, 0.1 * max_dim)
+
+            gy_xmin = xmin - padding
+            gy_ymin = ymin - padding
+            gy_zmin = zmin - padding
+            gy_tag = gmsh.model.occ.addBox(
+                gy_xmin,
+                gy_ymin,
+                gy_zmin,
+                dx + 2 * padding,
+                dy + 2 * padding,
+                dz + 2 * padding,
+            )
             gmsh.model.occ.synchronize()
 
-            # Merge/unify stage: drop duplicate entities introduced by imprint.
+            post_volumes = gmsh.model.getEntities(3)
+            all_volumes = post_volumes + [(3, gy_tag)]
+            gmsh.model.occ.fragment(all_volumes, all_volumes)
+            gmsh.model.occ.synchronize()
             gmsh.model.occ.removeAllDuplicates()
             gmsh.model.occ.synchronize()
 
-            post_to_pre: dict[int, int] = {}
-            for pre_index, outputs in enumerate(fragment_map[: len(volumes)]):
-                for dim, tag in outputs:
-                    if int(dim) == 3:
-                        post_to_pre[int(tag)] = pre_index + 1
-            # Residual limitation: if removeAllDuplicates renumbered or dropped
-            # a volume, fall back to the identity (index-based) assumption for
-            # that tag and say so.
-            current_vol_tags = {int(tag) for _, tag in gmsh.model.getEntities(3)}
-            stale = [tag for tag in post_to_pre if tag not in current_vol_tags]
-            unmapped = [tag for tag in current_vol_tags if tag not in post_to_pre]
-            if stale or unmapped:
+            # Identify the graveyard volume by its bounding-box min corner.
+            gy_post_tags: set[int] = set()
+            for dim, tag in gmsh.model.getEntities(3):
+                vbbox = gmsh.model.getBoundingBox(dim, tag)
+                if (
+                    abs(vbbox[0] - gy_xmin) < 1e-4
+                    and abs(vbbox[1] - gy_ymin) < 1e-4
+                    and abs(vbbox[2] - gy_zmin) < 1e-4
+                ):
+                    gy_post_tags.add(int(tag))
+
+            if not gy_post_tags:
                 warnings.append(
-                    "Post-fragment volume mapping was disturbed by duplicate removal; "
-                    "falling back to index-based volume identity for affected volumes."
+                    "Could not identify auto-created graveyard volume; "
+                    "material tag may need manual correction."
                 )
-                for tag in stale:
-                    del post_to_pre[tag]
-                for tag in unmapped:
-                    post_to_pre[tag] = tag
+            else:
+                warnings.append("Auto-created graveyard volume around model (mat:graveyard).")
+            # The pre-fragment index for the auto-created graveyard is one past
+            # the model volumes; all post fragments map to the same mat:graveyard.
+            gy_pre_index = len(volumes) + 1
+            graveyard_vol_ids = {gy_pre_index}
+            for tag in gy_post_tags:
+                post_to_pre[tag] = gy_pre_index
 
-            tol = faceting_tolerance
-            if auto_adjust_tolerance:
-                bbox = gmsh.model.getBoundingBox(-1, -1)
-                diag = sum((bbox[i + 3] - bbox[i]) ** 2 for i in range(3)) ** 0.5
-                if diag > 100 and tol < 1.0:
-                    old_tol = tol
-                    tol = max(tol, min(diag / 200, 10.0))
-                    warnings.append(
-                        f"Faceting tolerance auto-adjusted from {old_tol:.4f} to {tol:.4f} "
-                        f"for large model (diagonal {diag:.1f})"
-                    )
+        # Residual limitation: if removeAllDuplicates renumbered or dropped
+        # a volume, fall back to the identity (index-based) assumption for
+        # that tag and say so.
+        current_vol_tags = {int(tag) for _, tag in gmsh.model.getEntities(3)}
+        stale = [tag for tag in post_to_pre if tag not in current_vol_tags]
+        unmapped = [tag for tag in current_vol_tags if tag not in post_to_pre]
+        if stale or unmapped:
+            warnings.append(
+                "Post-fragment volume mapping was disturbed by duplicate removal; "
+                "falling back to index-based volume identity for affected volumes."
+            )
+            for tag in stale:
+                del post_to_pre[tag]
+            for tag in unmapped:
+                post_to_pre[tag] = tag
 
-            # Size field: interpret ``tol`` as a rough target mesh edge length.
-            # Curved surfaces are refined based on curvature. This is a pragmatic
-            # mapping from faceting tolerance to gmsh's length-field API.
-            gmsh.option.setNumber("Mesh.CharacteristicLengthMin", tol / 100.0)
-            gmsh.option.setNumber("Mesh.CharacteristicLengthMax", max(tol * 10.0, 0.1))
-            gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 1)
-            gmsh.option.setNumber("Mesh.MinimumCirclePoints", 12)
-            gmsh.option.setNumber("Mesh.MinimumCurvePoints", 3)
-
-            gmsh.model.mesh.generate(2)
-
-            vertices, face_triangles, face_to_volumes, _ = _extract_gmsh_surface_mesh(warnings)
-
-            gmsh.finalize()
-            gmsh_initialized = False
-
-            # ------------------------------------------------------------------
-            # 4. Verify surface senses before building the MOAB model.
-            # ------------------------------------------------------------------
-            _verify_surface_senses(face_triangles, face_to_volumes)
-
-            # ------------------------------------------------------------------
-            # 5. Build MOAB model. Material names are resolved through the
-            #    pre-fragment volume index so manifest selectors and graveyard
-            #    IDs (both pre-fragment 1-based) bind correctly.
-            # ------------------------------------------------------------------
-            material_names = {}
-            for vol_id in {v for vols in face_to_volumes.values() for v in vols}:
-                pre_index = post_to_pre.get(vol_id, vol_id)
-                material_names[vol_id] = _volume_name_from_manifest(
-                    pre_index, manifest, selector_map, graveyard_vol_ids
+        tol = faceting_tolerance
+        if auto_adjust_tolerance:
+            bbox = gmsh.model.getBoundingBox(-1, -1)
+            diag = sum((bbox[i + 3] - bbox[i]) ** 2 for i in range(3)) ** 0.5
+            if diag > 100 and tol < 1.0:
+                old_tol = tol
+                tol = max(tol, min(diag / 200, 10.0))
+                warnings.append(
+                    f"Faceting tolerance auto-adjusted from {old_tol:.4f} to {tol:.4f} "
+                    f"for large model (diagonal {diag:.1f})"
                 )
 
-            if length_scale != 1.0:
-                vertices *= length_scale
+        # Size field: interpret ``tol`` as a rough target mesh edge length.
+        # Curved surfaces are refined based on curvature. This is a pragmatic
+        # mapping from faceting tolerance to gmsh's length-field API.
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", tol / 100.0)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", max(tol * 10.0, 0.1))
+        gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 1)
+        gmsh.option.setNumber("Mesh.MinimumCirclePoints", 12)
+        gmsh.option.setNumber("Mesh.MinimumCurvePoints", 3)
 
-            mb = _build_moab_model(
-                vertices,
-                face_triangles,
-                face_to_volumes,
-                material_names,
-                tol,
+        gmsh.model.mesh.generate(2)
+
+        vertices, face_triangles, face_to_volumes, _ = _extract_gmsh_surface_mesh(warnings)
+
+        gmsh.finalize()
+        gmsh_initialized = False
+
+        # ------------------------------------------------------------------
+        # 4. Verify surface senses before building the MOAB model.
+        # ------------------------------------------------------------------
+        _verify_surface_senses(face_triangles, face_to_volumes)
+
+        # ------------------------------------------------------------------
+        # 5. Build MOAB model. Material names are resolved through the
+        #    pre-fragment volume index so manifest selectors and graveyard
+        #    IDs (both pre-fragment 1-based) bind correctly.
+        # ------------------------------------------------------------------
+        material_names = {}
+        for vol_id in {v for vols in face_to_volumes.values() for v in vols}:
+            pre_index = post_to_pre.get(vol_id, vol_id)
+            material_names[vol_id] = _volume_name_from_manifest(
+                pre_index, manifest, selector_map, graveyard_vol_ids
             )
 
-            # Re-fetch surface meshsets from MOAB for watertight check.
-            cat_tag = mb.tag_get_handle(
-                moab_types.CATEGORY_TAG_NAME,
-                moab_types.CATEGORY_TAG_SIZE,
-                moab_types.MB_TYPE_OPAQUE,
-                moab_types.MB_TAG_SPARSE,
-                create_if_missing=True,
-            )
-            gdim_tag = mb.tag_get_handle(
-                moab_types.GEOM_DIMENSION_TAG_NAME,
-                1,
-                moab_types.MB_TYPE_INTEGER,
-                moab_types.MB_TAG_DENSE,
-                create_if_missing=True,
-            )
-            all_sets = mb.get_entities_by_type_and_tag(
-                mb.get_root_set(), moab_types.MBENTITYSET, [cat_tag], ["Surface"]
-            )
-            surface_sets = {
-                i: s for i, s in enumerate(all_sets) if mb.tag_get_data(gdim_tag, s)[0][0] == 2
+        if length_scale != 1.0:
+            vertices *= length_scale
+
+        mb = _build_moab_model(
+            vertices,
+            face_triangles,
+            face_to_volumes,
+            material_names,
+            tol,
+        )
+
+        # Re-fetch surface meshsets from MOAB for watertight check.
+        cat_tag = mb.tag_get_handle(
+            moab_types.CATEGORY_TAG_NAME,
+            moab_types.CATEGORY_TAG_SIZE,
+            moab_types.MB_TYPE_OPAQUE,
+            moab_types.MB_TAG_SPARSE,
+            create_if_missing=True,
+        )
+        gdim_tag = mb.tag_get_handle(
+            moab_types.GEOM_DIMENSION_TAG_NAME,
+            1,
+            moab_types.MB_TYPE_INTEGER,
+            moab_types.MB_TAG_DENSE,
+            create_if_missing=True,
+        )
+        all_sets = mb.get_entities_by_type_and_tag(
+            mb.get_root_set(), moab_types.MBENTITYSET, [cat_tag], ["Surface"]
+        )
+        surface_sets = {
+            i: s for i, s in enumerate(all_sets) if mb.tag_get_data(gdim_tag, s)[0][0] == 2
+        }
+        watertight = _watertight_check(mb, surface_sets, warnings)
+
+        mb.write_file(str(out_path))
+
+        result.update(
+            {
+                "success": True,
+                "solid_count": len({v for vols in face_to_volumes.values() for v in vols}),
+                "surface_count": len(face_triangles),
+                "triangle_count": int(sum(len(t) for t in face_triangles.values())),
+                "warnings": warnings,
+                "watertight": watertight,
+                "overlapCheck": overlap_report,
             }
-            watertight = _watertight_check(mb, surface_sets, warnings)
-
-            mb.write_file(str(out_path))
-
-            result.update(
-                {
-                    "success": True,
-                    "solid_count": len({v for vols in face_to_volumes.values() for v in vols}),
-                    "surface_count": len(face_triangles),
-                    "triangle_count": int(sum(len(t) for t in face_triangles.values())),
-                    "warnings": warnings,
-                    "watertight": watertight,
-                    "overlapCheck": overlap_report,
-                }
-            )
+        )
 
     except Exception as e:
         result["error"] = f"DAGMC export failed: {e}"

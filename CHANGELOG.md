@@ -13,11 +13,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered
   as an optional extension in the browser and Electron apps.
-- nuke-cad: **sketcher Phase 3** — first-class dimensions stored alongside
-  PlaneGCS constraints, named sketch-local parameters with driving/reference
-  binding, solver diagnostics UI (DOF/conflicts/redundancies), and sketch
-  navigation with pan/zoom. Dimension labels are editable in the viewport and
-  serialize through `SketchDef`.
+- nuke-cad: **GUI parametric modeler** — `.nuke-cad` documents are now a
+  complete authoring mode alongside Python scripts. The document stores
+  parameters, datum planes, sketches, and a feature tree; `.nuke-cad` files open
+  in the CAD viewport by default. Script builds and document builds feed the
+  same `_process_shape` path, so STEP, viewport tessellation, DAGMC, and FEM
+  artifacts are authoring-mode-agnostic.
+- nuke-cad: **sketcher** — interactive 2D sketch mode with point, line, circle,
+  3-point arc, and rectangle tools; endpoint/midpoint/center/quadrant/on-curve/
+  grid snap; auto-coincident and auto-horizontal/vertical constraints; explicit
+  constraints (coincident, fix, horizontal, vertical, parallel, perpendicular,
+  tangent, equal, concentric, point-on-object, distance, angle, radius,
+  symmetry); driving and reference dimensions with parameter binding; sketch-local
+  and document-level parameters; live drag solving; and a solver diagnostics
+  popover for conflicting or redundant constraints.
+- nuke-cad: **document build pipeline** — `python/sketch_builder.py` turns
+  stored sketch primitives into build123d `Face` objects on the sketch datum;
+  `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`
+  features in topological order over explicit `dependsOn` edges; and
+  `geometry_service.py` exposes `build_document()` plus a `--from-document` CLI
+  flag. The first release performs a full rebuild on every call; per-feature status
+  (`built`/`stale`/`failed`) is returned so the viewport can show which feature
+  failed and why.
+- nuke-cad: **Feature Tree panel** — a right-area widget (ID
+  `nuke-cad-feature-tree-widget`, command `Open Feature Tree`) listing datums,
+  sketches, and features with selection, suppression toggle, edit, delete, and
+  build-status markers.
+- nuke-cad: **document commands** — `New CAD Document`, `Save CAD Document`,
+  `Save CAD Document As...`, `New Sketch`, and `Exit Sketch` provide the
+  document shell workflow.
 - nuke-cad: **DAGMC export** — `dagmc_export.py` converts the
   canonical STEP file to a tagged `.h5m` using gmsh OCC imprint/merge so
   touching solids share exact coincident faces. Region-manifest volume names
@@ -270,6 +294,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: GUI-authored pincell DAGMC e2e no longer leaks particles. The
+  `dagmc_export.py` pipeline now imprints model volumes in gmsh first and adds
+  the optional `mat:graveyard` bounding box with a second gmsh `fragment`,
+  preserving shared model-model faces. The previous OCP boolean graveyard cut
+  re-duplicated coincident faces and caused "No intersection found with DAGMC
+  cell" lost-particle errors on document-built pincells.
 - nuke-cad: geometry scripts now run on OCP 7.9 — `ocp_compat` re-attaches
   the `TopoDS.TopoDS.<X>_s` downcast aliases removed in OCP 7.9 (build123d
   0.9.x still calls them), applied eagerly in the geometry-service child

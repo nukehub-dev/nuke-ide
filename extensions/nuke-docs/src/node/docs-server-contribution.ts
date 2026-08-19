@@ -41,7 +41,8 @@ export class DocsServerContribution implements BackendApplicationContribution {
             '/product': productDocs,
             '/nuke-core': findDocsDir('nuke-core') || path.resolve(devRoot, 'extensions', 'nuke-core', 'docs'),
             '/nuke-visualizer': findDocsDir('nuke-visualizer') || path.resolve(devRoot, 'extensions', 'nuke-visualizer', 'docs'),
-            '/openmc-studio': findDocsDir('openmc-studio') || path.resolve(devRoot, 'extensions', 'openmc-studio', 'docs')
+            '/openmc-studio': findDocsDir('openmc-studio') || path.resolve(devRoot, 'extensions', 'openmc-studio', 'docs'),
+            '/nuke-cad': findDocsDir('nuke-cad') || path.resolve(devRoot, 'extensions', 'nuke-cad', 'docs')
         };
 
         // Build search index at startup
