@@ -13,7 +13,8 @@
     "cadquery",
     "ocp",
     "meshing",
-    "fem"
+    "fem",
+    "planegcs"
   ],
   "files": [
     "lib",
@@ -21,6 +22,7 @@
     "python"
   ],
   "dependencies": {
+    "@salusoft89/planegcs": "1.2.0",
     "@theia/core": "1.74.1",
     "@theia/editor": "1.74.1",
     "@theia/filesystem": "1.74.1",

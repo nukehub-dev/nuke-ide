@@ -1,9 +1,9 @@
 """End-to-end: pincell STEP -> DAGMC h5m (imprinting export) -> real OpenMC run.
 
-M2 acceptance criterion of the nuke-cad extension plan: a labeled build123d
-pincell is exported to STEP by the geometry service, converted to h5m by the
-imprinting DAGMC export (named ``mat:<name>`` groups from the region manifest,
-auto-created graveyard), and run in OpenMC with zero lost particles.
+A labeled build123d pincell is exported to STEP by the geometry service,
+converted to h5m by the imprinting DAGMC export (named ``mat:<name>`` groups
+from the region manifest, auto-created graveyard), and run in OpenMC with
+zero lost particles.
 """
 
 import json

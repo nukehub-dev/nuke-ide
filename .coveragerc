@@ -39,6 +39,7 @@ omit =
     extensions/nuke-cad/python/fem_service.py
     extensions/nuke-cad/python/foam_service.py
     extensions/nuke-cad/python/ocp_compat.py
+    extensions/nuke-cad/python/reference_resolver.py
 
 [report]
 show_missing = true

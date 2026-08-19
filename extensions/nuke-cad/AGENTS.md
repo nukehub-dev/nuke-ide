@@ -15,6 +15,28 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 - TypeScript side follows `extensions/AGENTS.md` with `src/browser/`,
   `src/node/`, and `src/common/`.
+- `.nuke-cad` JSON document schema lives in `src/common/cad-document.ts`
+  (version 1 today). Validate with `validateNukeCadDocument`; migrate with
+  `migrateNukeCadDocument`. Future migrations register steps in the migration
+  function and bump `NUKE_CAD_SCHEMA_VERSION`.
+- Sketch solver adapter: `src/common/sketch-solver.ts` exports the solver-agnostic
+  `SketchSolver` interface and the `PlanegcsSketchSolver` implementation. No
+  other source file imports `@salusoft89/planegcs` directly. The dependency is
+  pinned exact in `package.json`; vendoring the LGPL-2.0-or-later WASM is the
+  documented fallback if the npm package stalls.
+- Feature recompute planner: `src/common/feature-graph.ts` builds the feature
+  dependency DAG from explicit `dependsOn` edges, computes topological order,
+  rejects cycles with readable member lists, and produces a minimal dirty-subtree
+  plan via `markDirty` + `recomputePlan`. Callers clear successfully rebuilt
+  features with `markClean` so the next plan starts from the updated state.
+  Suppressed features are omitted and their dependents marked stale so the
+  builder can keep last-good geometry.
+- Topological references: `src/common/topology-refs.ts` defines fingerprint-based
+  `TopologyRef` types (`face`/`edge`) used by datum faces, fillets, chamfers,
+  patterns, and sketch-on-face. References are never raw indices. Fingerprint
+  matching and scoring lives in the Python backend
+  (`python/reference_scoring.py`, `python/reference_resolver.py`); TypeScript
+  owns only the types and validation.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
