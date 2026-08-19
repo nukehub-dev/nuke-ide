@@ -34,6 +34,10 @@
  * rendered on demand (orbit, selection, resize, theme change), never in a
  * perpetual animation loop.
  *
+ * Sketch mode is integrated as an overlay on top of the viewport. Entering
+ * sketch mode switches to an orthographic camera on the selected datum plane,
+ * hides the 3D model, and routes pointer events to the sketch controller.
+ *
  * @module nuke-cad/browser/widgets
  */
 
@@ -56,6 +60,9 @@ import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-ca
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { SketchModeController } from '../../sketch/sketch-mode-controller';
+import { type DatumKind } from '../../sketch/sketch-math';
+import { CadSketchOverlay } from './cad-sketch-overlay';
 import './cad-viewport.css';
 
 interface TessFace {
@@ -113,6 +120,11 @@ export class CadViewportWidget extends ReactWidget {
     private tessLoadToken = 0;
     private saveRebuildTimer?: ReturnType<typeof setTimeout>;
 
+    /** True while the datum picker is waiting for the user to choose a plane. */
+    sketchSetupVisible = false;
+    private sketchController?: SketchModeController;
+    private sketchCamera?: THREE.PerspectiveCamera;
+
     /**
      * Stable callbacks handed to the React component so the three.js scene is
      * only rebuilt when the tessellation itself changes.
@@ -133,6 +145,23 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
+    protected readonly handleControllerReady = (controller: SketchModeController, camera: THREE.PerspectiveCamera): void => {
+        this.sketchController = controller;
+        this.sketchCamera = camera;
+    };
+
+    protected readonly handleEnterSketch = (kind: DatumKind, offset: number): void => {
+        this.sketchSetupVisible = false;
+        this.update();
+        void this.sketchController?.enterSketch(kind, offset, this.sketchCamera);
+    };
+
+    protected readonly handleExitSketch = (): void => {
+        this.sketchSetupVisible = false;
+        this.update();
+        void this.sketchController?.exitSketch();
+    };
+
     @postConstruct()
     protected init(): void {
         this.id = CadViewportWidget.ID;
@@ -144,6 +173,22 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.update();
+    }
+
+    /** Show the datum-plane picker and prepare to enter sketch mode. */
+    startSketchSetup(): void {
+        this.sketchSetupVisible = true;
+        this.update();
+    }
+
+    /** Enter sketch mode on the chosen datum plane. */
+    enterSketch(kind: DatumKind, offset: number): void {
+        this.handleEnterSketch(kind, offset);
+    }
+
+    /** Exit the active sketch mode. */
+    exitSketch(): void {
+        this.handleExitSketch();
     }
 
     /** Show a loading indicator over the current geometry while a rebuild runs. */
@@ -288,11 +333,15 @@ export class CadViewportWidget extends ReactWidget {
                 loadingMessage={this.loadingMessage}
                 tessData={this.tessData}
                 error={this.buildError}
+                sketchSetupVisible={this.sketchSetupVisible}
                 onDismissError={this.dismissBuildError}
                 onSelect={this.handleViewportSelect}
                 subscribeSelection={this.subscribeSelection}
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModel()}
+                onControllerReady={this.handleControllerReady}
+                onEnterSketch={this.handleEnterSketch}
+                onExitSketch={this.handleExitSketch}
             />
         );
     }
@@ -303,26 +352,28 @@ interface CadViewportComponentProps {
     readonly loadingMessage: string;
     readonly tessData?: TessData;
     readonly error?: string;
+    readonly sketchSetupVisible: boolean;
     readonly onDismissError: () => void;
     readonly onSelect: (selection: CadSelection) => void;
     readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
+    readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
+    readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
+    readonly onExitSketch: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
+    const [controller, setController] = React.useState<SketchModeController | undefined>();
+    const viewportApi = React.useRef<{ updateModel?: (tessData?: TessData) => void }>({});
 
     React.useEffect(() => {
         const container = containerRef.current;
-        if (!container || props.tessData === undefined) {
+        if (!container) {
             return undefined;
         }
 
-        const tessData = props.tessData;
-        const onSelect = props.onSelect;
-        const subscribeSelection = props.subscribeSelection;
-        const subscribeThemeChange = props.subscribeThemeChange;
         let disposed = false;
         let cleanup: (() => void) | undefined;
 
@@ -331,18 +382,39 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             if (disposed) {
                 return;
             }
-            cleanup = initViewport(container, tessData, onSelect, subscribeSelection, subscribeThemeChange, OrbitControls);
+            const api = initViewport(
+                container,
+                props.tessData,
+                props.onSelect,
+                props.subscribeSelection,
+                props.subscribeThemeChange,
+                props.onControllerReady,
+                OrbitControls
+            );
+            if (disposed) {
+                api.cleanup();
+                return;
+            }
+            cleanup = api.cleanup;
+            viewportApi.current.updateModel = api.updateModel;
+            setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
         });
 
         return () => {
             disposed = true;
+            viewportApi.current.updateModel = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
         // rebuilt only when a new tessellation arrives.
-    }, [props.tessData, props.onSelect, props.subscribeSelection, props.subscribeThemeChange]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    React.useEffect(() => {
+        viewportApi.current.updateModel?.(props.tessData);
+    }, [props.tessData, controller]);
 
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
@@ -382,6 +454,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         <span className="codicon codicon-folder-opened" /> Open CAD Model...
                     </button>
                 </div>
+                {controller !== undefined && (
+                    <CadSketchOverlay
+                        controller={controller}
+                        setupVisible={props.sketchSetupVisible}
+                        onEnterSketch={props.onEnterSketch}
+                        onExitSketch={props.onExitSketch}
+                    />
+                )}
             </div>
         );
     }
@@ -395,27 +475,43 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     <span>{props.loadingMessage}</span>
                 </div>
             )}
+            {controller !== undefined && (
+                <CadSketchOverlay
+                    controller={controller}
+                    setupVisible={props.sketchSetupVisible}
+                    onEnterSketch={props.onEnterSketch}
+                    onExitSketch={props.onExitSketch}
+                />
+            )}
         </div>
     );
 }
 
+interface ViewportApi {
+    readonly controller: SketchModeController;
+    readonly cleanup: () => void;
+    readonly updateModel: (tessData?: TessData) => void;
+}
+
 function initViewport(
     container: HTMLDivElement,
-    tessData: TessData,
+    tessData: TessData | undefined,
     onSelect: (selection: CadSelection) => void,
     subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable,
     subscribeThemeChange: (listener: () => void) => Disposable,
+    onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
     ) => {
+        enabled: boolean;
         target: THREE.Vector3;
         update: () => void;
         addEventListener(type: string, listener: () => void): void;
         removeEventListener(type: string, listener: () => void): void;
         dispose(): void;
     }
-): () => void {
+): ViewportApi {
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 300;
 
@@ -424,11 +520,9 @@ function initViewport(
     scene.background = new THREE.Color(background);
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
-    const bbox = tessData.boundingBox;
-    const center = new THREE.Vector3((bbox.min[0] + bbox.max[0]) / 2, (bbox.min[1] + bbox.max[1]) / 2, (bbox.min[2] + bbox.max[2]) / 2);
-    const diag = new THREE.Vector3(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]).length();
-    camera.position.copy(center.clone().add(new THREE.Vector3(diag, diag, diag)));
-    camera.lookAt(center);
+    camera.name = 'cad-perspective-camera';
+    camera.position.set(10, 10, 10);
+    camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
@@ -436,50 +530,99 @@ function initViewport(
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControlsCtor(camera, renderer.domElement);
-    controls.target.copy(center);
+    controls.target.set(0, 0, 0);
     controls.update();
 
-    const meshes: THREE.Mesh[] = [];
-    const group = new THREE.Group();
-    scene.add(group);
+    const modelGroup = new THREE.Group();
+    modelGroup.name = 'cad-model';
+    scene.add(modelGroup);
 
     const baseColor = new THREE.Color(readThemeColor(container, '--theia-foreground', '#cccccc'));
     const selectedColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
 
-    for (const solid of tessData.solids) {
-        for (const face of solid.faces) {
-            const geometry = buildFaceGeometry(face);
-            const material = new THREE.MeshStandardMaterial({
-                color: baseColor,
-                roughness: 0.6,
-                metalness: 0.1,
-                side: THREE.DoubleSide
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.userData = { solidId: solid.solidId, faceId: face.faceId };
-            group.add(mesh);
-            meshes.push(mesh);
+    let meshes: THREE.Mesh[] = [];
+    let currentSelection: CadSelection = {};
+
+    let controller: SketchModeController;
+    const renderScene = (): void => {
+        renderer.render(scene, controller.getActiveCamera());
+    };
+    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup });
+    onControllerReady(controller, camera);
+
+    const applyHighlight = (): void => {
+        for (const mesh of meshes) {
+            const data = mesh.userData;
+            // A selection with only a solidId (outline-panel row click) highlights
+            // every face of the solid; a viewport pick stays face-precise.
+            const isSelected =
+                currentSelection.solidId !== undefined &&
+                data.solidId === currentSelection.solidId &&
+                (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
+            (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
         }
-    }
+        renderScene();
+    };
+
+    const buildModel = (data?: TessData): void => {
+        for (const mesh of meshes) {
+            modelGroup.remove(mesh);
+            mesh.geometry.dispose();
+            (mesh.material as THREE.Material).dispose();
+        }
+        meshes = [];
+
+        if (data === undefined) {
+            applyHighlight();
+            return;
+        }
+
+        const bbox = data.boundingBox;
+        const center = new THREE.Vector3((bbox.min[0] + bbox.max[0]) / 2, (bbox.min[1] + bbox.max[1]) / 2, (bbox.min[2] + bbox.max[2]) / 2);
+        const diag = new THREE.Vector3(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]).length();
+        camera.position.copy(center.clone().add(new THREE.Vector3(diag, diag, diag)));
+        camera.lookAt(center);
+        controls.target.copy(center);
+        controls.update();
+
+        for (const solid of data.solids) {
+            for (const face of solid.faces) {
+                const geometry = buildFaceGeometry(face);
+                const material = new THREE.MeshStandardMaterial({
+                    color: baseColor,
+                    roughness: 0.6,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.userData = { solidId: solid.solidId, faceId: face.faceId };
+                modelGroup.add(mesh);
+                meshes.push(mesh);
+            }
+        }
+        applyHighlight();
+    };
+
+    buildModel(tessData);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambient);
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.set(diag, diag, diag);
+    directional.position.set(10, 10, 10);
     scene.add(directional);
 
     // Render on demand: the scene is static unless the user orbits, the
     // selection changes, the theme changes, or the container resizes. No
     // animation loop runs while the widget is idle, hidden, or detached.
-    const renderScene = (): void => {
-        renderer.render(scene, camera);
-    };
     controls.addEventListener('change', renderScene);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
 
     const onClick = (event: MouseEvent) => {
+        if (controller.isActive) {
+            return;
+        }
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -494,20 +637,42 @@ function initViewport(
     };
     renderer.domElement.addEventListener('click', onClick);
 
-    let currentSelection: CadSelection = {};
-    const applyHighlight = (): void => {
-        for (const mesh of meshes) {
-            const data = mesh.userData;
-            // A selection with only a solidId (outline-panel row click) highlights
-            // every face of the solid; a viewport pick stays face-precise.
-            const isSelected =
-                currentSelection.solidId !== undefined &&
-                data.solidId === currentSelection.solidId &&
-                (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
-            (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
+    const onPointerDown = (event: PointerEvent): void => {
+        if (!controller.isActive || event.button !== 0) {
+            return;
         }
-        renderScene();
+        controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
     };
+    const onPointerMove = (event: PointerEvent): void => {
+        if (!controller.isActive) {
+            return;
+        }
+        controller.onPointerMove(event.clientX, event.clientY);
+    };
+    const onPointerUp = (event: PointerEvent): void => {
+        if (!controller.isActive) {
+            return;
+        }
+        void controller.onPointerUp(event.clientX, event.clientY);
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+        if (!controller.isActive) {
+            return;
+        }
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+            event.preventDefault();
+            controller.onDeleteKey();
+        } else if (event.key === 'Escape') {
+            event.preventDefault();
+            controller.onEscape();
+        }
+    };
+    window.addEventListener('keydown', onKeyDown);
+
     // Fires immediately with the current selection, then on every change.
     const selectionDisposable = subscribeSelection((selection) => {
         currentSelection = selection;
@@ -519,6 +684,7 @@ function initViewport(
         baseColor.set(readThemeColor(container, '--theia-foreground', '#cccccc'));
         selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
         applyHighlight();
+        controller.refreshThemeColors();
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -528,6 +694,7 @@ function initViewport(
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
+            controller.onResize();
             renderScene();
         }
     });
@@ -535,20 +702,29 @@ function initViewport(
 
     renderScene();
 
-    return () => {
-        selectionDisposable.dispose();
-        themeDisposable.dispose();
-        resizeObserver.disconnect();
-        renderer.domElement.removeEventListener('click', onClick);
-        controls.removeEventListener('change', renderScene);
-        controls.dispose();
-        renderer.dispose();
-        if (renderer.domElement.parentElement === container) {
-            container.removeChild(renderer.domElement);
-        }
-        for (const mesh of meshes) {
-            mesh.geometry.dispose();
-            (mesh.material as THREE.Material).dispose();
+    return {
+        controller,
+        updateModel: buildModel,
+        cleanup: () => {
+            selectionDisposable.dispose();
+            themeDisposable.dispose();
+            resizeObserver.disconnect();
+            renderer.domElement.removeEventListener('click', onClick);
+            renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+            renderer.domElement.removeEventListener('pointermove', onPointerMove);
+            renderer.domElement.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('keydown', onKeyDown);
+            controls.removeEventListener('change', renderScene);
+            controls.dispose();
+            controller.dispose();
+            renderer.dispose();
+            if (renderer.domElement.parentElement === container) {
+                container.removeChild(renderer.domElement);
+            }
+            for (const mesh of meshes) {
+                mesh.geometry.dispose();
+                (mesh.material as THREE.Material).dispose();
+            }
         }
     };
 }

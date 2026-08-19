@@ -1222,7 +1222,7 @@ export class SketchSession {
 
         let result: SolverResult;
         if (lastSolveSucceeded && lastSolvedPositions !== undefined) {
-            const addedCoords: Array<{ xId: string; yId: string }> = [];
+            const addedCoords: Array<{ xId: string; yId: string; pointId: string }> = [];
             for (const pointId of pointIds) {
                 if (this.fixConstraintIds.has(pointId)) {
                     continue;
@@ -1232,11 +1232,24 @@ export class SketchSession {
                     continue;
                 }
                 const ids = this.solver.setPointCoordinates(pointId, pos.x, pos.y);
-                addedCoords.push({ xId: ids.xConstraintId, yId: ids.yConstraintId });
+                addedCoords.push({ xId: ids.xConstraintId, yId: ids.yConstraintId, pointId });
             }
 
             result = await this.solver.solve();
-            if (result.status !== 'converged') {
+            if (result.status === 'converged') {
+                // FreeCAD-style: the dropped point stays at the solved location
+                // but is no longer pinned. Removing the temporary coordinate
+                // drivers keeps the solved coordinates as the initial state and
+                // yields an accurate DOF count.
+                for (const { xId, yId } of addedCoords) {
+                    this.solver.removeConstraint(xId);
+                    this.solver.removeConstraint(yId);
+                }
+                result = await this.solver.solve();
+                if (result.status !== 'converged') {
+                    result = await this.restoreOldFixesAndSolve(oldFixes);
+                }
+            } else {
                 for (const { xId, yId } of addedCoords) {
                     this.solver.removeConstraint(xId);
                     this.solver.removeConstraint(yId);

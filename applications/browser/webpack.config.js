@@ -15,6 +15,10 @@ configs.forEach((config) => {
         config.resolve.fallback = {};
     }
     config.resolve.fallback.electron = false;
+    // The @salusoft89/planegcs WASM wrapper dynamically imports Node's 'module'
+    // package in its Node branch. The browser build never executes that branch,
+    // so stubbing the polyfill lets webpack bundle the file without error.
+    config.resolve.fallback.module = false;
 
     if (!config.plugins) {
         config.plugins = [];

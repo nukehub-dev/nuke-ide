@@ -1,0 +1,1070 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+/**
+ * Framework-light controller that wires a {@link SketchSession} into a three.js
+ * viewport as an interactive sketch mode.
+ *
+ * Owns the sketch layer, orthographic camera, pointer-to-plane mapping, drag
+ * solving, and rendering. The CAD viewport widget delegates to this controller
+ * when sketch mode is active.
+ *
+ * @module nuke-cad/browser/sketch
+ */
+
+import * as THREE from 'three';
+import { SketchSession, type SketchTool, type ConstraintKind, type SketchStatus, type ConstraintRecord } from './sketch-session';
+import { PlanegcsSketchSolver, type SketchPrimitive, type SketchPoint } from '../../common/sketch-solver';
+import { getPlanegcsWasmUrl } from './planegcs-wasm-url';
+import {
+    buildDatumPlane,
+    type DatumKind,
+    type DatumPlane,
+    type Point2,
+    type Vec3,
+    intersectRayPlane,
+    worldToSketch,
+    pixelRadiusToModelUnits,
+    defaultSketchViewSize
+} from './sketch-math';
+import { snap, createSnapConfig, type SnapResult } from './snap';
+
+/** Listener invoked after any mutation that changes the sketch UI state. */
+export type SketchControllerChangeListener = () => void;
+
+/** Constraint kinds that require a numeric value from the user. */
+const VALUE_CONSTRAINTS: ReadonlySet<ConstraintKind> = new Set(['distance', 'radius', 'angle']);
+
+/** Arity for each constraint kind. */
+const CONSTRAINT_ARITY: Readonly<Record<ConstraintKind, number>> = {
+    coincident: 2,
+    fix: 1,
+    horizontal: 1,
+    vertical: 1,
+    parallel: 2,
+    perpendicular: 2,
+    tangent: 2,
+    equal: 2,
+    concentric: 2,
+    distance: 2,
+    angle: 2,
+    radius: 1,
+    symmetry: 3,
+    pointOnObject: 2
+};
+
+interface ConstraintInputState {
+    kind: ConstraintKind;
+    targetIds: string[];
+    error?: string;
+}
+
+interface DragState {
+    pointIds: string[];
+}
+
+interface ThemeColors {
+    normal: THREE.Color;
+    construction: THREE.Color;
+    selected: THREE.Color;
+    constrained: THREE.Color;
+    underConstrained: THREE.Color;
+    conflict: THREE.Color;
+    preview: THREE.Color;
+    snap: THREE.Color;
+    grid: THREE.Color;
+}
+
+/**
+ * Controller for interactive sketch mode inside the CAD viewport.
+ *
+ * The caller creates the controller, calls {@link enterSketch} to start a
+ * session, and routes pointer events from the viewport canvas. The controller
+ * mutates the shared three.js scene and camera owned by the viewport.
+ */
+export class SketchModeController {
+    private readonly container: HTMLElement;
+    private readonly scene: THREE.Scene;
+    private readonly renderer: THREE.WebGLRenderer;
+    private readonly controls: {
+        enabled: boolean;
+        target: THREE.Vector3;
+        update: () => void;
+        addEventListener(type: string, listener: () => void): void;
+        removeEventListener(type: string, listener: () => void): void;
+    };
+
+    private session?: SketchSession;
+    private datumPlane: DatumPlane = buildDatumPlane('XY', 0);
+    private construction = false;
+    private readonly selectedIds = new Set<string>();
+    private constraintInput?: ConstraintInputState;
+    private drag?: DragState;
+    private dragFramePending = false;
+    private lastPointer?: Point2;
+    private lastSnap?: SnapResult;
+    private status: SketchStatus = {
+        dof: 0,
+        conflicting: [],
+        redundant: [],
+        fullyConstrained: false,
+        lastAutoConstraints: []
+    };
+
+    private readonly sketchGroup: THREE.Group;
+    private readonly grid: THREE.GridHelper;
+    private readonly previewObject: THREE.Group;
+    private readonly snapMarker: THREE.Points;
+    private readonly selectionMarker: THREE.Group;
+    private readonly committedGroup: THREE.Group;
+
+    private savedCamera?: THREE.PerspectiveCamera;
+    private orthoCamera?: THREE.OrthographicCamera;
+    private modelGroup?: THREE.Group;
+    private readonly originalModelVisibility = new Map<THREE.Object3D, boolean>();
+
+    private readonly listeners = new Set<SketchControllerChangeListener>();
+    private readonly disposeSessionOnExit: boolean;
+    private readonly renderCallback: () => void;
+    private themeColors: ThemeColors;
+    private readonly onChangeBound: () => void;
+    private sessionChangeUnsubscribe?: () => void;
+    private savedControlsEnabled = true;
+
+    /**
+     * @param container The viewport container element (used for CSS var reads).
+     * @param scene The shared three.js scene.
+     * @param renderer The viewport renderer.
+     * @param controls The orbit controls instance.
+     * @param renderCallback Called whenever the controller needs a redraw.
+     * @param options.modelGroup Optional 3D model group to dim/hide in sketch mode.
+     * @param options.existingSession Optional existing session (debug/advanced).
+     */
+    constructor(
+        container: HTMLElement,
+        scene: THREE.Scene,
+        renderer: THREE.WebGLRenderer,
+        controls: {
+            enabled: boolean;
+            target: THREE.Vector3;
+            update: () => void;
+            addEventListener(type: string, listener: () => void): void;
+            removeEventListener(type: string, listener: () => void): void;
+        },
+        renderCallback: () => void,
+        options: {
+            modelGroup?: THREE.Group;
+            existingSession?: SketchSession;
+        } = {}
+    ) {
+        this.container = container;
+        this.scene = scene;
+        this.renderer = renderer;
+        this.controls = controls;
+        this.renderCallback = renderCallback;
+        this.modelGroup = options.modelGroup;
+        this.session = options.existingSession;
+        this.disposeSessionOnExit = options.existingSession === undefined;
+
+        this.themeColors = this.readThemeColors();
+
+        this.sketchGroup = new THREE.Group();
+        this.sketchGroup.name = 'sketch-layer';
+        this.committedGroup = new THREE.Group();
+        this.committedGroup.name = 'sketch-committed';
+        this.previewObject = new THREE.Group();
+        this.previewObject.name = 'sketch-preview';
+        this.selectionMarker = new THREE.Group();
+        this.selectionMarker.name = 'sketch-selection';
+
+        this.grid = this.buildGrid();
+        this.grid.visible = false;
+        this.sketchGroup.add(this.grid);
+        this.sketchGroup.add(this.committedGroup);
+        this.sketchGroup.add(this.previewObject);
+        this.sketchGroup.add(this.selectionMarker);
+
+        const snapGeometry = new THREE.BufferGeometry();
+        snapGeometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+        this.snapMarker = new THREE.Points(
+            snapGeometry,
+            new THREE.PointsMaterial({ color: this.themeColors.snap, size: 8, sizeAttenuation: false })
+        );
+        this.snapMarker.name = 'sketch-snap';
+        this.snapMarker.visible = false;
+        this.sketchGroup.add(this.snapMarker);
+
+        this.onChangeBound = this.handleSessionChange.bind(this);
+
+        if (this.session !== undefined) {
+            this.bindSession(this.session);
+        }
+    }
+
+    /** Subscribe to sketch controller change events. */
+    onChange(listener: SketchControllerChangeListener): () => void {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
+    private emitChange(): void {
+        for (const listener of this.listeners) {
+            listener();
+        }
+    }
+
+    /** True when a sketch session is active. */
+    get isActive(): boolean {
+        return this.session !== undefined;
+    }
+
+    /** Current sketch session, if any. */
+    getSession(): SketchSession | undefined {
+        return this.session;
+    }
+
+    /** Current active tool. */
+    getTool(): SketchTool {
+        return this.session?.getTool() ?? 'select';
+    }
+
+    /** Current solver status. */
+    getStatus(): SketchStatus {
+        return this.status;
+    }
+
+    /** Selected primitive ids. */
+    getSelection(): ReadonlySet<string> {
+        return this.selectedIds;
+    }
+
+    /** True when construction geometry toggle is on. */
+    getConstruction(): boolean {
+        return this.construction;
+    }
+
+    /** Active constraint-input state, exposed to the overlay. */
+    getConstraintInput(): { kind: ConstraintKind; targetIds: string[]; error?: string } | undefined {
+        if (this.constraintInput === undefined) {
+            return undefined;
+        }
+        return { kind: this.constraintInput.kind, targetIds: [...this.constraintInput.targetIds], error: this.constraintInput.error };
+    }
+
+    /** Current datum plane. */
+    getDatumPlane(): DatumPlane {
+        return this.datumPlane;
+    }
+
+    /** The camera that should be used for rendering. */
+    getActiveCamera(): THREE.Camera {
+        return this.orthoCamera ?? this.savedCamera ?? new THREE.PerspectiveCamera();
+    }
+
+    /**
+     * Enter sketch mode on the given datum plane.
+     *
+     * Switches to an orthographic camera looking straight down the plane normal,
+     * dims/hides the 3D model, and shows a grid.
+     */
+    async enterSketch(kind: DatumKind, offset = 0, camera?: THREE.PerspectiveCamera): Promise<void> {
+        if (this.session !== undefined) {
+            await this.exitSketch();
+        }
+        this.datumPlane = buildDatumPlane(kind, offset);
+        this.savedCamera = camera;
+        this.savedControlsEnabled = this.controls.enabled;
+        this.controls.enabled = false;
+
+        await this.createSession();
+        this.setupCamera();
+        this.dimModel(true);
+        this.scene.add(this.sketchGroup);
+        this.grid.visible = true;
+        this.renderSketch();
+        this.renderCallback();
+    }
+
+    /** Exit sketch mode and restore the previous 3D view. */
+    async exitSketch(): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        if (this.session !== undefined) {
+            console.debug('[SketchMode] session def:', this.session.toSketchDef());
+        }
+        this.unbindSession();
+        if (this.disposeSessionOnExit && this.session !== undefined) {
+            this.session = undefined;
+        }
+        this.constraintInput = undefined;
+        this.drag = undefined;
+        this.dragFramePending = false;
+        this.selectedIds.clear();
+        this.sketchGroup.removeFromParent();
+        this.grid.visible = false;
+        this.dimModel(false);
+        this.controls.enabled = this.savedControlsEnabled;
+        this.restoreCamera();
+        this.emitChange();
+        this.renderCallback();
+    }
+
+    /** Re-read theme colors and refresh sketch materials. */
+    refreshThemeColors(): void {
+        this.themeColors = this.readThemeColors();
+        (this.grid.material as THREE.LineBasicMaterial).color.copy(this.themeColors.grid);
+        (this.snapMarker.material as THREE.PointsMaterial).color.copy(this.themeColors.snap);
+        this.renderSketch();
+    }
+
+    /** Replace the model group that is dimmed/hidden while sketching. */
+    setModelGroup(group: THREE.Group | undefined): void {
+        this.modelGroup = group;
+        if (this.isActive) {
+            this.dimModel(true);
+        }
+    }
+
+    /** Notify the controller that the viewport has resized. */
+    onResize(): void {
+        if (this.orthoCamera === undefined) {
+            return;
+        }
+        const box = this.computeViewBox();
+        this.orthoCamera.left = box.left;
+        this.orthoCamera.right = box.right;
+        this.orthoCamera.top = box.top;
+        this.orthoCamera.bottom = box.bottom;
+        this.orthoCamera.updateProjectionMatrix();
+        this.renderCallback();
+    }
+
+    private async createSession(): Promise<void> {
+        const solver = await PlanegcsSketchSolver.create({ locateFile: () => getPlanegcsWasmUrl() });
+        const session = await SketchSession.create(solver, {
+            datumId: this.datumPlane.kind,
+            snap: createSnapConfig({ radius: 0.25, gridPitch: 1 })
+        });
+        this.session = session;
+        this.bindSession(session);
+    }
+
+    private bindSession(session: SketchSession): void {
+        this.status = session.getStatus();
+        this.sessionChangeUnsubscribe = session.onChange(this.onChangeBound);
+    }
+
+    private unbindSession(): void {
+        if (this.sessionChangeUnsubscribe !== undefined) {
+            this.sessionChangeUnsubscribe();
+            this.sessionChangeUnsubscribe = undefined;
+        }
+    }
+
+    private handleSessionChange(): void {
+        if (this.session === undefined) {
+            return;
+        }
+        this.status = this.session.getStatus();
+        this.renderSketch();
+        this.emitChange();
+        this.renderCallback();
+    }
+
+    private setupCamera(): void {
+        const camera = this.orthoCamera ?? this.buildOrthoCamera();
+        this.orthoCamera = camera;
+        const box = this.computeViewBox();
+        camera.left = box.left;
+        camera.right = box.right;
+        camera.top = box.top;
+        camera.bottom = box.bottom;
+        camera.position.copy(this.toThree(this.datumPlane.origin).add(this.toThree(this.datumPlane.normal).multiplyScalar(10)));
+        camera.lookAt(this.toThree(this.datumPlane.origin));
+        camera.up.copy(this.toThree(this.datumPlane.yAxis));
+        camera.updateProjectionMatrix();
+        this.controls.target.copy(this.toThree(this.datumPlane.origin));
+        this.controls.update();
+    }
+
+    private buildOrthoCamera(): THREE.OrthographicCamera {
+        const size = defaultSketchViewSize();
+        const aspect = this.getAspect();
+        const w = size * aspect;
+        const h = size;
+        const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.01, 1000);
+        cam.name = 'sketch-ortho-camera';
+        return cam;
+    }
+
+    private computeViewBox(): { left: number; right: number; top: number; bottom: number } {
+        const size = defaultSketchViewSize();
+        const aspect = this.getAspect();
+        const w = size * aspect;
+        const h = size;
+        return { left: -w / 2, right: w / 2, top: h / 2, bottom: -h / 2 };
+    }
+
+    private getAspect(): number {
+        const w = this.container.clientWidth || 400;
+        const h = this.container.clientHeight || 300;
+        return h > 0 ? w / h : 1;
+    }
+
+    private restoreCamera(): void {
+        this.orthoCamera = undefined;
+    }
+
+    private dimModel(dim: boolean): void {
+        if (this.modelGroup === undefined) {
+            return;
+        }
+        if (dim) {
+            this.originalModelVisibility.clear();
+            this.modelGroup.traverse((child) => {
+                this.originalModelVisibility.set(child, child.visible);
+                child.visible = false;
+            });
+        } else {
+            this.modelGroup.traverse((child) => {
+                child.visible = this.originalModelVisibility.get(child) ?? true;
+            });
+            this.originalModelVisibility.clear();
+        }
+    }
+
+    /** Switch the active sketch tool. */
+    setTool(tool: SketchTool): void {
+        this.constraintInput = undefined;
+        this.session?.setTool(tool);
+        this.renderPreview();
+        this.emitChange();
+    }
+
+    /** Toggle construction geometry for new entities. */
+    setConstruction(construction: boolean): void {
+        this.construction = construction;
+        this.emitChange();
+    }
+
+    /** Toggle the construction flag on the current selection. */
+    async toggleConstructionForSelection(): Promise<void> {
+        if (this.session === undefined || this.selectedIds.size === 0) {
+            return;
+        }
+        const value = !this.construction;
+        for (const id of this.selectedIds) {
+            await this.session.setConstruction(id, value);
+        }
+        this.emitChange();
+    }
+
+    /** Start adding a constraint; the next primitive clicks become targets. */
+    startConstraint(kind: ConstraintKind): void {
+        this.constraintInput = { kind, targetIds: [] };
+        this.session?.setTool('select');
+        this.emitChange();
+    }
+
+    /** Apply a constraint with a numeric value (for distance/radius/angle). */
+    async applyConstraintValue(kind: ConstraintKind, value: number): Promise<void> {
+        if (this.session === undefined || this.constraintInput === undefined || this.constraintInput.kind !== kind) {
+            return;
+        }
+        const targetIds = [...this.constraintInput.targetIds];
+        if (targetIds.length !== CONSTRAINT_ARITY[kind]) {
+            this.constraintInput = { ...this.constraintInput, error: `Select ${CONSTRAINT_ARITY[kind]} primitives` };
+            this.emitChange();
+            return;
+        }
+        const result = await this.session.addConstraint(kind, targetIds, value);
+        if (result.success) {
+            this.constraintInput = undefined;
+        } else {
+            this.constraintInput = { ...this.constraintInput, error: result.error };
+        }
+        this.emitChange();
+    }
+
+    /** Delete the selected primitives. */
+    async deleteSelection(): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        for (const id of [...this.selectedIds]) {
+            await this.session.deletePrimitive(id);
+        }
+        this.selectedIds.clear();
+        this.renderSelection();
+        this.emitChange();
+    }
+
+    /** Cancel the in-progress entity or active constraint tool. */
+    cancel(): void {
+        if (this.constraintInput !== undefined) {
+            this.constraintInput = undefined;
+        } else {
+            this.session?.cancel();
+        }
+        this.renderPreview();
+        this.emitChange();
+    }
+
+    /** Pointer move handler. */
+    onPointerMove(clientX: number, clientY: number): void {
+        if (this.session === undefined) {
+            return;
+        }
+        const sketchPoint = this.pointerToSketch(clientX, clientY);
+        if (sketchPoint === undefined) {
+            return;
+        }
+        this.lastPointer = sketchPoint;
+        this.lastSnap = this.computeSnap(sketchPoint);
+        const snapped = this.lastSnap.point;
+
+        if (this.drag !== undefined) {
+            if (!this.dragFramePending) {
+                this.dragFramePending = true;
+                requestAnimationFrame(() => {
+                    this.dragFramePending = false;
+                    if (this.drag === undefined || this.lastSnap === undefined) {
+                        return;
+                    }
+                    this.session!.dragTo(this.lastSnap.point).catch((err) => {
+                        console.error('[SketchMode] dragTo failed:', err);
+                    });
+                });
+            }
+        } else {
+            this.renderPreview();
+        }
+        this.updateSnapMarker(snapped);
+    }
+
+    /** Pointer down handler. */
+    onPointerDown(clientX: number, clientY: number, shiftKey: boolean, button = 0): void {
+        if (this.session === undefined || button !== 0) {
+            return;
+        }
+        const sketchPoint = this.pointerToSketch(clientX, clientY);
+        if (sketchPoint === undefined) {
+            return;
+        }
+        this.lastPointer = sketchPoint;
+        this.lastSnap = this.computeSnap(sketchPoint);
+        const snapResult = this.lastSnap;
+
+        if (this.constraintInput !== undefined) {
+            this.handleConstraintClick(snapResult, shiftKey).catch((err) => {
+                console.error('[SketchMode] constraint click failed:', err);
+            });
+            return;
+        }
+
+        const tool = this.session.getTool();
+        if (tool === 'select') {
+            const pointId = this.draggablePointAt(snapResult);
+            if (pointId !== undefined) {
+                this.drag = { pointIds: [pointId] };
+                this.session.beginDrag([pointId]);
+                this.session.dragTo(snapResult.point).catch((err) => {
+                    console.error('[SketchMode] initial dragTo failed:', err);
+                });
+            } else {
+                this.handleSelectClick(snapResult, shiftKey);
+            }
+        }
+    }
+
+    /** Pointer up handler. */
+    async onPointerUp(_clientX: number, _clientY: number): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        if (this.drag !== undefined) {
+            await this.session.endDrag();
+            this.drag = undefined;
+            this.dragFramePending = false;
+            return;
+        }
+
+        const tool = this.session.getTool();
+        if (tool !== 'select' && this.lastPointer !== undefined) {
+            const snapped = this.lastSnap?.point ?? this.lastPointer;
+            await this.session.click(snapped);
+        }
+    }
+
+    /** Delete key handler. */
+    onDeleteKey(): void {
+        this.deleteSelection().catch((err) => {
+            console.error('[SketchMode] delete selection failed:', err);
+        });
+    }
+
+    /** Escape key handler. */
+    onEscape(): void {
+        this.cancel();
+    }
+
+    private handleSelectClick(snap: SnapResult, shiftKey: boolean): void {
+        const targetId = snap.sourceId;
+        if (targetId === undefined) {
+            if (!shiftKey) {
+                this.selectedIds.clear();
+            }
+        } else if (shiftKey) {
+            if (this.selectedIds.has(targetId)) {
+                this.selectedIds.delete(targetId);
+            } else {
+                this.selectedIds.add(targetId);
+            }
+        } else {
+            this.selectedIds.clear();
+            this.selectedIds.add(targetId);
+        }
+        this.renderSelection();
+        this.emitChange();
+    }
+
+    private async handleConstraintClick(snap: SnapResult, _shiftKey: boolean): Promise<void> {
+        if (this.session === undefined || this.constraintInput === undefined) {
+            return;
+        }
+        const targetId = snap.sourceId;
+        if (targetId === undefined) {
+            return;
+        }
+        if (this.constraintInput.targetIds.includes(targetId)) {
+            return;
+        }
+        const arity = CONSTRAINT_ARITY[this.constraintInput.kind];
+        const targetIds = [...this.constraintInput.targetIds, targetId];
+        if (targetIds.length < arity) {
+            this.constraintInput = { kind: this.constraintInput.kind, targetIds };
+            this.emitChange();
+            return;
+        }
+
+        if (VALUE_CONSTRAINTS.has(this.constraintInput.kind)) {
+            this.constraintInput = { kind: this.constraintInput.kind, targetIds };
+            this.emitChange();
+            return;
+        }
+
+        const result = await this.session.addConstraint(this.constraintInput.kind, targetIds);
+        if (result.success) {
+            this.constraintInput = undefined;
+        } else {
+            this.constraintInput = { kind: this.constraintInput.kind, targetIds, error: result.error };
+        }
+        this.emitChange();
+    }
+
+    private draggablePointAt(snap: SnapResult): string | undefined {
+        if (snap.kind === 'endpoint' || snap.kind === 'center') {
+            return snap.pointId;
+        }
+        return undefined;
+    }
+
+    private computeSnap(raw: Point2): SnapResult {
+        const radius = pixelRadiusToModelUnits(12, this.getOrthoHeight(), this.container.clientHeight);
+        return snap(raw, this.session?.getPrimitives() ?? [], createSnapConfig({ radius, gridPitch: 1 }));
+    }
+
+    private pointerToSketch(clientX: number, clientY: number): Point2 | undefined {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+        const camera = this.getActiveCamera();
+        const rayOrigin = new THREE.Vector3(ndcX, ndcY, -1).unproject(camera);
+        const rayTarget = new THREE.Vector3(ndcX, ndcY, 1).unproject(camera);
+        const direction = rayTarget.sub(rayOrigin).normalize();
+        const ray = { origin: this.fromThree(rayOrigin), direction: this.fromThree(direction) };
+        const hit = intersectRayPlane(ray, this.datumPlane);
+        if (hit === undefined) {
+            return undefined;
+        }
+        return worldToSketch(hit, this.datumPlane);
+    }
+
+    private getOrthoHeight(): number {
+        const cam = this.orthoCamera;
+        if (cam === undefined) {
+            return defaultSketchViewSize();
+        }
+        return cam.top - cam.bottom;
+    }
+
+    private renderSketch(): void {
+        this.clearCommitted();
+        if (this.session === undefined) {
+            return;
+        }
+        const primitives = this.session.getPrimitives();
+        for (const primitive of primitives) {
+            this.renderPrimitive(primitive);
+        }
+        this.renderPreview();
+        this.renderSelection();
+    }
+
+    private clearCommitted(): void {
+        while (this.committedGroup.children.length > 0) {
+            const child = this.committedGroup.children[0];
+            this.committedGroup.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+    }
+
+    private renderPrimitive(primitive: SketchPrimitive & { construction: boolean }): void {
+        const isSelected = this.selectedIds.has(primitive.id);
+        const color = this.primitiveColor(primitive, isSelected);
+        const z = 0.001;
+
+        if (primitive.type === 'point') {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute([primitive.x, primitive.y, z], 3));
+            const material = new THREE.PointsMaterial({
+                color,
+                size: isSelected ? 8 : 5,
+                sizeAttenuation: false
+            });
+            const points = new THREE.Points(geometry, material);
+            points.userData = { id: primitive.id };
+            this.committedGroup.add(points);
+            return;
+        }
+
+        if (primitive.type === 'line') {
+            const p1 = this.session!.getPrimitive(primitive.p1Id) as SketchPoint | undefined;
+            const p2 = this.session!.getPrimitive(primitive.p2Id) as SketchPoint | undefined;
+            if (p1 === undefined || p2 === undefined) {
+                return;
+            }
+            const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(p1.x, p1.y, z), new THREE.Vector3(p2.x, p2.y, z)]);
+            const material = new THREE.LineBasicMaterial({ color, linewidth: isSelected ? 2 : 1 });
+            const line = new THREE.Line(geometry, material);
+            line.userData = { id: primitive.id };
+            this.committedGroup.add(line);
+            return;
+        }
+
+        if (primitive.type === 'circle') {
+            const center = this.session!.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return;
+            }
+            const geometry = this.circleGeometry(center, primitive.radius, z);
+            const material = new THREE.LineBasicMaterial({ color, linewidth: isSelected ? 2 : 1 });
+            const line = new THREE.Line(geometry, material);
+            line.userData = { id: primitive.id };
+            this.committedGroup.add(line);
+            return;
+        }
+
+        if (primitive.type === 'arc') {
+            const center = this.session!.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return;
+            }
+            const geometry = this.arcGeometry(center, primitive.radius, primitive.startAngle, primitive.endAngle, z);
+            const material = new THREE.LineBasicMaterial({ color, linewidth: isSelected ? 2 : 1 });
+            const line = new THREE.Line(geometry, material);
+            line.userData = { id: primitive.id };
+            this.committedGroup.add(line);
+        }
+    }
+
+    private circleGeometry(center: Point2, radius: number, z: number, segments = 64): THREE.BufferGeometry {
+        const points: THREE.Vector3[] = [];
+        for (let i = 0; i <= segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            points.push(new THREE.Vector3(center.x + radius * Math.cos(angle), center.y + radius * Math.sin(angle), z));
+        }
+        return new THREE.BufferGeometry().setFromPoints(points);
+    }
+
+    private arcGeometry(
+        center: Point2,
+        radius: number,
+        startAngle: number,
+        endAngle: number,
+        z: number,
+        segments = 64
+    ): THREE.BufferGeometry {
+        let s = startAngle;
+        let e = endAngle;
+        if (e < s) {
+            e += Math.PI * 2;
+        }
+        const points: THREE.Vector3[] = [];
+        for (let i = 0; i <= segments; i++) {
+            const angle = s + (i / segments) * (e - s);
+            points.push(new THREE.Vector3(center.x + radius * Math.cos(angle), center.y + radius * Math.sin(angle), z));
+        }
+        return new THREE.BufferGeometry().setFromPoints(points);
+    }
+
+    private renderPreview(): void {
+        while (this.previewObject.children.length > 0) {
+            const child = this.previewObject.children[0];
+            this.previewObject.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+        if (this.session === undefined || this.lastPointer === undefined) {
+            return;
+        }
+        const preview = this.session.hover(this.lastPointer);
+        const color = this.themeColors.preview;
+        const z = 0.002;
+
+        if (preview.type === 'point') {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute([preview.point.x, preview.point.y, z], 3));
+            const material = new THREE.PointsMaterial({ color, size: 5, sizeAttenuation: false });
+            this.previewObject.add(new THREE.Points(geometry, material));
+        } else if (preview.type === 'line') {
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(preview.p1.x, preview.p1.y, z),
+                new THREE.Vector3(preview.p2.x, preview.p2.y, z)
+            ]);
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(new THREE.Line(geometry, material));
+        } else if (preview.type === 'circle') {
+            const geometry = this.circleGeometry(preview.center, preview.radius, z);
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(new THREE.Line(geometry, material));
+        } else if (preview.type === 'arc') {
+            const geometry = this.arcGeometry(preview.center, preview.radius, preview.startAngle, preview.endAngle, z);
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(new THREE.Line(geometry, material));
+        } else if (preview.type === 'rectangle') {
+            const p1 = preview.p1;
+            const p2 = preview.p2;
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(p1.x, p1.y, z),
+                new THREE.Vector3(p2.x, p1.y, z),
+                new THREE.Vector3(p2.x, p2.y, z),
+                new THREE.Vector3(p1.x, p2.y, z),
+                new THREE.Vector3(p1.x, p1.y, z)
+            ]);
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(new THREE.Line(geometry, material));
+        }
+    }
+
+    private updateSnapMarker(point: Point2): void {
+        const positions = this.snapMarker.geometry.attributes.position.array as Float32Array;
+        positions[0] = point.x;
+        positions[1] = point.y;
+        positions[2] = 0.003;
+        this.snapMarker.geometry.attributes.position.needsUpdate = true;
+        this.snapMarker.visible = true;
+        this.renderCallback();
+    }
+
+    private renderSelection(): void {
+        while (this.selectionMarker.children.length > 0) {
+            const child = this.selectionMarker.children[0];
+            this.selectionMarker.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+        if (this.session === undefined) {
+            return;
+        }
+        for (const id of this.selectedIds) {
+            const primitive = this.session.getPrimitive(id);
+            if (primitive === undefined) {
+                continue;
+            }
+            const color = this.themeColors.selected;
+            const z = 0.004;
+            if (primitive.type === 'point') {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute([primitive.x, primitive.y, z], 3));
+                const material = new THREE.PointsMaterial({ color, size: 10, sizeAttenuation: false });
+                this.selectionMarker.add(new THREE.Points(geometry, material));
+            } else if (primitive.type === 'line') {
+                const p1 = this.session.getPrimitive(primitive.p1Id) as SketchPoint | undefined;
+                const p2 = this.session.getPrimitive(primitive.p2Id) as SketchPoint | undefined;
+                if (p1 === undefined || p2 === undefined) {
+                    continue;
+                }
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(p1.x, p1.y, z),
+                    new THREE.Vector3(p2.x, p2.y, z)
+                ]);
+                const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+                this.selectionMarker.add(new THREE.Line(geometry, material));
+            } else if (primitive.type === 'circle') {
+                const center = this.session.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+                if (center === undefined) {
+                    continue;
+                }
+                const geometry = this.circleGeometry(center, primitive.radius, z);
+                const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+                this.selectionMarker.add(new THREE.Line(geometry, material));
+            } else if (primitive.type === 'arc') {
+                const center = this.session.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+                if (center === undefined) {
+                    continue;
+                }
+                const geometry = this.arcGeometry(center, primitive.radius, primitive.startAngle, primitive.endAngle, z);
+                const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+                this.selectionMarker.add(new THREE.Line(geometry, material));
+            }
+        }
+        this.renderCallback();
+    }
+
+    private primitiveColor(primitive: SketchPrimitive & { construction: boolean }, isSelected: boolean): THREE.Color {
+        if (isSelected) {
+            return this.themeColors.selected;
+        }
+        if (primitive.construction) {
+            return this.themeColors.construction;
+        }
+        if (this.status.conflicting.length > 0) {
+            return this.themeColors.conflict;
+        }
+        if (this.status.fullyConstrained) {
+            return this.themeColors.constrained;
+        }
+        return this.themeColors.normal;
+    }
+
+    private readThemeColors(): ThemeColors {
+        return {
+            normal: this.readColor('--theia-foreground', '#cccccc'),
+            construction: this.readColor('--theia-descriptionForeground', '#858585'),
+            selected: this.readColor('--theia-focusBorder', '#007fd4'),
+            constrained: this.readColor('--theia-foreground', '#cccccc'),
+            underConstrained: this.readColor('--theia-editorInfo-foreground', '#1a85ff'),
+            conflict: this.readColor('--theia-editorError-foreground', '#f48771'),
+            preview: this.readColor('--theia-editorInfo-foreground', '#1a85ff'),
+            snap: this.readColor('--theia-focusBorder', '#007fd4'),
+            grid: this.readColor('--theia-panel-border', '#3c3c3c')
+        };
+    }
+
+    private readColor(variable: string, fallback: string): THREE.Color {
+        const value = getComputedStyle(this.container).getPropertyValue(variable).trim();
+        return new THREE.Color(value || fallback);
+    }
+
+    private buildGrid(): THREE.GridHelper {
+        const grid = new THREE.GridHelper(100, 100, this.themeColors.grid.getHex(), this.themeColors.grid.getHex());
+        grid.rotation.x = Math.PI / 2;
+        return grid;
+    }
+
+    /** Highlight conflicting or redundant constraints by selecting their primitives. */
+    highlightDiagnostics(kind: 'conflicting' | 'redundant'): void {
+        if (this.session === undefined) {
+            return;
+        }
+        const ids = kind === 'conflicting' ? this.status.conflicting : this.status.redundant;
+        this.selectedIds.clear();
+        for (const constraintId of ids) {
+            const record = this.session.getConstraints().find((c) => c.id === constraintId);
+            if (record !== undefined) {
+                for (const id of record.targetIds) {
+                    this.selectedIds.add(id);
+                }
+            }
+        }
+        this.renderSelection();
+        this.emitChange();
+    }
+
+    /** Return constraints whose target ids intersect the current selection. */
+    getSelectedConstraints(): ConstraintRecord[] {
+        if (this.session === undefined || this.selectedIds.size === 0) {
+            return [];
+        }
+        return this.session.getConstraints().filter((c) => c.targetIds.some((id) => this.selectedIds.has(id)));
+    }
+
+    private toThree(v: Vec3): THREE.Vector3 {
+        return new THREE.Vector3(v.x, v.y, v.z);
+    }
+
+    private fromThree(v: THREE.Vector3): Vec3 {
+        return { x: v.x, y: v.y, z: v.z };
+    }
+
+    /** Release three.js resources owned by the controller. */
+    dispose(): void {
+        this.unbindSession();
+        this.scene.remove(this.sketchGroup);
+        this.sketchGroup.traverse((child) => {
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+    }
+}

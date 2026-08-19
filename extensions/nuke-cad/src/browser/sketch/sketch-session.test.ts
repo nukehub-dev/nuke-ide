@@ -384,6 +384,68 @@ describe('SketchSession', () => {
 
             expectPoint(session, ids[1], 5, 0);
         });
+
+        it('does not pin a dropped point after drag commit', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(1);
+            const lineId = lines[0].id;
+            const p1Id = lines[0].p1Id;
+            const p2Id = lines[0].p2Id;
+
+            await session.addConstraint('horizontal', [lineId]);
+            await session.addConstraint('distance', [p1Id, p2Id], 5);
+
+            // Drag the first endpoint and commit; it should land at (3, 4).
+            session.beginDrag([p1Id]);
+            await session.dragTo({ x: 3, y: 4 });
+            await session.endDrag();
+            expectPoint(session, p1Id, 3, 4);
+
+            // Drag the second endpoint horizontally. The first endpoint must
+            // move to maintain the distance constraint; it is no longer pinned.
+            session.beginDrag([p2Id]);
+            await session.dragTo({ x: 10, y: 4 });
+            await session.endDrag();
+
+            const a = point(session, p1Id);
+            const b = point(session, p2Id);
+            expect(b.x).toBeCloseTo(10, 10);
+            expect(b.y).toBeCloseTo(4, 10);
+            expect(Math.abs(b.x - a.x)).toBeCloseTo(5, 10);
+            expect(a.y).toBeCloseTo(4, 10);
+            // A moved away from its committed x=3 to satisfy the distance.
+            expect(Math.abs(a.x - 3)).toBeGreaterThan(0.01);
+        });
+
+        it('preserves DOF across a SketchDef round-trip after drag', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            const lineId = lines[0].id;
+            const p1Id = lines[0].p1Id;
+            const p2Id = lines[0].p2Id;
+
+            await session.addConstraint('horizontal', [lineId]);
+            await session.addConstraint('fix', [p1Id]);
+
+            // Drag the free endpoint and commit.
+            session.beginDrag([p2Id]);
+            await session.dragTo({ x: 7, y: 0 });
+            await session.endDrag();
+
+            const beforeDof = session.getStatus().dof;
+
+            const def = session.toSketchDef();
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+
+            expect(restored.getStatus().dof).toBe(beforeDof);
+            expect(restored.getStatus().dof).toBeGreaterThanOrEqual(0);
+        });
     });
 
     describe('delete', () => {

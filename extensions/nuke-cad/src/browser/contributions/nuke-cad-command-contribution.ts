@@ -135,5 +135,26 @@ export class NukeCadCommandContribution implements CommandContribution {
                 await this.shell.activateWidget(widget.id);
             }
         });
+
+        commands.registerCommand(NukeCadCommands.NEW_SKETCH, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                widget.startSketchSetup();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.EXIT_SKETCH, {
+            execute: () => {
+                const widget = this.shell.currentWidget;
+                if (widget instanceof CadViewportWidget) {
+                    widget.exitSketch();
+                }
+            }
+        });
     }
 }

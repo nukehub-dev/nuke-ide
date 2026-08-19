@@ -63,4 +63,14 @@ export namespace NukeCadCommands {
         id: 'nuke.cad.openFoamPanel',
         label: nls.localize('nuke/cad/openFoamPanel', 'Open OpenFOAM Case Panel')
     };
+
+    export const NEW_SKETCH: Command = {
+        id: 'nuke.cad.newSketch',
+        label: nls.localize('nuke/cad/newSketch', 'New Sketch')
+    };
+
+    export const EXIT_SKETCH: Command = {
+        id: 'nuke.cad.exitSketch',
+        label: nls.localize('nuke/cad/exitSketch', 'Exit Sketch')
+    };
 }

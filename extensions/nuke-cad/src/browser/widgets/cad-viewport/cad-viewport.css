@@ -106,3 +106,185 @@
     color: var(--theia-foreground);
     font-size: var(--theia-ui-font-size1);
 }
+
+/* Sketch mode overlay */
+
+.cad-sketch-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+.cad-sketch-overlay > * {
+    pointer-events: auto;
+}
+
+.cad-sketch-toolbar {
+    position: absolute;
+    top: 44px;
+    left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+}
+
+.cad-sketch-tool-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.cad-sketch-tool-button.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-datum-picker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 220px;
+    padding: 16px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+}
+
+.cad-sketch-datum-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    text-align: center;
+}
+
+.cad-sketch-datum-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+}
+
+.cad-sketch-datum-buttons button {
+    min-width: 44px;
+}
+
+.cad-sketch-datum-buttons button.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-datum-offset {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-datum-offset input {
+    flex: 1;
+    min-width: 80px;
+}
+
+.cad-sketch-datum-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.cad-sketch-constraint-bar {
+    position: absolute;
+    top: 44px;
+    left: 50px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-constraint-select {
+    min-width: 140px;
+}
+
+.cad-sketch-constraint-hint {
+    opacity: 0.8;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-sketch-value-input {
+    position: absolute;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+}
+
+.cad-sketch-value-input label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-value-input input {
+    width: 90px;
+}
+
+.cad-sketch-status-line {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-status {
+    position: absolute;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-status-error {
+    color: var(--theia-editorError-foreground);
+    border: 1px solid var(--theia-editorError-foreground);
+}
