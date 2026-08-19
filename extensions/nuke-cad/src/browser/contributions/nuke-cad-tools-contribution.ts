@@ -71,6 +71,30 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke.cad.openFeatureTree',
+            label: 'Feature Tree',
+            commandId: NukeCadCommands.OPEN_FEATURE_TREE.id,
+            category: ['CAD Studio', 'Geometry'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a2',
+            icon: 'list-tree',
+            description: 'Open the parametric feature tree for .nuke-cad documents.'
+        });
+
+        registry.registerItem({
+            id: 'nuke.cad.newDocument',
+            label: 'New CAD Document',
+            commandId: NukeCadCommands.NEW_DOCUMENT.id,
+            category: ['CAD Studio', 'Geometry'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a3',
+            icon: 'new-file',
+            description: 'Create a new .nuke-cad document.'
+        });
+
+        registry.registerItem({
             id: 'nuke.cad.rebuild',
             label: 'Rebuild Geometry',
             commandId: NukeCadCommands.REBUILD_GEOMETRY.id,

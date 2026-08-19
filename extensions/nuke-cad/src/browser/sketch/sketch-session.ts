@@ -142,6 +142,15 @@ export interface SketchSessionOptions {
     snap?: Partial<SnapConfig>;
     /** Auto horizontal/vertical angle threshold in degrees. */
     autoConstraintAngleThresholdDeg?: number;
+    /**
+     * Document-level parameters inherited by this sketch.
+     *
+     * Inherited parameters are registered in the solver so dimensions can bind
+     * to them, but they are excluded from {@link SketchSession.toSketchDef} so
+     * the persisted sketch-local parameter table only contains parameters
+     * created inside the sketch session.
+     */
+    inheritedParameters?: Record<string, number>;
 }
 
 /** Listener invoked after any mutation that changes the sketch state. */
@@ -318,6 +327,7 @@ export class SketchSession {
     private readonly constraints = new Map<string, ConstraintRecord>();
     private readonly fixConstraintIds = new Map<string, string>(); // pointId -> constraintId
     private readonly parameters = new Map<string, number>();
+    private readonly inheritedParameterNames = new Set<string>();
     private readonly dimensions = new Map<string, SketchDimension>();
 
     private tool: SketchTool = 'select';
@@ -334,6 +344,10 @@ export class SketchSession {
         this.datumId = options.datumId ?? 'xy';
         this.snapConfig = createSnapConfig(options.snap);
         this.autoConstraintAngleThresholdDeg = options.autoConstraintAngleThresholdDeg ?? 5;
+        for (const [name, value] of Object.entries(options.inheritedParameters ?? {})) {
+            this.addParameterInternal(name, value);
+            this.inheritedParameterNames.add(name);
+        }
         this.status = {
             dof: 0,
             conflicting: [],
@@ -360,17 +374,40 @@ export class SketchSession {
      *
      * Primitives, constraints, and sketch-local parameters are replayed into the
      * solver and solved. Fixed points are restored as fix constraints.
+     *
+     * @param options - Additional session options. ``inheritedParameters`` are
+     *   seeded after sketch-local parameters so document-level parameters take
+     *   precedence when names collide.
      */
-    static async fromSketchDef(def: SketchDef, solver: SketchSolver): Promise<SketchSession> {
+    static async fromSketchDef(
+        def: SketchDef,
+        solver: SketchSolver,
+        options?: Omit<SketchSessionOptions, 'id' | 'name' | 'datumId'>
+    ): Promise<SketchSession> {
         const session = new SketchSession(solver, {
             id: def.id,
             name: def.name,
-            datumId: def.datumId
+            datumId: def.datumId,
+            snap: options?.snap,
+            autoConstraintAngleThresholdDeg: options?.autoConstraintAngleThresholdDeg
         });
 
         // Register parameters first so constraints can reference them.
         for (const [name, value] of Object.entries(def.parameters ?? {})) {
             session.addParameterInternal(name, value);
+        }
+
+        // Seed inherited document parameters after sketch-local ones. Document
+        // parameters take precedence when names collide, consistent with the
+        // document being the source of truth for named values.
+        for (const [name, value] of Object.entries(options?.inheritedParameters ?? {})) {
+            if (session.parameters.has(name)) {
+                session.parameters.set(name, value);
+                session.solver.setParameter(name, value);
+            } else {
+                session.addParameterInternal(name, value);
+            }
+            session.inheritedParameterNames.add(name);
         }
 
         // Add points first because higher geometry references them.
@@ -537,13 +574,34 @@ export class SketchSession {
         return this.dimensions.get(id);
     }
 
-    /** Sketch-local parameter values. */
+    /**
+     * Sketch-local parameter values.
+     *
+     * Excludes parameters inherited from the document; those are owned by the
+     * document store and surfaced through {@link getAllParameters}.
+     */
     getParameters(): Record<string, number> {
+        const result: Record<string, number> = {};
+        for (const [name, value] of this.parameters) {
+            if (!this.inheritedParameterNames.has(name)) {
+                result[name] = value;
+            }
+        }
+        return result;
+    }
+
+    /** All parameters visible in the sketch, including inherited document ones. */
+    getAllParameters(): Record<string, number> {
         const result: Record<string, number> = {};
         for (const [name, value] of this.parameters) {
             result[name] = value;
         }
         return result;
+    }
+
+    /** Names of parameters inherited from the document. */
+    getInheritedParameterNames(): string[] {
+        return [...this.inheritedParameterNames];
     }
 
     /** Define or update a sketch-local parameter. */
@@ -1710,7 +1768,9 @@ export class SketchSession {
 
         const parameters: Record<string, number> = {};
         for (const [name, value] of this.parameters) {
-            parameters[name] = value;
+            if (!this.inheritedParameterNames.has(name)) {
+                parameters[name] = value;
+            }
         }
 
         const dimensions = [...this.dimensions.values()];

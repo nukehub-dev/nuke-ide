@@ -63,6 +63,8 @@ import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type DatumKind } from '../../sketch/sketch-math';
 import { CadSketchOverlay } from './cad-sketch-overlay';
+import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
+import { type NukeCadDocument, type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import './cad-viewport.css';
 
 interface TessFace {
@@ -109,6 +111,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(NukeCadBackendService)
     protected readonly backendService: NukeCadBackendService;
 
+    @inject(CadDocumentStore)
+    protected readonly documentStore: CadDocumentStore;
+
     @inject(MonacoWorkspace)
     protected readonly monacoWorkspace: MonacoWorkspace;
 
@@ -122,8 +127,12 @@ export class CadViewportWidget extends ReactWidget {
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
+    /** True while a feature creation dialog is open. */
+    featureCreationType?: FeatureType;
     private sketchController?: SketchModeController;
     private sketchCamera?: THREE.PerspectiveCamera;
+    /** Id of the sketch being edited, or undefined for a new sketch. */
+    private editingSketchId?: string;
 
     /**
      * Stable callbacks handed to the React component so the three.js scene is
@@ -153,14 +162,73 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleEnterSketch = (kind: DatumKind, offset: number): void => {
         this.sketchSetupVisible = false;
         this.update();
-        void this.sketchController?.enterSketch(kind, offset, this.sketchCamera);
+        void this.doEnterSketch(kind, offset);
     };
 
-    protected readonly handleExitSketch = (): void => {
-        this.sketchSetupVisible = false;
-        this.update();
-        void this.sketchController?.exitSketch();
+    protected readonly handleExitSketch = (): Promise<void> => this.doExitSketch();
+
+    protected readonly handleNewDocument = (): void => {
+        this.documentStore.createDocument('Untitled');
+        this.editingSketchId = undefined;
     };
+
+    protected readonly handleSaveDocument = (): Promise<void> => this.saveDocument(false);
+
+    protected readonly handleSaveDocumentAs = (): Promise<void> => this.saveDocument(true);
+
+    protected readonly handleAddFeature = (type: FeatureType, params: FeatureParams): void => {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return;
+        }
+        const sketchId = this.documentStore.selection.selectedSketchId;
+        if (sketchId === undefined) {
+            this.messageService.warn('Select a closed sketch before adding a solid feature.');
+            return;
+        }
+        const dependsOn = computeDependsOn(type, doc.features);
+        if ((type === 'pocket' || type === 'groove') && dependsOn === undefined) {
+            this.messageService.warn(`${type} requires an existing solid body.`);
+            return;
+        }
+        const paramsRecord = params as Record<string, unknown>;
+        const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
+        const featureParams: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(paramsRecord)) {
+            if (key !== 'label') {
+                featureParams[key] = value;
+            }
+        }
+        const feature: FeatureDef = {
+            id: createFeatureId(),
+            name: `${type} ${doc.features.length + 1}`,
+            type,
+            sketchId,
+            params: featureParams as FeatureParams,
+            suppressed: false,
+            label,
+            dependsOn: dependsOn !== undefined ? [dependsOn] : []
+        };
+        const result = this.documentStore.addFeature(feature);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add feature.');
+            return;
+        }
+        this.scheduleDocumentRebuild();
+    };
+
+    protected readonly handleEditSketch = (sketchId: string): void => {
+        const doc = this.documentStore.document;
+        const sketch = doc?.sketches.find((s) => s.id === sketchId);
+        if (sketch === undefined || doc === undefined) {
+            return;
+        }
+        this.editingSketchId = sketchId;
+        this.sketchSetupVisible = true;
+        this.update();
+    };
+
+    protected readonly handleRebuildDocument = (): Promise<void> => this.rebuildDocument();
 
     @postConstruct()
     protected init(): void {
@@ -172,11 +240,16 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.stateManager.onModelChange((model) => this.handleModelChange(model)));
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
+        this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
         this.update();
     }
 
     /** Show the datum-plane picker and prepare to enter sketch mode. */
     startSketchSetup(): void {
+        if (!this.documentStore.hasDocument) {
+            this.documentStore.createDocument('Untitled');
+        }
+        this.editingSketchId = undefined;
         this.sketchSetupVisible = true;
         this.update();
     }
@@ -188,7 +261,197 @@ export class CadViewportWidget extends ReactWidget {
 
     /** Exit the active sketch mode. */
     exitSketch(): void {
-        this.handleExitSketch();
+        void this.handleExitSketch();
+    }
+
+    /** Create a new document and open the viewport. */
+    newDocument(): void {
+        this.handleNewDocument();
+    }
+
+    /** Save the active document, prompting for a path when needed. */
+    async saveDocument(forceDialog = false): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('No CAD document is active.');
+            return;
+        }
+        let uri = this.documentStore.uri !== undefined && !forceDialog ? new URI(this.documentStore.uri) : undefined;
+        if (uri === undefined) {
+            uri = await this.fileDialogService.showSaveDialog({
+                title: 'Save CAD Document',
+                filters: { 'CAD Document': ['nuke-cad'] }
+            });
+            if (uri === undefined) {
+                return;
+            }
+        }
+        const json = this.documentStore.toJson();
+        if (json === undefined) {
+            return;
+        }
+        await this.fileService.write(uri, json);
+        this.documentStore.setUri(uri.toString());
+        this.documentStore.markSaved();
+        this.messageService.info(`Saved ${uri.path.base}`);
+    }
+
+    /** Open the feature creation dialog for the given feature type. */
+    startFeatureCreation(type: FeatureType): void {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('Open or create a document before adding features.');
+            return;
+        }
+        if (this.documentStore.selection.selectedSketchId === undefined) {
+            this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
+            return;
+        }
+        this.featureCreationType = type;
+        this.update();
+    }
+
+    /** Rebuild the active document through the backend. */
+    async rebuildDocument(): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('No CAD document is active.');
+            return;
+        }
+        if (this.documentStore.dirty || this.documentStore.uri === undefined) {
+            await this.saveDocument();
+            if (this.documentStore.uri === undefined) {
+                return; // User cancelled the save dialog.
+            }
+        }
+        const filePath = new URI(this.documentStore.uri).path.toString();
+        this.setLoading(true, 'Rebuilding CAD geometry...');
+        try {
+            const result = await this.backendService.buildDocument({ scriptPath: filePath });
+            this.documentStore.setFeatureResults(result.featureResults ?? []);
+            if (result.success) {
+                this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
+                this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
+            } else {
+                const message = result.error || 'Document rebuild failed.';
+                this.showBuildError(message);
+                this.messageService.error(message);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.showBuildError(message);
+            this.messageService.error(message);
+        }
+    }
+
+    private async doEnterSketch(kind: DatumKind, offset: number): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return;
+        }
+        const existingSketch = this.editingSketchId !== undefined ? doc.sketches.find((s) => s.id === this.editingSketchId) : undefined;
+        let datumId: string | undefined;
+        if (existingSketch !== undefined) {
+            datumId = existingSketch.datumId;
+        } else {
+            // New sketch: find or create a datum matching the picker choice.
+            const builtInId = this.datumIdForKind(kind);
+            if (offset === 0 && builtInId !== undefined) {
+                datumId = builtInId;
+            } else {
+                datumId = this.ensureOffsetDatum(doc, kind, offset);
+            }
+        }
+        if (datumId === undefined) {
+            this.messageService.error(`Could not resolve datum for ${kind} offset ${offset}`);
+            return;
+        }
+        const sketchDef: SketchDef | undefined =
+            existingSketch !== undefined
+                ? { ...existingSketch }
+                : {
+                      id: createSketchId(),
+                      name: `Sketch ${doc.sketches.length + 1}`,
+                      datumId,
+                      primitives: [],
+                      constraints: [],
+                      dimensions: []
+                  };
+        if (existingSketch === undefined) {
+            // Pre-register the new sketch so it can be referenced by features
+            // even before the user exits sketch mode.
+            this.documentStore.upsertSketch(sketchDef);
+        }
+        this.editingSketchId = sketchDef.id;
+        const inheritedParameters = { ...doc.parameters };
+        await this.sketchController?.enterSketch(
+            kind,
+            offset,
+            this.sketchCamera,
+            existingSketch !== undefined ? sketchDef : undefined,
+            inheritedParameters
+        );
+    }
+
+    private datumIdForKind(kind: DatumKind): string | undefined {
+        const map: Record<string, string> = { XY: 'datum-xy', YZ: 'datum-yz', XZ: 'datum-xz' };
+        return map[kind];
+    }
+
+    private ensureOffsetDatum(doc: NukeCadDocument, kind: DatumKind, offset: number): string {
+        const existing = doc.datums.find((d) => d.kind === kind && d.offset === offset);
+        if (existing !== undefined) {
+            return existing.id;
+        }
+        const id = `datum-${kind.toLowerCase()}-offset-${Date.now()}`;
+        const nextDoc: NukeCadDocument = {
+            ...doc,
+            datums: [...doc.datums, { id, kind, name: `${kind} Offset ${offset}`, offset }]
+        };
+        this.documentStore.loadDocument(nextDoc);
+        return id;
+    }
+
+    private async doExitSketch(): Promise<void> {
+        const session = this.sketchController?.getSession();
+        if (session === undefined) {
+            this.sketchSetupVisible = false;
+            this.update();
+            return;
+        }
+        const def = session.toSketchDef();
+        const result = this.documentStore.upsertSketch(def);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to save sketch to document.');
+            // Stay in sketch mode so the user can fix the issue.
+            return;
+        }
+        this.editingSketchId = undefined;
+        await this.sketchController?.exitSketch();
+        this.sketchSetupVisible = false;
+        this.scheduleDocumentRebuild();
+    }
+
+    private scheduleDocumentRebuild(): void {
+        if (!this.documentStore.hasDocument) {
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.saveRebuildTimer = setTimeout(() => {
+            this.saveRebuildTimer = undefined;
+            void this.commandService.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id);
+        }, 500);
+    }
+
+    private onDocumentChange(): void {
+        const doc = this.documentStore.document;
+        if (doc !== undefined && this.documentStore.uri === undefined) {
+            // Untitled document: update the widget title but do not rebuild automatically.
+            this.title.label = `CAD Viewport · ${doc.name}`;
+            this.update();
+            return;
+        }
+        this.update();
     }
 
     /** Show a loading indicator over the current geometry while a rebuild runs. */
@@ -248,7 +511,15 @@ export class CadViewportWidget extends ReactWidget {
     /** Debounce saves of the active script-source model into a geometry rebuild. */
     private onModelScriptSaved(document: MonacoEditorModel): void {
         const scriptPath = this.stateManager.scriptPath;
-        if (!scriptPath || !scriptPath.toLowerCase().endsWith('.py')) {
+        if (!scriptPath) {
+            return;
+        }
+        if (scriptPath.toLowerCase().endsWith('.nuke-cad')) {
+            // Document-mode models are not text-edited; rebuild is triggered
+            // explicitly or after sketch/feature mutations.
+            return;
+        }
+        if (!scriptPath.toLowerCase().endsWith('.py')) {
             return; // Only script-source models rebuild on save (STEP imports are read-only).
         }
         if (new URI(document.uri).path.toString() !== scriptPath) {
@@ -280,7 +551,7 @@ export class CadViewportWidget extends ReactWidget {
             canSelectFolders: false,
             canSelectMany: false,
             filters: {
-                'CAD Models': ['py', 'step', 'stp']
+                'CAD Models': ['py', 'step', 'stp', 'nuke-cad']
             }
         });
         if (!uri) {
@@ -289,6 +560,12 @@ export class CadViewportWidget extends ReactWidget {
 
         const filePath = uri.path.toString();
         const ext = uri.path.ext.toLowerCase();
+
+        if (ext === '.nuke-cad') {
+            await this.openDocumentModel(uri, filePath);
+            return;
+        }
+
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
 
         this.loading = true;
@@ -326,6 +603,33 @@ export class CadViewportWidget extends ReactWidget {
         }
     }
 
+    private async openDocumentModel(uri: URI, filePath: string): Promise<void> {
+        this.loading = true;
+        this.loadingMessage = 'Loading CAD document...';
+        this.buildError = undefined;
+        this.update();
+        try {
+            const content = await this.fileService.read(uri);
+            const json = JSON.parse(content.value.toString()) as unknown;
+            const result = this.documentStore.loadDocument(json);
+            if (!result.success) {
+                this.buildError = result.error || 'Failed to load .nuke-cad document.';
+                this.messageService.error(this.buildError);
+                return;
+            }
+            this.documentStore.setUri(uri.toString());
+            this.documentStore.markSaved();
+            await this.rebuildDocument();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.buildError = message;
+            this.messageService.error(message);
+        } finally {
+            this.loading = false;
+            this.update();
+        }
+    }
+
     protected render(): React.ReactNode {
         return (
             <CadViewportComponent
@@ -333,15 +637,28 @@ export class CadViewportWidget extends ReactWidget {
                 loadingMessage={this.loadingMessage}
                 tessData={this.tessData}
                 error={this.buildError}
+                dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
+                featureCreationType={this.featureCreationType}
+                documentStore={this.documentStore}
                 onDismissError={this.dismissBuildError}
                 onSelect={this.handleViewportSelect}
                 subscribeSelection={this.subscribeSelection}
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModel()}
+                onNewDocument={this.handleNewDocument}
+                onSaveDocument={this.handleSaveDocument}
+                onRebuildDocument={this.handleRebuildDocument}
                 onControllerReady={this.handleControllerReady}
                 onEnterSketch={this.handleEnterSketch}
                 onExitSketch={this.handleExitSketch}
+                onStartFeatureCreation={(type) => this.startFeatureCreation(type)}
+                onAddFeature={this.handleAddFeature}
+                onEditSketch={this.handleEditSketch}
+                onCancelFeatureCreation={() => {
+                    this.featureCreationType = undefined;
+                    this.update();
+                }}
             />
         );
     }
@@ -352,15 +669,25 @@ interface CadViewportComponentProps {
     readonly loadingMessage: string;
     readonly tessData?: TessData;
     readonly error?: string;
+    readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
+    readonly featureCreationType?: FeatureType;
+    readonly documentStore: CadDocumentStore;
     readonly onDismissError: () => void;
     readonly onSelect: (selection: CadSelection) => void;
     readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
+    readonly onNewDocument: () => void;
+    readonly onSaveDocument: () => void;
+    readonly onRebuildDocument: () => void;
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
-    readonly onExitSketch: () => void;
+    readonly onExitSketch: () => Promise<void>;
+    readonly onStartFeatureCreation: (type: FeatureType) => void;
+    readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
+    readonly onEditSketch: (sketchId: string) => void;
+    readonly onCancelFeatureCreation: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -438,28 +765,43 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         );
     }
 
+    const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument;
+    const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
+
     if (props.tessData === undefined) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
                 {errorBanner}
+                {dirtyMarker}
                 <LoadingAnimations />
                 <div className="cad-viewport-empty-panel">
                     <span className="codicon codicon-globe cad-viewport-empty-icon" />
                     <div className="cad-viewport-empty-title">CAD Viewport</div>
                     <div className="cad-viewport-empty-description">
-                        Open a build123d/CadQuery script or a STEP/STP/BREP file to view and inspect geometry.
+                        Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry.
                     </div>
-                    <div className="cad-viewport-empty-formats">Supported formats: .py, .step, .stp, .brep</div>
-                    <button className="theia-button open-cad-model-button" onClick={props.onOpenModel}>
-                        <span className="codicon codicon-folder-opened" /> Open CAD Model...
-                    </button>
+                    <div className="cad-viewport-empty-formats">Supported formats: .py, .step, .stp, .brep, .nuke-cad</div>
+                    <div className="cad-viewport-empty-actions">
+                        <button className="theia-button" onClick={props.onNewDocument}>
+                            <span className="codicon codicon-new-file" /> New Document
+                        </button>
+                        <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
+                            <span className="codicon codicon-folder-opened" /> Open CAD Model...
+                        </button>
+                    </div>
                 </div>
                 {controller !== undefined && (
                     <CadSketchOverlay
                         controller={controller}
+                        documentStore={props.documentStore}
                         setupVisible={props.sketchSetupVisible}
+                        featureCreationType={props.featureCreationType}
                         onEnterSketch={props.onEnterSketch}
                         onExitSketch={props.onExitSketch}
+                        onStartFeatureCreation={props.onStartFeatureCreation}
+                        onAddFeature={props.onAddFeature}
+                        onEditSketch={props.onEditSketch}
+                        onCancelFeatureCreation={props.onCancelFeatureCreation}
                     />
                 )}
             </div>
@@ -469,18 +811,31 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     return (
         <div ref={containerRef} className="cad-viewport">
             {errorBanner}
+            {dirtyMarker}
             {props.loading && (
                 <div className="cad-viewport-loading-overlay">
                     <span className="codicon codicon-loading codicon-modifier-spin" />
                     <span>{props.loadingMessage}</span>
                 </div>
             )}
+            {documentEmpty && (
+                <div className="cad-viewport-document-hint">
+                    <span className="codicon codicon-info" />
+                    Document mode: use the Feature Tree to add sketches and features, then rebuild.
+                </div>
+            )}
             {controller !== undefined && (
                 <CadSketchOverlay
                     controller={controller}
+                    documentStore={props.documentStore}
                     setupVisible={props.sketchSetupVisible}
+                    featureCreationType={props.featureCreationType}
                     onEnterSketch={props.onEnterSketch}
                     onExitSketch={props.onExitSketch}
+                    onStartFeatureCreation={props.onStartFeatureCreation}
+                    onAddFeature={props.onAddFeature}
+                    onEditSketch={props.onEditSketch}
+                    onCancelFeatureCreation={props.onCancelFeatureCreation}
                 />
             )}
         </div>

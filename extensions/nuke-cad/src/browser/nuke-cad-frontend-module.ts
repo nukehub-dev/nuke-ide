@@ -41,11 +41,13 @@ import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke
 import { NukeCadFrontendService } from './nuke-cad-frontend-service';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
+import { CadDocumentStore } from './document/cad-document-store';
 import { NukeCadCommandContribution } from './contributions/nuke-cad-command-contribution';
 import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
 import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contribution';
 import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from './widgets/outline-panel/outline-panel-widget';
+import { CadFeatureTreeWidget } from './widgets/feature-tree/feature-tree-widget';
 import { FemPanelWidget } from './widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from './widgets/foam-panel/foam-panel-widget';
 
@@ -53,6 +55,7 @@ export default new ContainerModule((bind) => {
     bindNukeCadPreferences(bind);
 
     bind(NukeCadStateManager).toSelf().inSingletonScope();
+    bind(CadDocumentStore).toSelf().inSingletonScope();
 
     bind(NukeCadFrontendService)
         .toDynamicValue((ctx) => {
@@ -87,6 +90,14 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadOutlinePanelWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadFeatureTreeWidget.ID,
+            createWidget: () => ctx.container.get(CadFeatureTreeWidget)
+        }))
+        .inSingletonScope();
+    bind(CadFeatureTreeWidget).toSelf();
 
     bind(WidgetFactory)
         .toDynamicValue((ctx) => ({

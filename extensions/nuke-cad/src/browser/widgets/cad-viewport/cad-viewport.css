@@ -536,3 +536,138 @@
 .cad-sketch-status-line.has-diagnostics:hover {
     background: var(--theia-list-hoverBackground);
 }
+
+/* Document mode chrome */
+
+.cad-viewport-empty-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.cad-viewport-dirty-marker {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
+}
+
+.cad-viewport-document-hint {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-document-toolbar {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    pointer-events: auto;
+}
+
+.cad-document-toolbar button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cad-document-toolbar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cad-document-name {
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size1);
+    color: var(--theia-foreground);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-document-dirty {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
+}
+
+/* Feature creation dialog */
+
+.cad-feature-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 240px;
+    padding: 14px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+}
+
+.cad-feature-dialog-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    text-align: center;
+}
+
+.cad-feature-dialog-error {
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-row input[type='text'],
+.cad-feature-dialog-row input[type='number'],
+.cad-feature-dialog-row select {
+    flex: 1;
+    min-width: 80px;
+}
+
+.cad-feature-dialog-row input[type='checkbox'] {
+    width: auto;
+}
+
+.cad-feature-dialog-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 4px;
+}

@@ -28,6 +28,9 @@
 /**
  * React overlay for interactive sketch mode inside the CAD viewport.
  *
+ * In document mode it also hosts the document toolbar (new sketch, rebuild,
+ * feature creation) and the feature creation dialog.
+ *
  * @module nuke-cad/browser/widgets
  */
 
@@ -36,13 +39,20 @@ import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
-import { type SketchDimension, type DimensionKind } from '../../../common/cad-document';
+import { type SketchDimension, type DimensionKind, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import { CadDocumentStore } from '../../document/cad-document-store';
 
 interface CadSketchOverlayProps {
     readonly controller: SketchModeController;
+    readonly documentStore: CadDocumentStore;
     readonly setupVisible: boolean;
+    readonly featureCreationType?: FeatureType;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
-    readonly onExitSketch: () => void;
+    readonly onExitSketch: () => Promise<void>;
+    readonly onStartFeatureCreation: (type: FeatureType) => void;
+    readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
+    readonly onEditSketch: (sketchId: string) => void;
+    readonly onCancelFeatureCreation: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
@@ -74,12 +84,28 @@ const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
 const VALUE_CONSTRAINTS: ReadonlySet<ConstraintKind> = new Set(['distance', 'radius', 'angle']);
 
 export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactElement {
-    const { controller, setupVisible, onEnterSketch, onExitSketch } = props;
+    const {
+        controller,
+        documentStore,
+        setupVisible,
+        featureCreationType,
+        onEnterSketch,
+        onExitSketch,
+        onStartFeatureCreation,
+        onAddFeature,
+        onEditSketch,
+        onCancelFeatureCreation
+    } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
     React.useEffect(() => {
-        return controller.onChange(forceUpdate);
-    }, [controller, forceUpdate]);
+        const a = controller.onChange(forceUpdate);
+        const b = documentStore.onChange(forceUpdate);
+        return () => {
+            a();
+            b();
+        };
+    }, [controller, documentStore, forceUpdate]);
 
     const active = controller.isActive;
     const tool = controller.getTool();
@@ -199,43 +225,36 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     return (
         <div className="cad-sketch-overlay">
             {setupVisible && !active && (
-                <div className="cad-sketch-datum-picker">
-                    <div className="cad-sketch-datum-title">Sketch Plane</div>
-                    <div className="cad-sketch-datum-buttons">
-                        {(['XY', 'YZ', 'XZ'] as DatumKind[]).map((kind) => (
-                            <button
-                                key={kind}
-                                className={`theia-button secondary ${datumKind === kind ? 'active' : ''}`}
-                                onClick={() => setDatumKind(kind)}
-                            >
-                                {kind}
-                            </button>
-                        ))}
-                    </div>
-                    <label className="cad-sketch-datum-offset">
-                        Offset
-                        <input
-                            type="number"
-                            value={offset}
-                            onChange={(e) => setOffset(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    onEnterSketch(datumKind, Number(offset));
-                                } else if (e.key === 'Escape') {
-                                    onExitSketch();
-                                }
-                            }}
-                        />
-                    </label>
-                    <div className="cad-sketch-datum-actions">
-                        <button className="theia-button secondary" onClick={() => onEnterSketch(datumKind, Number(offset))}>
-                            Start Sketch
-                        </button>
-                        <button className="theia-button secondary" onClick={onExitSketch}>
-                            Cancel
-                        </button>
-                    </div>
-                </div>
+                <DatumPicker
+                    datumKind={datumKind}
+                    offset={offset}
+                    onDatumKindChange={setDatumKind}
+                    onOffsetChange={setOffset}
+                    onEnter={() => onEnterSketch(datumKind, Number(offset))}
+                    onCancel={() => void onExitSketch()}
+                />
+            )}
+
+            {!active && documentStore.hasDocument && !setupVisible && (
+                <DocumentModeToolbar
+                    documentStore={documentStore}
+                    onNewSketch={() => onEnterSketch('XY', 0)}
+                    onExitSketch={() => void onExitSketch()}
+                    onEditSketch={onEditSketch}
+                    onStartFeatureCreation={onStartFeatureCreation}
+                />
+            )}
+
+            {featureCreationType !== undefined && !active && (
+                <FeatureCreationDialog
+                    type={featureCreationType}
+                    sketchId={documentStore.selection.selectedSketchId}
+                    onCancel={onCancelFeatureCreation}
+                    onConfirm={(type, params) => {
+                        onAddFeature(type, params);
+                        onCancelFeatureCreation();
+                    }}
+                />
             )}
 
             {active && (
@@ -276,7 +295,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             </button>
                         </Tooltip>
                         <Tooltip content="Exit Sketch" position="right">
-                            <button className="theia-button secondary cad-sketch-tool-button" onClick={onExitSketch}>
+                            <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void onExitSketch()}>
                                 <span className="codicon codicon-close" />
                             </button>
                         </Tooltip>
@@ -407,6 +426,226 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
             )}
         </div>
     );
+}
+
+interface DatumPickerProps {
+    datumKind: DatumKind;
+    offset: string;
+    onDatumKindChange: (kind: DatumKind) => void;
+    onOffsetChange: (value: string) => void;
+    onEnter: () => void;
+    onCancel: () => void;
+}
+
+function DatumPicker(props: DatumPickerProps): React.ReactElement {
+    return (
+        <div className="cad-sketch-datum-picker">
+            <div className="cad-sketch-datum-title">Sketch Plane</div>
+            <div className="cad-sketch-datum-buttons">
+                {(['XY', 'YZ', 'XZ'] as DatumKind[]).map((kind) => (
+                    <button
+                        key={kind}
+                        className={`theia-button secondary ${props.datumKind === kind ? 'active' : ''}`}
+                        onClick={() => props.onDatumKindChange(kind)}
+                    >
+                        {kind}
+                    </button>
+                ))}
+            </div>
+            <label className="cad-sketch-datum-offset">
+                Offset
+                <input
+                    type="number"
+                    value={props.offset}
+                    onChange={(e) => props.onOffsetChange(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            props.onEnter();
+                        } else if (e.key === 'Escape') {
+                            props.onCancel();
+                        }
+                    }}
+                />
+            </label>
+            <div className="cad-sketch-datum-actions">
+                <button className="theia-button secondary" onClick={props.onEnter}>
+                    Start Sketch
+                </button>
+                <button className="theia-button secondary" onClick={props.onCancel}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+interface DocumentModeToolbarProps {
+    readonly documentStore: CadDocumentStore;
+    readonly onNewSketch: () => void;
+    readonly onExitSketch: () => void;
+    readonly onEditSketch: (sketchId: string) => void;
+    readonly onStartFeatureCreation: (type: FeatureType) => void;
+}
+
+function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
+    const doc = props.documentStore.document;
+    const selectedSketchId = props.documentStore.selection.selectedSketchId;
+    const sketchSelected = selectedSketchId !== undefined;
+
+    return (
+        <div className="cad-document-toolbar">
+            <Tooltip content="New Sketch" position="bottom">
+                <button className="theia-button secondary" onClick={props.onNewSketch}>
+                    <span className="codicon codicon-add" /> Sketch
+                </button>
+            </Tooltip>
+            {selectedSketchId !== undefined && (
+                <Tooltip content="Edit Selected Sketch" position="bottom">
+                    <button className="theia-button secondary" onClick={() => props.onEditSketch(selectedSketchId)}>
+                        <span className="codicon codicon-edit" /> Edit Sketch
+                    </button>
+                </Tooltip>
+            )}
+            <Tooltip content="Pad (extrude add)" position="bottom">
+                <button className="theia-button secondary" disabled={!sketchSelected} onClick={() => props.onStartFeatureCreation('pad')}>
+                    <span className="codicon codicon-fold-up" /> Pad
+                </button>
+            </Tooltip>
+            <Tooltip content="Pocket (extrude cut)" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!sketchSelected}
+                    onClick={() => props.onStartFeatureCreation('pocket')}
+                >
+                    <span className="codicon codicon-fold-down" /> Pocket
+                </button>
+            </Tooltip>
+            <Tooltip content="Revolve" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!sketchSelected}
+                    onClick={() => props.onStartFeatureCreation('revolve')}
+                >
+                    <span className="codicon codicon-sync" /> Revolve
+                </button>
+            </Tooltip>
+            <Tooltip content="Groove" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!sketchSelected}
+                    onClick={() => props.onStartFeatureCreation('groove')}
+                >
+                    <span className="codicon codicon-discard" /> Groove
+                </button>
+            </Tooltip>
+            {doc !== undefined && (
+                <span className="cad-document-name">
+                    {doc.name}
+                    {props.documentStore.dirty && <span className="cad-document-dirty" />}
+                </span>
+            )}
+        </div>
+    );
+}
+
+interface FeatureCreationDialogProps {
+    readonly type: FeatureType;
+    readonly sketchId?: string;
+    readonly onCancel: () => void;
+    readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
+}
+
+function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactElement {
+    const type = props.type;
+    const isExtrude = type === 'pad' || type === 'pocket';
+    const isRevolve = type === 'revolve' || type === 'groove';
+    const [length, setLength] = React.useState('1');
+    const [axis, setAxis] = React.useState<'x' | 'y' | 'z'>('z');
+    const [symmetric, setSymmetric] = React.useState(false);
+    const [angle, setAngle] = React.useState('90');
+    const [label, setLabel] = React.useState(`${type}_1`);
+    const [error, setError] = React.useState<string | undefined>();
+
+    const submit = (): void => {
+        if (props.sketchId === undefined) {
+            setError('No sketch is selected.');
+            return;
+        }
+        if (isExtrude) {
+            const value = Number(length);
+            if (!Number.isFinite(value) || value <= 0) {
+                setError('Length must be a positive number.');
+                return;
+            }
+            props.onConfirm(type, { length: value, axis, symmetric, label });
+        } else if (isRevolve) {
+            const value = Number(angle);
+            if (!Number.isFinite(value) || value <= 0 || value > 360) {
+                setError('Angle must be in (0, 360].');
+                return;
+            }
+            props.onConfirm(type, { axis, angle: value, label });
+        }
+    };
+
+    return (
+        <div className="cad-feature-dialog">
+            <div className="cad-feature-dialog-title">{capitalize(type)}</div>
+            {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
+            {isExtrude && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Length
+                        <input type="number" value={length} onChange={(e) => setLength(e.target.value)} autoFocus />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Direction
+                        <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
+                            <option value="x">X</option>
+                            <option value="y">Y</option>
+                            <option value="z">Z</option>
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        <input type="checkbox" checked={symmetric} onChange={(e) => setSymmetric(e.target.checked)} />
+                        Symmetric
+                    </label>
+                </>
+            )}
+            {isRevolve && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Axis
+                        <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
+                            <option value="x">X</option>
+                            <option value="y">Y</option>
+                            <option value="z">Z</option>
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Angle (°)
+                        <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
+                    </label>
+                </>
+            )}
+            <label className="cad-feature-dialog-row">
+                Label
+                <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
+            </label>
+            <div className="cad-feature-dialog-actions">
+                <button className="theia-button" onClick={submit}>
+                    <span className="codicon codicon-check" /> Create
+                </button>
+                <button className="theia-button secondary" onClick={props.onCancel}>
+                    <span className="codicon codicon-close" /> Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function capitalize(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 interface DimensionEditPopoverProps {

@@ -1,0 +1,193 @@
+/* Feature tree panel. Mirrors the outline panel chrome. */
+
+.cad-feature-tree-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+.cad-feature-tree-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-feature-tree-header .header-info h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.cad-feature-tree-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+}
+
+.cad-feature-tree-header .header-description {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    word-break: break-all;
+}
+
+.cad-feature-tree-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+}
+
+.cad-feature-tree-panel .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cad-feature-tree-panel .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.cad-feature-tree-panel .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+.cad-feature-tree-panel .category-header .count-badge {
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.feature-tree-section {
+    margin-bottom: 16px;
+}
+
+.feature-tree-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.feature-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.feature-tree-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.feature-tree-row.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    border-color: var(--theia-focusBorder);
+}
+
+.feature-tree-row.datum {
+    cursor: default;
+    opacity: 0.85;
+}
+
+.feature-tree-icon {
+    color: var(--theia-focusBorder);
+    font-size: 14px;
+}
+
+.feature-tree-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.feature-tree-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+}
+
+.feature-tree-row.status-built .feature-tree-status {
+    background: var(--theia-terminal-ansiGreen);
+    opacity: 1;
+}
+
+.feature-tree-row.status-failed .feature-tree-status {
+    background: var(--theia-editorError-foreground);
+    opacity: 1;
+}
+
+.feature-tree-row.status-stale .feature-tree-status {
+    background: var(--theia-editorWarning-foreground);
+    opacity: 1;
+}
+
+.feature-tree-action {
+    padding: 2px 4px;
+    min-width: 0;
+    opacity: 0;
+}
+
+.feature-tree-row:hover .feature-tree-action {
+    opacity: 1;
+}
+
+.feature-tree-action.suppressed {
+    opacity: 1;
+}
+
+.cad-feature-tree-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-feature-tree-empty > i {
+    font-size: 40px;
+    opacity: 0.3;
+}
+
+.cad-feature-tree-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.cad-feature-tree-empty .empty-hint {
+    font-size: 12px;
+}

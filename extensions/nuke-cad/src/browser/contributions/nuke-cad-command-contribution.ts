@@ -38,8 +38,10 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { NukeCadCommands } from '../commands';
 import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
+import { CadDocumentStore } from '../document/cad-document-store';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
+import { CadFeatureTreeWidget } from '../widgets/feature-tree/feature-tree-widget';
 import { FemPanelWidget } from '../widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from '../widgets/foam-panel/foam-panel-widget';
 
@@ -60,6 +62,9 @@ export class NukeCadCommandContribution implements CommandContribution {
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
+    @inject(CadDocumentStore)
+    protected readonly documentStore: CadDocumentStore;
+
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCadCommands.OPEN_CAD_VIEWPORT, {
             execute: async () => {
@@ -71,12 +76,16 @@ export class NukeCadCommandContribution implements CommandContribution {
 
         commands.registerCommand(NukeCadCommands.REBUILD_GEOMETRY, {
             execute: async () => {
+                const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (this.documentStore.hasDocument) {
+                    await viewport?.rebuildDocument();
+                    return;
+                }
                 const scriptPath = this.stateManager.scriptPath;
                 if (!scriptPath) {
                     this.messageService.warn('No CAD model is active.');
                     return;
                 }
-                const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
                 viewport?.setLoading(true, 'Rebuilding CAD geometry...');
                 try {
                     const result = await this.backendService.buildGeometry({ scriptPath });
@@ -155,6 +164,58 @@ export class NukeCadCommandContribution implements CommandContribution {
                     widget.exitSketch();
                 }
             }
+        });
+
+        commands.registerCommand(NukeCadCommands.NEW_DOCUMENT, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                widget.newDocument();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.SAVE_DOCUMENT, {
+            execute: async () => {
+                const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                await widget?.saveDocument(false);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.SAVE_DOCUMENT_AS, {
+            execute: async () => {
+                const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                await widget?.saveDocument(true);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_FEATURE_TREE, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(CadFeatureTreeWidget.ID);
+                await this.shell.addWidget(widget, { area: 'right' });
+                await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        const addFeature = async (type: 'pad' | 'pocket' | 'revolve' | 'groove'): Promise<void> => {
+            const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+            widget?.startFeatureCreation(type);
+        };
+
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_PAD, {
+            execute: () => void addFeature('pad')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_POCKET, {
+            execute: () => void addFeature('pocket')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_REVOLVE, {
+            execute: () => void addFeature('revolve')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_GROOVE, {
+            execute: () => void addFeature('groove')
         });
     }
 }

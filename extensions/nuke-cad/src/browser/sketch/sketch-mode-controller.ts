@@ -53,7 +53,7 @@ import {
     defaultSketchViewSize
 } from './sketch-math';
 import { snap, createSnapConfig, type SnapResult } from './snap';
-import { type SketchDimension } from '../../common/cad-document';
+import { type SketchDef, type SketchDimension } from '../../common/cad-document';
 
 /** Listener invoked after any mutation that changes the sketch UI state. */
 export type SketchControllerChangeListener = () => void;
@@ -372,9 +372,17 @@ export class SketchModeController {
      * Enter sketch mode on the given datum plane.
      *
      * Switches to an orthographic camera looking straight down the plane normal,
-     * dims/hides the 3D model, and shows a grid.
+     * dims/hides the 3D model, and shows a grid. When ``sketchDef`` is supplied
+     * the session is restored from the saved sketch; otherwise a fresh sketch is
+     * created.
      */
-    async enterSketch(kind: DatumKind, offset = 0, camera?: THREE.PerspectiveCamera): Promise<void> {
+    async enterSketch(
+        kind: DatumKind,
+        offset = 0,
+        camera?: THREE.PerspectiveCamera,
+        sketchDef?: SketchDef,
+        inheritedParameters?: Record<string, number>
+    ): Promise<void> {
         if (this.session !== undefined) {
             await this.exitSketch();
         }
@@ -383,7 +391,7 @@ export class SketchModeController {
         this.savedControlsEnabled = this.controls.enabled;
         this.controls.enabled = false;
 
-        await this.createSession();
+        await this.createSession(sketchDef, inheritedParameters);
         this.setupCamera();
         this.dimModel(true);
         this.scene.add(this.sketchGroup);
@@ -396,9 +404,6 @@ export class SketchModeController {
     async exitSketch(): Promise<void> {
         if (this.session === undefined) {
             return;
-        }
-        if (this.session !== undefined) {
-            console.debug('[SketchMode] session def:', this.session.toSketchDef());
         }
         this.unbindSession();
         if (this.disposeSessionOnExit && this.session !== undefined) {
@@ -447,12 +452,17 @@ export class SketchModeController {
         this.renderCallback();
     }
 
-    private async createSession(): Promise<void> {
+    private async createSession(sketchDef?: SketchDef, inheritedParameters?: Record<string, number>): Promise<void> {
         const solver = await PlanegcsSketchSolver.create({ locateFile: () => getPlanegcsWasmUrl() });
-        const session = await SketchSession.create(solver, {
-            datumId: this.datumPlane.kind,
-            snap: createSnapConfig({ radius: 0.25, gridPitch: 1 })
-        });
+        const snap = createSnapConfig({ radius: 0.25, gridPitch: 1 });
+        const session =
+            sketchDef !== undefined
+                ? await SketchSession.fromSketchDef(sketchDef, solver, { inheritedParameters, snap })
+                : await SketchSession.create(solver, {
+                      datumId: this.datumPlane.kind,
+                      snap,
+                      inheritedParameters
+                  });
         this.session = session;
         this.bindSession(session);
     }

@@ -73,4 +73,44 @@ export namespace NukeCadCommands {
         id: 'nuke.cad.exitSketch',
         label: nls.localize('nuke/cad/exitSketch', 'Exit Sketch')
     };
+
+    export const NEW_DOCUMENT: Command = {
+        id: 'nuke.cad.newDocument',
+        label: nls.localize('nuke/cad/newDocument', 'New CAD Document')
+    };
+
+    export const SAVE_DOCUMENT: Command = {
+        id: 'nuke.cad.saveDocument',
+        label: nls.localize('nuke/cad/saveDocument', 'Save CAD Document')
+    };
+
+    export const SAVE_DOCUMENT_AS: Command = {
+        id: 'nuke.cad.saveDocumentAs',
+        label: nls.localize('nuke/cad/saveDocumentAs', 'Save CAD Document As...')
+    };
+
+    export const OPEN_FEATURE_TREE: Command = {
+        id: 'nuke.cad.openFeatureTree',
+        label: nls.localize('nuke/cad/openFeatureTree', 'Open Feature Tree')
+    };
+
+    export const ADD_FEATURE_PAD: Command = {
+        id: 'nuke.cad.addFeature.pad',
+        label: nls.localize('nuke/cad/addFeature/pad', 'Add Pad Feature')
+    };
+
+    export const ADD_FEATURE_POCKET: Command = {
+        id: 'nuke.cad.addFeature.pocket',
+        label: nls.localize('nuke/cad/addFeature/pocket', 'Add Pocket Feature')
+    };
+
+    export const ADD_FEATURE_REVOLVE: Command = {
+        id: 'nuke.cad.addFeature.revolve',
+        label: nls.localize('nuke/cad/addFeature/revolve', 'Add Revolve Feature')
+    };
+
+    export const ADD_FEATURE_GROOVE: Command = {
+        id: 'nuke.cad.addFeature.groove',
+        label: nls.localize('nuke/cad/addFeature/groove', 'Add Groove Feature')
+    };
 }
