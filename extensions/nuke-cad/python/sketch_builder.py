@@ -274,7 +274,10 @@ def _edges_from_primitives(
                     f"line '{primitive.id}' references unknown point "
                     f"'{primitive.p1_id if p1 is None else primitive.p2_id}'"
                 )
-            edge = bd.Line((p1.x, p1.y), (p2.x, p2.y))
+            try:
+                edge = bd.Line((p1.x, p1.y), (p2.x, p2.y))
+            except Exception as exc:
+                raise SketchError(f"could not build line '{primitive.id}': {exc}") from exc
 
         elif isinstance(primitive, SketchCircle):
             center = points.get(primitive.center_id)
@@ -282,8 +285,13 @@ def _edges_from_primitives(
                 raise SketchError(
                     f"circle '{primitive.id}' references unknown center point '{primitive.center_id}'"
                 )
-            edge = bd.Circle(primitive.radius).edge()
-            edge = bd.Location((center.x, center.y, 0)) * edge
+            try:
+                edge = bd.Circle(primitive.radius).edge()
+                edge = bd.Location((center.x, center.y, 0)) * edge
+            except Exception as exc:
+                raise SketchError(
+                    f"could not build circle '{primitive.id}' (radius={primitive.radius}): {exc}"
+                ) from exc
 
         elif isinstance(primitive, SketchArc):
             center = points.get(primitive.center_id)
@@ -292,13 +300,22 @@ def _edges_from_primitives(
                     f"arc '{primitive.id}' references unknown center point '{primitive.center_id}'"
                 )
             start_angle = math.degrees(primitive.start_angle)
-            arc_size = math.degrees(primitive.end_angle - primitive.start_angle)
+            raw_arc_size = math.degrees(primitive.end_angle - primitive.start_angle)
             # Normalize huge sweeps to keep the build123d call well-behaved.
-            while arc_size > 360.0:
-                arc_size -= 360.0
-            while arc_size <= -360.0:
+            arc_size = math.fmod(raw_arc_size, 360.0)
+            if arc_size == 0.0 and raw_arc_size > 0.0:
+                # Preserve a positive full-circle sweep that fmod collapsed to 0.
+                arc_size = 360.0
+            if arc_size <= -360.0:
                 arc_size += 360.0
-            edge = bd.CenterArc((center.x, center.y), primitive.radius, start_angle, arc_size)
+            elif arc_size > 360.0:
+                arc_size -= 360.0
+            try:
+                edge = bd.CenterArc((center.x, center.y), primitive.radius, start_angle, arc_size)
+            except Exception as exc:
+                raise SketchError(
+                    f"could not build arc '{primitive.id}' (radius={primitive.radius}): {exc}"
+                ) from exc
         else:
             continue
 
@@ -411,6 +428,11 @@ def build_sketch_faces(
     if not edges:
         raise SketchError(f"sketch '{sketch_name}' contains no drawable edges")
 
-    wires = bd.Wire.combine(edges)
+    try:
+        wires = bd.Wire.combine(edges)
+    except Exception as exc:
+        raise SketchError(
+            f"sketch '{sketch_name}': could not combine edges into closed wires: {exc}"
+        ) from exc
     faces = _build_faces_from_wires(list(wires), sketch_name)
     return plane, faces

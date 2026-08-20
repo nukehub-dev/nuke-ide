@@ -109,8 +109,10 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         datums: doc.datums.map((d) => ({ ...d })),
         sketches: doc.sketches.map((s) => ({
             ...s,
-            parameters: { ...s.parameters },
-            dimensions: s.dimensions ? [...s.dimensions] : undefined
+            primitives: s.primitives.map((p) => ({ ...p })),
+            constraints: s.constraints.map((c) => ({ ...c })),
+            parameters: s.parameters !== undefined ? { ...s.parameters } : undefined,
+            dimensions: s.dimensions !== undefined ? s.dimensions.map((d) => ({ ...d })) : undefined
         })),
         features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn] }))
     };
@@ -455,6 +457,37 @@ export class CadDocumentStore {
         const doc = cloneDocument(check.value!);
         delete doc.parameters[name];
         return this.commit(doc);
+    }
+
+    /**
+     * Add a datum plane to the document.
+     *
+     * Generates a collision-free id, validates the result, and preserves the
+     * backing URI and dirty state.
+     */
+    addDatum(kind: 'XY' | 'YZ' | 'XZ' | 'offset', offset = 0): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const existing = doc.datums.find((d) => d.kind === kind && d.offset === offset);
+        if (existing !== undefined) {
+            return { success: true, value: existing.id };
+        }
+        const usedNames = new Set(doc.datums.map((d) => d.name));
+        let name = `${kind} Offset ${offset}`;
+        let suffix = 1;
+        while (usedNames.has(name)) {
+            name = `${kind} Offset ${offset} (${suffix++})`;
+        }
+        const id = nextId('datum');
+        doc.datums.push({ id, kind, name, offset });
+        const result = this.commit(doc);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
     }
 
     /** Set the selected sketch id. */

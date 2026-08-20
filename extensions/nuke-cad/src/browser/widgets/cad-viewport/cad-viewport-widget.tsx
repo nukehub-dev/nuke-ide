@@ -64,7 +64,7 @@ import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type DatumKind } from '../../sketch/sketch-math';
 import { CadSketchOverlay } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
-import { type NukeCadDocument, type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import './cad-viewport.css';
 
 interface TessFace {
@@ -123,7 +123,13 @@ export class CadViewportWidget extends ReactWidget {
     private buildError?: string;
     /** Monotonically increasing token; stale tessellation loads are dropped. */
     private tessLoadToken = 0;
+    /** Path of the tessellation currently rendered; used to skip redundant reloads. */
+    private loadedTessPath?: string;
     private saveRebuildTimer?: ReturnType<typeof setTimeout>;
+    /** In-flight rebuild promise; new edits queue exactly one follow-up rebuild. */
+    private rebuildPromise?: Promise<void>;
+    /** True when an edit arrived while a rebuild was in-flight. */
+    private rebuildPending = false;
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
@@ -264,6 +270,11 @@ export class CadViewportWidget extends ReactWidget {
         void this.handleExitSketch();
     }
 
+    /** Open an existing sketch for editing. */
+    editSketch(sketchId: string): void {
+        this.handleEditSketch(sketchId);
+    }
+
     /** Create a new document and open the viewport. */
     newDocument(): void {
         this.handleNewDocument();
@@ -313,6 +324,23 @@ export class CadViewportWidget extends ReactWidget {
 
     /** Rebuild the active document through the backend. */
     async rebuildDocument(): Promise<void> {
+        if (this.rebuildPromise !== undefined) {
+            this.rebuildPending = true;
+            return;
+        }
+        this.rebuildPromise = this.doRebuildDocument();
+        try {
+            await this.rebuildPromise;
+        } finally {
+            this.rebuildPromise = undefined;
+            if (this.rebuildPending) {
+                this.rebuildPending = false;
+                this.scheduleDocumentRebuild();
+            }
+        }
+    }
+
+    private async doRebuildDocument(): Promise<void> {
         const doc = this.documentStore.document;
         if (doc === undefined) {
             this.messageService.warn('No CAD document is active.');
@@ -359,16 +387,27 @@ export class CadViewportWidget extends ReactWidget {
             if (offset === 0 && builtInId !== undefined) {
                 datumId = builtInId;
             } else {
-                datumId = this.ensureOffsetDatum(doc, kind, offset);
+                const datumResult = this.documentStore.addDatum(kind, offset);
+                if (!datumResult.success) {
+                    this.showBuildError(datumResult.error || 'Failed to create offset datum.');
+                    this.messageService.error(datumResult.error || 'Failed to create offset datum.');
+                    this.sketchSetupVisible = false;
+                    this.update();
+                    return;
+                }
+                datumId = datumResult.value;
             }
         }
         if (datumId === undefined) {
+            this.showBuildError(`Could not resolve datum for ${kind} offset ${offset}`);
             this.messageService.error(`Could not resolve datum for ${kind} offset ${offset}`);
+            this.sketchSetupVisible = false;
+            this.update();
             return;
         }
         const sketchDef: SketchDef | undefined =
             existingSketch !== undefined
-                ? { ...existingSketch }
+                ? { ...existingSketch, primitives: [...existingSketch.primitives], constraints: [...existingSketch.constraints] }
                 : {
                       id: createSketchId(),
                       name: `Sketch ${doc.sketches.length + 1}`,
@@ -380,36 +419,38 @@ export class CadViewportWidget extends ReactWidget {
         if (existingSketch === undefined) {
             // Pre-register the new sketch so it can be referenced by features
             // even before the user exits sketch mode.
-            this.documentStore.upsertSketch(sketchDef);
+            const result = this.documentStore.upsertSketch(sketchDef);
+            if (!result.success) {
+                this.showBuildError(result.error || 'Failed to register new sketch.');
+                this.messageService.error(result.error || 'Failed to register new sketch.');
+                this.sketchSetupVisible = false;
+                this.update();
+                return;
+            }
         }
         this.editingSketchId = sketchDef.id;
         const inheritedParameters = { ...doc.parameters };
-        await this.sketchController?.enterSketch(
-            kind,
-            offset,
-            this.sketchCamera,
-            existingSketch !== undefined ? sketchDef : undefined,
-            inheritedParameters
-        );
+        try {
+            await this.sketchController?.enterSketch(
+                kind,
+                offset,
+                this.sketchCamera,
+                existingSketch !== undefined ? sketchDef : undefined,
+                inheritedParameters
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.showBuildError(`Failed to start sketch solver: ${message}`);
+            this.messageService.error(`Failed to start sketch solver: ${message}`);
+            this.sketchSetupVisible = false;
+            this.editingSketchId = undefined;
+            this.update();
+        }
     }
 
     private datumIdForKind(kind: DatumKind): string | undefined {
         const map: Record<string, string> = { XY: 'datum-xy', YZ: 'datum-yz', XZ: 'datum-xz' };
         return map[kind];
-    }
-
-    private ensureOffsetDatum(doc: NukeCadDocument, kind: DatumKind, offset: number): string {
-        const existing = doc.datums.find((d) => d.kind === kind && d.offset === offset);
-        if (existing !== undefined) {
-            return existing.id;
-        }
-        const id = `datum-${kind.toLowerCase()}-offset-${Date.now()}`;
-        const nextDoc: NukeCadDocument = {
-            ...doc,
-            datums: [...doc.datums, { id, kind, name: `${kind} Offset ${offset}`, offset }]
-        };
-        this.documentStore.loadDocument(nextDoc);
-        return id;
     }
 
     private async doExitSketch(): Promise<void> {
@@ -434,6 +475,10 @@ export class CadViewportWidget extends ReactWidget {
 
     private scheduleDocumentRebuild(): void {
         if (!this.documentStore.hasDocument) {
+            return;
+        }
+        if (this.rebuildPromise !== undefined) {
+            this.rebuildPending = true;
             return;
         }
         this.clearSaveRebuildTimer();
@@ -478,6 +523,13 @@ export class CadViewportWidget extends ReactWidget {
         const token = ++this.tessLoadToken;
         if (!tessPath) {
             this.tessData = undefined;
+            this.loadedTessPath = undefined;
+            this.loading = false;
+            this.update();
+            return;
+        }
+        if (tessPath === this.loadedTessPath && this.tessData !== undefined) {
+            // Same tessellation already on screen; avoid a loading flash.
             this.loading = false;
             this.update();
             return;
@@ -504,6 +556,7 @@ export class CadViewportWidget extends ReactWidget {
             return; // A newer model or rebuild superseded this load.
         }
         this.tessData = JSON.parse(content.value.toString()) as TessData;
+        this.loadedTessPath = path;
         this.loading = false;
         this.update();
     }
@@ -659,6 +712,7 @@ export class CadViewportWidget extends ReactWidget {
                     this.featureCreationType = undefined;
                     this.update();
                 }}
+                messageService={this.messageService}
             />
         );
     }
@@ -673,6 +727,7 @@ interface CadViewportComponentProps {
     readonly sketchSetupVisible: boolean;
     readonly featureCreationType?: FeatureType;
     readonly documentStore: CadDocumentStore;
+    readonly messageService: MessageService;
     readonly onDismissError: () => void;
     readonly onSelect: (selection: CadSelection) => void;
     readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
@@ -716,6 +771,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.subscribeSelection,
                 props.subscribeThemeChange,
                 props.onControllerReady,
+                props.messageService,
                 OrbitControls
             );
             if (disposed) {
@@ -855,6 +911,7 @@ function initViewport(
     subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable,
     subscribeThemeChange: (listener: () => void) => Disposable,
     onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void,
+    messageService: MessageService,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
@@ -902,7 +959,7 @@ function initViewport(
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
     };
-    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup });
+    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup, messageService });
     onControllerReady(controller, camera);
 
     const applyHighlight = (): void => {

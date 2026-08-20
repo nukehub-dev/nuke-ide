@@ -437,3 +437,79 @@ def test_overlapping_boxes_reported_in_export(tmp_path: Path) -> None:
     assert result["success"] is True, result.get("error", "")
     assert [1, 2] in result["overlapCheck"]["overlappingPairs"]
     assert any("overlap" in w.lower() for w in result["warnings"])
+
+
+def test_length_scale_scales_dagmc_vertices(tmp_path: Path) -> None:
+    """A length_scale of 0.1 converts a 10 cm box to 1 m vertices in the h5m."""
+    _requires_full_profile()
+
+    from pymoab import core as moab_core
+    from pymoab import types as moab_types
+
+    script = tmp_path / "box.py"
+    script.write_text("from build123d import *\nmodel = Box(10, 10, 10)\n")
+    build_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=True,
+        add_graveyard=False,
+        tolerance=1.0,
+        length_scale=0.1,
+    )
+    assert build_result["success"] is True, build_result.get("error", "")
+    assert build_result["dagmcSuccess"] is True, build_result.get("dagmcError", "")
+
+    mb = moab_core.Core()
+    mb.load_file(build_result["dagmcPath"])
+    vertices = mb.get_entities_by_type(mb.get_root_set(), moab_types.MBVERTEX)
+    coords = mb.get_coords(list(vertices))
+    assert len(coords) > 0
+    # With 0.1 scaling, the 10 cm unit box spans [-0.5, 0.5] m.
+    assert coords.min() >= -0.6
+    assert coords.max() <= 0.6
+
+
+def test_graveyard_heuristic_no_longer_triggers() -> None:
+    """A large unnamed enclosing solid is no longer misdetected as graveyard."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    from build123d import Box, Compound, Pos
+
+    model = Compound([Box(10, 10, 10), Pos(0, 0, 0) * Box(200, 200, 200)])
+    detected, _ = dagmc_export._detect_existing_graveyard(model.wrapped, "")
+    assert detected is False
+
+
+def test_existing_graveyard_vol_ids_skip_auto_creation(tmp_path: Path) -> None:
+    """Explicit 1-based graveyard IDs are honored and auto-creation is skipped."""
+    _requires_full_profile()
+
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(20, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    build_result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert build_result["success"] is True, build_result.get("error", "")
+
+    result = dagmc_export.convert_to_dagmc(
+        build_result["stepPath"],
+        output_path=str(tmp_path / "boxes.h5m"),
+        add_graveyard=True,
+        existing_graveyard_vol_ids={2},
+        faceting_tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert any("flagged by caller" in w.lower() for w in result["warnings"])
+
+    groups = _load_h5m_groups(Path(result["output_path"]))
+    assert "mat:graveyard" in groups
+
+
+def test_verify_surface_senses_rejects_empty_faces() -> None:
+    """An empty face triangle map is a hard error, not a silent success."""
+    with pytest.raises(RuntimeError, match="no exported faces"):
+        dagmc_export._verify_surface_senses({}, {})

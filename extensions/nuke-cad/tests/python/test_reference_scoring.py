@@ -303,6 +303,19 @@ def test_non_finite_values_score_zero() -> None:
     assert score_fingerprint(ref, inf_face) == pytest.approx(0.0)
 
 
+def test_circle_orientation_is_ignored() -> None:
+    """Closed curves have start == end, so direction similarity is skipped."""
+    ref = _edge(curve_type="circle", length=6.28, start=(0.0, 0.0, 0.0), end=(0.0, 0.0, 0.0))
+    cand = _edge(curve_type="circle", length=6.28, start=(0.0, 0.0, 0.0), end=(0.0, 0.0, 0.0))
+    assert score_fingerprint(ref, cand) == pytest.approx(1.0)
+
+
+def test_ellipse_orientation_is_ignored() -> None:
+    ref = _edge(curve_type="ellipse", length=10.0, start=(0.0, 0.0, 0.0), end=(0.0, 0.0, 0.0))
+    cand = _edge(curve_type="ellipse", length=10.0, start=(0.0, 0.0, 0.0), end=(0.0, 0.0, 0.0))
+    assert score_fingerprint(ref, cand) == pytest.approx(1.0)
+
+
 def test_non_finite_edge_values_score_zero() -> None:
     ref = _edge()
     nan_edge = _edge(start=(float("nan"), 0.0, 0.0))

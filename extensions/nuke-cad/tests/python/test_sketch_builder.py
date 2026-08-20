@@ -276,3 +276,40 @@ def test_hole_in_rectangle_face_area() -> None:
     plane, faces = sb.build_sketch_faces(sketch, {"dxy": _xy_datum()})
     assert len(faces) == 1
     assert faces[0].area == pytest.approx(100.0 - math.pi * 4.0, abs=1e-6)
+
+
+def test_arc_sweep_normalization_via_fmod() -> None:
+    """A sweep > 360 deg is normalized before building the build123d arc."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # 45 degree sector: arc from 0 to 405 deg should normalize to 0..45 deg.
+    sketch = {
+        "id": "sector",
+        "name": "sector",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "c", "type": "point", "x": 0, "y": 0},
+            {"id": "s", "type": "point", "x": 5, "y": 0},
+            {
+                "id": "e",
+                "type": "point",
+                "x": 5 * math.cos(math.radians(45)),
+                "y": 5 * math.sin(math.radians(45)),
+            },
+            {
+                "id": "arc",
+                "type": "arc",
+                "c_id": "c",
+                "radius": 5.0,
+                "start_angle": 0.0,
+                "end_angle": math.radians(405.0),
+                "start_id": "s",
+                "end_id": "e",
+            },
+            {"id": "l1", "type": "line", "p1_id": "c", "p2_id": "s"},
+            {"id": "l2", "type": "line", "p1_id": "e", "p2_id": "c"},
+        ],
+        "constraints": [],
+    }
+    plane, faces = sb.build_sketch_faces(sketch, {"dxy": _xy_datum()})
+    assert len(faces) == 1
+    assert faces[0].area == pytest.approx(math.pi * 25.0 * 45.0 / 360.0, abs=1e-6)

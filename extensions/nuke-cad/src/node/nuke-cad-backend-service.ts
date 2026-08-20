@@ -167,6 +167,9 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         if (request.meshOrder !== undefined) {
             args.push('--mesh-order', String(request.meshOrder));
         }
+        if (request.lengthScale !== undefined) {
+            args.push('--length-scale', String(request.lengthScale));
+        }
 
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
     }
@@ -221,6 +224,9 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         }
         if (request.meshOrder !== undefined) {
             args.push('--mesh-order', String(request.meshOrder));
+        }
+        if (request.lengthScale !== undefined) {
+            args.push('--length-scale', String(request.lengthScale));
         }
 
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
@@ -305,14 +311,15 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                     : job.timedOut
                       ? `Job timed out after ${timeoutSeconds} seconds.`
                       : undefined;
+                const RESULT_MARKER = '__NUKE_RESULT__';
                 const lines = stdout.trim().split('\n');
                 for (let i = lines.length - 1; i >= 0; i--) {
                     const candidate = lines[i].trim();
-                    if (!candidate.startsWith('{')) {
+                    if (!candidate.startsWith(RESULT_MARKER)) {
                         continue;
                     }
                     try {
-                        const parsed = JSON.parse(candidate) as T;
+                        const parsed = JSON.parse(candidate.slice(RESULT_MARKER.length)) as T;
                         const success = lifecycleError ? false : code !== 0 && parsed.success !== false ? false : parsed.success;
                         const result: T = {
                             ...parsed,

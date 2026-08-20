@@ -314,6 +314,12 @@ export interface GeometryBuildRequest {
     readonly meshMaxSize?: number;
     /** Element order (1 = linear, 2 = quadratic). */
     readonly meshOrder?: number;
+    /**
+     * Length scale applied to exported mesh vertices.
+     * Default 1.0 (model units are cm); use 0.01 to convert cm to m for
+     * transport solvers that expect meters.
+     */
+    readonly lengthScale?: number;
 }
 
 /** Request to build geometry from a ``.nuke-cad`` document. */
@@ -338,6 +344,12 @@ export interface BuildDocumentRequest {
     readonly meshMaxSize?: number;
     /** Element order (1 = linear, 2 = quadratic). */
     readonly meshOrder?: number;
+    /**
+     * Length scale applied to exported mesh vertices.
+     * Default 1.0 (model units are cm); use 0.01 to convert cm to m for
+     * transport solvers that expect meters.
+     */
+    readonly lengthScale?: number;
 }
 
 /** Single volume entry in the region manifest. */

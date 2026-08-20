@@ -78,7 +78,11 @@ export class NukeCadCommandContribution implements CommandContribution {
             execute: async () => {
                 const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
                 if (this.documentStore.hasDocument) {
-                    await viewport?.rebuildDocument();
+                    if (viewport === undefined) {
+                        this.messageService.warn('Open the CAD viewport before rebuilding geometry.');
+                        return;
+                    }
+                    await viewport.rebuildDocument();
                     return;
                 }
                 const scriptPath = this.stateManager.scriptPath;
@@ -154,6 +158,20 @@ export class NukeCadCommandContribution implements CommandContribution {
                 }
                 await this.shell.activateWidget(widget.id);
                 widget.startSketchSetup();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.EDIT_SKETCH, {
+            execute: async (sketchId?: string) => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                if (typeof sketchId === 'string') {
+                    widget.editSketch(sketchId);
+                }
             }
         });
 

@@ -87,7 +87,6 @@
       ],
       "id": "fuel-sketch",
       "name": "fuel-sketch",
-      "parameters": {},
       "primitives": [
         {
           "construction": false,
@@ -157,7 +156,6 @@
       ],
       "id": "clad-sketch",
       "name": "clad-sketch",
-      "parameters": {},
       "primitives": [
         {
           "construction": false,
@@ -293,7 +291,6 @@
       ],
       "id": "moderator-sketch",
       "name": "moderator-sketch",
-      "parameters": {},
       "primitives": [
         {
           "construction": false,

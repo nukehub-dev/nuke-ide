@@ -23,7 +23,9 @@ extensions/nuke-cad/
 The TypeScript backend uses `nuke-core`'s Python environment detection to find
 the active interpreter, then spawns `python/geometry_service.py` with the user
 script as an argument. The Python service follows the repo's stdout-JSON
-protocol: progress lines on stderr, one final JSON object on stdout.
+protocol: progress lines on stderr, one final JSON object on stdout prefixed
+with `__NUKE_RESULT__` so arbitrary user prints cannot be mistaken for the
+protocol payload.
 
 Spawned services are tracked in a backend job registry with a one-hour default
 timeout, a 1 MB output tail, and a `cancelJob(jobId)` RPC that kills the
@@ -43,6 +45,12 @@ the `nukeCad.facetingTolerance` preference (default 0.001, schema in
 tolerance, so open, rebuild, and **Open CAD Model...** all honor the user's
 default. openmc-studio keeps its own `openmcStudio.defaultFacetingTolerance`;
 nuke-cad is optional and carries no dependency on it.
+
+Build requests accept an optional `lengthScale` (default 1.0). The value is
+forwarded through the RPC layer and `geometry_service.py --length-scale` to
+`dagmc_export.convert_to_dagmc`, where it scales exported mesh vertices.
+nuke-cad model units are centimeters; pass `lengthScale: 0.01` to produce
+meter-scaled DAGMC meshes for transport solvers that expect meters.
 
 The **Model Outline** panel (`src/browser/widgets/outline-panel/`, widget ID
 `nuke-cad-outline-panel-widget`) renders the active model's manifest volumes
@@ -76,28 +84,35 @@ The DAGMC pipeline is intentionally separated from the viewport tessellation
 path. It uses gmsh's OpenCASCADE kernel for robust imprint/merge:
 
 1. Load the canonical STEP file into an OCP `TopoDS_Shape`.
-2. Optionally auto-create a `mat:graveyard` bounding volume with an OCP boolean
-   cut (ported from openmc-studio's converter).
-3. Write the shape to a temporary STEP file.
-4. Load the temp STEP into gmsh and run `occ.fragment` on all volumes. This
-   splits touching faces at their shared boundaries so adjacent solids receive
-   exact, coincident surfaces. Volume identity across the fragment uses the
-   fragment's returned mapping, followed by `removeAllDuplicates`; the temp
-   STEP rewrite is skipped entirely when the shape is unmodified.
-5. Generate a 2D surface mesh in gmsh.
-6. Extract triangle buffers and surface-to-volume adjacencies via
+2. Optionally add a `mat:graveyard` bounding volume directly in gmsh by
+   fragmenting a bounding box with the model volumes. The old OCP boolean-cut
+   path was removed because it re-duplicated coincident model-model faces and
+   made DAGMC leak particles.
+3. Load the STEP into gmsh and run `occ.fragment` on all volumes. This splits
+   touching faces at their shared boundaries so adjacent solids receive exact,
+   coincident surfaces. Volume identity across the fragment uses the fragment's
+   returned mapping, followed by `removeAllDuplicates`.
+4. Generate a 2D surface mesh in gmsh.
+5. Extract triangle buffers and surface-to-volume adjacencies via
    `gmsh.model.getAdjacencies`.
-7. Write a tagged DAGMC H5M file via pymoab: `CATEGORY`, `GEOM_DIMENSION`,
+6. Write a tagged DAGMC H5M file via pymoab: `CATEGORY`, `GEOM_DIMENSION`,
    `GLOBAL_ID`, `NAME`, `GEOM_SENSE_2`, and `FACETING_TOL`.
-8. Bind region-manifest selectors to `mat:<name>` material groups; unmanifested
+7. Bind region-manifest selectors to `mat:<name>` material groups; unmanifested
    volumes fall back to `mat:mat_<vol_id-1>` (the `mat:` prefix is what OpenMC
    recognizes).
-9. Verify the export: surface-sense verification is a hard error (every
-   exported surface must have sense 1 or 2), watertightness holes mark the
-   result `sealed=False` with a warning, edges shared by more than two
-   surfaces are reported as a `nonManifoldEdges` diagnostic (multi-volume
-   imprint seams legitimately have incidence 3), and a bbox +
-   `BRepClass3d_SolidClassifier` overlap check is reported as `overlapCheck`.
+8. Verify the export: surface-sense verification is a hard error (every
+   exported surface must have sense 1 or 2), an empty surface mesh or zero
+   exported volumes is a hard error, watertightness holes mark the result
+   `sealed=False` with a warning, edges shared by more than two surfaces are
+   reported as a `nonManifoldEdges` diagnostic (multi-volume imprint seams
+   legitimately have incidence 3), and a bbox + `BRepClass3d_SolidClassifier`
+   overlap check is reported as `overlapCheck`.
+
+Graveyard detection is opt-in only. The pipeline no longer guesses based on a
+large enclosing solid. Flag existing graveyard volumes by passing
+`existing_graveyard_vol_ids` (1-based) to `convert_to_dagmc`, or by naming the
+STEP product/assembly "graveyard". Auto-creation remains the default when
+`add_graveyard=True` and no existing graveyard is flagged.
 
 ## Meshing service (`mesh_service.py`)
 

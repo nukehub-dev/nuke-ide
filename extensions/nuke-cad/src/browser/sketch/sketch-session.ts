@@ -493,6 +493,12 @@ export class SketchSession {
         return session;
     }
 
+    /** Release the solver and clear session state. */
+    destroy(): void {
+        this.listeners.clear();
+        this.solver.destroy();
+    }
+
     /** Sketch id. */
     getId(): string {
         return this.id;
@@ -798,7 +804,15 @@ export class SketchSession {
                         this.emitChange();
                         return;
                     }
-                    const center = circleCenterFromThreePoints(start, mid, end);
+                    let center: Point2;
+                    try {
+                        center = circleCenterFromThreePoints(start, mid, end);
+                    } catch {
+                        auto.length = 0;
+                        this.status = { ...this.status, lastAutoConstraints: [] };
+                        this.emitChange();
+                        return;
+                    }
                     const radius = Math.hypot(start.x - center.x, start.y - center.y);
                     const angles = arcAnglesFromThreePoints(center, start, mid, end);
                     const centerId = this.nextId('point');

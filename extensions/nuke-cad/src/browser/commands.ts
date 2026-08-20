@@ -69,6 +69,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/newSketch', 'New Sketch')
     };
 
+    export const EDIT_SKETCH: Command = {
+        id: 'nuke.cad.editSketch',
+        label: nls.localize('nuke/cad/editSketch', 'Edit Sketch')
+    };
+
     export const EXIT_SKETCH: Command = {
         id: 'nuke.cad.exitSketch',
         label: nls.localize('nuke/cad/exitSketch', 'Exit Sketch')

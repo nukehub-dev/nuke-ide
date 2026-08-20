@@ -30,6 +30,7 @@ or crash in the user script is reported as a normal error result.
 
 import argparse
 import json
+import math
 import sys
 import traceback
 from pathlib import Path
@@ -88,9 +89,18 @@ except Exception:
     HAS_MESH_SERVICE = False
 
 
+RESULT_MARKER = "__NUKE_RESULT__"
+
+
 def _print_progress(message: str) -> None:
     """Emit a progress line on stderr."""
     print(message, file=sys.stderr, flush=True)
+
+
+def _emit_result(result: dict[str, Any]) -> None:
+    """Emit the stdout-JSON result line with the protocol marker."""
+    print(f"{RESULT_MARKER}{json.dumps(result)}")
+    sys.stdout.flush()
 
 
 def _solids_in_explorer_order(shape: object) -> list[object]:
@@ -380,15 +390,15 @@ def _execute_script_isolated(
             sys.stderr.write(proc.stderr)
             sys.stderr.flush()
 
-        # The protocol payload is the last JSON line on stdout; the user
+        # The protocol payload is the last marked JSON line on stdout; the user
         # script may have printed arbitrary output before it.
         payload: dict | None = None
         for line in reversed(proc.stdout.splitlines()):
             line = line.strip()
-            if not line:
+            if not line.startswith(RESULT_MARKER):
                 continue
             try:
-                candidate = json.loads(line)
+                candidate = json.loads(line[len(RESULT_MARKER) :])
             except json.JSONDecodeError:
                 continue
             if isinstance(candidate, dict) and "success" in candidate:
@@ -584,6 +594,7 @@ def _process_shape(
     mesh_order: int = 1,
     selector_map: dict[str, list[int]] | None = None,
     manifest: RegionManifest | None = None,
+    length_scale: float = 1.0,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
 
@@ -682,6 +693,7 @@ def _process_shape(
                     manifest=manifest,
                     selector_map=selector_map,
                     faceting_tolerance=tolerance,
+                    length_scale=length_scale,
                     add_graveyard=add_graveyard,
                 )
                 result["dagmcSuccess"] = dagmc_result.get("success", False)
@@ -754,6 +766,7 @@ def build_geometry(
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
     script_timeout: float = DEFAULT_SCRIPT_TIMEOUT,
+    length_scale: float = 1.0,
 ) -> dict:
     """Execute ``script_path`` and write canonical artifacts.
 
@@ -798,6 +811,7 @@ def build_geometry(
         mesh_order=mesh_order,
         selector_map=selector_map,
         manifest=manifest,
+        length_scale=length_scale,
     )
     result["warnings"] = (result.get("warnings") or []) + manifest_warnings
     return result
@@ -815,6 +829,7 @@ def import_step_file(
     mesh_min_size: float | None = None,
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
+    length_scale: float = 1.0,
 ) -> dict:
     """Import an existing STEP file and write canonical artifacts.
 
@@ -857,14 +872,16 @@ def import_step_file(
         mesh_order=mesh_order,
         selector_map={},
         manifest=None,
+        length_scale=length_scale,
     )
 
 
 def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict | None:
     """Light structural validation of a ``.nuke-cad`` document.
 
-    The TypeScript validator is the front gate; this only checks that ids the
-    builder must resolve actually exist.
+    The TypeScript validator is the front gate; this mirrors its supported
+    feature set and required-parameter checks so the Python builder fails fast
+    with a clear message instead of an unwrapped OCCT traceback.
     """
     datum_ids = {d.get("id") for d in document.get("datums", []) if isinstance(d, dict)}
     sketch_ids = {s.get("id") for s in document.get("sketches", []) if isinstance(s, dict)}
@@ -885,13 +902,67 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
         if not isinstance(feature, dict):
             continue
         fid = feature.get("id", f"[{i}]")
+        feature_type = feature.get("type")
+        if feature_type not in ("pad", "pocket", "revolve", "groove"):
+            return {
+                "success": False,
+                "error": (
+                    f"Feature '{fid}' has unsupported type '{feature_type}'; "
+                    "expected 'pad', 'pocket', 'revolve', or 'groove'"
+                ),
+                "scriptPath": str(source_file),
+            }
+
         sketch_id = feature.get("sketchId")
-        if sketch_id is not None and sketch_id not in sketch_ids:
+        if not isinstance(sketch_id, str) or not sketch_id:
+            return {
+                "success": False,
+                "error": f"Feature '{fid}' ({feature_type}) requires a sketchId",
+                "scriptPath": str(source_file),
+            }
+        if sketch_id not in sketch_ids:
             return {
                 "success": False,
                 "error": f"Feature '{fid}' references unknown sketch '{sketch_id}'",
                 "scriptPath": str(source_file),
             }
+
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        if feature_type in ("pad", "pocket"):
+            length = params.get("length")
+            if (
+                not isinstance(length, (int, float))
+                or isinstance(length, bool)
+                or not math.isfinite(length)
+                or length <= 0
+            ):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' ({feature_type}) requires a positive length",
+                    "scriptPath": str(source_file),
+                }
+        else:  # revolve / groove
+            axis = params.get("axis")
+            if axis not in ("x", "y", "z"):
+                return {
+                    "success": False,
+                    "error": (f"Feature '{fid}' ({feature_type}) requires axis 'x', 'y', or 'z'"),
+                    "scriptPath": str(source_file),
+                }
+            angle = params.get("angle")
+            if (
+                not isinstance(angle, (int, float))
+                or isinstance(angle, bool)
+                or not math.isfinite(angle)
+                or angle <= 0
+                or angle > 360
+            ):
+                return {
+                    "success": False,
+                    "error": (f"Feature '{fid}' ({feature_type}) requires angle in (0, 360]"),
+                    "scriptPath": str(source_file),
+                }
+
         for j, dep in enumerate(feature.get("dependsOn", [])):
             if dep not in feature_ids:
                 return {
@@ -915,6 +986,7 @@ def build_document(
     mesh_min_size: float | None = None,
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
+    length_scale: float = 1.0,
 ) -> dict:
     """Build geometry from a ``.nuke-cad`` document and write canonical artifacts.
 
@@ -1033,6 +1105,7 @@ def build_document(
         mesh_order=mesh_order,
         selector_map=build_result.get("selectorMap", {}),
         manifest=manifest,
+        length_scale=length_scale,
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["warnings"] = (result.get("warnings") or []) + manifest_warnings
@@ -1098,6 +1171,12 @@ def main() -> None:
     parser.add_argument("--mesh-max-size", type=float, default=None, help="Maximum element size")
     parser.add_argument("--mesh-order", type=int, default=1, help="Element order (1 or 2)")
     parser.add_argument(
+        "--length-scale",
+        type=float,
+        default=1.0,
+        help="Scale factor applied to exported mesh vertices (default: 1.0; model units are cm)",
+    )
+    parser.add_argument(
         "--script-timeout",
         type=float,
         default=DEFAULT_SCRIPT_TIMEOUT,
@@ -1108,8 +1187,7 @@ def main() -> None:
     if args.exec_script is not None:
         # Child-process mode: emit the protocol payload and exit.
         result = _execute_script_child(args.exec_script, args.exec_dir or ".")
-        print(json.dumps(result))
-        sys.stdout.flush()
+        _emit_result(result)
         sys.exit(0 if result.get("success") else 1)
 
     if args.script is None:
@@ -1129,6 +1207,7 @@ def main() -> None:
             mesh_min_size=args.mesh_min_size,
             mesh_max_size=args.mesh_max_size,
             mesh_order=args.mesh_order,
+            length_scale=args.length_scale,
         )
     elif args.from_document:
         result = build_document(
@@ -1143,6 +1222,7 @@ def main() -> None:
             mesh_min_size=args.mesh_min_size,
             mesh_max_size=args.mesh_max_size,
             mesh_order=args.mesh_order,
+            length_scale=args.length_scale,
         )
     else:
         result = build_geometry(
@@ -1158,9 +1238,9 @@ def main() -> None:
             mesh_max_size=args.mesh_max_size,
             mesh_order=args.mesh_order,
             script_timeout=args.script_timeout,
+            length_scale=args.length_scale,
         )
-    print(json.dumps(result))
-    sys.stdout.flush()
+    _emit_result(result)
     sys.exit(0 if result.get("success") else 1)
 
 

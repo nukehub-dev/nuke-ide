@@ -149,25 +149,51 @@ def _build_feature_shape(
             amount = length
             both = False
 
-        # Additive pads with holes (e.g. concentric pincell regions) are built
-        # via boolean subtraction instead of extruding a face with holes. This
-        # makes shared cylindrical surfaces originate from the same underlying
-        # geometry, which lets DAGMC imprint/merge them without tiny sealing
-        # mismatches.
+        # Profiles with inner wires (holes or islands) are built via boolean
+        # subtraction of each inner wire's extrusion from the outer profile's
+        # extrusion. This keeps shared cylindrical surfaces originating from the
+        # same underlying geometry so DAGMC imprint/merge can seal them exactly.
+        # Both pads and pockets use the same semantics: inner wires represent
+        # removed material relative to the outer profile.
         tool_shapes: list[Any] = []
         for face in faces:
             inner_wires = face.inner_wires()
-            if feature_type == "pad" and inner_wires:
-                outer_face = bd.Face(face.outer_wire())
-                tool = bd.extrude(outer_face, amount=amount, dir=direction, both=both)
+            if inner_wires:
+                try:
+                    outer_face = bd.Face(face.outer_wire())
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': could not build outer face for {feature_type}"
+                    ) from exc
+                try:
+                    tool = bd.extrude(outer_face, amount=amount, dir=direction, both=both)
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} extrusion failed"
+                    ) from exc
                 for hole_wire in inner_wires:
-                    hole_solid = bd.extrude(
-                        bd.Face(hole_wire), amount=amount, dir=direction, both=both
-                    )
-                    tool = tool - hole_solid
+                    try:
+                        hole_solid = bd.extrude(
+                            bd.Face(hole_wire), amount=amount, dir=direction, both=both
+                        )
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': {feature_type} hole extrusion failed"
+                        ) from exc
+                    try:
+                        tool = tool - hole_solid
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': {feature_type} boolean subtraction failed"
+                        ) from exc
                 tool_shapes.append(tool)
             else:
-                tool_shapes.append(bd.extrude(face, amount=amount, dir=direction, both=both))
+                try:
+                    tool_shapes.append(bd.extrude(face, amount=amount, dir=direction, both=both))
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} extrusion failed"
+                    ) from exc
 
         if len(tool_shapes) == 1:
             return tool_shapes[0]
@@ -175,7 +201,7 @@ def _build_feature_shape(
 
     # revolve / groove
     axis = params.get("axis")
-    if axis not in _BUILD_AXIS:
+    if axis not in _AXIS_VECTOR:
         raise FeatureBuilderError(
             f"feature '{feature_id}': revolve/groove requires axis 'x', 'y', or 'z'"
         )
@@ -188,7 +214,23 @@ def _build_feature_shape(
         or angle > 360
     ):
         raise FeatureBuilderError(f"feature '{feature_id}': revolve angle must be in (0, 360]")
-    return bd.revolve(faces, axis=_BUILD_AXIS[axis], revolution_arc=float(angle))
+
+    # The revolve axis must lie in the sketch plane; a non-planar axis would
+    # sweep the profile out of itself and produce an invalid or surprising solid.
+    plane_normal = _extract_plane_normal(plane)
+    axis_vector = _AXIS_VECTOR[axis]
+    if abs(_dot(plane_normal, axis_vector)) > 1e-6:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve/groove axis '{axis}' must lie in the sketch plane"
+        )
+
+    _ensure_build_axis()
+    try:
+        return bd.revolve(faces, axis=_BUILD_AXIS[axis], revolution_arc=float(angle))
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve/groove operation failed"
+        ) from exc
 
 
 def topo_sort_features(features: list[dict[str, Any]]) -> list[str]:
@@ -279,15 +321,45 @@ def _selector_indices_for_tool(
     return list(range(previous_solid_count + 1, previous_solid_count + new_count + 1))
 
 
-def _combine_additive(a: Any, b: Any) -> Any:
+def _bbox_overlaps_3d(a_bbox: Any, b_bbox: Any, tolerance: float = 1e-6) -> bool:
+    """Return True if two build123d ``BoundBox`` instances overlap."""
+    return (
+        a_bbox.min.X <= b_bbox.max.X + tolerance
+        and a_bbox.max.X >= b_bbox.min.X - tolerance
+        and a_bbox.min.Y <= b_bbox.max.Y + tolerance
+        and a_bbox.max.Y >= b_bbox.min.Y - tolerance
+        and a_bbox.min.Z <= b_bbox.max.Z + tolerance
+        and a_bbox.max.Z >= b_bbox.min.Z - tolerance
+    )
+
+
+def _combine_additive(a: Any, b: Any, feature_id: str = "<unknown>") -> Any:
     """Combine two additive tool shapes into a single ``Compound``.
 
     Using ``Compound(children=[...])`` instead of the ``+`` boolean union keeps
     touching-but-separate regions (e.g. fuel/clad/moderator) as distinct solids
     so they can be labeled independently.
+
+    Overlapping additive tools would create non-manifold or duplicate-volume
+    geometry, so a bbox prefilter plus boolean-common volume check raises
+    ``FeatureBuilderError`` if the two solids occupy the same space.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot combine additive shapes")
+
+    # Fast bbox rejection before invoking a boolean operation.
+    if _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
+        try:
+            common = a & b
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': failed to check overlap between additive bodies: {exc}"
+            ) from exc
+        if common is not None and getattr(common, "volume", 0.0) > 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': additive body overlaps an existing solid body"
+            )
+
     children: list[Any] = []
     for shape in (a, b):
         # ``Part`` subclasses ``Compound`` but represents a single fused body;
@@ -374,7 +446,7 @@ def build_document_shape(
                 if accumulated is None:
                     accumulated = tool_shape
                 else:
-                    accumulated = _combine_additive(accumulated, tool_shape)
+                    accumulated = _combine_additive(accumulated, tool_shape, feature_id)
             elif feature_type in ("pocket", "groove"):
                 if accumulated is None:
                     raise FeatureBuilderError(

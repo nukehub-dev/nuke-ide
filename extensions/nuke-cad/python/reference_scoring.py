@@ -267,7 +267,14 @@ def _face_orientation_similarity(ref: FaceFingerprint, cand: FaceFingerprint) ->
     return 1.0
 
 
+#: Closed curve types where start == end, so a start->end direction vector
+#: is meaningless and should not contribute to orientation similarity.
+_CLOSED_CURVE_TYPES = frozenset({"circle", "ellipse"})
+
+
 def _edge_orientation_similarity(ref: EdgeFingerprint, cand: EdgeFingerprint) -> float:
+    if ref.curve_type in _CLOSED_CURVE_TYPES or cand.curve_type in _CLOSED_CURVE_TYPES:
+        return 1.0
     ref_dir = _as_array(ref.end) - _as_array(ref.start)
     cand_dir = _as_array(cand.end) - _as_array(cand.start)
     return _direction_similarity_abs(

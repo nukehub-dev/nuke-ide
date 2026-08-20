@@ -37,6 +37,7 @@
  */
 
 import * as THREE from 'three';
+import { MessageService } from '@theia/core/lib/common/message-service';
 import { SketchSession, type SketchTool, type ConstraintKind, type SketchStatus, type ConstraintRecord } from './sketch-session';
 import { PlanegcsSketchSolver, type SketchPrimitive, type SketchPoint } from '../../common/sketch-solver';
 import { getPlanegcsWasmUrl } from './planegcs-wasm-url';
@@ -168,6 +169,7 @@ export class SketchModeController {
     private readonly listeners = new Set<SketchControllerChangeListener>();
     private readonly disposeSessionOnExit: boolean;
     private readonly renderCallback: () => void;
+    private readonly messageService?: MessageService;
     private themeColors: ThemeColors;
     private readonly onChangeBound: () => void;
     private sessionChangeUnsubscribe?: () => void;
@@ -181,6 +183,7 @@ export class SketchModeController {
      * @param renderCallback Called whenever the controller needs a redraw.
      * @param options.modelGroup Optional 3D model group to dim/hide in sketch mode.
      * @param options.existingSession Optional existing session (debug/advanced).
+     * @param options.messageService Optional Theia message service for surfacing user errors.
      */
     constructor(
         container: HTMLElement,
@@ -197,6 +200,7 @@ export class SketchModeController {
         options: {
             modelGroup?: THREE.Group;
             existingSession?: SketchSession;
+            messageService?: MessageService;
         } = {}
     ) {
         this.container = container;
@@ -207,6 +211,7 @@ export class SketchModeController {
         this.modelGroup = options.modelGroup;
         this.session = options.existingSession;
         this.disposeSessionOnExit = options.existingSession === undefined;
+        this.messageService = options.messageService;
 
         this.themeColors = this.readThemeColors();
 
@@ -406,10 +411,11 @@ export class SketchModeController {
             return;
         }
         this.unbindSession();
-        if (this.disposeSessionOnExit && this.session !== undefined) {
-            this.session = undefined;
+        const session = this.session;
+        if (this.disposeSessionOnExit) {
+            session.destroy();
         }
-        this.constraintInput = undefined;
+        this.session = undefined;
         this.drag = undefined;
         this.dragFramePending = false;
         this.selectedIds.clear();
@@ -752,7 +758,13 @@ export class SketchModeController {
             return;
         }
         if (this.drag !== undefined) {
-            await this.session.endDrag();
+            try {
+                await this.session.endDrag();
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                console.error('[SketchMode] endDrag failed:', err);
+                this.messageService?.error(`Sketch drag failed: ${message}`);
+            }
             this.drag = undefined;
             this.dragFramePending = false;
             return;
@@ -761,7 +773,13 @@ export class SketchModeController {
         const tool = this.session.getTool();
         if (tool !== 'select' && this.lastPointer !== undefined) {
             const snapped = this.lastSnap?.point ?? this.lastPointer;
-            await this.session.click(snapped);
+            try {
+                await this.session.click(snapped);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                console.error('[SketchMode] click failed:', err);
+                this.messageService?.error(`Sketch click failed: ${message}`);
+            }
         }
     }
 
@@ -1485,7 +1503,16 @@ export class SketchModeController {
 
     /** Release three.js resources owned by the controller. */
     dispose(): void {
-        this.unbindSession();
+        if (this.session !== undefined) {
+            this.dimModel(false);
+            this.unbindSession();
+            if (this.disposeSessionOnExit) {
+                this.session.destroy();
+            }
+            this.session = undefined;
+        } else {
+            this.unbindSession();
+        }
         this.scene.remove(this.sketchGroup);
         this.sketchGroup.traverse((child) => {
             if (child instanceof THREE.Line || child instanceof THREE.Points) {

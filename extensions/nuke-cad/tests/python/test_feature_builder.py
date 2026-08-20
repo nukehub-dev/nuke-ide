@@ -340,3 +340,100 @@ def test_suppressed_feature_is_stale() -> None:
     by_id = {r["featureId"]: r for r in result["featureResults"]}
     assert by_id["skip"]["status"] == "stale"
     assert by_id["next"]["status"] == "stale"
+
+
+def test_overlapping_additive_pads_raise() -> None:
+    """Two additive pads that occupy the same space raise FeatureBuilderError."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "overlap",
+                "name": "overlap",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ]
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["overlap"]["status"] == "failed"
+    assert "overlap" in by_id["overlap"]["error"].lower()
+
+
+def test_pocket_with_inner_wire_keeps_island() -> None:
+    """A pocket sketch with an inner wire removes the inner region too."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    outer = _rect_sketch()
+    inner = {
+        "id": "island",
+        "name": "island",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "c", "type": "point", "x": 20, "y": 10},
+            {"id": "circ", "type": "circle", "c_id": "c", "radius": 3.0},
+        ],
+        "constraints": [],
+    }
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pocket",
+                "name": "pocket",
+                "type": "pocket",
+                "sketchId": "island",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[outer, inner],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    # The pocket removed the circular column, same as a pad with a hole.
+    expected = 40.0 * 20.0 * 10.0 - math.pi * 9.0 * 10.0
+    assert result["shape"].volume == pytest.approx(expected, abs=1e-3)
+
+
+def test_revolve_axis_must_lie_in_sketch_plane() -> None:
+    """A revolve axis not parallel to the sketch plane is rejected early."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "f1",
+                "name": "rev",
+                "type": "revolve",
+                "sketchId": "rect",
+                "params": {"axis": "z", "angle": 360},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ]
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["f1"]["status"] == "failed"
+    assert "must lie in the sketch plane" in by_id["f1"]["error"].lower()

@@ -153,6 +153,25 @@ function nearestPointOnCircle(point: Point2, center: Point2, radius: number): Po
     return { x: center.x + direction.x * radius, y: center.y + direction.y * radius };
 }
 
+function normalizeAngle(angle: number): number {
+    let a = angle % (2 * Math.PI);
+    if (a < 0) {
+        a += 2 * Math.PI;
+    }
+    return a;
+}
+
+function isAngleOnArc(angle: number, startAngle: number, endAngle: number): boolean {
+    const a = normalizeAngle(angle);
+    const s = normalizeAngle(startAngle);
+    const e = normalizeAngle(endAngle);
+    if (s <= e) {
+        return a >= s - 1e-12 && a <= e + 1e-12;
+    }
+    // Arc crosses the 0/2π boundary.
+    return a >= s - 1e-12 || a <= e + 1e-12;
+}
+
 function snapEndpoint(raw: Point2, classified: ClassifiedPrimitives, radius: number): SnapResult | undefined {
     const { pointMap, lines, arcs, centerPointIds } = classified;
     let best: { point: Point2; id: string; distance: number } | undefined;
@@ -283,6 +302,22 @@ function snapOnCurve(raw: Point2, classified: ClassifiedPrimitives, radius: numb
         const distance = Math.sqrt(dist2(raw, nearest));
         if (distance <= radius && (best === undefined || distance < best.distance)) {
             best = { point: nearest, id: circle.id, distance };
+        }
+    }
+
+    for (const arc of classified.arcs) {
+        const center = classified.pointMap.get(arc.centerId);
+        if (center === undefined) {
+            continue;
+        }
+        const nearest = nearestPointOnCircle(raw, center, arc.radius);
+        const angle = Math.atan2(nearest.y - center.y, nearest.x - center.x);
+        if (!isAngleOnArc(angle, arc.startAngle, arc.endAngle)) {
+            continue;
+        }
+        const distance = Math.sqrt(dist2(raw, nearest));
+        if (distance <= radius && (best === undefined || distance < best.distance)) {
+            best = { point: nearest, id: arc.id, distance };
         }
     }
 

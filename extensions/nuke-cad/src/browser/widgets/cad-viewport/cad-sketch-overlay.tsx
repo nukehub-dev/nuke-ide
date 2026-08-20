@@ -142,7 +142,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
             setEditDimValue(editingDimension.parameter ?? String(editingDimension.value));
             setEditDimDriving(editingDimension.driving);
         }
-    }, [editingDimension?.id]);
+    }, [editingDimension?.id, editingDimension?.parameter, editingDimension?.value, editingDimension?.driving]);
 
     const applyValue = (): void => {
         if (constraintInput === undefined) {

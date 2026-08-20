@@ -39,7 +39,6 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from ocp_compat import (  # noqa: E402
     brep_bnd_lib_add,
-    brep_gprop_volume_properties,
     interface_static_set_cval,
     topods_solid,
 )
@@ -101,16 +100,6 @@ def _solids_from_shape(shape: Any) -> list[Any]:
     return solids
 
 
-def _shape_volume(shape: Any) -> float:
-    """Compute the volume of a shape (or compound of solids)."""
-    from OCP.BRepGProp import BRepGProp
-    from OCP.GProp import GProp_GProps
-
-    props = GProp_GProps()
-    brep_gprop_volume_properties(BRepGProp, shape, props)
-    return float(props.Mass())
-
-
 def _solid_bounding_box(solid: Any) -> tuple[float, float, float, float, float, float]:
     """Return the axis-aligned bounding box of a single solid."""
     from OCP.Bnd import Bnd_Box
@@ -119,34 +108,6 @@ def _solid_bounding_box(solid: Any) -> tuple[float, float, float, float, float, 
     bbox = Bnd_Box()
     brep_bnd_lib_add(BRepBndLib, solid, bbox)
     return bbox.Get()
-
-
-def _shape_bounding_box(shape: Any) -> tuple[float, float, float, float, float, float]:
-    """Return the axis-aligned bounding box of any shape."""
-    from OCP.Bnd import Bnd_Box
-    from OCP.BRepBndLib import BRepBndLib
-
-    bbox = Bnd_Box()
-    brep_bnd_lib_add(BRepBndLib, shape, bbox)
-    return bbox.Get()
-
-
-def _bbox_contains(
-    outer: tuple[float, float, float, float, float, float],
-    inner: tuple[float, float, float, float, float, float],
-    padding: float = 1e-4,
-) -> bool:
-    """Check whether ``outer`` bounds fully enclose ``inner`` bounds."""
-    oxmin, oymin, ozmin, oxmax, oymax, ozmax = outer
-    ixmin, iymin, izmin, ixmax, iymax, izmax = inner
-    return (
-        oxmin <= ixmin + padding
-        and oymin <= iymin + padding
-        and ozmin <= izmin + padding
-        and oxmax >= ixmax - padding
-        and oymax >= iymax - padding
-        and ozmax >= izmax - padding
-    )
 
 
 def _bbox_overlaps(
@@ -281,77 +242,47 @@ def _collect_step_names(file_path: str) -> set[str]:
     return names
 
 
-def _detect_existing_graveyard(shape: Any, file_path: str) -> tuple[bool, list[Any], int | None]:
-    """Detect whether ``shape`` already contains a graveyard volume.
+def _detect_existing_graveyard(shape: Any, file_path: str) -> tuple[bool, int | None]:
+    """Detect whether ``shape`` already contains an explicitly named graveyard.
 
-    Detection order:
-    1. Name-based: any STEP product/assembly name contains "graveyard".
-    2. Heuristic: one solid is >10x the volume of the next largest and fully
-       contains all other solids.
+    Detection is **opt-in only**: a STEP product/assembly name must contain the
+    word "graveyard". The previous volume-ratio + containment heuristic has been
+    removed because it misidentified large model envelopes as graveyards.
 
-    Returns ``(detected, model_solids, graveyard_index)``. ``graveyard_index``
-    is the 0-based index of the existing graveyard solid in the original solid
-    list, or ``None`` if a name was found but the solid could not be matched.
+    Returns ``(detected, graveyard_index)``. ``graveyard_index`` is the 0-based
+    index of the existing graveyard solid in the original solid list, or
+    ``None`` if a name was found but the solid could not be matched.
     """
     solids = _solids_from_shape(shape)
 
-    def _find_largest_enclosing() -> int | None:
-        if len(solids) <= 1:
-            return None
-        volumes: list[float] = []
-        bboxes: list[tuple[float, float, float, float, float, float]] = []
-        for solid in solids:
-            try:
-                volumes.append(_shape_volume(solid))
-                bboxes.append(_solid_bounding_box(solid))
-            except Exception:
-                return None
-
-        sorted_idx = sorted(range(len(solids)), key=lambda i: volumes[i], reverse=True)
-        largest = sorted_idx[0]
-        second = sorted_idx[1]
-
-        if volumes[second] <= 0:
-            return None
-        if volumes[largest] <= 10.0 * volumes[second]:
-            return None
-        if not all(
-            _bbox_contains(bboxes[largest], bboxes[i]) for i in range(len(solids)) if i != largest
-        ):
-            return None
-        return largest
-
-    name_detected = False
     try:
         names = _collect_step_names(file_path)
-        name_detected = any("graveyard" in n.lower() for n in names)
+        if not any("graveyard" in n.lower() for n in names):
+            return False, None
     except Exception:
-        pass
+        return False, None
 
-    if name_detected:
-        gy_index = _find_largest_enclosing()
-        if gy_index is not None:
-            return True, [solids[i] for i in range(len(solids)) if i != gy_index], gy_index
-        return True, solids, None
+    # Try to match the named graveyard to the largest solid. This is only a
+    # convenience for assigning the mat:graveyard tag; it is not a heuristic.
+    if len(solids) == 0:
+        return True, None
+    if len(solids) == 1:
+        return True, 0
 
-    gy_index = _find_largest_enclosing()
-    if gy_index is not None:
-        return True, [solids[i] for i in range(len(solids)) if i != gy_index], gy_index
+    try:
 
-    return False, solids, None
+        def _box_volume(bbox: tuple[float, ...]) -> float:
+            return (
+                max(0.0, bbox[3] - bbox[0])
+                * max(0.0, bbox[4] - bbox[1])
+                * max(0.0, bbox[5] - bbox[2])
+            )
 
-
-def _make_compound(solids: list[Any]) -> Any:
-    """Build a TopoDS_Compound from a list of solids."""
-    from OCP.BRep import BRep_Builder
-    from OCP.TopoDS import TopoDS_Compound
-
-    builder = BRep_Builder()
-    compound = TopoDS_Compound()
-    builder.MakeCompound(compound)
-    for solid in solids:
-        builder.Add(compound, solid)
-    return compound
+        bboxes = [_solid_bounding_box(s) for s in solids]
+        largest = max(range(len(solids)), key=lambda i: _box_volume(bboxes[i]))
+        return True, largest
+    except Exception:
+        return True, None
 
 
 def _write_step(shape: Any, step_path: Path) -> None:
@@ -365,86 +296,6 @@ def _write_step(shape: Any, step_path: Path) -> None:
     status = writer.Write(str(step_path))
     if status != 1:
         raise RuntimeError(f"STEP writer returned status {status}")
-
-
-def _build_graveyard_shape(model_solids: list[Any], warnings: list[str]) -> Any | None:
-    """Create a graveyard box around the model and cut the model out of it."""
-    if not model_solids:
-        warnings.append(
-            "Could not auto-create graveyard: no model solids found. "
-            "Add one in your CAD workflow if needed."
-        )
-        return None
-
-    try:
-        from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
-        from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
-        from OCP.gp import gp_Pnt
-
-        model_shape = _make_compound(model_solids)
-        xmin, ymin, zmin, xmax, ymax, zmax = _shape_bounding_box(model_shape)
-        dx = xmax - xmin
-        dy = ymax - ymin
-        dz = zmax - zmin
-        max_dim = max(dx, dy, dz)
-        padding = max(1.0, 0.1 * max_dim)
-
-        box = BRepPrimAPI_MakeBox(
-            gp_Pnt(xmin - padding, ymin - padding, zmin - padding),
-            gp_Pnt(xmax + padding, ymax + padding, zmax + padding),
-        ).Shape()
-
-        cut = BRepAlgoAPI_Cut(box, model_shape)
-        if not cut.IsDone():
-            warnings.append("Could not auto-create graveyard: boolean cut failed.")
-            return None
-
-        graveyard_shape = cut.Shape()
-        graveyard_solids = _solids_from_shape(graveyard_shape)
-        if not graveyard_solids:
-            warnings.append("Could not auto-create graveyard: boolean cut produced no volumes.")
-            return None
-
-        combined = _make_compound(model_solids + graveyard_solids)
-        return combined
-    except Exception as e:
-        warnings.append(f"Could not auto-create graveyard: {e}.")
-        return None
-
-
-def _maybe_add_graveyard(shape: Any, file_path: str, warnings: list[str]) -> tuple[Any, set[int]]:
-    """Add a graveyard volume to ``shape`` if one is not already present.
-
-    Returns ``(shape, graveyard_vol_ids)``. ``graveyard_vol_ids`` is a set of
-    1-based volume IDs in the final shape that should be tagged
-    ``mat:graveyard``.
-    """
-    try:
-        has_graveyard, model_solids, gy_index = _detect_existing_graveyard(shape, file_path)
-        if has_graveyard:
-            warnings.append("Existing graveyard volume detected; skipping auto-creation.")
-            graveyard_ids: set[int] = set()
-            if gy_index is not None:
-                graveyard_ids.add(gy_index + 1)
-                warnings.append("Existing graveyard volume will be tagged mat:graveyard.")
-            else:
-                warnings.append(
-                    "Existing graveyard name found but could not be matched to a solid; "
-                    "material tag may need manual correction."
-                )
-            return shape, graveyard_ids
-
-        combined = _build_graveyard_shape(model_solids, warnings)
-        if combined is None:
-            return shape, set()
-
-        original_count = len(_solids_from_shape(shape))
-        new_count = len(_solids_from_shape(combined))
-        warnings.append("Auto-created graveyard volume around model (mat:graveyard).")
-        return combined, set(range(original_count + 1, new_count + 1))
-    except Exception as e:
-        warnings.append(f"Could not auto-create graveyard: {e}.")
-        return shape, set()
 
 
 def _load_shape(step_path: str) -> Any:
@@ -488,6 +339,199 @@ def _volume_name_from_manifest(
                 return f"mat:{name}"
 
     return _fallback_material_name(vol_id)
+
+
+def _gmsh_volume_signature(
+    tag: int,
+) -> tuple[
+    float, tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]
+]:
+    """Return a geometric signature for a gmsh volume.
+
+    The signature combines the OCC mass (volume) and the bounding-box center,
+    min corner, and max corner. This is stable across gmsh tag renumbering
+    after ``removeAllDuplicates``.
+    """
+    mass = float(gmsh.model.occ.getMass(3, tag))
+    bbox = gmsh.model.getBoundingBox(3, tag)
+    center = (
+        (bbox[0] + bbox[3]) / 2.0,
+        (bbox[1] + bbox[4]) / 2.0,
+        (bbox[2] + bbox[5]) / 2.0,
+    )
+    return (mass, center, (bbox[0], bbox[1], bbox[2]), (bbox[3], bbox[4], bbox[5]))
+
+
+def _signatures_match(
+    a: tuple[
+        float, tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]
+    ],
+    b: tuple[
+        float, tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]
+    ],
+    diag: float,
+) -> bool:
+    """Return True if two gmsh volume signatures describe the same volume."""
+    vol_tol = 1e-6 * max(abs(a[0]), abs(b[0]), 1.0)
+    coord_tol = 1e-6 * max(diag, 1.0)
+    if abs(a[0] - b[0]) > vol_tol:
+        return False
+    for i in range(3):
+        if abs(a[1][i] - b[1][i]) > coord_tol:
+            return False
+        if abs(a[2][i] - b[2][i]) > coord_tol:
+            return False
+        if abs(a[3][i] - b[3][i]) > coord_tol:
+            return False
+    return True
+
+
+def _fragment_and_track(
+    input_tags: list[tuple[int, int]],
+    input_to_pre: dict[int, int],
+    diag: float,
+) -> dict[int, int]:
+    """Fragment ``input_tags`` against themselves, remove duplicates, and map
+    resulting tags back to the pre-fragment indices in ``input_to_pre``.
+
+    ``fragment`` splits volumes at intersections (e.g. overlapping boxes or
+    model/graveyard boundaries). The returned ``fragment_map`` lists, for each
+    input entity, the output entities it produced; because object and tool are
+    the same list, an output piece may appear under several inputs. We first
+    resolve each old output piece to a pre-fragment index by matching its
+    geometric signature to the input signatures and fall back to the
+    ``fragment_map`` candidates when the signature is ambiguous. Then
+    ``removeAllDuplicates`` may renumber tags, so we match the surviving current
+    tags to those old output pieces by signature.
+    """
+    if not input_tags:
+        return {}
+
+    # Pre-fragment signatures for every input tag.
+    input_signatures: dict[int, tuple] = {}
+    for _dim, tag in input_tags:
+        tag = int(tag)
+        input_signatures[tag] = _gmsh_volume_signature(tag)
+
+    # Map each pre-index back to the input tag(s) that carry it.
+    pre_to_input_tags: dict[int, list[int]] = {}
+    for tag, pre in input_to_pre.items():
+        pre_to_input_tags.setdefault(pre, []).append(tag)
+
+    _, fragment_map = gmsh.model.occ.fragment(input_tags, input_tags)
+    gmsh.model.occ.synchronize()
+
+    # Collect candidate pre-indices for every old output piece. A piece may be
+    # listed under multiple inputs (e.g. the graveyard contains the model).
+    candidates: dict[int, set[int]] = {}
+    old_output_signatures: dict[int, tuple] = {}
+    for input_index, outputs in enumerate(fragment_map):
+        if input_index >= len(input_tags):
+            continue
+        input_tag = int(input_tags[input_index][1])
+        pre_index = input_to_pre.get(input_tag)
+        if pre_index is None:
+            continue
+        for dim, tag in outputs:
+            if int(dim) != 3:
+                continue
+            tag = int(tag)
+            candidates.setdefault(tag, set()).add(pre_index)
+            old_output_signatures[tag] = _gmsh_volume_signature(tag)
+
+    # If fragment produced no 3D outputs (e.g. single untouched volume), the
+    # inputs themselves are the outputs.
+    if not old_output_signatures:
+        for _dim, tag in input_tags:
+            tag = int(tag)
+            old_output_signatures[tag] = _gmsh_volume_signature(tag)
+            if tag in input_to_pre:
+                candidates[tag] = {input_to_pre[tag]}
+
+    gmsh.model.occ.removeAllDuplicates()
+    gmsh.model.occ.synchronize()
+
+    current_tags = gmsh.model.getEntities(3)
+    if not current_tags:
+        raise RuntimeError("No volumes remain after imprint/merge")
+
+    # Resolve each old output piece to a single pre-index.
+    old_output_to_pre: dict[int, int] = {}
+    for old_tag, old_sig in old_output_signatures.items():
+        cands = candidates.get(old_tag)
+        if not cands:
+            raise RuntimeError(
+                f"Post-fragment volume {old_tag} has no candidate pre-fragment index; "
+                "material/selector binding cannot be trusted."
+            )
+
+        matching_pres: list[int] = []
+        for pre in cands:
+            for itag in pre_to_input_tags.get(pre, []):
+                if _signatures_match(old_sig, input_signatures[itag], diag):
+                    matching_pres.append(pre)
+                    break
+
+        if len(matching_pres) == 1:
+            chosen_pre = matching_pres[0]
+        elif len(matching_pres) > 1:
+            # Multiple inputs match geometrically; pick the smallest pre-index
+            # for a deterministic tie-break.
+            chosen_pre = min(matching_pres)
+        else:
+            # New piece (e.g. an overlap intersection): fall back to the
+            # fragment_map candidate with the smallest pre-index.
+            chosen_pre = min(cands)
+
+        old_output_to_pre[old_tag] = chosen_pre
+
+    # Match current tags to old output pieces by geometric signature.
+    current_to_pre: dict[int, int] = {}
+    used_old_tags: set[int] = set()
+    for _dim, tag in current_tags:
+        tag = int(tag)
+        signature = _gmsh_volume_signature(tag)
+        matches: list[int] = []
+        for old_tag, old_sig in old_output_signatures.items():
+            if _signatures_match(signature, old_sig, diag):
+                matches.append(old_tag)
+
+        if len(matches) == 1:
+            old_tag = matches[0]
+        elif len(matches) > 1:
+            # Pick the old tag whose pre-index matches this current tag's own
+            # pre-index hint, if any.
+            fragment_hint = old_output_to_pre.get(tag)
+            hinted = [m for m in matches if old_output_to_pre.get(m) == fragment_hint]
+            if len(hinted) == 1:
+                old_tag = hinted[0]
+            else:
+                raise RuntimeError(
+                    f"Post-fragment volume {tag} is ambiguous: matches old output "
+                    f"pieces {matches}; material/selector binding cannot be trusted."
+                )
+        else:
+            raise RuntimeError(
+                f"Post-fragment volume {tag} matches no old output piece; "
+                "material/selector binding cannot be trusted."
+            )
+
+        if old_tag in used_old_tags:
+            raise RuntimeError(
+                f"Post-fragment volumes {tag} and another volume both match old "
+                f"output piece {old_tag}; material/selector binding cannot be trusted."
+            )
+        used_old_tags.add(old_tag)
+
+        pre_index = old_output_to_pre.get(old_tag)
+        if pre_index is None:
+            raise RuntimeError(
+                f"Post-fragment volume {tag} (old piece {old_tag}) has no known "
+                "pre-fragment index; material/selector binding cannot be trusted."
+            )
+        current_to_pre[tag] = pre_index
+
+    return current_to_pre
 
 
 def _extract_gmsh_surface_mesh(
@@ -666,8 +710,12 @@ def _verify_surface_senses(
     """Verify every exported surface borders exactly 1 or 2 volumes.
 
     Anything else is a hard error (DAGMC cannot interpret it); the message
-    lists the offending surfaces with their adjacency counts.
+    lists the offending surfaces with their adjacency counts. An empty
+    ``face_triangles`` is also a hard error because it means the export
+    produced no usable surfaces.
     """
+    if not face_triangles:
+        raise RuntimeError("Surface sense verification failed: no exported faces")
     offending: list[str] = []
     for face_tag in sorted(face_triangles.keys()):
         vols = face_to_volumes.get(face_tag, [])
@@ -731,6 +779,7 @@ def convert_to_dagmc(
     length_scale: float = 1.0,
     auto_adjust_tolerance: bool = True,
     add_graveyard: bool = True,
+    existing_graveyard_vol_ids: set[int] | None = None,
 ) -> dict[str, Any]:
     """Convert a canonical STEP file to a DAGMC .h5m file.
 
@@ -743,6 +792,10 @@ def convert_to_dagmc(
         length_scale: Scale factor applied to mesh vertices.
         auto_adjust_tolerance: Whether to auto-adjust tolerance for large models.
         add_graveyard: Whether to auto-create a mat:graveyard bounding volume.
+        existing_graveyard_vol_ids: Optional explicit set of 1-based volume IDs
+            to treat as graveyard (opt-in, overrides auto-detection). This is
+            the preferred way to flag an existing graveyard because the removed
+            volume-ratio heuristic could misidentify large model envelopes.
 
     Returns:
         Dict with ``success``, ``output_path``, ``warnings``, ``error``,
@@ -787,18 +840,32 @@ def convert_to_dagmc(
         graveyard_vol_ids: set[int] = set()
         has_existing_graveyard = False
         if add_graveyard:
-            has_existing_graveyard, _, existing_gy_index = _detect_existing_graveyard(
-                shape, str(step_file)
-            )
-            if has_existing_graveyard:
-                if existing_gy_index is not None:
-                    graveyard_vol_ids.add(existing_gy_index + 1)
-                    warnings.append("Existing graveyard volume detected; skipping auto-creation.")
-                else:
-                    warnings.append(
-                        "Existing graveyard name found but could not be matched to a solid; "
-                        "material tag may need manual correction."
-                    )
+            existing_gy_index: int | None = None
+            if existing_graveyard_vol_ids:
+                has_existing_graveyard = True
+                # Prefer the smallest explicit ID as the canonical pre-fragment
+                # graveyard index; all explicit IDs are tagged mat:graveyard.
+                existing_gy_index = min(existing_graveyard_vol_ids) - 1
+                graveyard_vol_ids.update(existing_graveyard_vol_ids)
+                warnings.append(
+                    "Existing graveyard volume(s) flagged by caller; skipping auto-creation."
+                )
+            else:
+                has_existing_graveyard, detected_index = _detect_existing_graveyard(
+                    shape, str(step_file)
+                )
+                if has_existing_graveyard:
+                    existing_gy_index = detected_index
+                    if existing_gy_index is not None:
+                        graveyard_vol_ids.add(existing_gy_index + 1)
+                        warnings.append(
+                            "Existing graveyard volume detected; skipping auto-creation."
+                        )
+                    else:
+                        warnings.append(
+                            "Existing graveyard name found but could not be matched to a solid; "
+                            "material tag may need manual correction."
+                        )
 
         # Overlap check on the pre-fragment volumes (1-based explorer order,
         # the same indexing convention as the selector map and graveyard IDs).
@@ -825,31 +892,31 @@ def convert_to_dagmc(
         gmsh.option.setNumber("General.Terminal", 0)
 
         gmsh.open(str(step_file))
+        gmsh.model.occ.synchronize()
         volumes = gmsh.model.getEntities(3)
         if not volumes:
             raise RuntimeError("No volumes found in STEP file")
 
-        # Imprint/merge the model volumes first so touching solids share faces.
-        # Adding the graveyard through an OCP boolean cut before this stage
-        # re-duplicates those coincident faces and makes DAGMC leak particles.
-        _, fragment_map = gmsh.model.occ.fragment(volumes, volumes)
-        gmsh.model.occ.synchronize()
+        # Geometric scale for signature matching tolerance.
+        bbox = gmsh.model.getBoundingBox(-1, -1)
+        diag = sum((bbox[i + 3] - bbox[i]) ** 2 for i in range(3)) ** 0.5
 
-        # Merge/unify stage: drop duplicate entities introduced by imprint.
-        gmsh.model.occ.removeAllDuplicates()
-        gmsh.model.occ.synchronize()
+        # Track pre-fragment identities (1-based input tags) through gmsh's
+        # imprint/merge and optional graveyard insertion. ``_fragment_and_track``
+        # survives tag renumbering after ``removeAllDuplicates`` by matching
+        # geometric signatures (volume + bbox).
+        input_to_pre: dict[int, int] = {}
+        for _dim, tag in volumes:
+            tag = int(tag)
+            input_to_pre[tag] = tag
 
-        post_to_pre: dict[int, int] = {}
-        for pre_index, outputs in enumerate(fragment_map[: len(volumes)]):
-            for dim, tag in outputs:
-                if int(dim) == 3:
-                    post_to_pre[int(tag)] = pre_index + 1
+        post_to_pre = _fragment_and_track(volumes, input_to_pre, diag)
 
         # Optional auto-created graveyard: add a bounding box in gmsh and
         # fragment again. This preserves model-model shared faces because the
         # graveyard is never routed through an OCP boolean cut.
+        gy_pre_index: int | None = None
         if add_graveyard and not has_existing_graveyard:
-            bbox = gmsh.model.getBoundingBox(-1, -1)
             xmin, ymin, zmin, xmax, ymax, zmax = bbox
             dx = xmax - xmin
             dy = ymax - ymin
@@ -870,53 +937,15 @@ def convert_to_dagmc(
             )
             gmsh.model.occ.synchronize()
 
-            post_volumes = gmsh.model.getEntities(3)
-            all_volumes = post_volumes + [(3, gy_tag)]
-            gmsh.model.occ.fragment(all_volumes, all_volumes)
-            gmsh.model.occ.synchronize()
-            gmsh.model.occ.removeAllDuplicates()
-            gmsh.model.occ.synchronize()
-
-            # Identify the graveyard volume by its bounding-box min corner.
-            gy_post_tags: set[int] = set()
-            for dim, tag in gmsh.model.getEntities(3):
-                vbbox = gmsh.model.getBoundingBox(dim, tag)
-                if (
-                    abs(vbbox[0] - gy_xmin) < 1e-4
-                    and abs(vbbox[1] - gy_ymin) < 1e-4
-                    and abs(vbbox[2] - gy_zmin) < 1e-4
-                ):
-                    gy_post_tags.add(int(tag))
-
-            if not gy_post_tags:
-                warnings.append(
-                    "Could not identify auto-created graveyard volume; "
-                    "material tag may need manual correction."
-                )
-            else:
-                warnings.append("Auto-created graveyard volume around model (mat:graveyard).")
-            # The pre-fragment index for the auto-created graveyard is one past
-            # the model volumes; all post fragments map to the same mat:graveyard.
             gy_pre_index = len(volumes) + 1
             graveyard_vol_ids = {gy_pre_index}
-            for tag in gy_post_tags:
-                post_to_pre[tag] = gy_pre_index
 
-        # Residual limitation: if removeAllDuplicates renumbered or dropped
-        # a volume, fall back to the identity (index-based) assumption for
-        # that tag and say so.
-        current_vol_tags = {int(tag) for _, tag in gmsh.model.getEntities(3)}
-        stale = [tag for tag in post_to_pre if tag not in current_vol_tags]
-        unmapped = [tag for tag in current_vol_tags if tag not in post_to_pre]
-        if stale or unmapped:
-            warnings.append(
-                "Post-fragment volume mapping was disturbed by duplicate removal; "
-                "falling back to index-based volume identity for affected volumes."
-            )
-            for tag in stale:
-                del post_to_pre[tag]
-            for tag in unmapped:
-                post_to_pre[tag] = tag
+            current_tags = gmsh.model.getEntities(3)
+            input_to_pre = {int(tag): pre for tag, pre in post_to_pre.items()}
+            input_to_pre[gy_tag] = gy_pre_index
+
+            post_to_pre = _fragment_and_track(current_tags, input_to_pre, diag)
+            warnings.append("Auto-created graveyard volume around model (mat:graveyard).")
 
         tol = faceting_tolerance
         if auto_adjust_tolerance:
@@ -941,7 +970,19 @@ def convert_to_dagmc(
 
         gmsh.model.mesh.generate(2)
 
+        # Guard against a silent no-op mesh generation (can happen when gmsh
+        # considers the geometry invalid but does not raise).
+        mesh_node_tags, _, _ = gmsh.model.mesh.getNodes()
+        if len(mesh_node_tags) == 0:
+            raise RuntimeError("gmsh surface mesh generation produced no nodes")
+
         vertices, face_triangles, face_to_volumes, _ = _extract_gmsh_surface_mesh(warnings)
+        if not face_triangles:
+            raise RuntimeError("No surface triangles were generated for the model")
+
+        all_vol_ids = {v for vols in face_to_volumes.values() for v in vols}
+        if not all_vol_ids:
+            raise RuntimeError("No volumes were found after surface mesh extraction")
 
         gmsh.finalize()
         gmsh_initialized = False

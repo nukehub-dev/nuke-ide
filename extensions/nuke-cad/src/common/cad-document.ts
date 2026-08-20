@@ -376,6 +376,8 @@ function validateSketch(ctx: MutableValidationContext, sketch: SketchDef, index:
             for (const [j, tid] of dimension.targetIds.entries()) {
                 if (!isString(tid) || tid.length === 0) {
                     issue(ctx, `${dpath}.targetIds[${j}]`, 'target id must be a string');
+                } else if (!primitiveIds.has(tid)) {
+                    issue(ctx, `${dpath}.targetIds[${j}]`, `dimension target '${tid}' is not a primitive id in the sketch`);
                 }
             }
         }

@@ -85,7 +85,7 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 onSelectFeature={(id) => this.documentStore.selectFeature(id)}
                 onToggleSuppressed={(id, value) => this.handleToggleSuppressed(id, value)}
                 onDeleteFeature={(id) => this.handleDeleteFeature(id)}
-                onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
+                onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_SKETCH.id, id)}
                 onNewSketch={() => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
                 onStartFeatureCreation={(type) => {
                     const command =

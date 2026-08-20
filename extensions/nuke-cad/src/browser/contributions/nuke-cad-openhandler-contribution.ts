@@ -106,17 +106,27 @@ export class NukeCadOpenHandler implements OpenHandler {
         }
 
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
-        const result = await this.backendService.buildGeometry({
-            scriptPath: filePath,
-            sourceType,
-            exportDagmc: sourceType === 'script' ? undefined : false,
-            exportMesh: sourceType === 'script' ? undefined : false
-        });
-        if (result.success) {
-            this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
-        } else {
-            this.messageService.error(result.error || 'Failed to load CAD model.');
-            console.error('[NukeCad] Open handler failed:', result.output);
+        widget.setLoading(true, sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...');
+        try {
+            const result = await this.backendService.buildGeometry({
+                scriptPath: filePath,
+                sourceType,
+                exportDagmc: sourceType === 'script' ? undefined : false,
+                exportMesh: sourceType === 'script' ? undefined : false
+            });
+            if (result.success) {
+                this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
+            } else {
+                widget.showBuildError(result.error || 'Failed to load CAD model.');
+                this.messageService.error(result.error || 'Failed to load CAD model.');
+                console.error('[NukeCad] Open handler failed:', result.output);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            widget.showBuildError(message);
+            this.messageService.error(message);
+        } finally {
+            widget.setLoading(false);
         }
     }
 

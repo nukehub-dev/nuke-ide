@@ -497,6 +497,9 @@ export interface SketchSolver {
     /** Discard temporary constraints and re-solve the committed sketch. */
     popTemporaryConstraints(): Promise<SolverResult>;
 
+    /** Release any native resources held by the solver. Safe to call more than once. */
+    destroy(): void;
+
     /** Read back the last solved primitive by id. */
     getPrimitive(id: string): SketchPrimitive | undefined;
 

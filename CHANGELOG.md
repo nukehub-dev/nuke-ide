@@ -294,6 +294,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: sketch mode lifecycle hardening — `SketchSession.destroy()` releases
+  the solver and clears listeners; `SketchModeController` disposes the session
+  and restores the 3D view on exit/teardown; solver and pointer-up errors now
+  surface as user-visible messages instead of failing silently.
+- nuke-cad: viewport no longer flashes the empty state when the same
+  tessellation is set repeatedly, and the open handler shows a loading overlay
+  while scripts or STEP files build.
+- nuke-cad: `REBUILD_GEOMETRY` now warns when a `.nuke-cad` document is active
+  but the CAD viewport is not open, instead of silently doing nothing.
+- nuke-cad: dimension popover input stays in sync with external parameter/value
+  changes while open.
+- nuke-cad: 3-point arc clicks catch solver failures and reset pending
+  auto-constraints instead of crashing.
+- nuke-cad: sketch snap now returns `on_curve` candidates for arcs (projected
+  onto the arc circle within the angular span), not just lines and circles.
+- nuke-cad: document validation now rejects dimensions whose `targetIds`
+  reference primitives that do not exist in the sketch.
+- nuke-cad: geometry service stdout-JSON protocol now uses a `__NUKE_RESULT__`
+  marker so user prints can no longer be mistaken for the result payload.
+- nuke-cad: DAGMC export no longer auto-detects graveyards via the >10×
+  volume-ratio + containment heuristic. Existing graveyards must be explicitly
+  flagged with `existing_graveyard_vol_ids` or by naming the STEP
+  product/assembly "graveyard".
+- nuke-cad: `pad` and `pocket` now share the same inner-wire semantics — inner
+  wires represent removed material, leaving islands for pads and producing
+  through-holes for pockets.
+- nuke-cad: overlapping additive features now raise a clear `FeatureBuilderError`
+  instead of producing invalid overlapping volumes.
+- nuke-cad: revolve/groove axes are validated to lie in the sketch plane; a
+  non-planar axis now fails fast with a clear message instead of an unwrapped
+  OCCT traceback.
+- nuke-cad: shallow `.nuke-cad` document validation in the Python service now
+  rejects unsupported feature types and missing required parameters (positive
+  length for pad/pocket, axis and angle for revolve/groove) before any geometry
+  is built.
+
+### Added
+
+- nuke-cad: `lengthScale` option on `GeometryBuildRequest` and
+  `BuildDocumentRequest` (default 1.0). The value is forwarded through the RPC
+  layer to `geometry_service.py --length-scale` and applied to DAGMC `.h5m`
+  vertices via `convert_to_dagmc`. Default units are cm; use `0.01` to produce
+  meter-scaled meshes for transport solvers that expect meters.
+- nuke-cad: `EDIT_SKETCH` command and feature-tree sketch edit action open an
+  existing sketch for editing.
+
+### Fixed
+
 - nuke-cad: GUI-authored pincell DAGMC e2e no longer leaks particles. The
   `dagmc_export.py` pipeline now imprints model volumes in gmsh first and adds
   the optional `mat:graveyard` bounding box with a second gmsh `fragment`,
@@ -480,6 +528,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ngsolve`, mpi4py/paraview → conda-only, …) with a vitest consistency test
   (`package-registry.test.ts`) that fails CI on drift between the three
   extension `packages.json` files.
+
+### Fixed
+
+- nuke-cad: additive-shape bounding-box prefilter in `feature_builder.py` now
+  uses the build123d `BoundBox` `.min.X`/`.max.X` API.
+- nuke-cad: DAGMC volume-to-pre-index tracking through gmsh imprint/merge and
+  auto-graveyard insertion now survives tag renumbering after
+  `removeAllDuplicates`. The old "disturbed mapping" hard error was replaced by
+  geometric signature matching (volume + bbox), so manifest material groups
+  (`mat:<name>`) and the auto-created `mat:graveyard` bind correctly.
 
 ## [0.1.3] - 2026-07-28
 

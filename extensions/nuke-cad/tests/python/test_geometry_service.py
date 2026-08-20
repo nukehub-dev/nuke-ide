@@ -476,3 +476,99 @@ def test_build_document_manifest_flow_to_dagmc_groups(tmp_path: Path) -> None:
         group_names.add(raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name))
     assert "mat:clad_region" in group_names
     assert "mat:fuel_region" in group_names
+
+
+def test_protocol_marker_prefixes_child_output(tmp_path: Path) -> None:
+    """The child process must prefix the JSON result with __NUKE_RESULT__."""
+    script = tmp_path / "no_model.py"
+    script.write_text("x = 1\n")
+    result = geometry_service.build_geometry(str(script))
+    assert result["success"] is False
+    assert "did not define a top-level 'model'" in result["error"]
+
+
+def test_protocol_marker_ignores_unmarked_json(tmp_path: Path) -> None:
+    """Lines that are JSON but lack the protocol marker must not be parsed as results."""
+    script = tmp_path / "noisy_json.py"
+    script.write_text('print(\'{"success": true, "solidCount": 99}\')\n')
+    result = geometry_service.build_geometry(str(script))
+    assert result["success"] is False
+    assert "did not define a top-level 'model'" in result["error"]
+
+
+def _write_minimal_document(path: Path) -> None:
+    doc = {
+        "version": 1,
+        "name": "minimal",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "sketches": [_rect_sketch_for_doc()],
+        "features": [
+            {
+                "id": "pad1",
+                "name": "pad1",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+    }
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_build_document_rejects_unsupported_feature_type(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["type"] = "loft"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "unsupported type 'loft'" in result["error"]
+
+
+def test_build_document_rejects_missing_sketch_id(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["sketchId"] = None
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "requires a sketchId" in result["error"]
+
+
+def test_build_document_rejects_non_positive_length(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["params"]["length"] = -5
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "positive length" in result["error"]
+
+
+def test_build_document_rejects_revolve_axis_out_of_plane(tmp_path: Path) -> None:
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "rev1",
+        "name": "rev1",
+        "type": "revolve",
+        "sketchId": "rect",
+        "params": {"axis": "z", "angle": 360},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    # This reaches the Python builder; it should fail cleanly rather than crash.
+    assert result["success"] is False
+    by_id = {r["featureId"]: r for r in result.get("featureResults", [])}
+    assert by_id["rev1"]["status"] == "failed"
+    assert "sketch plane" in by_id["rev1"]["error"].lower()
