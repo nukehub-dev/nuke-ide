@@ -43,6 +43,7 @@ import { PlanegcsSketchSolver, type SketchPrimitive, type SketchPoint } from '..
 import { getPlanegcsWasmUrl } from './planegcs-wasm-url';
 import {
     buildDatumPlane,
+    buildDatumPlaneFromFace,
     type DatumKind,
     type DatumPlane,
     type Point2,
@@ -55,6 +56,8 @@ import {
 } from './sketch-math';
 import { snap, createSnapConfig, type SnapResult } from './snap';
 import { type SketchDef, type SketchDimension } from '../../common/cad-document';
+import { type TopologyRef } from '../../common/topology-refs';
+import { CadDocumentStore } from '../document/cad-document-store';
 
 /** Listener invoked after any mutation that changes the sketch UI state. */
 export type SketchControllerChangeListener = () => void;
@@ -159,6 +162,7 @@ export class SketchModeController {
     private readonly snapMarker: THREE.Points;
     private readonly selectionMarker: THREE.Group;
     private readonly committedGroup: THREE.Group;
+    private readonly projectedGroup: THREE.Group;
     private readonly dimensionGroup: THREE.Group;
 
     private savedCamera?: THREE.PerspectiveCamera;
@@ -170,6 +174,8 @@ export class SketchModeController {
     private readonly disposeSessionOnExit: boolean;
     private readonly renderCallback: () => void;
     private readonly messageService?: MessageService;
+    private readonly documentStore?: CadDocumentStore;
+    private storeUnsubscribe?: () => void;
     private themeColors: ThemeColors;
     private readonly onChangeBound: () => void;
     private sessionChangeUnsubscribe?: () => void;
@@ -184,6 +190,7 @@ export class SketchModeController {
      * @param options.modelGroup Optional 3D model group to dim/hide in sketch mode.
      * @param options.existingSession Optional existing session (debug/advanced).
      * @param options.messageService Optional Theia message service for surfacing user errors.
+     * @param options.documentStore Optional document store; when supplied the controller renders projected external geometry.
      */
     constructor(
         container: HTMLElement,
@@ -201,6 +208,7 @@ export class SketchModeController {
             modelGroup?: THREE.Group;
             existingSession?: SketchSession;
             messageService?: MessageService;
+            documentStore?: CadDocumentStore;
         } = {}
     ) {
         this.container = container;
@@ -219,6 +227,8 @@ export class SketchModeController {
         this.sketchGroup.name = 'sketch-layer';
         this.committedGroup = new THREE.Group();
         this.committedGroup.name = 'sketch-committed';
+        this.projectedGroup = new THREE.Group();
+        this.projectedGroup.name = 'sketch-projected';
         this.dimensionGroup = new THREE.Group();
         this.dimensionGroup.name = 'sketch-dimensions';
         this.previewObject = new THREE.Group();
@@ -230,6 +240,7 @@ export class SketchModeController {
         this.grid.visible = false;
         this.sketchGroup.add(this.grid);
         this.sketchGroup.add(this.committedGroup);
+        this.sketchGroup.add(this.projectedGroup);
         this.sketchGroup.add(this.dimensionGroup);
         this.sketchGroup.add(this.previewObject);
         this.sketchGroup.add(this.selectionMarker);
@@ -245,6 +256,8 @@ export class SketchModeController {
         this.sketchGroup.add(this.snapMarker);
 
         this.onChangeBound = this.handleSessionChange.bind(this);
+        this.documentStore = options.documentStore;
+        this.storeUnsubscribe = this.documentStore?.onChange(() => this.handleStoreChange());
 
         if (this.session !== undefined) {
             this.bindSession(this.session);
@@ -386,12 +399,20 @@ export class SketchModeController {
         offset = 0,
         camera?: THREE.PerspectiveCamera,
         sketchDef?: SketchDef,
-        inheritedParameters?: Record<string, number>
+        inheritedParameters?: Record<string, number>,
+        reference?: TopologyRef
     ): Promise<void> {
         if (this.session !== undefined) {
             await this.exitSketch();
         }
-        this.datumPlane = buildDatumPlane(kind, offset);
+        if (kind === 'face') {
+            if (reference === undefined) {
+                throw new Error('face datum requires a TopologyRef reference');
+            }
+            this.datumPlane = buildDatumPlaneFromFace(reference, offset);
+        } else {
+            this.datumPlane = buildDatumPlane(kind, offset);
+        }
         this.savedCamera = camera;
         this.savedControlsEnabled = this.controls.enabled;
         this.controls.enabled = false;
@@ -401,6 +422,7 @@ export class SketchModeController {
         this.dimModel(true);
         this.scene.add(this.sketchGroup);
         this.grid.visible = true;
+        this.renderProjectedPrimitives();
         this.renderSketch();
         this.renderCallback();
     }
@@ -492,6 +514,14 @@ export class SketchModeController {
         this.status = this.session.getStatus();
         this.renderSketch();
         this.emitChange();
+        this.renderCallback();
+    }
+
+    private handleStoreChange(): void {
+        if (!this.isActive) {
+            return;
+        }
+        this.renderProjectedPrimitives();
         this.renderCallback();
     }
 
@@ -971,6 +1001,107 @@ export class SketchModeController {
         }
         this.renderPreview();
         this.renderSelection();
+    }
+
+    private renderProjectedPrimitives(): void {
+        while (this.projectedGroup.children.length > 0) {
+            const child = this.projectedGroup.children[0];
+            this.projectedGroup.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+        if (this.session === undefined || this.documentStore === undefined) {
+            return;
+        }
+        const sketchId = this.session.getId();
+        const primitives = this.documentStore.getProjectedPrimitives().get(sketchId) ?? [];
+        const color = this.themeColors.construction;
+        const z = -0.001;
+        for (const raw of primitives) {
+            const primitive = raw as Record<string, unknown>;
+            const type = String(primitive.type ?? '');
+            if (type === 'point') {
+                const x = Number(primitive.x ?? 0);
+                const y = Number(primitive.y ?? 0);
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute([x, y, z], 3));
+                const material = new THREE.PointsMaterial({ color, size: 4, sizeAttenuation: false });
+                this.projectedGroup.add(new THREE.Points(geometry, material));
+            } else if (type === 'line') {
+                const p1Id = String(primitive.p1_id ?? primitive.p1Id ?? '');
+                const p2Id = String(primitive.p2_id ?? primitive.p2Id ?? '');
+                const p1 = this.findProjectedPoint(primitives, p1Id);
+                const p2 = this.findProjectedPoint(primitives, p2Id);
+                if (p1 === undefined || p2 === undefined) {
+                    continue;
+                }
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(p1.x, p1.y, z),
+                    new THREE.Vector3(p2.x, p2.y, z)
+                ]);
+                const material = new THREE.LineDashedMaterial({
+                    color,
+                    dashSize: 0.15,
+                    gapSize: 0.1,
+                    linewidth: 1
+                });
+                const line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+                this.projectedGroup.add(line);
+            } else if (type === 'circle') {
+                const centerId = String(primitive.c_id ?? primitive.centerId ?? '');
+                const center = this.findProjectedPoint(primitives, centerId);
+                const radius = Number(primitive.radius ?? 0);
+                if (center === undefined || radius <= 0) {
+                    continue;
+                }
+                const geometry = this.circleGeometry(center, radius, z);
+                const material = new THREE.LineDashedMaterial({
+                    color,
+                    dashSize: 0.15,
+                    gapSize: 0.1,
+                    linewidth: 1
+                });
+                const line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+                this.projectedGroup.add(line);
+            } else if (type === 'arc') {
+                const centerId = String(primitive.c_id ?? primitive.centerId ?? '');
+                const center = this.findProjectedPoint(primitives, centerId);
+                const radius = Number(primitive.radius ?? 0);
+                const startAngle = Number(primitive.start_angle ?? primitive.startAngle ?? 0);
+                const endAngle = Number(primitive.end_angle ?? primitive.endAngle ?? 0);
+                if (center === undefined || radius <= 0) {
+                    continue;
+                }
+                const geometry = this.arcGeometry(center, radius, startAngle, endAngle, z);
+                const material = new THREE.LineDashedMaterial({
+                    color,
+                    dashSize: 0.15,
+                    gapSize: 0.1,
+                    linewidth: 1
+                });
+                const line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+                this.projectedGroup.add(line);
+            }
+        }
+    }
+
+    private findProjectedPoint(primitives: readonly Record<string, unknown>[], id: string): { x: number; y: number } | undefined {
+        const point = primitives.find((p) => p.type === 'point' && (p.id === id || String(p.id) === id));
+        if (point === undefined) {
+            return undefined;
+        }
+        return { x: Number(point.x ?? 0), y: Number(point.y ?? 0) };
     }
 
     private clearCommitted(): void {
@@ -1513,6 +1644,8 @@ export class SketchModeController {
         } else {
             this.unbindSession();
         }
+        this.storeUnsubscribe?.();
+        this.storeUnsubscribe = undefined;
         this.scene.remove(this.sketchGroup);
         this.sketchGroup.traverse((child) => {
             if (child instanceof THREE.Line || child instanceof THREE.Points) {

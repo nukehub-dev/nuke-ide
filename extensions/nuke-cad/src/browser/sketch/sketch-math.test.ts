@@ -28,6 +28,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildDatumPlane,
+    buildDatumPlaneFromFace,
     intersectRayPlane,
     worldToSketch,
     sketchToWorld,
@@ -132,6 +133,54 @@ describe('sketch-math', () => {
     describe('dist', () => {
         it('computes Euclidean distance', () => {
             expect(dist({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5);
+        });
+    });
+
+    describe('buildDatumPlaneFromFace', () => {
+        it('builds a datum from a planar face fingerprint', () => {
+            const reference = {
+                featureId: 'base',
+                kind: 'face' as const,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 100,
+                    center: [0, 0, 5] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            };
+            const plane = buildDatumPlaneFromFace(reference, 0);
+            expect(plane.kind).toBe('face');
+            expect(plane.normal).toEqual({ x: 0, y: 0, z: 1 });
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 5 });
+            expect(plane.reference).toBe(reference);
+        });
+
+        it('applies offset along the face normal', () => {
+            const reference = {
+                featureId: 'base',
+                kind: 'face' as const,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 100,
+                    center: [0, 0, 5] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            };
+            const plane = buildDatumPlaneFromFace(reference, 2);
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 7 });
+        });
+
+        it('throws for a non-planar face fingerprint', () => {
+            const reference = {
+                featureId: 'base',
+                kind: 'face' as const,
+                fingerprint: {
+                    surfaceType: 'cylinder' as const,
+                    area: 100,
+                    center: [0, 0, 5] as [number, number, number]
+                }
+            };
+            expect(() => buildDatumPlaneFromFace(reference)).toThrow('normal');
         });
     });
 });

@@ -88,6 +88,15 @@ except Exception:
     mesh_service = None  # type: ignore
     HAS_MESH_SERVICE = False
 
+# Reference resolver is optional; tessellation fingerprints are omitted without OCP.
+try:
+    import reference_resolver
+
+    HAS_REFERENCE_RESOLVER = True
+except Exception:
+    reference_resolver = None  # type: ignore
+    HAS_REFERENCE_RESOLVER = False
+
 
 RESULT_MARKER = "__NUKE_RESULT__"
 
@@ -481,7 +490,13 @@ def _read_step(step_path: Path) -> object:
 
 
 def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
-    """Tessellate ``shape`` and return per-solid face buffers."""
+    """Tessellate ``shape`` and return per-solid face buffers.
+
+    Each face entry includes a geometric ``fingerprint`` (surface type, area,
+    centroid, normal/axis/radius) when OCP is available. The fingerprint lets
+    the frontend construct stable ``TopologyRef`` objects at pick time instead
+    of relying on fragile face indices.
+    """
     from OCP.BRep import BRep_Tool
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
@@ -520,14 +535,18 @@ def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
                 t = tri.Triangle(i)
                 triangles.append([t.Value(1) - 1, t.Value(2) - 1, t.Value(3) - 1])
 
-            faces.append(
-                {
-                    "faceId": face_id,
-                    "nodes": nodes,
-                    "triangles": triangles,
-                    "hash": hash(face.TShape().__hash__()),
-                }
-            )
+            face_entry: dict[str, Any] = {
+                "faceId": face_id,
+                "nodes": nodes,
+                "triangles": triangles,
+                "hash": hash(face.TShape().__hash__()),
+            }
+            if HAS_REFERENCE_RESOLVER and reference_resolver is not None:
+                fp = reference_resolver._extract_face_fingerprint(face)
+                if fp is not None:
+                    face_entry["fingerprint"] = _face_fingerprint_to_json(fp)
+
+            faces.append(face_entry)
             face_id += 1
             face_exp.Next()
 
@@ -536,6 +555,24 @@ def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
         solid_exp.Next()
 
     return solids
+
+
+def _face_fingerprint_to_json(fp: dict[str, Any]) -> dict[str, Any]:
+    """Convert a snake_case face fingerprint dict to the TS contract shape."""
+    data: dict[str, Any] = {
+        "surfaceType": fp["surface_type"],
+        "area": fp["area"],
+        "center": fp["center"],
+    }
+    if fp.get("normal") is not None:
+        data["normal"] = fp["normal"]
+    if fp.get("axis") is not None:
+        data["axis"] = fp["axis"]
+    if fp.get("radius") is not None:
+        data["radius"] = fp["radius"]
+    if fp.get("minor_radius") is not None:
+        data["minorRadius"] = fp["minor_radius"]
+    return data
 
 
 def _bounding_box(shape: object) -> dict[str, list[float]]:

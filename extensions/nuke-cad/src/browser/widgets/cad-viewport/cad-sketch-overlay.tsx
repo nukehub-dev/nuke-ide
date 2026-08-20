@@ -47,12 +47,16 @@ interface CadSketchOverlayProps {
     readonly documentStore: CadDocumentStore;
     readonly setupVisible: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onCancelFeatureCreation: () => void;
+    readonly onStartFacePick: (offset: number) => void;
+    readonly onStartExternalGeometryPick: (featureId: string) => void;
+    readonly onCancelFacePick: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
@@ -63,6 +67,8 @@ const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
     { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-git-commit' },
     { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-checklist' }
 ];
+
+const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove'];
 
 const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
     { kind: 'coincident', label: 'Coincident' },
@@ -89,12 +95,16 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         documentStore,
         setupVisible,
         featureCreationType,
+        facePickMode,
         onEnterSketch,
         onExitSketch,
         onStartFeatureCreation,
         onAddFeature,
         onEditSketch,
-        onCancelFeatureCreation
+        onCancelFeatureCreation,
+        onStartFacePick,
+        onStartExternalGeometryPick,
+        onCancelFacePick
     } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
@@ -115,6 +125,13 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const dimensions = active ? controller.getDimensions() : [];
     const dimensionLabels = active ? controller.getDimensionLabels() : [];
     const session = controller.getSession();
+    const externalRefs = session?.getExternalRefs() ?? [];
+    const sketchId = session?.getId();
+    const consumingFeature = sketchId !== undefined ? findConsumingFeature(documentStore.document, sketchId) : undefined;
+    const referenceResults = documentStore.getReferenceResults();
+    const relevantRefs = consumingFeature !== undefined ? referenceResults.filter((r) => r.featureId === consumingFeature.id) : [];
+    const externalGeometryTarget =
+        documentStore.document !== undefined ? findExternalGeometryTargetFeature(documentStore.document) : undefined;
 
     const [value, setValue] = React.useState('');
     const [useDiameter, setUseDiameter] = React.useState(false);
@@ -219,8 +236,10 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
     };
 
-    const statusText = buildStatusText(status);
-    const hasDiagnostics = status.conflicting.length > 0 || status.redundant.length > 0;
+    const refCounts = countReferenceResults(relevantRefs);
+    const statusText = buildStatusText(status, refCounts);
+    const hasDiagnostics =
+        status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
 
     return (
         <div className="cad-sketch-overlay">
@@ -228,10 +247,13 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                 <DatumPicker
                     datumKind={datumKind}
                     offset={offset}
+                    facePickMode={facePickMode}
                     onDatumKindChange={setDatumKind}
                     onOffsetChange={setOffset}
                     onEnter={() => onEnterSketch(datumKind, Number(offset))}
                     onCancel={() => void onExitSketch()}
+                    onStartFacePick={() => onStartFacePick(Number(offset))}
+                    onCancelFacePick={onCancelFacePick}
                 />
             )}
 
@@ -292,6 +314,19 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 onClick={() => setParamsOpen(!paramsOpen)}
                             >
                                 <span className="codicon codicon-symbol-variable" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="External Geometry" position="right">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
+                                disabled={externalGeometryTarget === undefined}
+                                onClick={() => {
+                                    if (externalGeometryTarget !== undefined) {
+                                        onStartExternalGeometryPick(externalGeometryTarget.id);
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-link-external" />
                             </button>
                         </Tooltip>
                         <Tooltip content="Exit Sketch" position="right">
@@ -356,6 +391,33 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         </div>
                     )}
 
+                    {facePickMode === 'externalGeometry' && (
+                        <div className="cad-sketch-face-pick-banner">
+                            <span className="codicon codicon-target" />
+                            <span>Click a face or edge in the viewport to add external geometry.</span>
+                            <button className="theia-button secondary" onClick={onCancelFacePick}>
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+
+                    {externalRefs.length > 0 && (
+                        <ExternalRefsPanel
+                            refs={externalRefs}
+                            onRemove={(index) => {
+                                if (sketchId === undefined) {
+                                    return;
+                                }
+                                const result = documentStore.removeExternalRef(sketchId, index);
+                                if (!result.success) {
+                                    // eslint-disable-next-line no-console
+                                    console.error('[CadSketchOverlay] Failed to remove external ref:', result.error);
+                                }
+                                session?.removeExternalRef(index);
+                            }}
+                        />
+                    )}
+
                     {constraintInput?.error !== undefined && (
                         <div className="cad-sketch-status cad-sketch-status-error">{constraintInput.error}</div>
                     )}
@@ -409,6 +471,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         <DiagnosticsPopover
                             status={status}
                             constraints={session?.getConstraints() ?? []}
+                            referenceResults={relevantRefs}
                             onHighlight={(kind) => controller.highlightDiagnostics(kind)}
                             onClose={() => setDiagnosticsOpen(false)}
                         />
@@ -431,50 +494,71 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 interface DatumPickerProps {
     datumKind: DatumKind;
     offset: string;
+    facePickMode?: 'sketchDatum' | 'externalGeometry';
     onDatumKindChange: (kind: DatumKind) => void;
     onOffsetChange: (value: string) => void;
     onEnter: () => void;
     onCancel: () => void;
+    onStartFacePick: () => void;
+    onCancelFacePick: () => void;
 }
 
 function DatumPicker(props: DatumPickerProps): React.ReactElement {
+    const picking = props.facePickMode === 'sketchDatum';
     return (
         <div className="cad-sketch-datum-picker">
             <div className="cad-sketch-datum-title">Sketch Plane</div>
-            <div className="cad-sketch-datum-buttons">
-                {(['XY', 'YZ', 'XZ'] as DatumKind[]).map((kind) => (
-                    <button
-                        key={kind}
-                        className={`theia-button secondary ${props.datumKind === kind ? 'active' : ''}`}
-                        onClick={() => props.onDatumKindChange(kind)}
-                    >
-                        {kind}
+            {picking ? (
+                <div className="cad-sketch-face-pick-banner">
+                    <span className="codicon codicon-target" />
+                    <span>Click a face in the viewport to place the sketch datum.</span>
+                    <button className="theia-button secondary" onClick={props.onCancelFacePick}>
+                        Cancel
                     </button>
-                ))}
-            </div>
-            <label className="cad-sketch-datum-offset">
-                Offset
-                <input
-                    type="number"
-                    value={props.offset}
-                    onChange={(e) => props.onOffsetChange(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            props.onEnter();
-                        } else if (e.key === 'Escape') {
-                            props.onCancel();
-                        }
-                    }}
-                />
-            </label>
-            <div className="cad-sketch-datum-actions">
-                <button className="theia-button secondary" onClick={props.onEnter}>
-                    Start Sketch
-                </button>
-                <button className="theia-button secondary" onClick={props.onCancel}>
-                    Cancel
-                </button>
-            </div>
+                </div>
+            ) : (
+                <>
+                    <div className="cad-sketch-datum-buttons">
+                        {(['XY', 'YZ', 'XZ'] as DatumKind[]).map((kind) => (
+                            <button
+                                key={kind}
+                                className={`theia-button secondary ${props.datumKind === kind ? 'active' : ''}`}
+                                onClick={() => props.onDatumKindChange(kind)}
+                            >
+                                {kind}
+                            </button>
+                        ))}
+                        <Tooltip content="Sketch on a selected face" position="bottom">
+                            <button className="theia-button secondary" onClick={props.onStartFacePick}>
+                                On Face…
+                            </button>
+                        </Tooltip>
+                    </div>
+                    <label className="cad-sketch-datum-offset">
+                        Offset
+                        <input
+                            type="number"
+                            value={props.offset}
+                            onChange={(e) => props.onOffsetChange(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    props.onEnter();
+                                } else if (e.key === 'Escape') {
+                                    props.onCancel();
+                                }
+                            }}
+                        />
+                    </label>
+                    <div className="cad-sketch-datum-actions">
+                        <button className="theia-button secondary" onClick={props.onEnter}>
+                            Start Sketch
+                        </button>
+                        <button className="theia-button secondary" onClick={props.onCancel}>
+                            Cancel
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
@@ -485,6 +569,32 @@ interface DocumentModeToolbarProps {
     readonly onExitSketch: () => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
+}
+
+interface ExternalRefsPanelProps {
+    readonly refs: readonly import('../../../common/topology-refs').TopologyRef[];
+    readonly onRemove: (index: number) => void;
+}
+
+function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
+    return (
+        <div className="cad-sketch-external-refs">
+            <div className="cad-sketch-external-refs-header">
+                <span>External Geometry</span>
+            </div>
+            {props.refs.map((ref, index) => (
+                <div key={`${ref.featureId}-${index}`} className="cad-sketch-external-ref-row">
+                    <span className="cad-sketch-external-ref-kind">{ref.kind}</span>
+                    <span className="cad-sketch-external-ref-feature">{ref.featureId}</span>
+                    <Tooltip content="Remove" position="left">
+                        <button className="theia-button secondary" onClick={() => props.onRemove(index)}>
+                            <span className="codicon codicon-close" />
+                        </button>
+                    </Tooltip>
+                </div>
+            ))}
+        </div>
+    );
 }
 
 function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
@@ -833,13 +943,15 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
 interface DiagnosticsPopoverProps {
     status: SketchStatus;
     constraints: Array<{ id: string; kind: ConstraintKind; targetIds: string[] }>;
+    referenceResults: import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
     onHighlight: (kind: 'conflicting' | 'redundant') => void;
     onClose: () => void;
 }
 
 function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement {
-    const { status, constraints, onHighlight, onClose } = props;
+    const { status, constraints, referenceResults, onHighlight, onClose } = props;
     const findConstraint = (id: string) => constraints.find((c) => c.id === id);
+    const refCounts = countReferenceResults(referenceResults);
 
     return (
         <div className="cad-sketch-diagnostics-popover">
@@ -849,6 +961,40 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
                     <span className="codicon codicon-close" />
                 </button>
             </div>
+            {(refCounts.matched > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0) && (
+                <div className="cad-sketch-diagnostics-section">
+                    <div className="cad-sketch-diagnostics-title">References</div>
+                    {refCounts.matched > 0 && (
+                        <div className="cad-sketch-diagnostics-row">
+                            <span className="cad-sketch-diagnostics-id">matched</span>
+                            <span className="cad-sketch-diagnostics-kind">{refCounts.matched}</span>
+                        </div>
+                    )}
+                    {refCounts.ambiguous > 0 && (
+                        <div className="cad-sketch-diagnostics-row">
+                            <span className="cad-sketch-diagnostics-id">ambiguous</span>
+                            <span className="cad-sketch-diagnostics-kind">{refCounts.ambiguous}</span>
+                        </div>
+                    )}
+                    {refCounts.unmatched > 0 && (
+                        <div className="cad-sketch-diagnostics-row">
+                            <span className="cad-sketch-diagnostics-id">unmatched</span>
+                            <span className="cad-sketch-diagnostics-kind">{refCounts.unmatched}</span>
+                        </div>
+                    )}
+                    {referenceResults
+                        .filter((r) => r.status !== 'matched')
+                        .map((r) => (
+                            <div key={r.path} className="cad-sketch-diagnostics-row">
+                                <span className="cad-sketch-diagnostics-id">{r.path}</span>
+                                <span className="cad-sketch-diagnostics-kind">{r.status}</span>
+                                <span className="cad-sketch-diagnostics-targets">
+                                    {r.score !== undefined ? `score ${r.score.toFixed(3)}` : ''}
+                                </span>
+                            </div>
+                        ))}
+                </div>
+            )}
             {status.conflicting.length > 0 && (
                 <div className="cad-sketch-diagnostics-section">
                     <div className="cad-sketch-diagnostics-title">
@@ -875,9 +1021,11 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
                     ))}
                 </div>
             )}
-            {status.conflicting.length === 0 && status.redundant.length === 0 && (
-                <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>
-            )}
+            {status.conflicting.length === 0 &&
+                status.redundant.length === 0 &&
+                refCounts.matched === 0 &&
+                refCounts.ambiguous === 0 &&
+                refCounts.unmatched === 0 && <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>}
         </div>
     );
 }
@@ -943,8 +1091,16 @@ function dimensionLabel(kind: DimensionKind): string {
     }
 }
 
-function buildStatusText(status: SketchStatus): string {
+function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts): string {
     const parts: string[] = [];
+    if (referenceCounts !== undefined) {
+        if (referenceCounts.ambiguous > 0) {
+            parts.push(`${referenceCounts.ambiguous} ambiguous ref${referenceCounts.ambiguous === 1 ? '' : 's'}`);
+        }
+        if (referenceCounts.unmatched > 0) {
+            parts.push(`${referenceCounts.unmatched} unmatched ref${referenceCounts.unmatched === 1 ? '' : 's'}`);
+        }
+    }
     if (status.conflicting.length > 0) {
         parts.push(`${status.conflicting.length} conflicting`);
     }
@@ -961,4 +1117,39 @@ function buildStatusText(status: SketchStatus): string {
         parts.push(`Auto: ${kinds}`);
     }
     return parts.join(' · ');
+}
+
+interface ReferenceCounts {
+    matched: number;
+    ambiguous: number;
+    unmatched: number;
+}
+
+function countReferenceResults(results: import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[]): ReferenceCounts {
+    return results.reduce(
+        (acc, r) => {
+            acc[r.status]++;
+            return acc;
+        },
+        { matched: 0, ambiguous: 0, unmatched: 0 }
+    );
+}
+
+function findConsumingFeature(
+    document: import('../../../common/cad-document').NukeCadDocument | undefined,
+    sketchId: string
+): import('../../../common/cad-document').FeatureDef | undefined {
+    return document?.features.find((f) => f.sketchId === sketchId);
+}
+
+function findExternalGeometryTargetFeature(
+    document: import('../../../common/cad-document').NukeCadDocument
+): import('../../../common/cad-document').FeatureDef | undefined {
+    for (let i = document.features.length - 1; i >= 0; i--) {
+        const feature = document.features[i];
+        if (!feature.suppressed && SOLID_PRODUCERS.includes(feature.type)) {
+            return feature;
+        }
+    }
+    return undefined;
 }

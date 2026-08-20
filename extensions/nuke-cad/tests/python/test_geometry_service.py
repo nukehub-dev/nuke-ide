@@ -75,6 +75,16 @@ def test_build_simple_build123d_box(tmp_path: Path) -> None:
     assert tess_data["version"] == 1
     assert len(tess_data["solids"]) == 1
 
+    # Every tessellated face carries a geometric fingerprint for toponaming.
+    for solid in tess_data["solids"]:
+        for face in solid["faces"]:
+            fp = face.get("fingerprint")
+            assert fp is not None, f"face {face['faceId']} missing fingerprint"
+            assert fp["surfaceType"] == "plane"
+            assert "area" in fp
+            assert "center" in fp
+            assert len(fp["center"]) == 3
+
     # DAGMC export is attempted automatically when pymoab is available.
     h5m_path = Path(result["dagmcPath"])
     if result["dagmcSuccess"]:

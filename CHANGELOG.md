@@ -52,6 +52,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projected into the sketch plane and passed to the sketch builder as
   construction geometry, so they appear as references without becoming part of
   the sketch's output wires or faces.
+- nuke-cad: **viewport face picking** — the Sketch Plane picker now has an
+  **On Face…** button that enters face-pick mode; hover highlights and a click
+  create a `face` datum and start sketching on it. The sketch toolbar adds an
+  **External Geometry** tool for picking faces/edges of the latest solid body.
+  Resolved references are rendered as dashed construction geometry after the
+  next rebuild.
+- nuke-cad: **reference-status UI** — the sketch status line and diagnostics
+  popover now show per-sketch reference-resolution counts
+  (`matched`/`ambiguous`/`unmatched`), and the Feature Tree shows
+  `ambiguous`/`unmatched` badges on features with broken topological
+  references.
+- nuke-cad: **tessellation fingerprint** — every face in the viewport
+  tessellation now carries a geometric `fingerprint` (surface type, area,
+  centroid, normal/axis/radii) used for face-pick-based `TopologyRef`
+  construction and backend reference resolution.
 - nuke-cad: **Feature Tree panel** — a right-area widget (ID
   `nuke-cad-feature-tree-widget`, command `Open Feature Tree`) listing datums,
   sketches, and features with selection, suppression toggle, edit, delete, and

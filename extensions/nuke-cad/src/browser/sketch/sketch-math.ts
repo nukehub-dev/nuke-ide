@@ -32,8 +32,10 @@
  * @module nuke-cad/browser/sketch
  */
 
+import { type TopologyRef } from '../../common/topology-refs';
+
 /** Supported datum plane identifiers. */
-export type DatumKind = 'XY' | 'YZ' | 'XZ';
+export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'face';
 
 /** A 3D vector/point. */
 export interface Vec3 {
@@ -56,6 +58,8 @@ export interface DatumPlane {
     readonly normal: Vec3;
     readonly xAxis: Vec3;
     readonly yAxis: Vec3;
+    /** Source face reference for ``face`` datums. */
+    readonly reference?: TopologyRef;
 }
 
 /** A ray in world space. */
@@ -88,9 +92,9 @@ function scale(a: Vec3, s: number): Vec3 {
  * Build a datum plane from a kind and offset.
  *
  * Offset is applied along the plane normal: XY is offset along +Z, YZ along +X,
- * XZ along +Y.
+ * XZ along +Y. For ``face`` datums use {@link buildDatumPlaneFromFace}.
  */
-export function buildDatumPlane(kind: DatumKind, offset = 0): DatumPlane {
+export function buildDatumPlane(kind: Exclude<DatumKind, 'face'>, offset = 0): DatumPlane {
     switch (kind) {
         case 'XY':
             return {
@@ -120,6 +124,53 @@ export function buildDatumPlane(kind: DatumKind, offset = 0): DatumPlane {
                 yAxis: v3(0, 0, 1)
             };
     }
+}
+
+function v3len(v: Vec3): number {
+    return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+function v3normalize(v: Vec3): Vec3 {
+    const len = v3len(v);
+    if (len < 1e-12) {
+        return v;
+    }
+    return v3(v.x / len, v.y / len, v.z / len);
+}
+
+function v3cross(a: Vec3, b: Vec3): Vec3 {
+    return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+
+/**
+ * Build a datum plane from a picked face reference.
+ *
+ * The origin is the face centroid plus ``offset`` along the face normal. The
+ * X/Y axes are derived deterministically from the normal so sketches placed on
+ * the same face share a consistent coordinate system.
+ *
+ * @throws Error if the reference fingerprint lacks a planar normal.
+ */
+export function buildDatumPlaneFromFace(reference: TopologyRef, offset = 0): DatumPlane {
+    const fp = reference.fingerprint;
+    if (!('normal' in fp) || fp.normal === undefined) {
+        throw new Error('Face datum requires a planar face with a normal');
+    }
+    const center = v3(fp.center[0], fp.center[1], fp.center[2]);
+    const normal = v3normalize(v3(fp.normal[0], fp.normal[1], fp.normal[2]));
+    const worldUp = Math.abs(normal.z) < 0.999 ? v3(0, 0, 1) : v3(1, 0, 0);
+    const xAxis = v3normalize(v3cross(worldUp, normal));
+    const yAxis = v3normalize(v3cross(normal, xAxis));
+    const origin = v3(center.x + normal.x * offset, center.y + normal.y * offset, center.z + normal.z * offset);
+    return {
+        kind: 'face',
+        offset,
+        origin,
+        normal,
+        xAxis,
+        yAxis,
+        reference
+    };
 }
 
 /** Intersect a ray with a datum plane; returns undefined when parallel. */

@@ -54,6 +54,53 @@ import {
     type DimensionKind
 } from '../../common/cad-document';
 import { snap, createSnapConfig, type Point2, type SnapConfig, type SnapResult } from './snap';
+import { type TopologyRef } from '../../common/topology-refs';
+
+function clonePoint3(p: import('../../common/topology-refs').Point3): import('../../common/topology-refs').Point3 {
+    return [p[0], p[1], p[2]];
+}
+
+function cloneTopologyRef(ref: TopologyRef): TopologyRef {
+    const base = {
+        featureId: ref.featureId,
+        kind: ref.kind
+    };
+    if (ref.kind === 'edge') {
+        const edge = ref.fingerprint as import('../../common/topology-refs').EdgeFingerprint;
+        const cloned: import('../../common/topology-refs').EdgeFingerprint = {
+            curveType: edge.curveType,
+            length: edge.length,
+            start: clonePoint3(edge.start),
+            end: clonePoint3(edge.end)
+        };
+        if (edge.center !== undefined) {
+            cloned.center = clonePoint3(edge.center);
+        }
+        return { ...base, fingerprint: cloned };
+    }
+    const face = ref.fingerprint as import('../../common/topology-refs').FaceFingerprint;
+    const cloned: import('../../common/topology-refs').FaceFingerprint = {
+        surfaceType: face.surfaceType,
+        area: face.area,
+        center: clonePoint3(face.center)
+    };
+    if (face.normal !== undefined) {
+        cloned.normal = clonePoint3(face.normal);
+    }
+    if (face.axis !== undefined) {
+        cloned.axis = {
+            origin: clonePoint3(face.axis.origin),
+            direction: clonePoint3(face.axis.direction)
+        };
+    }
+    if (face.radius !== undefined) {
+        cloned.radius = face.radius;
+    }
+    if (face.minorRadius !== undefined) {
+        cloned.minorRadius = face.minorRadius;
+    }
+    return { ...base, fingerprint: cloned };
+}
 
 /** Sketch primitive as exposed by the session, including the construction flag. */
 export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
@@ -332,6 +379,7 @@ export class SketchSession {
     private readonly parameters = new Map<string, number>();
     private readonly inheritedParameterNames = new Set<string>();
     private readonly dimensions = new Map<string, SketchDimension>();
+    private readonly externalRefs: TopologyRef[] = [];
 
     private tool: SketchTool = 'select';
     private inProgress: InProgressState | undefined;
@@ -489,6 +537,13 @@ export class SketchSession {
             });
         }
 
+        // Restore external geometry references.
+        if (def.externalRefs !== undefined) {
+            for (const ref of def.externalRefs) {
+                session.externalRefs.push(cloneTopologyRef(ref));
+            }
+        }
+
         await session.solve();
         return session;
     }
@@ -576,6 +631,27 @@ export class SketchSession {
     /** All committed dimensions. */
     getDimensions(): SketchDimension[] {
         return [...this.dimensions.values()];
+    }
+
+    /** All external geometry references attached to this sketch. */
+    getExternalRefs(): readonly TopologyRef[] {
+        return this.externalRefs;
+    }
+
+    /** Add an external geometry reference to this sketch. */
+    addExternalRef(ref: TopologyRef): void {
+        this.externalRefs.push(cloneTopologyRef(ref));
+        this.emitChange();
+    }
+
+    /** Remove an external geometry reference by index. */
+    removeExternalRef(index: number): boolean {
+        if (index < 0 || index >= this.externalRefs.length) {
+            return false;
+        }
+        this.externalRefs.splice(index, 1);
+        this.emitChange();
+        return true;
     }
 
     /** Read a single dimension by id. */
@@ -1791,6 +1867,7 @@ export class SketchSession {
         }
 
         const dimensions = [...this.dimensions.values()];
+        const externalRefs = this.externalRefs.length > 0 ? this.externalRefs.map((r) => cloneTopologyRef(r)) : undefined;
 
         return {
             id: this.id,
@@ -1799,7 +1876,8 @@ export class SketchSession {
             primitives,
             constraints,
             parameters,
-            dimensions
+            dimensions,
+            externalRefs
         };
     }
 

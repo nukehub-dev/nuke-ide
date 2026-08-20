@@ -47,7 +47,8 @@ import {
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
-import { type FeatureResult } from '../../common/nuke-cad-protocol';
+import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
+import { type TopologyRef } from '../../common/topology-refs';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -78,6 +79,10 @@ interface StoreState {
     dirty: boolean;
     selection: DocumentSelection;
     featureResults: Map<string, FeatureResult>;
+    /** Projected construction primitives per sketch from the last document build. */
+    projectedPrimitives: Map<string, Record<string, unknown>[]>;
+    /** Per-reference resolution status from the last document build. */
+    referenceResults: ReferenceResolutionResult[];
 }
 
 let idCounter = 0;
@@ -106,16 +111,64 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         version: doc.version,
         name: doc.name,
         parameters: { ...doc.parameters },
-        datums: doc.datums.map((d) => ({ ...d })),
+        datums: doc.datums.map((d) => ({ ...d, reference: d.reference !== undefined ? cloneTopologyRef(d.reference) : undefined })),
         sketches: doc.sketches.map((s) => ({
             ...s,
             primitives: s.primitives.map((p) => ({ ...p })),
             constraints: s.constraints.map((c) => ({ ...c })),
             parameters: s.parameters !== undefined ? { ...s.parameters } : undefined,
-            dimensions: s.dimensions !== undefined ? s.dimensions.map((d) => ({ ...d })) : undefined
+            dimensions: s.dimensions !== undefined ? s.dimensions.map((d) => ({ ...d })) : undefined,
+            externalRefs: s.externalRefs !== undefined ? s.externalRefs.map((r) => cloneTopologyRef(r)) : undefined
         })),
         features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn] }))
     };
+}
+
+function clonePoint3(p: import('../../common/topology-refs').Point3): import('../../common/topology-refs').Point3 {
+    return [p[0], p[1], p[2]];
+}
+
+function cloneTopologyRef(ref: TopologyRef): TopologyRef {
+    const fp = ref.fingerprint;
+    const base = {
+        featureId: ref.featureId,
+        kind: ref.kind
+    };
+    if (ref.kind === 'edge') {
+        const edge = fp as import('../../common/topology-refs').EdgeFingerprint;
+        const cloned: import('../../common/topology-refs').EdgeFingerprint = {
+            curveType: edge.curveType,
+            length: edge.length,
+            start: clonePoint3(edge.start),
+            end: clonePoint3(edge.end)
+        };
+        if (edge.center !== undefined) {
+            cloned.center = clonePoint3(edge.center);
+        }
+        return { ...base, fingerprint: cloned };
+    }
+    const face = fp as import('../../common/topology-refs').FaceFingerprint;
+    const cloned: import('../../common/topology-refs').FaceFingerprint = {
+        surfaceType: face.surfaceType,
+        area: face.area,
+        center: clonePoint3(face.center)
+    };
+    if (face.normal !== undefined) {
+        cloned.normal = clonePoint3(face.normal);
+    }
+    if (face.axis !== undefined) {
+        cloned.axis = {
+            origin: clonePoint3(face.axis.origin),
+            direction: clonePoint3(face.axis.direction)
+        };
+    }
+    if (face.radius !== undefined) {
+        cloned.radius = face.radius;
+    }
+    if (face.minorRadius !== undefined) {
+        cloned.minorRadius = face.minorRadius;
+    }
+    return { ...base, fingerprint: cloned };
 }
 
 function formatIssues(issues: ValidationIssue[]): string {
@@ -132,7 +185,9 @@ export class CadDocumentStore {
     private state: StoreState = {
         dirty: false,
         selection: {},
-        featureResults: new Map<string, FeatureResult>()
+        featureResults: new Map<string, FeatureResult>(),
+        projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
+        referenceResults: []
     };
 
     private readonly listeners = new Set<DocumentStoreListener>();
@@ -206,7 +261,9 @@ export class CadDocumentStore {
             uri: undefined,
             dirty: false,
             selection: {},
-            featureResults: new Map<string, FeatureResult>()
+            featureResults: new Map<string, FeatureResult>(),
+            projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
+            referenceResults: []
         };
         this.emitChange();
         return { success: true };
@@ -241,7 +298,9 @@ export class CadDocumentStore {
             uri: undefined,
             dirty: false,
             selection: {},
-            featureResults: new Map<string, FeatureResult>()
+            featureResults: new Map<string, FeatureResult>(),
+            projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
+            referenceResults: []
         };
         this.emitChange();
         return { success: true };
@@ -463,26 +522,49 @@ export class CadDocumentStore {
      * Add a datum plane to the document.
      *
      * Generates a collision-free id, validates the result, and preserves the
-     * backing URI and dirty state.
+     * backing URI and dirty state. For ``face`` datums ``reference`` must be a
+     * valid {@link TopologyRef}; duplicates are detected by reference equality
+     * rather than by offset.
      */
-    addDatum(kind: 'XY' | 'YZ' | 'XZ' | 'offset', offset = 0): DocumentMutationResult<string> {
+    addDatum(kind: 'XY' | 'YZ' | 'XZ' | 'offset' | 'face', offset = 0, reference?: TopologyRef): DocumentMutationResult<string> {
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
+        if (kind === 'face' && reference === undefined) {
+            return { success: false, error: 'face datum requires a TopologyRef reference' };
+        }
         const doc = cloneDocument(check.value!);
-        const existing = doc.datums.find((d) => d.kind === kind && d.offset === offset);
+        const existing = doc.datums.find((d) => {
+            if (d.kind !== kind) {
+                return false;
+            }
+            if (kind === 'face') {
+                const dFace = d.reference?.fingerprint as import('../../common/topology-refs').FaceFingerprint | undefined;
+                const rFace = reference?.fingerprint as import('../../common/topology-refs').FaceFingerprint | undefined;
+                if (dFace === undefined || rFace === undefined) {
+                    return false;
+                }
+                return (
+                    d.reference!.featureId === reference!.featureId &&
+                    d.reference!.kind === reference!.kind &&
+                    dFace.surfaceType === rFace.surfaceType &&
+                    dFace.center.every((v, i) => Math.abs(v - rFace.center[i]) < 1e-9)
+                );
+            }
+            return d.offset === offset;
+        });
         if (existing !== undefined) {
             return { success: true, value: existing.id };
         }
         const usedNames = new Set(doc.datums.map((d) => d.name));
-        let name = `${kind} Offset ${offset}`;
+        let name = kind === 'face' ? `Face Datum` : `${kind} Offset ${offset}`;
         let suffix = 1;
         while (usedNames.has(name)) {
-            name = `${kind} Offset ${offset} (${suffix++})`;
+            name = kind === 'face' ? `Face Datum (${suffix++})` : `${kind} Offset ${offset} (${suffix++})`;
         }
         const id = nextId('datum');
-        doc.datums.push({ id, kind, name, offset });
+        doc.datums.push({ id, kind, name, offset, reference });
         const result = this.commit(doc);
         if (!result.success) {
             return { success: false, error: result.error, issues: result.issues };
@@ -526,6 +608,82 @@ export class CadDocumentStore {
         }
         this.state = { ...this.state, featureResults: map };
         this.emitChange();
+    }
+
+    /**
+     * Update projected construction primitives per sketch from a document rebuild.
+     *
+     * This is not a user mutation and does not affect the dirty flag.
+     */
+    setProjectedPrimitives(projected: Record<string, Record<string, unknown>[]> | undefined): void {
+        const map = new Map<string, Record<string, unknown>[]>();
+        if (projected !== undefined) {
+            for (const [sketchId, primitives] of Object.entries(projected)) {
+                map.set(
+                    sketchId,
+                    primitives.map((p) => ({ ...p }))
+                );
+            }
+        }
+        this.state = { ...this.state, projectedPrimitives: map };
+        this.emitChange();
+    }
+
+    /** Projected construction primitives per sketch from the last document build. */
+    getProjectedPrimitives(): ReadonlyMap<string, Record<string, unknown>[]> {
+        return this.state.projectedPrimitives;
+    }
+
+    /**
+     * Update per-reference resolution status from a document rebuild.
+     *
+     * This is not a user mutation and does not affect the dirty flag.
+     */
+    setReferenceResults(results: ReferenceResolutionResult[]): void {
+        this.state = { ...this.state, referenceResults: results };
+        this.emitChange();
+    }
+
+    /** Per-reference resolution status from the last document build. */
+    getReferenceResults(): readonly ReferenceResolutionResult[] {
+        return this.state.referenceResults;
+    }
+
+    /** Add an external reference to a sketch. */
+    addExternalRef(sketchId: string, ref: TopologyRef): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sketch = doc.sketches.find((s) => s.id === sketchId);
+        if (sketch === undefined) {
+            return { success: false, error: `Sketch '${sketchId}' not found` };
+        }
+        sketch.externalRefs = [...(sketch.externalRefs ?? []), cloneTopologyRef(ref)];
+        return this.commit(doc);
+    }
+
+    /** Remove an external reference from a sketch by index. */
+    removeExternalRef(sketchId: string, index: number): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sketch = doc.sketches.find((s) => s.id === sketchId);
+        if (sketch === undefined) {
+            return { success: false, error: `Sketch '${sketchId}' not found` };
+        }
+        const refs = sketch.externalRefs ?? [];
+        if (index < 0 || index >= refs.length) {
+            return { success: false, error: `Invalid external reference index ${index}` };
+        }
+        sketch.externalRefs = refs.filter((_, i) => i !== index);
+        if (sketch.externalRefs.length === 0) {
+            delete sketch.externalRefs;
+        }
+        return this.commit(doc);
     }
 
     private requireDocument(): DocumentMutationResult<NukeCadDocument> {

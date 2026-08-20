@@ -37,7 +37,9 @@ Geometry`).
 2. Click **New Sketch** in the document toolbar, or right-click a datum in the
    feature tree and choose **Edit Sketch**.
 3. The **Sketch Plane** picker appears. Choose `XY`, `YZ`, or `XZ`, optionally
-   enter an offset, then click **Start Sketch**.
+   enter an offset, then click **Start Sketch**. To sketch on a face of an
+   existing body, click **On Face…**, then click the desired face in the
+   viewport.
 
 The viewport switches to an orthographic view looking straight at the datum,
 grays out the 3D model, and shows a sketch grid.
@@ -90,6 +92,22 @@ In select mode, drag a point to reshape the sketch interactively. The solver
 applies temporary constraints during the drag and re-solves; the geometry updates
 live. Dropped points keep their solved coordinates.
 
+### External geometry
+
+You can project edges or faces from existing solid bodies into the active sketch
+as construction geometry:
+
+1. Click the **External Geometry** tool in the sketch toolbar (it targets the
+   most recent non-suppressed solid-producing feature).
+2. Click a face or edge of the body in the viewport.
+3. The picked entity is added to the sketch's **External Geometry** list and,
+   after the next rebuild, is projected into the sketch plane as dashed
+   construction geometry.
+
+External geometry does not become part of the sketch's output wires or faces; it
+is only a reference for snapping and constraints. You can remove a reference
+from the list at any time.
+
 ### Diagnostics, pan, zoom, and exit
 
 The status line at the bottom shows remaining degrees of freedom, conflicting
@@ -128,8 +146,9 @@ The **Feature Tree** panel shows three sections:
 - **Sketches** — one row per sketch; click to select, click the edit button to
   re-enter sketch mode.
 - **Features** — one row per feature in build order, with status markers from
-  the last rebuild (`built`, `stale`, or `failed`). Each row has actions for
-  suppress, edit parameters, and delete.
+  the last rebuild (`built`, `stale`, or `failed`) and reference-resolution
+  badges when topological references are ambiguous or unmatched. Each row has
+  actions for suppress, edit parameters, and delete.
 
 Suppressed features are omitted from the build and mark downstream features as
 stale. Deleting a feature with dependents is rejected until the dependencies are
@@ -148,10 +167,6 @@ removed or edited.
 
 This release supports the core workflow. These features are not implemented yet:
 
-- Viewport face-picking to create a `face` datum / sketch-on-face (`face`
-  datums authored directly in the `.nuke-cad` document are already rebuilt).
-- External-geometry references from inside sketch mode (the backend resolves
-  them when they are present in the document).
 - Fillets, chamfers, drafts, shells, holes, mirrors, and patterns.
 - Up-to-face / up-to-body extrude termination.
 - Boolean feature types (`booleanFuse`, `booleanCut`, `booleanCommon`).

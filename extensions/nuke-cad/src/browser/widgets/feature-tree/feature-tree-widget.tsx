@@ -81,6 +81,7 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 document={this.documentStore.document}
                 selection={this.documentStore.selection}
                 featureResults={this.documentStore.featureResults}
+                referenceResults={this.documentStore.getReferenceResults()}
                 onSelectSketch={(id) => this.documentStore.selectSketch(id)}
                 onSelectFeature={(id) => this.documentStore.selectFeature(id)}
                 onToggleSuppressed={(id, value) => this.handleToggleSuppressed(id, value)}
@@ -121,6 +122,7 @@ interface CadFeatureTreeComponentProps {
     readonly document?: NukeCadDocument;
     readonly selection: DocumentSelection;
     readonly featureResults: ReadonlyMap<string, FeatureResult>;
+    readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
     readonly onSelectSketch: (id: string | undefined) => void;
     readonly onSelectFeature: (id: string | undefined) => void;
     readonly onToggleSuppressed: (id: string, value: boolean) => void;
@@ -191,6 +193,7 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                                 feature={feature}
                                 index={index}
                                 result={props.featureResults.get(feature.id)}
+                                referenceResults={props.referenceResults.filter((r) => r.featureId === feature.id)}
                                 selected={props.selection.selectedFeatureId === feature.id}
                                 onSelect={() => props.onSelectFeature(feature.id)}
                                 onToggleSuppressed={props.onToggleSuppressed}
@@ -282,6 +285,7 @@ interface FeatureRowProps {
     readonly feature: FeatureDef;
     readonly index: number;
     readonly result?: FeatureResult;
+    readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
     readonly selected: boolean;
     readonly onSelect: () => void;
     readonly onToggleSuppressed: (id: string, value: boolean) => void;
@@ -290,11 +294,13 @@ interface FeatureRowProps {
 }
 
 function FeatureRow(props: FeatureRowProps): React.ReactElement {
-    const { feature, result } = props;
+    const { feature, result, referenceResults } = props;
     const status = result?.status ?? 'stale';
     const statusClass = `status-${status}`;
     const statusTooltip = result?.error ?? `${status}`;
     const tooltip = useTooltip(statusTooltip, 'right');
+    const ambiguous = referenceResults.filter((r) => r.status === 'ambiguous').length;
+    const unmatched = referenceResults.filter((r) => r.status === 'unmatched').length;
 
     return (
         <>
@@ -306,6 +312,11 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
             >
                 <span className={`codicon ${iconForFeature(feature.type)} feature-tree-icon`} />
                 <span className="feature-tree-label">{feature.name}</span>
+                {(ambiguous > 0 || unmatched > 0) && (
+                    <span className={`feature-tree-ref-badge ${unmatched > 0 ? 'unmatched' : 'ambiguous'}`}>
+                        {unmatched > 0 ? `${unmatched} unmatched` : `${ambiguous} ambiguous`}
+                    </span>
+                )}
                 <span className="feature-tree-status" />
                 <Tooltip content={feature.suppressed ? 'Unsuppress' : 'Suppress'} position="left">
                     <button

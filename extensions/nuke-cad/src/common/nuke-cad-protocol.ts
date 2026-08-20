@@ -293,6 +293,12 @@ export interface GeometryBuildResult {
     readonly featureResults?: FeatureResult[];
     /** Per-reference resolution status for document builds with TopologyRefs. */
     readonly referenceResults?: ReferenceResolutionResult[];
+    /**
+     * Projected construction primitives for sketches that declare externalRefs.
+     * Keyed by sketch id; primitives carry ``construction: true`` and are already
+     * expressed in the sketch's local coordinate system.
+     */
+    readonly projectedPrimitives?: Record<string, Record<string, unknown>[]>;
     /** Absolute path to the generated DAGMC .h5m file. */
     readonly dagmcPath?: string;
     /** Whether the DAGMC export succeeded (non-fatal if false). */

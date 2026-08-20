@@ -28,6 +28,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PlanegcsSketchSolver, type SketchPoint, type SketchLine } from '../../common/sketch-solver';
 import { SketchSession, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
+import { type TopologyRef } from '../../common/topology-refs';
 
 describe('SketchSession', () => {
     async function makeSession(tool: SketchTool = 'select'): Promise<SketchSession> {
@@ -50,6 +51,19 @@ describe('SketchSession', () => {
         const p = point(session, id);
         expect(p.x).toBeCloseTo(x, 10);
         expect(p.y).toBeCloseTo(y, 10);
+    }
+
+    function faceRef(featureId: string): TopologyRef {
+        return {
+            featureId,
+            kind: 'face',
+            fingerprint: {
+                surfaceType: 'plane',
+                area: 10,
+                center: [0, 0, 0],
+                normal: [0, 0, 1]
+            }
+        };
     }
 
     beforeEach(() => {
@@ -528,6 +542,27 @@ describe('SketchSession', () => {
             const solver = await PlanegcsSketchSolver.create();
             const restored = await SketchSession.fromSketchDef(def, solver);
             expect(restored.getConstraints().some((c) => c.kind === 'fix' && c.targetIds[0] === id)).toBe(true);
+        });
+
+        it('round-trips external geometry references through SketchDef', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+
+            const ref = faceRef('base');
+            session.addExternalRef(ref);
+            expect(session.getExternalRefs()).toHaveLength(1);
+
+            const def = session.toSketchDef();
+            expect(def.externalRefs).toHaveLength(1);
+            expect(def.externalRefs?.[0].featureId).toBe('base');
+
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(def, solver);
+            expect(restored.getExternalRefs()).toHaveLength(1);
+
+            restored.removeExternalRef(0);
+            expect(restored.getExternalRefs()).toHaveLength(0);
         });
     });
 

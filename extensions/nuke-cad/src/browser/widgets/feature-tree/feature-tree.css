@@ -166,6 +166,25 @@
     opacity: 1;
 }
 
+.feature-tree-ref-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.feature-tree-ref-badge.ambiguous {
+    color: var(--theia-editorWarning-foreground);
+    background: var(--theia-inputValidation-warningBackground, rgba(204, 147, 0, 0.15));
+}
+
+.feature-tree-ref-badge.unmatched {
+    color: var(--theia-editorError-foreground);
+    background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
+}
+
 .cad-feature-tree-empty {
     flex: 1;
     display: flex;

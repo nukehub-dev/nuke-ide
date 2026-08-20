@@ -28,6 +28,7 @@
 import { describe, it, expect } from 'vitest';
 import { CadDocumentStore, computeDependsOn } from './cad-document-store';
 import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument, type FeatureDef, type SketchDef } from '../../common/cad-document';
+import { type TopologyRef } from '../../common/topology-refs';
 
 function minimalDoc(overrides?: Partial<NukeCadDocument>): NukeCadDocument {
     return {
@@ -62,6 +63,19 @@ function feature(id: string, type: FeatureDef['type'], dependsOn: string[] = [],
         suppressed: false,
         dependsOn,
         sketchId
+    };
+}
+
+function faceRef(featureId: string, center: [number, number, number] = [0, 0, 0]): TopologyRef {
+    return {
+        featureId,
+        kind: 'face',
+        fingerprint: {
+            surfaceType: 'plane',
+            area: 10,
+            center,
+            normal: [0, 0, 1]
+        }
     };
 }
 
@@ -320,5 +334,77 @@ describe('computeDependsOn', () => {
 
     it('returns undefined for non-solid features', () => {
         expect(computeDependsOn('fillet', [])).toBeUndefined();
+    });
+});
+
+describe('face datum and external references', () => {
+    it('adds a face datum with a topology reference', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const ref = faceRef('base', [1, 2, 3]);
+        const result = store.addDatum('face', 0, ref);
+        expect(result.success).toBe(true);
+        const datum = store.document?.datums.find((d) => d.kind === 'face');
+        expect(datum).toBeDefined();
+        expect(datum?.reference).toEqual(ref);
+    });
+
+    it('reuses an existing face datum with the same fingerprint', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const ref = faceRef('base');
+        const first = store.addDatum('face', 0, ref);
+        const second = store.addDatum('face', 0, ref);
+        expect(first.value).toBe(second.value);
+        expect(store.document?.datums.filter((d) => d.kind === 'face')).toHaveLength(1);
+    });
+
+    it('rejects a face datum without a reference', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('face');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('reference');
+    });
+
+    it('adds and removes external references on a sketch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.upsertSketch(sketch('s1'));
+        const ref = faceRef('base');
+        const add = store.addExternalRef('s1', ref);
+        expect(add.success).toBe(true);
+        expect(store.document?.sketches[0].externalRefs).toHaveLength(1);
+
+        const remove = store.removeExternalRef('s1', 0);
+        expect(remove.success).toBe(true);
+        expect(store.document?.sketches[0].externalRefs).toBeUndefined();
+    });
+
+    it('rejects removing an external reference with an invalid index', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.upsertSketch(sketch('s1'));
+        const result = store.removeExternalRef('s1', 0);
+        expect(result.success).toBe(false);
+    });
+
+    it('stores projected primitives per sketch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.setProjectedPrimitives({ s1: [{ id: 'p1', type: 'point', x: 1, y: 2 }] });
+        expect(store.getProjectedPrimitives().get('s1')).toHaveLength(1);
+        expect(store.getProjectedPrimitives().get('s1')?.[0]).toEqual({ id: 'p1', type: 'point', x: 1, y: 2 });
+    });
+
+    it('stores reference resolution results', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.setReferenceResults([
+            { featureId: 'f1', path: 'sketch.s1.externalRefs[0]', kind: 'face', status: 'matched' },
+            { featureId: 'f1', path: 'datum.d1.reference', kind: 'face', status: 'ambiguous' }
+        ]);
+        expect(store.getReferenceResults()).toHaveLength(2);
+        expect(store.getReferenceResults()[0].status).toBe('matched');
     });
 });

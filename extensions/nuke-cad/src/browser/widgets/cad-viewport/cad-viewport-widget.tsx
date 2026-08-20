@@ -65,12 +65,15 @@ import { type DatumKind } from '../../sketch/sketch-math';
 import { CadSketchOverlay } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import { type TopologyRef } from '../../../common/topology-refs';
+import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, raycastFace } from './face-picker';
 import './cad-viewport.css';
 
 interface TessFace {
     readonly faceId: number;
     readonly nodes: number[][];
     readonly triangles: number[][];
+    readonly fingerprint?: import('../../../common/topology-refs').FaceFingerprint;
 }
 
 interface TessSolid {
@@ -139,6 +142,12 @@ export class CadViewportWidget extends ReactWidget {
     private sketchCamera?: THREE.PerspectiveCamera;
     /** Id of the sketch being edited, or undefined for a new sketch. */
     private editingSketchId?: string;
+    /** Active face-pick mode, if any. */
+    private facePickMode?: 'sketchDatum' | 'externalGeometry';
+    /** Offset to apply when creating a face datum. */
+    private facePickOffset = 0;
+    /** Feature id used for external-geometry references (the producing feature). */
+    private facePickFeatureId?: string;
 
     /**
      * Stable callbacks handed to the React component so the three.js scene is
@@ -232,6 +241,76 @@ export class CadViewportWidget extends ReactWidget {
         this.editingSketchId = sketchId;
         this.sketchSetupVisible = true;
         this.update();
+    };
+
+    protected readonly handleStartFacePick = (offset: number): void => {
+        this.facePickMode = 'sketchDatum';
+        this.facePickOffset = offset;
+        this.facePickFeatureId = undefined;
+        this.update();
+    };
+
+    protected readonly handleStartExternalGeometryPick = (featureId: string): void => {
+        this.facePickMode = 'externalGeometry';
+        this.facePickFeatureId = featureId;
+        this.update();
+    };
+
+    protected readonly handleCancelFacePick = (): void => {
+        this.facePickMode = undefined;
+        this.facePickFeatureId = undefined;
+        this.update();
+    };
+
+    protected readonly handleFacePick = (hit: FacePickHit): void => {
+        if (this.facePickMode === 'sketchDatum') {
+            const ref = buildTopologyRef(String(hit.solidId), hit);
+            if (ref === undefined) {
+                this.messageService.error('Selected face has no geometric fingerprint; rebuild the model first.');
+                this.facePickMode = undefined;
+                this.update();
+                return;
+            }
+            this.facePickMode = undefined;
+            void this.doEnterSketch('face', this.facePickOffset, ref);
+            return;
+        }
+        if (this.facePickMode === 'externalGeometry') {
+            const featureId = this.facePickFeatureId;
+            if (featureId === undefined) {
+                this.messageService.error('No target feature selected for external geometry.');
+                this.facePickMode = undefined;
+                this.update();
+                return;
+            }
+            const ref = buildTopologyRef(featureId, hit);
+            if (ref === undefined) {
+                this.messageService.error('Selected face has no geometric fingerprint; rebuild the model first.');
+                return;
+            }
+            const sketchId = this.editingSketchId;
+            if (sketchId === undefined) {
+                this.messageService.error('No active sketch for external geometry.');
+                this.facePickMode = undefined;
+                this.update();
+                return;
+            }
+            const result = this.documentStore.addExternalRef(sketchId, ref);
+            if (!result.success) {
+                this.messageService.error(result.error || 'Failed to add external geometry reference.');
+                return;
+            }
+            const session = this.sketchController?.getSession();
+            session?.addExternalRef(ref);
+            this.facePickMode = undefined;
+            this.facePickFeatureId = undefined;
+            this.scheduleDocumentRebuild();
+            this.update();
+        }
+    };
+
+    protected readonly handleFacePickCancel = (): void => {
+        this.handleCancelFacePick();
     };
 
     protected readonly handleRebuildDocument = (): Promise<void> => this.rebuildDocument();
@@ -357,6 +436,8 @@ export class CadViewportWidget extends ReactWidget {
         try {
             const result = await this.backendService.buildDocument({ scriptPath: filePath });
             this.documentStore.setFeatureResults(result.featureResults ?? []);
+            this.documentStore.setProjectedPrimitives(result.projectedPrimitives);
+            this.documentStore.setReferenceResults(result.referenceResults ?? []);
             if (result.success) {
                 this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
                 this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
@@ -372,7 +453,7 @@ export class CadViewportWidget extends ReactWidget {
         }
     }
 
-    private async doEnterSketch(kind: DatumKind, offset: number): Promise<void> {
+    private async doEnterSketch(kind: DatumKind, offset: number, reference?: TopologyRef): Promise<void> {
         const doc = this.documentStore.document;
         if (doc === undefined) {
             return;
@@ -383,15 +464,16 @@ export class CadViewportWidget extends ReactWidget {
             datumId = existingSketch.datumId;
         } else {
             // New sketch: find or create a datum matching the picker choice.
-            const builtInId = this.datumIdForKind(kind);
-            if (offset === 0 && builtInId !== undefined) {
+            const builtInId = kind !== 'face' ? this.datumIdForKind(kind) : undefined;
+            if (kind !== 'face' && offset === 0 && builtInId !== undefined) {
                 datumId = builtInId;
             } else {
-                const datumResult = this.documentStore.addDatum(kind, offset);
+                const datumResult = this.documentStore.addDatum(kind, offset, reference);
                 if (!datumResult.success) {
-                    this.showBuildError(datumResult.error || 'Failed to create offset datum.');
-                    this.messageService.error(datumResult.error || 'Failed to create offset datum.');
+                    this.showBuildError(datumResult.error || 'Failed to create datum.');
+                    this.messageService.error(datumResult.error || 'Failed to create datum.');
                     this.sketchSetupVisible = false;
+                    this.facePickMode = undefined;
                     this.update();
                     return;
                 }
@@ -402,6 +484,7 @@ export class CadViewportWidget extends ReactWidget {
             this.showBuildError(`Could not resolve datum for ${kind} offset ${offset}`);
             this.messageService.error(`Could not resolve datum for ${kind} offset ${offset}`);
             this.sketchSetupVisible = false;
+            this.facePickMode = undefined;
             this.update();
             return;
         }
@@ -424,6 +507,7 @@ export class CadViewportWidget extends ReactWidget {
                 this.showBuildError(result.error || 'Failed to register new sketch.');
                 this.messageService.error(result.error || 'Failed to register new sketch.');
                 this.sketchSetupVisible = false;
+                this.facePickMode = undefined;
                 this.update();
                 return;
             }
@@ -436,13 +520,15 @@ export class CadViewportWidget extends ReactWidget {
                 offset,
                 this.sketchCamera,
                 existingSketch !== undefined ? sketchDef : undefined,
-                inheritedParameters
+                inheritedParameters,
+                reference
             );
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.showBuildError(`Failed to start sketch solver: ${message}`);
             this.messageService.error(`Failed to start sketch solver: ${message}`);
             this.sketchSetupVisible = false;
+            this.facePickMode = undefined;
             this.editingSketchId = undefined;
             this.update();
         }
@@ -470,6 +556,7 @@ export class CadViewportWidget extends ReactWidget {
         this.editingSketchId = undefined;
         await this.sketchController?.exitSketch();
         this.sketchSetupVisible = false;
+        this.facePickMode = undefined;
         this.scheduleDocumentRebuild();
     }
 
@@ -693,6 +780,7 @@ export class CadViewportWidget extends ReactWidget {
                 dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
                 featureCreationType={this.featureCreationType}
+                facePickMode={this.facePickMode}
                 documentStore={this.documentStore}
                 onDismissError={this.dismissBuildError}
                 onSelect={this.handleViewportSelect}
@@ -712,6 +800,10 @@ export class CadViewportWidget extends ReactWidget {
                     this.featureCreationType = undefined;
                     this.update();
                 }}
+                onStartFacePick={this.handleStartFacePick}
+                onStartExternalGeometryPick={this.handleStartExternalGeometryPick}
+                onFacePick={this.handleFacePick}
+                onFacePickCancel={this.handleFacePickCancel}
                 messageService={this.messageService}
             />
         );
@@ -726,6 +818,7 @@ interface CadViewportComponentProps {
     readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
     readonly onDismissError: () => void;
@@ -743,12 +836,19 @@ interface CadViewportComponentProps {
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onCancelFeatureCreation: () => void;
+    readonly onStartFacePick: (offset: number) => void;
+    readonly onStartExternalGeometryPick: (featureId: string) => void;
+    readonly onFacePick: (hit: FacePickHit) => void;
+    readonly onFacePickCancel: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
-    const viewportApi = React.useRef<{ updateModel?: (tessData?: TessData) => void }>({});
+    const viewportApi = React.useRef<{
+        updateModel?: (tessData?: TessData) => void;
+        setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
+    }>({});
 
     React.useEffect(() => {
         const container = containerRef.current;
@@ -767,10 +867,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             const api = initViewport(
                 container,
                 props.tessData,
+                props.documentStore,
                 props.onSelect,
                 props.subscribeSelection,
                 props.subscribeThemeChange,
                 props.onControllerReady,
+                props.onFacePick,
+                props.onFacePickCancel,
                 props.messageService,
                 OrbitControls
             );
@@ -780,6 +883,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             }
             cleanup = api.cleanup;
             viewportApi.current.updateModel = api.updateModel;
+            viewportApi.current.setFacePickMode = api.setFacePickMode;
+            api.setFacePickMode(props.facePickMode);
             setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
@@ -788,6 +893,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return () => {
             disposed = true;
             viewportApi.current.updateModel = undefined;
+            viewportApi.current.setFacePickMode = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -798,6 +904,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.updateModel?.(props.tessData);
     }, [props.tessData, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setFacePickMode?.(props.facePickMode);
+    }, [props.facePickMode]);
 
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
@@ -852,12 +962,16 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         documentStore={props.documentStore}
                         setupVisible={props.sketchSetupVisible}
                         featureCreationType={props.featureCreationType}
+                        facePickMode={props.facePickMode}
                         onEnterSketch={props.onEnterSketch}
                         onExitSketch={props.onExitSketch}
                         onStartFeatureCreation={props.onStartFeatureCreation}
                         onAddFeature={props.onAddFeature}
                         onEditSketch={props.onEditSketch}
                         onCancelFeatureCreation={props.onCancelFeatureCreation}
+                        onStartFacePick={props.onStartFacePick}
+                        onStartExternalGeometryPick={props.onStartExternalGeometryPick}
+                        onCancelFacePick={props.onFacePickCancel}
                     />
                 )}
             </div>
@@ -886,12 +1000,16 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     documentStore={props.documentStore}
                     setupVisible={props.sketchSetupVisible}
                     featureCreationType={props.featureCreationType}
+                    facePickMode={props.facePickMode}
                     onEnterSketch={props.onEnterSketch}
                     onExitSketch={props.onExitSketch}
                     onStartFeatureCreation={props.onStartFeatureCreation}
                     onAddFeature={props.onAddFeature}
                     onEditSketch={props.onEditSketch}
                     onCancelFeatureCreation={props.onCancelFeatureCreation}
+                    onStartFacePick={props.onStartFacePick}
+                    onStartExternalGeometryPick={props.onStartExternalGeometryPick}
+                    onCancelFacePick={props.onFacePickCancel}
                 />
             )}
         </div>
@@ -902,15 +1020,19 @@ interface ViewportApi {
     readonly controller: SketchModeController;
     readonly cleanup: () => void;
     readonly updateModel: (tessData?: TessData) => void;
+    readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
 }
 
 function initViewport(
     container: HTMLDivElement,
     tessData: TessData | undefined,
+    documentStore: CadDocumentStore,
     onSelect: (selection: CadSelection) => void,
     subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable,
     subscribeThemeChange: (listener: () => void) => Disposable,
     onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void,
+    onFacePick: (hit: FacePickHit) => void,
+    onFacePickCancel: () => void,
     messageService: MessageService,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
@@ -954,12 +1076,17 @@ function initViewport(
 
     let meshes: THREE.Mesh[] = [];
     let currentSelection: CadSelection = {};
+    let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
+
+    const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
+    const faceHighlighter = new FaceHighlighter(highlightColor);
+    faceHighlighter.attach(modelGroup);
 
     let controller: SketchModeController;
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
     };
-    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup, messageService });
+    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup, messageService, documentStore });
     onControllerReady(controller, camera);
 
     const applyHighlight = (): void => {
@@ -1007,7 +1134,7 @@ function initViewport(
                     side: THREE.DoubleSide
                 });
                 const mesh = new THREE.Mesh(geometry, material);
-                mesh.userData = { solidId: solid.solidId, faceId: face.faceId };
+                mesh.userData = { solidId: solid.solidId, faceId: face.faceId, fingerprint: face.fingerprint };
                 modelGroup.add(mesh);
                 meshes.push(mesh);
             }
@@ -1036,8 +1163,17 @@ function initViewport(
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
-        pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+        if (activeFacePickMode !== undefined) {
+            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            if (hit !== undefined) {
+                faceHighlighter.clear();
+                onFacePick(hit);
+            }
+            return;
+        }
+        pointer.x = ndc.x;
+        pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
         const intersects = raycaster.intersectObjects(meshes, false);
         if (intersects.length > 0) {
@@ -1049,13 +1185,39 @@ function initViewport(
     };
     renderer.domElement.addEventListener('click', onClick);
 
+    const onFacePickPointerMove = (event: PointerEvent): void => {
+        if (activeFacePickMode === undefined || controller.isActive) {
+            return;
+        }
+        const rect = renderer.domElement.getBoundingClientRect();
+        const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+        const hit = raycastFace(meshes, raycaster, ndc, camera);
+        if (hit !== undefined) {
+            faceHighlighter.highlight(hit.mesh);
+        } else {
+            faceHighlighter.clear();
+        }
+        renderScene();
+    };
+    renderer.domElement.addEventListener('pointermove', onFacePickPointerMove);
+
+    const onContextMenu = (event: MouseEvent): void => {
+        if (activeFacePickMode === undefined) {
+            return;
+        }
+        event.preventDefault();
+        faceHighlighter.clear();
+        onFacePickCancel();
+    };
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
+
     const onPointerDown = (event: PointerEvent): void => {
         if (!controller.isActive) {
             return;
         }
         controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
     };
-    const onPointerMove = (event: PointerEvent): void => {
+    const onSketchPointerMove = (event: PointerEvent): void => {
         if (!controller.isActive) {
             return;
         }
@@ -1075,11 +1237,19 @@ function initViewport(
         controller.onWheel(event.clientX, event.clientY, event.deltaY);
     };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointermove', onSketchPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     const onKeyDown = (event: KeyboardEvent): void => {
+        if (activeFacePickMode !== undefined) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                faceHighlighter.clear();
+                onFacePickCancel();
+            }
+            return;
+        }
         if (!controller.isActive) {
             return;
         }
@@ -1125,13 +1295,22 @@ function initViewport(
     return {
         controller,
         updateModel: buildModel,
+        setFacePickMode: (mode) => {
+            activeFacePickMode = mode;
+            if (mode === undefined) {
+                faceHighlighter.clear();
+            }
+            renderScene();
+        },
         cleanup: () => {
             selectionDisposable.dispose();
             themeDisposable.dispose();
             resizeObserver.disconnect();
             renderer.domElement.removeEventListener('click', onClick);
+            renderer.domElement.removeEventListener('pointermove', onFacePickPointerMove);
+            renderer.domElement.removeEventListener('contextmenu', onContextMenu);
             renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-            renderer.domElement.removeEventListener('pointermove', onPointerMove);
+            renderer.domElement.removeEventListener('pointermove', onSketchPointerMove);
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
             renderer.domElement.removeEventListener('wheel', onWheel);
             window.removeEventListener('keydown', onKeyDown);
@@ -1139,6 +1318,7 @@ function initViewport(
             controls.dispose();
             controller.dispose();
             renderer.dispose();
+            faceHighlighter.dispose();
             if (renderer.domElement.parentElement === container) {
                 container.removeChild(renderer.domElement);
             }

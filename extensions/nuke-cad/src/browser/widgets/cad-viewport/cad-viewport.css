@@ -528,6 +528,77 @@
     opacity: 0.7;
 }
 
+.cad-sketch-face-pick-banner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    pointer-events: auto;
+}
+
+.cad-sketch-face-pick-banner .codicon {
+    color: var(--theia-focusBorder);
+}
+
+.cad-sketch-external-refs {
+    position: absolute;
+    top: 44px;
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 220px;
+    max-height: calc(100% - 88px);
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+    overflow: auto;
+}
+
+.cad-sketch-external-refs-header {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.cad-sketch-external-ref-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-external-ref-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-sketch-external-ref-kind {
+    text-transform: uppercase;
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+}
+
+.cad-sketch-external-ref-feature {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .cad-sketch-status-line.has-diagnostics {
     cursor: pointer;
     border-color: var(--theia-editorWarning-foreground);

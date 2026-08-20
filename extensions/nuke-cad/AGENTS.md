@@ -125,15 +125,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Sketch mode is split into three layers so each has a single responsibility:
   - `src/browser/sketch/sketch-session.ts` — pure TypeScript controller that
     owns tool state, snap, auto-constraints, constraint/dimension management,
-    drag solving, and serialization to/from `SketchDef`. No UI or three.js
-    dependencies.
+    drag solving, external-geometry reference list, and serialization to/from
+    `SketchDef`. No UI or three.js dependencies.
   - `src/browser/sketch/sketch-mode-controller.ts` — wires the session into the
-    three.js viewport: orthographic camera, pointer-to-plane mapping, rendering,
-    and pointer event routing.
+    three.js viewport: orthographic camera, pointer-to-plane mapping, rendering
+    of sketch primitives and projected external geometry as dashed construction
+    lines, and pointer event routing.
   - `src/browser/widgets/cad-viewport/cad-sketch-overlay.tsx` — React UI chrome:
-    sketch toolbar, datum picker, document toolbar, feature-creation dialog,
-    constraint value input, dimension labels/popover, parameters panel,
-    diagnostics popover, and status line.
+    sketch toolbar (including external-geometry tool), datum picker with
+    sketch-on-face button, document toolbar, feature-creation dialog, constraint
+    value input, dimension labels/popover, parameters panel, external-geometry
+    reference list, diagnostics popover (with reference-resolution status), and
+    status line.
 - The geometric constraint solver is client-side only. The document stores
   planegcs-verbatim primitives with solved coordinates; the Python backend never
   re-solves. `src/common/sketch-solver.ts` exports the solver-agnostic
@@ -175,7 +178,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - Sketches may declare `externalRefs` to edges or faces of predecessor
     features. Resolved entities are projected into the sketch plane and passed
     to the sketch builder as `construction` primitives; they do not become part
-    of the sketch's output wires or faces.
+    of the sketch's output wires or faces. `projectedPrimitives` is reported
+    per sketch in the build result so the viewport can render the projected
+    geometry as dashed construction lines while sketching.
+  - The build returns `referenceResults` (`matched`/`ambiguous`/`unmatched`)
+    for every `TopologyRef` so the feature tree and sketch diagnostics can
+    surface broken references.
   - Feature labels map to 1-based solid indices in `selector_map`, feeding the
     same region-manifest/DAGMC/mesh pipeline used by script builds.
 - `.nuke-cad` shell integration:
@@ -188,7 +196,24 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
     `nuke-cad-feature-tree-widget`, label "Feature Tree") lists datums,
     sketches, and features in document order with selection, suppression toggle,
-    edit, delete, and build-status markers from the last rebuild.
+    edit, delete, build-status markers, and lightweight reference-resolution
+    badges (`ambiguous`/`unmatched`) from the last rebuild.
+- Viewport picking for sketch-on-face and external geometry:
+  - The **Sketch Plane** picker exposes an **On Face…** button that puts the
+    viewport into face-pick mode. Hover highlights the candidate face; a click
+    creates a `face` datum and enters sketch mode on it. Right-click or Escape
+    cancels the pick.
+  - Inside sketch mode, the **External Geometry** tool picks the most recent
+    non-suppressed solid-producing feature as the reference target and enters
+    face-pick mode. Clicking a face or edge of that body adds a `TopologyRef`
+    to the active sketch's `externalRefs`; the resolved entity is projected into
+    the sketch plane and rendered as dashed construction geometry after the
+    next rebuild.
+  - Face picking is handled by `src/browser/widgets/cad-viewport/face-picker.ts`
+    (`raycastFace`, `buildTopologyRef`, `FaceHighlighter`). The viewport builds
+    one mesh per face and stores the geometric fingerprint in `userData`, so
+    the pick path reads `userData.faceId` directly without reconstructing a
+    triangle-to-face index.
 - The FEM service (`python/fem_service.py`) generates CalculiX `.inp` decks
   from gmsh `.msh` files, runs the external `ccx` executable (3600 s default
   timeout via the `ccxTimeout` request field, output streamed to
