@@ -35,10 +35,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   builder can keep last-good geometry.
 - Topological references: `src/common/topology-refs.ts` defines fingerprint-based
   `TopologyRef` types (`face`/`edge`) used by datum faces, fillets, chamfers,
-  patterns, and sketch-on-face. References are never raw indices. Fingerprint
-  matching and scoring lives in the Python backend
+  patterns, sketch-on-face, and sketch external geometry. References are never
+  raw indices. Fingerprint matching and scoring lives in the Python backend
   (`python/reference_scoring.py`, `python/reference_resolver.py`); TypeScript
-  owns only the types and validation.
+  owns only the types and validation. The builder resolves every reference
+  against the referenced predecessor feature's current B-rep and returns
+  `matched`/`ambiguous`/`unmatched` status per reference in `referenceResults`
+  so the frontend can render repair affordances.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -164,9 +167,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     match script builds.
   - The first release performs a full document rebuild on every `buildDocument`
     call. Per-feature shape caching is deferred until the modeler needs it.
-  - Datum support in this release is limited to `XY`/`YZ`/`XZ`/`offset`. `offset`
-    datums are interpreted as offsets of the XY plane along +Z; `face` datums
-    (sketch-on-face) are rejected with a clear error.
+  - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`. `offset` datums are
+    interpreted as offsets of the XY plane along +Z. `face` datums resolve a
+    referenced planar face by fingerprint, derive a deterministic workplane from
+    its origin/normal, and apply an optional `offset` along the normal; a
+    non-planar resolved face is a clear build error.
+  - Sketches may declare `externalRefs` to edges or faces of predecessor
+    features. Resolved entities are projected into the sketch plane and passed
+    to the sketch builder as `construction` primitives; they do not become part
+    of the sketch's output wires or faces.
   - Feature labels map to 1-based solid indices in `selector_map`, feeding the
     same region-manifest/DAGMC/mesh pipeline used by script builds.
 - `.nuke-cad` shell integration:

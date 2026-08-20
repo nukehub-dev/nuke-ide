@@ -1108,6 +1108,7 @@ def build_document(
         length_scale=length_scale,
     )
     result["featureResults"] = build_result.get("featureResults", [])
+    result["referenceResults"] = build_result.get("referenceResults", [])
     result["warnings"] = (result.get("warnings") or []) + manifest_warnings
     return result
 

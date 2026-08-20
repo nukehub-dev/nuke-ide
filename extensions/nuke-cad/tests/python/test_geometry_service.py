@@ -572,3 +572,121 @@ def test_build_document_rejects_revolve_axis_out_of_plane(tmp_path: Path) -> Non
     by_id = {r["featureId"]: r for r in result.get("featureResults", [])}
     assert by_id["rev1"]["status"] == "failed"
     assert "sketch plane" in by_id["rev1"]["error"].lower()
+
+
+def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> None:
+    """End-to-end: face datums and externalRefs resolve and report status."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import feature_builder as fb
+    import reference_resolver as rr
+
+    # Build a base pad and capture its top face.
+    base_doc = {
+        "version": 1,
+        "name": "base",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "sketches": [_rect_sketch_for_doc()],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+    }
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+
+    faces = rr.extract_face_fingerprints(base_result["shape"].wrapped)
+    import numpy as np
+
+    top_faces = [
+        f
+        for f in faces
+        if f.surface_type == "plane" and f.normal is not None and np.isclose(f.normal[2], 1.0)
+    ]
+    assert len(top_faces) == 1
+    top_ref = {"featureId": "base", "kind": "face", "fingerprint": top_faces[0].to_dict()}
+
+    # Use one of the vertical edges as external geometry.
+    edges = rr.extract_edge_fingerprints(base_result["shape"].wrapped)
+    vertical_edges = [
+        e
+        for e in edges
+        if e.curve_type == "line"
+        and np.isclose(e.length, 5.0)
+        and np.isclose(abs(e.start[2] - e.end[2]), 5.0)
+    ]
+    assert len(vertical_edges) >= 1
+    edge_ref = {"featureId": "base", "kind": "edge", "fingerprint": vertical_edges[0].to_dict()}
+
+    doc = {
+        "version": 1,
+        "name": "refs",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+        ],
+        "sketches": [
+            _rect_sketch_for_doc(),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "externalRefs": [edge_ref],
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 5, "y": 0},
+                    {"id": "p3", "type": "point", "x": 5, "y": 5},
+                    {"id": "p4", "type": "point", "x": 0, "y": 5},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 2},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    doc_path = tmp_path / "refs.nuke-cad"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(
+        str(doc_path), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert result["success"] is True, result.get("error", "")
+    assert result["solidCount"] == 2
+    assert all(r["status"] == "built" for r in result.get("featureResults", []))
+
+    ref_results = result.get("referenceResults", [])
+    assert len(ref_results) == 2
+    by_path = {r["path"]: r for r in ref_results}
+    assert by_path["datum.face.reference"]["status"] == "matched"
+    assert by_path["datum.face.reference"]["featureId"] == "top"
+    assert by_path["sketch.top.externalRefs[0]"]["status"] == "matched"
+    assert by_path["sketch.top.externalRefs[0]"]["featureId"] == "top"

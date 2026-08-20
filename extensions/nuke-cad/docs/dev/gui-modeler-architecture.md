@@ -11,11 +11,13 @@ that feeds the same geometry pipeline as script builds.
 A document contains:
 
 - `parameters` — document-level named scalar values.
-- `datums` — planes on which sketches sit (`XY`, `YZ`, `XZ`, `offset`, and a
-  reserved-but-unsupported `face` kind).
+- `datums` — planes on which sketches sit (`XY`, `YZ`, `XZ`, `offset`, and
+  `face`). `face` datums reference a planar face of a predecessor feature by
+  fingerprint and derive a deterministic workplane from it.
 - `sketches` — `SketchDef` records with planegcs-verbatim primitives,
   constraints, sketch-local parameters (merged into document parameters on save),
-  and dimension metadata.
+  dimension metadata, and optional `externalRefs` to edges/faces of predecessor
+  features (projected as construction geometry).
 - `features` — a sequential feature tree with explicit `dependsOn` edges,
   consumed feature `sketchId`, parameters, suppression flag, and optional label.
 
@@ -66,12 +68,17 @@ mirrors the script `build_geometry` signature. The flow is:
 1. Parse and lightly validate the JSON document.
 2. `python/feature_builder.py::build_document_shape()` topologically sorts the
    feature tree over `dependsOn` edges and builds each feature.
-3. For each feature, `feature_builder` calls `python/sketch_builder.py` to turn
+3. Before building each feature, `feature_builder` resolves its `TopologyRef`s
+   (face datum, external geometry, and future edge arrays) against the referenced
+   predecessor feature's current B-rep. `matched`/`ambiguous`/`unmatched` status
+   for every reference is returned in `referenceResults`; ambiguous or unmatched
+   references fail the dependent feature with a clear `FeatureBuilderError`.
+4. For each feature, `feature_builder` calls `python/sketch_builder.py` to turn
    the feature's sketch primitives into build123d `Face` objects on the sketch
    datum plane.
-4. Additive features (`pad`, `revolve`) fuse into the accumulated body;
+5. Additive features (`pad`, `revolve`) fuse into the accumulated body;
    subtractive features (`pocket`, `groove`) cut from it.
-5. The final shape is handed to `_process_shape`, the same function used by
+6. The final shape is handed to `_process_shape`, the same function used by
    script builds and STEP imports, so STEP/tessellation/DAGMC/mesh artifacts are
    identical across authoring modes.
 

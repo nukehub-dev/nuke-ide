@@ -437,3 +437,729 @@ def test_revolve_axis_must_lie_in_sketch_plane() -> None:
     by_id = {r["featureId"]: r for r in result["featureResults"]}
     assert by_id["f1"]["status"] == "failed"
     assert "must lie in the sketch plane" in by_id["f1"]["error"].lower()
+
+
+def _face_ref(feature_id: str, topods_shape: Any, predicate: Any) -> dict[str, Any]:
+    """Build a TopologyRef dict for the first face matching ``predicate``."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import reference_resolver as rr
+
+    faces = rr.extract_face_fingerprints(topods_shape)
+    for face in faces:
+        if predicate(face):
+            return {"featureId": feature_id, "kind": "face", "fingerprint": face.to_dict()}
+    raise AssertionError("no matching face found")
+
+
+def _top_face_predicate() -> Any:
+    """Return a predicate that selects the top (+Z) face of an extruded box."""
+    import numpy as np
+
+    def predicate(face: Any) -> bool:
+        return (
+            face.surface_type == "plane"
+            and face.normal is not None
+            and np.isclose(face.normal[2], 1.0)
+        )
+
+    return predicate
+
+
+def _build_base_and_capture_top_face(length: float = 5.0) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build a 10x10 extruded base pad and return ``(base_ref, base_doc)``."""
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": length},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+    top_ref = _face_ref("base", base_result["shape"].wrapped, _top_face_predicate())
+    return top_ref, base_doc
+
+
+def test_face_datum_sketch_builds_on_correct_plane() -> None:
+    """A sketch placed on a referenced face builds on that face's workplane."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+
+    doc = {
+        "version": 1,
+        "name": "face-datum",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+        ],
+        "sketches": [
+            _rect_sketch(width=10.0, height=10.0),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 5, "y": 0},
+                    {"id": "p3", "type": "point", "x": 5, "y": 5},
+                    {"id": "p4", "type": "point", "x": 0, "y": 5},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 2},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume == pytest.approx(10.0 * 10.0 * 5.0 + 5.0 * 5.0 * 2.0, abs=1e-3)
+
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["base"]["status"] == "built"
+    assert by_id["top"]["status"] == "built"
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["featureId"] == "top"
+    assert ref_results[0]["status"] == "matched"
+    assert ref_results[0]["candidateId"] is not None
+    assert ref_results[0]["score"] > 0.9
+
+
+def test_face_datum_offset_shifts_along_normal() -> None:
+    """A face datum offset shifts the sketch plane along the face normal."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+
+    doc = {
+        "version": 1,
+        "name": "face-datum-offset",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref, "offset": 3.0},
+        ],
+        "sketches": [
+            _rect_sketch(width=10.0, height=10.0),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 5, "y": 0},
+                    {"id": "p3", "type": "point", "x": 5, "y": 5},
+                    {"id": "p4", "type": "point", "x": 0, "y": 5},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 2},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume == pytest.approx(10.0 * 10.0 * 5.0 + 5.0 * 5.0 * 2.0, abs=1e-3)
+
+    solids = result["shape"].solids()
+    top_solid = max(solids, key=lambda s: s.bounding_box().max.Z)
+    assert top_solid.bounding_box().min.Z == pytest.approx(8.0, abs=1e-3)
+    assert top_solid.bounding_box().max.Z == pytest.approx(10.0, abs=1e-3)
+
+
+def test_non_planar_face_datum_fails_clearly() -> None:
+    """A face datum referencing a non-planar face reports a clear error."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # Revolve a rectangle around Y to create a cylinder; the side face is curved.
+    sketch = {
+        "id": "profile",
+        "name": "profile",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 2, "y": 0},
+            {"id": "p2", "type": "point", "x": 3, "y": 0},
+            {"id": "p3", "type": "point", "x": 3, "y": 5},
+            {"id": "p4", "type": "point", "x": 2, "y": 5},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "revolve",
+                "sketchId": "profile",
+                "params": {"axis": "y", "angle": 360},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[sketch],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+
+    import numpy as np
+
+    def side_face(face: Any) -> bool:
+        return (
+            face.surface_type == "cylinder"
+            and face.radius is not None
+            and np.isclose(face.radius, 3.0, rtol=0.05)
+        )
+
+    side_ref = _face_ref("base", base_result["shape"].wrapped, side_face)
+
+    doc = {
+        "version": 1,
+        "name": "non-planar",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Side face", "reference": side_ref},
+        ],
+        "sketches": [
+            sketch,
+            {
+                "id": "on_side",
+                "name": "on_side",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 1, "y": 0},
+                    {"id": "p3", "type": "point", "x": 1, "y": 1},
+                    {"id": "p4", "type": "point", "x": 0, "y": 1},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "revolve",
+                "sketchId": "profile",
+                "params": {"axis": "y", "angle": 360},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "on_side",
+                "name": "on_side",
+                "type": "pad",
+                "sketchId": "on_side",
+                "params": {"length": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["on_side"]["status"] == "failed"
+    assert "not planar" in by_id["on_side"]["error"].lower()
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["status"] == "matched"
+
+
+def test_fingerprint_survives_pad_length_change() -> None:
+    """A face reference remains matched after the upstream pad length changes."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+
+    def build_with_length(length: float) -> dict[str, Any]:
+        doc = {
+            "version": 1,
+            "name": "survive",
+            "parameters": {},
+            "datums": [
+                {"id": "dxy", "kind": "XY", "name": "XY"},
+                {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+            ],
+            "sketches": [
+                _rect_sketch(width=10.0, height=10.0),
+                {
+                    "id": "top",
+                    "name": "top",
+                    "datumId": "face",
+                    "primitives": [
+                        {"id": "p1", "type": "point", "x": 0, "y": 0},
+                        {"id": "p2", "type": "point", "x": 5, "y": 0},
+                        {"id": "p3", "type": "point", "x": 5, "y": 5},
+                        {"id": "p4", "type": "point", "x": 0, "y": 5},
+                        {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                        {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                        {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                        {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                    ],
+                    "constraints": [],
+                },
+            ],
+            "features": [
+                {
+                    "id": "base",
+                    "name": "base",
+                    "type": "pad",
+                    "sketchId": "rect",
+                    "params": {"length": length},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+                {
+                    "id": "top",
+                    "name": "top",
+                    "type": "pad",
+                    "sketchId": "top",
+                    "params": {"length": 2},
+                    "dependsOn": ["base"],
+                    "suppressed": False,
+                },
+            ],
+        }
+        return fb.build_document_shape(doc)
+
+    first = build_with_length(5.0)
+    assert first["shape"] is not None
+    assert all(r["status"] == "built" for r in first["featureResults"])
+    first_ref = [r for r in first["referenceResults"] if r["path"] == "datum.face.reference"][0]
+    assert first_ref["status"] == "matched"
+
+    second = build_with_length(8.0)
+    assert second["shape"] is not None
+    assert all(r["status"] == "built" for r in second["featureResults"])
+    second_ref = [r for r in second["referenceResults"] if r["path"] == "datum.face.reference"][0]
+    assert second_ref["status"] == "matched"
+    assert second_ref["candidateId"] is not None
+
+    # The top pad has shifted up with the new base length.
+    solids = second["shape"].solids()
+    top_solid = max(solids, key=lambda s: s.bounding_box().max.Z)
+    assert top_solid.bounding_box().min.Z == pytest.approx(8.0, abs=1e-3)
+
+
+def test_fingerprint_survives_sibling_feature_addition() -> None:
+    """Adding another feature that depends on the same predecessor does not break a face ref."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+
+    doc = {
+        "version": 1,
+        "name": "sibling",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+            {"id": "offset", "kind": "offset", "name": "Offset", "offset": 10.0},
+        ],
+        "sketches": [
+            _rect_sketch(width=10.0, height=10.0),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 5, "y": 0},
+                    {"id": "p3", "type": "point", "x": 5, "y": 5},
+                    {"id": "p4", "type": "point", "x": 0, "y": 5},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+            _rect_sketch(width=10.0, height=10.0),
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "sibling",
+                "name": "sibling",
+                "type": "pad",
+                "sketchId": "rect2",
+                "params": {"length": 2},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 2},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    # The sibling sketch is the third sketch; rename it to "rect2".
+    doc["sketches"][2]["id"] = "rect2"
+    doc["sketches"][2]["name"] = "rect2"
+
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["top"]["status"] == "built"
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["status"] == "matched"
+
+
+def test_ambiguous_reference_reported_on_symmetric_edit() -> None:
+    """A symmetric edit that creates two equally-good candidates is reported ambiguous."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import numpy as np
+    import reference_resolver as rr
+
+    # Two tiny rectangles at x = +/-0.1 produce two solids whose top faces are
+    # almost identical; referencing one should be ambiguous.
+    tiny_sketch = {
+        "id": "tiny",
+        "name": "tiny",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "pa", "type": "point", "x": 0.075, "y": -0.025},
+            {"id": "pb", "type": "point", "x": 0.125, "y": -0.025},
+            {"id": "pc", "type": "point", "x": 0.125, "y": 0.025},
+            {"id": "pd", "type": "point", "x": 0.075, "y": 0.025},
+            {"id": "la1", "type": "line", "p1_id": "pa", "p2_id": "pb"},
+            {"id": "la2", "type": "line", "p1_id": "pb", "p2_id": "pc"},
+            {"id": "la3", "type": "line", "p1_id": "pc", "p2_id": "pd"},
+            {"id": "la4", "type": "line", "p1_id": "pd", "p2_id": "pa"},
+            {"id": "qa", "type": "point", "x": -0.125, "y": -0.025},
+            {"id": "qb", "type": "point", "x": -0.075, "y": -0.025},
+            {"id": "qc", "type": "point", "x": -0.075, "y": 0.025},
+            {"id": "qd", "type": "point", "x": -0.125, "y": 0.025},
+            {"id": "lb1", "type": "line", "p1_id": "qa", "p2_id": "qb"},
+            {"id": "lb2", "type": "line", "p1_id": "qb", "p2_id": "qc"},
+            {"id": "lb3", "type": "line", "p1_id": "qc", "p2_id": "qd"},
+            {"id": "lb4", "type": "line", "p1_id": "qd", "p2_id": "qa"},
+        ],
+        "constraints": [],
+    }
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "tiny",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[tiny_sketch],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+
+    faces = rr.extract_face_fingerprints(base_result["shape"].wrapped)
+    right_faces = [
+        f
+        for f in faces
+        if f.surface_type == "plane"
+        and f.normal is not None
+        and np.isclose(f.normal[2], 1.0)
+        and f.center[0] > 0.0
+    ]
+    assert len(right_faces) == 1
+    top_ref = {"featureId": "base", "kind": "face", "fingerprint": right_faces[0].to_dict()}
+
+    doc = {
+        "version": 1,
+        "name": "ambiguous",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+        ],
+        "sketches": [
+            tiny_sketch,
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 0.05, "y": 0},
+                    {"id": "p3", "type": "point", "x": 0.05, "y": 0.05},
+                    {"id": "p4", "type": "point", "x": 0, "y": 0.05},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "tiny",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["top"]["status"] == "failed"
+    assert "ambiguous" in by_id["top"]["error"].lower()
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["status"] == "ambiguous"
+    assert ref_results[0]["candidates"] is not None
+    assert len(ref_results[0]["candidates"]) >= 2
+
+
+def test_unmatched_reference_clear_error() -> None:
+    """A reference whose fingerprint no longer exists on the predecessor fails cleanly."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # Reference a cylindrical face that can never exist on a box extrusion.
+    top_ref = {
+        "featureId": "base",
+        "kind": "face",
+        "fingerprint": {
+            "surfaceType": "cylinder",
+            "area": 1000.0,
+            "center": [500.0, 500.0, 500.0],
+            "radius": 10.0,
+        },
+    }
+
+    doc = {
+        "version": 1,
+        "name": "unmatched",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+        ],
+        "sketches": [
+            _rect_sketch(width=1.0, height=1.0),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 1, "y": 0},
+                    {"id": "p3", "type": "point", "x": 1, "y": 1},
+                    {"id": "p4", "type": "point", "x": 0, "y": 1},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 1},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "sketchId": "top",
+                "params": {"length": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["top"]["status"] == "failed"
+    assert "unmatched" in by_id["top"]["error"].lower()
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["status"] == "unmatched"
+    assert ref_results[0]["candidateId"] is None
+
+
+def test_external_geometry_projection_correctness() -> None:
+    """External edge references project into the sketch plane as construction geometry."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import build123d as bd
+
+    # Create a horizontal edge at z = 5 and project it onto the XY plane.
+    edge = bd.Line((0.0, 0.0, 5.0), (10.0, 0.0, 5.0))
+    plane = bd.Plane.XY
+    primitives = fb._project_edge_to_sketch(edge.wrapped, plane, 0)
+    assert len(primitives) == 3
+    assert all(p.get("construction") is True for p in primitives)
+    line = [p for p in primitives if p.get("type") == "line"][0]
+    p1 = [p for p in primitives if p.get("id") == line["p1_id"]][0]
+    p2 = [p for p in primitives if p.get("id") == line["p2_id"]][0]
+    assert p1["x"] == pytest.approx(0.0, abs=1e-6)
+    assert p1["y"] == pytest.approx(0.0, abs=1e-6)
+    assert p2["x"] == pytest.approx(10.0, abs=1e-6)
+    assert p2["y"] == pytest.approx(0.0, abs=1e-6)
+
+    # A circle parallel to the sketch plane projects to a construction circle.
+    circle_edge = bd.Circle(2.0).edge()
+    # Move the circle to a plane parallel to XY at z = 3.
+    circle_edge = bd.Location((5.0, 5.0, 3.0)) * circle_edge
+    circ_primitives = fb._project_edge_to_sketch(circle_edge.wrapped, plane, 1)
+    assert any(p.get("type") == "circle" for p in circ_primitives)
+    circle = [p for p in circ_primitives if p.get("type") == "circle"][0]
+    assert circle["radius"] == pytest.approx(2.0, abs=1e-6)
+    center = [p for p in circ_primitives if p.get("id") == circle["c_id"]][0]
+    assert center["x"] == pytest.approx(5.0, abs=1e-6)
+    assert center["y"] == pytest.approx(5.0, abs=1e-6)
+
+    # Construction-only extra primitives do not become sketch output edges.
+    sketch = {
+        "id": "only_external",
+        "name": "only_external",
+        "datumId": "dxy",
+        "primitives": circ_primitives,
+        "constraints": [],
+    }
+    from sketch_builder import SketchError, build_sketch_faces
+
+    with pytest.raises(SketchError, match="no drawable edges"):
+        build_sketch_faces(sketch, {"dxy": {"id": "dxy", "kind": "XY", "name": "XY"}})
+
+
+def test_topology_refs_collected_for_face_datum_and_external_refs() -> None:
+    """``_collect_topology_refs`` gathers face datums and sketch externalRefs."""
+    datums = {
+        "dxy": {"id": "dxy", "kind": "XY", "name": "XY"},
+        "face": {"id": "face", "kind": "face", "name": "Face", "reference": {"featureId": "base"}},
+    }
+    sketches = {
+        "sk": {
+            "id": "sk",
+            "name": "sk",
+            "datumId": "face",
+            "externalRefs": [
+                {"featureId": "base", "kind": "edge"},
+                {"featureId": "base", "kind": "face"},
+            ],
+            "primitives": [],
+            "constraints": [],
+        }
+    }
+    feature = {"id": "f1", "sketchId": "sk", "params": {"length": 1}}
+    refs = fb._collect_topology_refs(feature, datums, sketches)
+    paths = {path for path, _ref in refs}
+    assert "datum.face.reference" in paths
+    assert "sketch.sk.externalRefs[0]" in paths
+    assert "sketch.sk.externalRefs[1]" in paths
+
+
+def test_unresolved_reference_raises_when_resolver_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the resolver is unavailable, resolving a TopologyRef raises a clear error."""
+    monkeypatch.setattr(fb, "HAS_REFERENCE_RESOLVER", False)
+    monkeypatch.setattr(fb, "rr", None)
+    refs_with_paths = [
+        (
+            "datum.face.reference",
+            {
+                "featureId": "base",
+                "kind": "face",
+                "fingerprint": {"surfaceType": "plane", "area": 1, "center": [0, 0, 0]},
+            },
+        )
+    ]
+    with pytest.raises(fb.FeatureBuilderError, match="reference resolution requires OCP"):
+        fb._resolve_document_refs(refs_with_paths, {}, owner_feature_id="top")

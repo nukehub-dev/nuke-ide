@@ -22,7 +22,19 @@ except Exception:
     bd = None  # type: ignore
     HAS_BUILD123D = False
 
+import sketch_builder
+from reference_scoring import DEFAULT_TOLERANCE_SCALE
 from sketch_builder import build_sketch_faces
+
+# Heavy imports are guarded so the module stays importable in the minimal pytest
+# profile (pytest + numpy only).
+try:
+    import reference_resolver as rr
+
+    HAS_REFERENCE_RESOLVER = True
+except Exception:
+    rr = None  # type: ignore
+    HAS_REFERENCE_RESOLVER = False
 
 
 class FeatureBuilderError(ValueError):
@@ -48,6 +60,14 @@ def _ensure_build_axis() -> None:
         _BUILD_AXIS["z"] = bd.Axis.Z
 
 
+def _require_reference_resolver() -> None:
+    """Raise a clear error when the reference resolver is required but unavailable."""
+    if not HAS_REFERENCE_RESOLVER or rr is None:
+        raise FeatureBuilderError(
+            "Topological reference resolution requires OCP (cadquery-ocp/build123d)."
+        )
+
+
 def _normalized_vector(v: tuple[float, float, float]) -> tuple[float, float, float]:
     """Return a unit vector in the same direction as ``v``."""
     length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
@@ -63,6 +83,326 @@ def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
 def _extract_plane_normal(plane: Any) -> tuple[float, float, float]:
     """Return the normal vector of a build123d ``Plane``."""
     return (float(plane.z_dir.X), float(plane.z_dir.Y), float(plane.z_dir.Z))
+
+
+def _deterministic_x_dir(normal: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Return a deterministic in-plane x-direction for a face normal."""
+    nx, ny, nz = normal
+    # When the normal is close to world Z, use world X as the fallback so the
+    # cross product does not collapse to zero.
+    if abs(nz) < 0.999:
+        x_dir = (-ny, nx, 0.0)
+    else:
+        x_dir = (1.0, 0.0, 0.0)
+    return _normalized_vector(x_dir)
+
+
+def _workplane_from_face(topods_face: Any, offset: float = 0.0) -> Any:
+    """Build a build123d ``Plane`` from a planar ``TopoDS_Face``.
+
+    The origin is the plane's reference point (a point on the face). ``offset``
+    shifts the origin along the face normal.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build face workplane")
+    _require_reference_resolver()
+
+    origin, normal = rr.face_plane_origin_normal(topods_face)
+    if offset:
+        origin = (
+            origin[0] + offset * normal[0],
+            origin[1] + offset * normal[1],
+            origin[2] + offset * normal[2],
+        )
+    x_dir = _deterministic_x_dir(normal)
+    return bd.Plane(origin=origin, x_dir=x_dir, z_dir=normal)
+
+
+def _collect_topology_refs(
+    feature: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    sketches: dict[str, dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Collect all ``TopologyRef`` dicts associated with a feature.
+
+    Returns a list of ``(path, ref_dict)`` tuples. The paths are stable
+    document locations so the frontend can map resolution status back to the
+    feature tree.
+    """
+    refs: list[tuple[str, dict[str, Any]]] = []
+    fid = feature.get("id", "<unknown>")
+    sketch_id = feature.get("sketchId")
+    sketch = sketches.get(sketch_id) if isinstance(sketch_id, str) else None
+
+    if sketch is not None:
+        datum_id = sketch.get("datumId")
+        datum = datums.get(datum_id) if isinstance(datum_id, str) else None
+        if datum is not None and datum.get("kind") == "face":
+            ref = datum.get("reference")
+            if isinstance(ref, dict):
+                refs.append((f"datum.{datum_id}.reference", ref))
+        external_refs = sketch.get("externalRefs", [])
+        if isinstance(external_refs, list):
+            for i, ref in enumerate(external_refs):
+                if isinstance(ref, dict):
+                    refs.append((f"sketch.{sketch_id}.externalRefs[{i}]", ref))
+
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    up_to_face = params.get("upToFace")
+    if isinstance(up_to_face, dict):
+        refs.append((f"feature.{fid}.params.upToFace", up_to_face))
+
+    return refs
+
+
+def _resolve_document_refs(
+    refs_with_paths: list[tuple[str, dict[str, Any]]],
+    feature_shapes: dict[str, Any],
+    *,
+    owner_feature_id: str,
+    tolerance_scale: float = DEFAULT_TOLERANCE_SCALE,
+    ambiguity_margin: float = 0.05,
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Resolve a heterogeneous list of document TopologyRefs.
+
+    References are grouped by the predecessor feature they point to and by
+    topological kind, then resolved in batches against that feature's current
+    B-rep. Returns ``(entities, results)`` aligned with the input list.
+
+    The ``featureId`` field in each result record identifies the owning feature
+    (the one being built), not the predecessor feature that produced the
+    geometry. The predecessor id is encoded in the ``path`` and in the reference
+    payload itself.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+
+    if not refs_with_paths:
+        return [], []
+
+    path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+    entities: list[Any] = [None] * len(refs_with_paths)
+    results: list[dict[str, Any]] = [
+        {
+            "featureId": owner_feature_id,
+            "path": path,
+            "kind": ref.get("kind", "face"),
+            "status": "unmatched",
+            "candidateId": None,
+            "score": 0.0,
+            "runnerUpScore": 0.0,
+            "candidates": None,
+        }
+        for path, ref in refs_with_paths
+    ]
+
+    groups: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+    for path, ref in refs_with_paths:
+        feature_id = ref.get("featureId", "")
+        kind = ref.get("kind", "face")
+        groups.setdefault((feature_id, kind), []).append((path, ref))
+
+    for (feature_id, kind), items in groups.items():
+        shape = feature_shapes.get(feature_id)
+        if shape is None:
+            for path, _ref in items:
+                i = path_to_index[path]
+                results[i] = {
+                    "featureId": owner_feature_id,
+                    "path": path,
+                    "kind": kind,
+                    "status": "unmatched",
+                    "candidateId": None,
+                    "score": 0.0,
+                    "runnerUpScore": 0.0,
+                    "candidates": None,
+                }
+            continue
+
+        try:
+            fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in items]
+            match_result, entity_map = rr.resolve_references_with_entities(
+                fingerprints,
+                shape,
+                tolerance_scale=tolerance_scale,
+                ambiguity_margin=ambiguity_margin,
+            )
+        except Exception as exc:
+            for path, _ref in items:
+                i = path_to_index[path]
+                results[i] = {
+                    "featureId": owner_feature_id,
+                    "path": path,
+                    "kind": kind,
+                    "status": "unmatched",
+                    "candidateId": None,
+                    "score": 0.0,
+                    "runnerUpScore": 0.0,
+                    "candidates": None,
+                    "error": str(exc),
+                }
+            continue
+
+        for (path, _ref), match in zip(items, match_result.matches, strict=True):
+            i = path_to_index[path]
+            entity = entity_map.get(match.candidate_id) if match.candidate_id else None
+            entities[i] = entity
+            results[i] = {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": kind,
+                "status": match.status,
+                "candidateId": match.candidate_id,
+                "score": match.score,
+                "runnerUpScore": match.runner_up_score,
+                "candidates": [c.to_dict() for c in match.candidates] if match.candidates else None,
+            }
+
+    return entities, results
+
+
+def _project_point_to_plane(
+    point: tuple[float, float, float],
+    plane: Any,
+) -> tuple[float, float]:
+    """Project a 3D point onto a build123d ``Plane`` and return 2D sketch coords."""
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot project geometry")
+    v = bd.Vector(point) - bd.Vector(plane.origin)
+    u = float(v.dot(plane.x_dir))
+    w = float(v.dot(plane.y_dir))
+    return (u, w)
+
+
+def _primitive_id(prefix: str, index: int) -> str:
+    return f"{prefix}_{index:04d}"
+
+
+def _project_edge_to_sketch(
+    topods_edge: Any,
+    plane: Any,
+    index: int,
+) -> list[dict[str, Any]]:
+    """Project a ``TopoDS_Edge`` into sketch-plane construction primitives.
+
+    Handles linear edges and circles/arcs that are parallel to the sketch plane.
+    Other curve types are approximated by a single construction line between the
+    projected endpoints.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot project geometry")
+
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+    curv = BRepAdaptor_Curve(topods_edge)
+    ctype = rr._curve_type_string(curv)
+    first = curv.FirstParameter()
+    last = curv.LastParameter()
+
+    def pnt_3d(param: float) -> tuple[float, float, float]:
+        pnt = curv.Value(param)
+        return (pnt.X(), pnt.Y(), pnt.Z())
+
+    def pnt_2d(param: float) -> tuple[float, float]:
+        return _project_point_to_plane(pnt_3d(param), plane)
+
+    if ctype == "line":
+        p1 = pnt_2d(first)
+        p2 = pnt_2d(last)
+        # Degenerate projection (edge perpendicular to plane) becomes a point.
+        if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) < 1e-9:
+            return []
+        pid = _primitive_id("ext_p", index)
+        lid = _primitive_id("ext_l", index)
+        return [
+            {"id": pid, "type": "point", "x": p1[0], "y": p1[1], "construction": True},
+            {"id": f"{pid}_2", "type": "point", "x": p2[0], "y": p2[1], "construction": True},
+            {
+                "id": lid,
+                "type": "line",
+                "p1_id": pid,
+                "p2_id": f"{pid}_2",
+                "construction": True,
+            },
+        ]
+
+    if ctype in ("circle", "ellipse"):
+        circ = curv.Circle() if ctype == "circle" else curv.Ellipse()
+        center_3d = (circ.Location().X(), circ.Location().Y(), circ.Location().Z())
+        normal_3d = (
+            circ.Axis().Direction().X(),
+            circ.Axis().Direction().Y(),
+            circ.Axis().Direction().Z(),
+        )
+        sketch_normal = _extract_plane_normal(plane)
+        # Only emit a true circle/arc when the source curve lies in a plane
+        # parallel to the sketch plane.
+        if abs(abs(_dot(normal_3d, sketch_normal)) - 1.0) < 1e-6:
+            radius = float(circ.Radius()) if ctype == "circle" else float(circ.MajorRadius())
+            center_2d = _project_point_to_plane(center_3d, plane)
+            pid = _primitive_id("ext_p", index)
+            cid = _primitive_id("ext_c", index)
+            return [
+                {
+                    "id": pid,
+                    "type": "point",
+                    "x": center_2d[0],
+                    "y": center_2d[1],
+                    "construction": True,
+                },
+                {"id": cid, "type": "circle", "c_id": pid, "radius": radius, "construction": True},
+            ]
+
+    # Fallback: chord from projected endpoints.
+    p1 = pnt_2d(first)
+    p2 = pnt_2d(last)
+    if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) < 1e-9:
+        return []
+    pid = _primitive_id("ext_p", index)
+    lid = _primitive_id("ext_l", index)
+    return [
+        {"id": pid, "type": "point", "x": p1[0], "y": p1[1], "construction": True},
+        {"id": f"{pid}_2", "type": "point", "x": p2[0], "y": p2[1], "construction": True},
+        {
+            "id": lid,
+            "type": "line",
+            "p1_id": pid,
+            "p2_id": f"{pid}_2",
+            "construction": True,
+        },
+    ]
+
+
+def _project_entity_to_sketch(
+    topods_entity: Any,
+    plane: Any,
+    index: int,
+) -> list[dict[str, Any]]:
+    """Project a resolved face or edge into sketch-plane construction primitives."""
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    shape_type = topods_entity.ShapeType()
+    if shape_type == TopAbs_FACE:
+        primitives: list[dict[str, Any]] = []
+        exp = TopExp_Explorer(topods_entity, TopAbs_EDGE)
+        edge_index = 0
+        while exp.More():
+            edge = TopoDS.Edge_s(exp.Current())
+            primitives.extend(_project_edge_to_sketch(edge, plane, index * 100 + edge_index))
+            edge_index += 1
+            exp.Next()
+        return primitives
+
+    if shape_type == TopAbs_EDGE:
+        return _project_edge_to_sketch(topods_entity, plane, index)
+
+    return []
 
 
 def _extrude_direction(
@@ -98,6 +438,8 @@ def _build_feature_shape(
     feature: dict[str, Any],
     datums: dict[str, dict[str, Any]],
     sketches: dict[str, dict[str, Any]],
+    feature_shapes: dict[str, Any],
+    reference_results: list[dict[str, Any]],
 ) -> Any:
     """Build the tool shape produced by a single feature.
 
@@ -123,7 +465,57 @@ def _build_feature_shape(
     if sketch is None:
         raise FeatureBuilderError(f"feature '{feature_id}' references unknown sketch '{sketch_id}'")
 
-    plane, faces = build_sketch_faces(sketch, datums)
+    refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+    entities, ref_results = _resolve_document_refs(
+        refs_with_paths, feature_shapes, owner_feature_id=feature_id
+    )
+    reference_results.extend(ref_results)
+
+    broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+    if broken:
+        details = "; ".join(
+            f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+        )
+        raise FeatureBuilderError(
+            f"feature '{feature_id}' has unresolved topological references: {details}"
+        )
+
+    ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+
+    # Determine the sketch plane. Face datums use the resolved face; other datum
+    # kinds are handled by the sketch builder.
+    plane: Any | None = None
+    sketch_datum_id = sketch.get("datumId")
+    sketch_datum = datums.get(sketch_datum_id) if isinstance(sketch_datum_id, str) else None
+    if sketch_datum is not None and sketch_datum.get("kind") == "face":
+        datum_ref_path = f"datum.{sketch_datum_id}.reference"
+        entity = entities[ref_path_to_index[datum_ref_path]]
+        offset = sketch_datum.get("offset", 0.0)
+        if (
+            not isinstance(offset, (int, float))
+            or isinstance(offset, bool)
+            or not math.isfinite(offset)
+        ):
+            offset = 0.0
+        plane = _workplane_from_face(entity, offset)
+
+    extra_primitives: list[dict[str, Any]] = []
+    for path, _ref in refs_with_paths:
+        if path.startswith(f"sketch.{sketch_id}.externalRefs["):
+            idx = int(path[path.index("[") + 1 : path.index("]")])
+            entity = entities[ref_path_to_index[path]]
+            # Ensure we have a plane to project onto.
+            if plane is None:
+                if sketch_datum is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': sketch '{sketch_id}' has no datum"
+                    )
+                plane = sketch_builder._build_plane(sketch_datum)
+            extra_primitives.extend(_project_entity_to_sketch(entity, plane, idx))
+
+    plane, faces = build_sketch_faces(
+        sketch, datums, plane=plane, extra_primitives=extra_primitives
+    )
     if not faces:
         raise FeatureBuilderError(f"feature '{feature_id}': sketch '{sketch_id}' produced no faces")
 
@@ -388,6 +780,8 @@ def build_document_shape(
             Mapping from feature label to sorted 1-based solid indices.
         ``featureResults``
             List of ``{featureId, status, error?}`` records in build order.
+        ``referenceResults``
+            List of per-reference resolution status records.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
@@ -414,7 +808,9 @@ def build_document_shape(
     accumulated: Any | None = None
     selector_map: dict[str, list[int]] = {}
     feature_results: list[dict[str, Any]] = []
+    reference_results: list[dict[str, Any]] = []
     stale_or_failed: set[str] = set()
+    feature_shapes: dict[str, Any] = {}
 
     for feature_id in order:
         feature = feature_map[feature_id]
@@ -433,11 +829,15 @@ def build_document_shape(
             continue
 
         try:
-            tool_shape = _build_feature_shape(feature, datums, sketches)
+            tool_shape = _build_feature_shape(
+                feature, datums, sketches, feature_shapes, reference_results
+            )
         except Exception as exc:
             feature_results.append({"featureId": feature_id, "status": "failed", "error": str(exc)})
             stale_or_failed.add(feature_id)
             continue
+
+        feature_shapes[feature_id] = getattr(tool_shape, "wrapped", tool_shape)
 
         feature_type = feature["type"]
         previous_solid_count = len(accumulated.solids()) if accumulated is not None else 0
@@ -478,4 +878,5 @@ def build_document_shape(
         "shape": accumulated,
         "selectorMap": selector_map,
         "featureResults": feature_results,
+        "referenceResults": reference_results,
     }

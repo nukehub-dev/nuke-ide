@@ -236,3 +236,45 @@ def test_imports_cleanly_when_ocp_absent(monkeypatch: pytest.MonkeyPatch) -> Non
         reference_resolver.extract_edge_fingerprints(None)
     with pytest.raises(RuntimeError, match="requires OCP"):
         reference_resolver.resolve_references([], None)
+
+
+def test_topology_ref_to_fingerprint_converts_ts_dict() -> None:
+    """Reference payloads from the TypeScript side normalize to scorer fingerprints."""
+    from reference_resolver import topology_ref_to_fingerprint
+    from reference_scoring import EdgeFingerprint, FaceFingerprint
+
+    face_ref = {
+        "featureId": "pad1",
+        "kind": "face",
+        "fingerprint": {
+            "surfaceType": "cylinder",
+            "area": 12.5,
+            "center": [1.0, 2.0, 3.0],
+            "axis": {"origin": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0]},
+            "radius": 2.0,
+            "minorRadius": 0.5,
+        },
+    }
+    fp = topology_ref_to_fingerprint(face_ref)
+    assert isinstance(fp, FaceFingerprint)
+    assert fp.surface_type == "cylinder"
+    assert fp.center == (1.0, 2.0, 3.0)
+    assert fp.axis is not None
+    assert fp.axis["direction"] == (0.0, 0.0, 1.0)
+    assert fp.minor_radius == 0.5
+
+    edge_ref = {
+        "featureId": "pad1",
+        "kind": "edge",
+        "fingerprint": {
+            "curveType": "circle",
+            "length": 6.28,
+            "start": [0.0, 0.0, 0.0],
+            "end": [0.0, 0.0, 0.0],
+            "center": [1.0, 1.0, 0.0],
+        },
+    }
+    ep = topology_ref_to_fingerprint(edge_ref)
+    assert isinstance(ep, EdgeFingerprint)
+    assert ep.curve_type == "circle"
+    assert ep.center == (1.0, 1.0, 0.0)

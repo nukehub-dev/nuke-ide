@@ -148,7 +148,10 @@ removed or edited.
 
 This release supports the core workflow. These features are not implemented yet:
 
-- Sketching on a face (`face` datum / sketch-on-face).
+- Viewport face-picking to create a `face` datum / sketch-on-face (`face`
+  datums authored directly in the `.nuke-cad` document are already rebuilt).
+- External-geometry references from inside sketch mode (the backend resolves
+  them when they are present in the document).
 - Fillets, chamfers, drafts, shells, holes, mirrors, and patterns.
 - Up-to-face / up-to-body extrude termination.
 - Boolean feature types (`booleanFuse`, `booleanCut`, `booleanCommon`).

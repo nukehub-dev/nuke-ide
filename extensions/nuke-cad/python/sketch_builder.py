@@ -399,12 +399,19 @@ def _build_faces_from_wires(
 def build_sketch_faces(
     sketch: dict[str, Any],
     datums: dict[str, dict[str, Any]],
+    plane: Any | None = None,
+    extra_primitives: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, list[Any]]:
     """Parse a sketch and return ``(plane, faces)``.
 
     The returned ``plane`` is a build123d ``Plane`` representing the sketch
     datum. ``faces`` is a list of build123d ``Face`` objects (outer profiles
     with any contained profiles converted to holes).
+
+    When ``plane`` is supplied it is used directly; otherwise the plane is
+    derived from the sketch's datum definition. ``extra_primitives`` are
+    appended to the sketch's own primitives before parsing (they should carry
+    ``construction: true`` so they do not become output edges).
     """
     if bd is None:
         raise SketchError("build123d is not available; cannot build sketch faces")
@@ -414,12 +421,15 @@ def build_sketch_faces(
     if not isinstance(datum_id, str) or not datum_id:
         raise SketchError(f"sketch '{sketch_name}' has no datumId")
 
-    datum = _resolve_datum(datum_id, datums)
-    plane = _build_plane(datum)
+    if plane is None:
+        datum = _resolve_datum(datum_id, datums)
+        plane = _build_plane(datum)
 
-    primitives = sketch.get("primitives", [])
+    primitives = list(sketch.get("primitives", []))
     if not isinstance(primitives, list):
         raise SketchError(f"sketch '{sketch_name}'.primitives must be a list")
+    if extra_primitives:
+        primitives.extend(extra_primitives)
 
     parsed = parse_sketch_primitives(primitives)
     points: dict[str, SketchPoint] = {p.id: p for p in parsed if isinstance(p, SketchPoint)}

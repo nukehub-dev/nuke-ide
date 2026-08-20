@@ -35,6 +35,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flag. The first release performs a full rebuild on every call; per-feature status
   (`built`/`stale`/`failed`) is returned so the viewport can show which feature
   failed and why.
+- nuke-cad: **topological reference resolution** — `TopologyRef`s (face datums,
+  sketch `externalRefs`, and future edge arrays) are resolved against the
+  referenced predecessor feature's current B-rep using geometric fingerprints.
+  The build result carries per-reference `referenceResults`
+  (`matched`/`ambiguous`/`unmatched`) and fails dependent features with a clear
+  error when a reference is ambiguous or unmatched, so parametric edits that
+  change the B-rep do not silently pick the wrong geometry.
+- nuke-cad: **sketch-on-face (`face` datum)** — planar faces of predecessor
+  features can be used as sketch datums. The backend derives a deterministic
+  workplane from the resolved face (origin, normal, in-plane x-direction) and
+  supports an optional offset along the normal; non-planar faces produce a clear
+  build error.
+- nuke-cad: **external geometry in sketches** — sketches can reference edges or
+  faces of predecessor features via `externalRefs`. Resolved entities are
+  projected into the sketch plane and passed to the sketch builder as
+  construction geometry, so they appear as references without becoming part of
+  the sketch's output wires or faces.
 - nuke-cad: **Feature Tree panel** — a right-area widget (ID
   `nuke-cad-feature-tree-widget`, command `Open Feature Tree`) listing datums,
   sketches, and features with selection, suppression toggle, edit, delete, and

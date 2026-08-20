@@ -228,6 +228,37 @@ export interface FeatureResult {
     readonly error?: string;
 }
 
+/** Status of a single topological reference resolution. */
+export type ReferenceResolutionStatus = 'matched' | 'ambiguous' | 'unmatched';
+
+/** A candidate offered for an ambiguous reference repair. */
+export interface ReferenceResolutionCandidate {
+    /** Stable candidate id from the rebuilt B-rep (e.g. ``face_0003``). */
+    readonly candidateId: string;
+    /** Similarity score in [0, 1]. */
+    readonly score: number;
+}
+
+/** Per-reference resolution status returned by a document build. */
+export interface ReferenceResolutionResult {
+    /** Feature id that owns the reference (datum, sketch, or feature). */
+    readonly featureId: string;
+    /** Document path of the reference (e.g. ``datum.d1.reference``). */
+    readonly path: string;
+    /** Topological kind being resolved. */
+    readonly kind: 'face' | 'edge';
+    /** Resolution status. */
+    readonly status: ReferenceResolutionStatus;
+    /** Matched candidate id when ``status`` is ``matched``. */
+    readonly candidateId?: string;
+    /** Best similarity score in [0, 1]. */
+    readonly score?: number;
+    /** Score of the next-best candidate; meaningful when ``status`` is ``ambiguous``. */
+    readonly runnerUpScore?: number;
+    /** Top candidates when ``status`` is ``ambiguous`` (sorted by descending score). */
+    readonly candidates?: ReferenceResolutionCandidate[];
+}
+
 /** Result of a geometry build request. */
 export interface GeometryBuildResult {
     /** Whether the build succeeded. */
@@ -260,6 +291,8 @@ export interface GeometryBuildResult {
     readonly selectorMap?: Record<string, number[]>;
     /** Per-feature build status for document builds. */
     readonly featureResults?: FeatureResult[];
+    /** Per-reference resolution status for document builds with TopologyRefs. */
+    readonly referenceResults?: ReferenceResolutionResult[];
     /** Absolute path to the generated DAGMC .h5m file. */
     readonly dagmcPath?: string;
     /** Whether the DAGMC export succeeded (non-fatal if false). */

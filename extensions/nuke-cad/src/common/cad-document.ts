@@ -95,6 +95,13 @@ export interface SketchDef {
     parameters?: Record<string, number>;
     /** Dimension metadata (label position, parameter binding) for the UI. */
     dimensions?: SketchDimension[];
+    /**
+     * References to edges or faces of predecessor features that are projected
+     * into the sketch plane as construction geometry. Projected primitives are
+     * passed to the sketch builder with the ``construction`` flag set; they do
+     * not become part of the sketch's output wires or faces.
+     */
+    externalRefs?: TopologyRef[];
 }
 
 /** Feature types for solid features. */
@@ -300,6 +307,15 @@ function validateSketch(ctx: MutableValidationContext, sketch: SketchDef, index:
     }
     if (!isString(sketch.datumId)) {
         issue(ctx, `${path}.datumId`, 'datumId must be a string');
+    }
+    if (sketch.externalRefs !== undefined) {
+        if (!Array.isArray(sketch.externalRefs)) {
+            issue(ctx, `${path}.externalRefs`, 'externalRefs must be an array of TopologyRefs');
+        } else {
+            for (const [i, ref] of sketch.externalRefs.entries()) {
+                validateEmbeddedTopologyRef(ctx, `${path}.externalRefs[${i}]`, ref);
+            }
+        }
     }
     const localParamNames = new Set<string>();
     if (sketch.parameters) {

@@ -30,6 +30,10 @@ DEFAULT_TOLERANCE_SCALE = 1.0
 #: equality is a prerequisite for any plausible match.
 SCORE_THRESHOLD = 0.5
 
+#: Number of top candidates reported for ambiguous references (repair UI uses
+#: these as suggestions).
+AMBIGUITY_CANDIDATE_COUNT = 3
+
 
 def _axis(
     origin: tuple[float, float, float], direction: tuple[float, float, float]
@@ -111,6 +115,18 @@ class EdgeFingerprint:
 
 
 @dataclass(frozen=True)
+class ReferenceCandidate:
+    """A candidate offered for an ambiguous reference repair."""
+
+    candidate_id: str
+    score: float
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the candidate to the RPC response shape."""
+        return {"candidateId": self.candidate_id, "score": self.score}
+
+
+@dataclass(frozen=True)
 class ReferenceMatch:
     """Resolution result for a single reference."""
 
@@ -119,6 +135,7 @@ class ReferenceMatch:
     candidate_id: str | None
     score: float
     runner_up_score: float
+    candidates: list[ReferenceCandidate] | None = None
 
 
 @dataclass(frozen=True)
@@ -465,6 +482,22 @@ def match_references(
             cand_id = None
             score = round(meta["best_score"], 6)
 
+        ambiguity_candidates: list[ReferenceCandidate] | None = None
+        if meta["status"] == "ambiguous":
+            row = scores[i]
+            sorted_idx = sorted(
+                range(len(row)),
+                key=lambda j: (-row[j], candidates[j].candidate_id or ""),
+            )
+            ambiguity_candidates = [
+                ReferenceCandidate(
+                    candidate_id=candidates[j].candidate_id or "",
+                    score=round(row[j], 6),
+                )
+                for j in sorted_idx[:AMBIGUITY_CANDIDATE_COUNT]
+                if candidates[j].candidate_id
+            ]
+
         matches.append(
             ReferenceMatch(
                 reference_index=i,
@@ -472,6 +505,7 @@ def match_references(
                 candidate_id=cand_id,
                 score=score,
                 runner_up_score=round(meta["runner_up"], 6),
+                candidates=ambiguity_candidates,
             )
         )
 

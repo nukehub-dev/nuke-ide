@@ -33,6 +33,7 @@ import {
     type NukeCadDocument,
     type DimensionKind
 } from './cad-document';
+import { type Point3, type TopologyRef } from './topology-refs';
 
 function makeDocument(): NukeCadDocument {
     return {
@@ -284,6 +285,53 @@ describe('validateNukeCadDocument', () => {
         expect(result.issues.some((i) => i.path.startsWith('features[2].params.faces'))).toBe(true);
         expect(result.issues.some((i) => i.path.startsWith('features[3].params.faces'))).toBe(true);
         expect(result.issues.some((i) => i.path.startsWith('features[0].params.upToFace'))).toBe(true);
+    });
+
+    it('accepts a face datum with a valid TopologyRef', () => {
+        const doc = makeDocument();
+        doc.datums.push({
+            id: 'faceDatum',
+            kind: 'face',
+            name: 'Top face',
+            reference: {
+                featureId: 'pad1',
+                kind: 'face',
+                fingerprint: { surfaceType: 'plane', area: 25, center: [0, 0, 0], normal: [0, 0, 1] }
+            }
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('rejects a face datum missing its reference', () => {
+        const doc = makeDocument();
+        doc.datums.push({ id: 'faceDatum', kind: 'face', name: 'Top face' });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'datums[1].reference' && i.message.includes('requires a reference'))).toBe(true);
+    });
+
+    it('accepts sketch externalRefs and rejects malformed ones', () => {
+        const doc = makeDocument();
+        const goodRef: TopologyRef = {
+            featureId: 'pad1',
+            kind: 'edge',
+            fingerprint: { curveType: 'line', length: 5, start: [0, 0, 0] as Point3, end: [5, 0, 0] as Point3 }
+        };
+        doc.sketches[0].externalRefs = [goodRef];
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        doc.sketches[0].externalRefs = [
+            {
+                featureId: '',
+                kind: 'edge',
+                fingerprint: { curveType: 'line', length: 5, start: [0, 0, 0] as Point3, end: [5, 0, 0] as Point3 }
+            }
+        ];
+        const bad = validateNukeCadDocument(doc);
+        expect(bad.valid).toBe(false);
+        expect(bad.issues.some((i) => i.path.startsWith('sketches[0].externalRefs[0]'))).toBe(true);
     });
 });
 
