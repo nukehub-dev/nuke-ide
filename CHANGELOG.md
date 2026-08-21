@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional open faces. Target edges and faces are picked directly in the
   viewport using fingerprint-based `TopologyRef`s, and the backend resolves
   them against the body's current B-rep so parametric edits remain robust.
+- nuke-cad: **patterns, mirror, and hole wizard in the GUI modeler** —
+  `linearPattern`, `circularPattern`, and `mirror` replicate a sketch-based
+  solid feature on the same body; the backend stores the source's tool shape and
+  applies transformed copies, with additive sources still subject to the same
+  overlap check. The hole wizard places simple, counterbore, or countersink
+  holes on a planar face picked in the viewport; the click point is projected
+  into the face's deterministic workplane coordinates so the 2D `[u, v]` center
+  aligns with the backend builder. Counterbore and countersink presets are
+  mutually exclusive.
 - nuke-cad: **new parametric CAD extension** — script-first geometry
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered

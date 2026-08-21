@@ -39,6 +39,7 @@ import sys
 from typing import Any
 
 import feature_builder as fb
+import numpy as np
 import pytest
 
 
@@ -2143,3 +2144,722 @@ def test_dress_up_without_existing_body_fails() -> None:
     by_id = {r["featureId"]: r for r in result["featureResults"]}
     assert by_id["fillet"]["status"] == "failed"
     assert "existing solid body" in by_id["fillet"]["error"].lower()
+
+
+def _offset_pad_document(length: float = 5.0) -> dict[str, Any]:
+    """Return a document with a single 10x10x``length`` pad anchored at the origin."""
+    return _document(
+        [
+            {
+                "id": "pad",
+                "name": "pad",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": length},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+
+
+def test_linear_pattern_triples_volume() -> None:
+    """A 3x linear pattern along X produces three disjoint copies."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "lin",
+            "name": "linear pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 3, "spacing": 12.0, "axis": "x"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 3.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_circular_pattern_full_sweep_volume() -> None:
+    """A 4x circular pattern around Z fills the four quadrants without overlap."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "circ",
+            "name": "circular pattern",
+            "type": "circularPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 4, "angle": 360.0, "axis": "z"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 4.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_circular_pattern_partial_sweep_volume() -> None:
+    """A partial 180deg sweep with three instances places copies at 0/90/180 degrees."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "circ",
+            "name": "circular pattern",
+            "type": "circularPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 3, "angle": 180.0, "axis": "z"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 3.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_circular_pattern_with_datum_axis() -> None:
+    """A circular pattern can use a datum plane's normal as its rotation axis."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["datums"].append({"id": "axis-datum", "kind": "YZ", "name": "YZ datum"})
+    doc["features"].append(
+        {
+            "id": "circ",
+            "name": "circular pattern",
+            "type": "circularPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 4, "angle": 360.0, "axisDatumId": "axis-datum"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 4.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_mirror_across_coordinate_plane() -> None:
+    """Mirroring an offset pad across YZ doubles the volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "mirror",
+            "name": "mirror",
+            "type": "mirror",
+            "body": "body-1",
+            "params": {"source": "pad", "plane": "YZ"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 2.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_mirror_with_datum_plane() -> None:
+    """Mirroring across a datum plane produces the same result as the named plane."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["datums"].append({"id": "mirror-datum", "kind": "XZ", "name": "XZ datum"})
+    doc["features"].append(
+        {
+            "id": "mirror",
+            "name": "mirror",
+            "type": "mirror",
+            "body": "body-1",
+            "params": {"source": "pad", "planeDatumId": "mirror-datum"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 2.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+
+def test_pattern_of_pocket_cuts_volume() -> None:
+    """A linear pattern of a pocket removes the expected material from the body."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pocket",
+                "name": "pocket",
+                "type": "pocket",
+                "sketchId": "small-rect",
+                "params": {"length": 3.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "lin",
+                "name": "linear pattern",
+                "type": "linearPattern",
+                "body": "body-1",
+                "params": {"source": "pocket", "count": 2, "spacing": 8.0, "axis": "x"},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[
+            _rect_sketch(width=20.0, height=20.0),
+            {
+                "id": "small-rect",
+                "name": "small rectangle",
+                "datumId": "dxy",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 8.0, "y": 8.0},
+                    {"id": "p2", "type": "point", "x": 12.0, "y": 8.0},
+                    {"id": "p3", "type": "point", "x": 12.0, "y": 12.0},
+                    {"id": "p4", "type": "point", "x": 8.0, "y": 12.0},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+    )
+    result = fb.build_document_shape(base_doc)
+    assert result["shape"] is not None
+    # Two 4x4x3 pockets are removed from the 20x20x5 base.
+    expected = 20.0 * 20.0 * 5.0 - 2.0 * 4.0 * 4.0 * 3.0
+    assert math.isclose(result["shape"].volume, expected, rel_tol=1e-6)
+
+
+def test_linear_pattern_overlap_raises() -> None:
+    """Overlapping pattern instances on an additive source fail via the overlap gate."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "lin",
+            "name": "linear pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 2, "spacing": 0.0, "axis": "x"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["lin"]["status"] == "failed"
+    assert "overlap" in by_id["lin"]["error"].lower()
+
+
+def test_pattern_source_missing_fails() -> None:
+    """A pattern whose source feature does not exist fails at sort time."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "lin",
+            "name": "linear pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "missing", "count": 2, "spacing": 12.0, "axis": "x"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="unknown feature 'missing'"):
+        fb.build_document_shape(doc)
+
+
+def test_pattern_source_cannot_be_self() -> None:
+    """A pattern cannot be its own source."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "lin",
+            "name": "linear pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "lin", "count": 2, "spacing": 12.0, "axis": "x"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["lin"]["status"] == "failed"
+    assert "must be earlier in the feature tree" in by_id["lin"]["error"].lower()
+
+
+def test_pattern_source_must_be_sketch_based_solid() -> None:
+    """Pattern sources must be pad/pocket/revolve/groove features."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _offset_pad_document(length=5.0)
+    doc["features"].append(
+        {
+            "id": "first-pattern",
+            "name": "first pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "pad", "count": 2, "spacing": 12.0, "axis": "x"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    doc["features"].append(
+        {
+            "id": "second-pattern",
+            "name": "second pattern",
+            "type": "linearPattern",
+            "body": "body-1",
+            "params": {"source": "first-pattern", "count": 2, "spacing": 12.0, "axis": "y"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["second-pattern"]["status"] == "failed"
+    assert "pad, pocket, revolve, or groove" in by_id["second-pattern"]["error"].lower()
+
+
+def test_pattern_source_must_target_same_body() -> None:
+    """Pattern sources must belong to the same body as the pattern."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "pad-b",
+                "name": "pad on b",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-b",
+            },
+            {
+                "id": "pad-a",
+                "name": "pad on a",
+                "type": "pad",
+                "sketchId": "rect-a",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-a",
+            },
+            {
+                "id": "lin",
+                "name": "linear pattern",
+                "type": "linearPattern",
+                "body": "body-b",
+                "params": {"source": "pad-a", "count": 2, "spacing": 12.0, "axis": "x"},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[
+            _rect_sketch(width=10.0, height=10.0),
+            {
+                "id": "rect-a",
+                "name": "rect-a",
+                "datumId": "dxy",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 20.0, "y": 0.0},
+                    {"id": "p2", "type": "point", "x": 30.0, "y": 0.0},
+                    {"id": "p3", "type": "point", "x": 30.0, "y": 10.0},
+                    {"id": "p4", "type": "point", "x": 20.0, "y": 10.0},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["lin"]["status"] == "failed"
+    assert "same body" in by_id["lin"]["error"].lower()
+
+
+def test_hole_simple_volume() -> None:
+    """A simple blind hole removes a cylinder of the given diameter and depth."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {"face": top_ref, "center": [0.0, 0.0], "diameter": 2.0, "depth": 3.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    expected = 10.0 * 10.0 * 5.0 - math.pi * 1.0**2 * 3.0
+    assert math.isclose(result["shape"].volume, expected, rel_tol=1e-6)
+
+
+def test_hole_through() -> None:
+    """A hole with no depth cuts through the whole body."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {"face": top_ref, "center": [0.0, 0.0], "diameter": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    expected = 10.0 * 10.0 * 5.0 - math.pi * 1.0**2 * 5.0
+    assert math.isclose(result["shape"].volume, expected, rel_tol=1e-6)
+
+
+def test_hole_counterbore_volume() -> None:
+    """A counterbore adds a larger cylinder on top of the main hole."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {
+                    "face": top_ref,
+                    "center": [0.0, 0.0],
+                    "diameter": 2.0,
+                    "depth": 3.0,
+                    "counterboreDiameter": 4.0,
+                    "counterboreDepth": 1.0,
+                },
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    # Main cylinder plus the annular counterbore shelf (the two overlap over the
+    # top 1 unit of the main cylinder).
+    expected = 10.0 * 10.0 * 5.0 - (math.pi * 1.0**2 * 3.0 + math.pi * (2.0**2 - 1.0**2) * 1.0)
+    assert math.isclose(result["shape"].volume, expected, rel_tol=1e-6)
+
+
+def test_hole_countersink_builds() -> None:
+    """A countersink hole chamfers the top rim to the specified angle."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {
+                    "face": top_ref,
+                    "center": [0.0, 0.0],
+                    "diameter": 2.0,
+                    "depth": 3.0,
+                    "countersinkDiameter": 4.0,
+                    "countersinkAngle": 60.0,
+                },
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume < 10.0 * 10.0 * 5.0
+
+
+def test_hole_non_planar_face_fails() -> None:
+    """A hole placed on a cylindrical face reports a clear non-planar error."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # Revolve a 5x5 rectangle around Y to make a solid cylinder.
+    revolve_doc = _document(
+        [
+            {
+                "id": "revolve",
+                "name": "revolve",
+                "type": "revolve",
+                "sketchId": "profile",
+                "params": {"axis": "y", "angle": 360.0},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[
+            {
+                "id": "profile",
+                "name": "profile",
+                "datumId": "dxy",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},
+                    {"id": "p2", "type": "point", "x": 5.0, "y": 0.0},
+                    {"id": "p3", "type": "point", "x": 5.0, "y": 5.0},
+                    {"id": "p4", "type": "point", "x": 0.0, "y": 5.0},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            }
+        ],
+    )
+    revolve_result = fb.build_document_shape(revolve_doc)
+    assert revolve_result["shape"] is not None
+
+    def cylindrical_face(face: Any) -> bool:
+        return (
+            face.surface_type == "cylinder"
+            and face.radius is not None
+            and np.isclose(face.radius, 5.0, rtol=0.05)
+        )
+
+    side_ref = _face_ref("revolve", revolve_result["shape"].wrapped, cylindrical_face)
+
+    doc = _document(
+        [
+            {
+                "id": "revolve",
+                "name": "revolve",
+                "type": "revolve",
+                "sketchId": "profile",
+                "params": {"axis": "y", "angle": 360.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {
+                    "face": side_ref,
+                    "center": [0.0, 0.0],
+                    "diameter": 2.0,
+                    "depth": 2.0,
+                },
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[
+            {
+                "id": "profile",
+                "name": "profile",
+                "datumId": "dxy",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},
+                    {"id": "p2", "type": "point", "x": 5.0, "y": 0.0},
+                    {"id": "p3", "type": "point", "x": 5.0, "y": 5.0},
+                    {"id": "p4", "type": "point", "x": 0.0, "y": 5.0},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            }
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["hole1"]["status"] == "failed"
+    assert "not planar" in by_id["hole1"]["error"].lower()
+
+
+def test_count_change_invalidates_face_reference() -> None:
+    """Changing a pattern count removes patterned-instance faces and breaks downstream refs."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    offset_rect = {
+        "id": "offset-rect",
+        "name": "offset rectangle",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 15.0, "y": 0.0},
+            {"id": "p2", "type": "point", "x": 25.0, "y": 0.0},
+            {"id": "p3", "type": "point", "x": 25.0, "y": 10.0},
+            {"id": "p4", "type": "point", "x": 15.0, "y": 10.0},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    base_result = fb.build_document_shape(
+        _document(
+            [
+                {
+                    "id": "pad",
+                    "name": "pad",
+                    "type": "pad",
+                    "sketchId": "offset-rect",
+                    "params": {"length": 5.0},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+                {
+                    "id": "circ",
+                    "name": "circular pattern",
+                    "type": "circularPattern",
+                    "body": "body-1",
+                    "params": {"source": "pad", "count": 2, "angle": 45.0, "axis": "z"},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+            ],
+            sketches=[offset_rect],
+        )
+    )
+    assert base_result["shape"] is not None
+    assert math.isclose(base_result["shape"].volume, 2.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-6)
+
+    # Capture the rotated copy's +Y face: its normal is diagonal in the XY plane
+    # and does not exist on the original pad.
+    def rotated_face(face: Any) -> bool:
+        if face.surface_type != "plane" or face.normal is None:
+            return False
+        nx, ny = face.normal[0], face.normal[1]
+        return np.isclose(nx, -0.70710678, atol=0.1) and np.isclose(ny, 0.70710678, atol=0.1)
+
+    side_ref = _face_ref("circ", base_result["shape"].wrapped, rotated_face)
+
+    doc = _document(
+        [
+            {
+                "id": "pad",
+                "name": "pad",
+                "type": "pad",
+                "sketchId": "offset-rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "circ",
+                "name": "circular pattern",
+                "type": "circularPattern",
+                "body": "body-1",
+                "params": {"source": "pad", "count": 1, "angle": 45.0, "axis": "z"},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "downstream",
+                "name": "downstream pad",
+                "type": "pad",
+                "sketchId": "on-face",
+                "body": "body-1",
+                "params": {"length": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[
+            offset_rect,
+            {
+                "id": "on-face",
+                "name": "on-face",
+                "datumId": "face-datum",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": -1.0, "y": -1.0},
+                    {"id": "p2", "type": "point", "x": 1.0, "y": -1.0},
+                    {"id": "p3", "type": "point", "x": 1.0, "y": 1.0},
+                    {"id": "p4", "type": "point", "x": -1.0, "y": 1.0},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+        ],
+        bodies=None,
+    )
+    doc["datums"].append(
+        {"id": "face-datum", "kind": "face", "name": "Copy face", "reference": side_ref}
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    ref = [r for r in result["referenceResults"] if r["path"] == "datum.face-datum.reference"]
+    assert by_id["downstream"]["status"] == "failed"
+    assert ref and ref[0]["status"] in ("unmatched", "ambiguous")

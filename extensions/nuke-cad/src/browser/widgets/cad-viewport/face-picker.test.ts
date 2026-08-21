@@ -26,7 +26,8 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { buildTopologyRef, pointerToNdc } from './face-picker';
+import * as THREE from 'three';
+import { buildTopologyRef, pointerToNdc, projectHitToFaceUv } from './face-picker';
 
 function makeRect(x: number, y: number, width: number, height: number): DOMRect {
     return {
@@ -134,6 +135,45 @@ describe('face-picker', () => {
                 kind: 'face',
                 fingerprint: hit.fingerprint
             });
+        });
+    });
+
+    describe('projectHitToFaceUv', () => {
+        it('returns undefined when the hit lacks a point or fingerprint', () => {
+            const hit = { solidId: 1, faceId: 1, mesh: {} as import('three').Mesh };
+            expect(projectHitToFaceUv(hit as import('./face-picker').FacePickHit)).toBeUndefined();
+        });
+
+        it('projects a point on a Z-normal face to the expected UV', () => {
+            const hit = {
+                solidId: 1,
+                faceId: 1,
+                mesh: {} as THREE.Mesh,
+                point: new THREE.Vector3(2, 3, 0),
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 10,
+                    center: [0, 0, 0] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            };
+            expect(projectHitToFaceUv(hit)).toEqual([2, 3]);
+        });
+
+        it('uses the deterministic basis for a Y-normal face', () => {
+            const hit = {
+                solidId: 1,
+                faceId: 1,
+                mesh: {} as THREE.Mesh,
+                point: new THREE.Vector3(1, 0, 2),
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 10,
+                    center: [0, 0, 0] as [number, number, number],
+                    normal: [0, 1, 0] as [number, number, number]
+                }
+            };
+            expect(projectHitToFaceUv(hit)).toEqual([-1, 2]);
         });
     });
 });

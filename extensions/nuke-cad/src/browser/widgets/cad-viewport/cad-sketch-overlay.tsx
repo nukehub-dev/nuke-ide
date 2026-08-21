@@ -50,6 +50,7 @@ interface CadSketchOverlayProps {
     readonly featureCreationType?: FeatureType;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly holePickMode?: boolean;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -61,6 +62,8 @@ interface CadSketchOverlayProps {
     readonly onCancelFacePick: () => void;
     readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
     readonly onDressUpPickCancel: () => void;
+    readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
+    readonly onHolePickCancel: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
@@ -101,6 +104,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         featureCreationType,
         facePickMode,
         dressUpPickMode,
+        holePickMode,
         onEnterSketch,
         onExitSketch,
         onStartFeatureCreation,
@@ -111,7 +115,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onStartExternalGeometryPick,
         onCancelFacePick,
         onStartDressUpPick,
-        onDressUpPickCancel
+        onDressUpPickCancel,
+        onStartHolePick,
+        onHolePickCancel
     } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
@@ -280,6 +286,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     sketchId={documentStore.selection.selectedSketchId}
                     documentStore={documentStore}
                     dressUpPickMode={dressUpPickMode}
+                    holePickMode={holePickMode}
                     onCancel={onCancelFeatureCreation}
                     onConfirm={(type, params) => {
                         onAddFeature(type, params);
@@ -287,6 +294,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     }}
                     onStartDressUpPick={onStartDressUpPick}
                     onDressUpPickCancel={onDressUpPickCancel}
+                    onStartHolePick={onStartHolePick}
+                    onHolePickCancel={onHolePickCancel}
                 />
             )}
 
@@ -420,6 +429,16 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 {capitalize(dressUpPickMode.type)}.
                             </span>
                             <button className="theia-button secondary" onClick={onDressUpPickCancel}>
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+
+                    {holePickMode && (
+                        <div className="cad-sketch-face-pick-banner">
+                            <span className="codicon codicon-target" />
+                            <span>Click a planar face in the viewport to place the hole center.</span>
+                            <button className="theia-button secondary" onClick={onHolePickCancel}>
                                 Cancel
                             </button>
                         </div>
@@ -626,6 +645,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
+    const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
 
     return (
         <div className="cad-document-toolbar">
@@ -716,6 +736,38 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     <span className="codicon codicon-layers" /> Shell
                 </button>
             </Tooltip>
+            <Tooltip content="Linear Pattern" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!hasBodies || !hasSolidProducers}
+                    onClick={() => props.onStartFeatureCreation('linearPattern')}
+                >
+                    <span className="codicon codicon-copy" /> Linear Pattern
+                </button>
+            </Tooltip>
+            <Tooltip content="Circular Pattern" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!hasBodies || !hasSolidProducers}
+                    onClick={() => props.onStartFeatureCreation('circularPattern')}
+                >
+                    <span className="codicon codicon-issue-reopened" /> Circular Pattern
+                </button>
+            </Tooltip>
+            <Tooltip content="Mirror" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!hasBodies || !hasSolidProducers}
+                    onClick={() => props.onStartFeatureCreation('mirror')}
+                >
+                    <span className="codicon codicon-mirror" /> Mirror
+                </button>
+            </Tooltip>
+            <Tooltip content="Hole" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('hole')}>
+                    <span className="codicon codicon-circle-slash" /> Hole
+                </button>
+            </Tooltip>
             {doc !== undefined && (
                 <span className="cad-document-name">
                     {doc.name}
@@ -731,10 +783,13 @@ interface FeatureCreationDialogProps {
     readonly sketchId?: string;
     readonly documentStore: CadDocumentStore;
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly holePickMode?: boolean;
     readonly onCancel: () => void;
     readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
     readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
     readonly onDressUpPickCancel: () => void;
+    readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
+    readonly onHolePickCancel: () => void;
 }
 
 const NEW_BODY_SENTINEL = '__new_body__';
@@ -747,6 +802,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isRevolve = type === 'revolve' || type === 'groove';
     const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
     const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
+    const isPattern = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror';
+    const isHole = type === 'hole';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -772,6 +829,30 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [pullDirection, setPullDirection] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [shellThickness, setShellThickness] = React.useState('1');
     const [shellAllFaces, setShellAllFaces] = React.useState(false);
+
+    // Pattern/mirror state.
+    const sourceFeatures = doc?.features.filter((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed) ?? [];
+    const datumOptions = doc?.datums ?? [];
+    const [patternSource, setPatternSource] = React.useState(sourceFeatures.length > 0 ? sourceFeatures[0].id : '');
+    const [patternCount, setPatternCount] = React.useState('2');
+    const [patternSpacing, setPatternSpacing] = React.useState('1');
+    const [patternAngle, setPatternAngle] = React.useState('360');
+    const [patternAxis, setPatternAxis] = React.useState<'x' | 'y' | 'z'>('z');
+    const [patternAxisDatumId, setPatternAxisDatumId] = React.useState('');
+    const [mirrorPlane, setMirrorPlane] = React.useState<'XY' | 'YZ' | 'XZ'>('XY');
+    const [mirrorPlaneDatumId, setMirrorPlaneDatumId] = React.useState('');
+
+    // Hole state.
+    const [holeBodyId, setHoleBodyId] = React.useState<string>(bodies.length > 0 ? bodies[0].id : '');
+    const [holeFaceRef, setHoleFaceRef] = React.useState<TopologyRef | undefined>();
+    const [holeCenterUv, setHoleCenterUv] = React.useState<[number, number] | undefined>();
+    const [holeDiameter, setHoleDiameter] = React.useState('1');
+    const [holeDepth, setHoleDepth] = React.useState('');
+    const [holeType, setHoleType] = React.useState<'simple' | 'counterbore' | 'countersink'>('simple');
+    const [holeCounterboreDiameter, setHoleCounterboreDiameter] = React.useState('1.5');
+    const [holeCounterboreDepth, setHoleCounterboreDepth] = React.useState('0.5');
+    const [holeCountersinkDiameter, setHoleCountersinkDiameter] = React.useState('1.5');
+    const [holeCountersinkAngle, setHoleCountersinkAngle] = React.useState('82');
 
     const addRef = React.useCallback((ref: TopologyRef) => {
         setRefs((prev) => [...prev, ref]);
@@ -869,6 +950,106 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 }
                 params.faces = shellAllFaces ? [] : refs;
                 params.thickness = thickness;
+            }
+            props.onConfirm(type, params as FeatureParams);
+            return;
+        }
+        if (isPattern) {
+            if (!patternSource) {
+                setError('Select a source feature.');
+                return;
+            }
+            const count = Number(patternCount);
+            if (!Number.isInteger(count) || count < 1) {
+                setError('Count must be a positive integer.');
+                return;
+            }
+            const params: Record<string, unknown> = { source: patternSource, bodyId, label };
+            if (type === 'linearPattern') {
+                const spacing = Number(patternSpacing);
+                if (!Number.isFinite(spacing) || spacing === 0) {
+                    setError('Spacing must be a non-zero finite number.');
+                    return;
+                }
+                params.count = count;
+                params.spacing = spacing;
+                params.axis = patternAxis;
+            } else if (type === 'circularPattern') {
+                const angle = Number(patternAngle);
+                if (!Number.isFinite(angle) || angle <= 0 || angle > 360) {
+                    setError('Angle must be in (0, 360] degrees.');
+                    return;
+                }
+                params.count = count;
+                params.angle = angle;
+                if (patternAxisDatumId) {
+                    params.axisDatumId = patternAxisDatumId;
+                } else {
+                    params.axis = patternAxis;
+                }
+            } else {
+                // mirror
+                if (mirrorPlaneDatumId) {
+                    params.planeDatumId = mirrorPlaneDatumId;
+                } else {
+                    params.plane = mirrorPlane;
+                }
+            }
+            props.onConfirm(type, params as FeatureParams);
+            return;
+        }
+        if (isHole) {
+            if (!holeBodyId) {
+                setError('Select a target body.');
+                return;
+            }
+            if (holeFaceRef === undefined || holeCenterUv === undefined) {
+                setError('Pick a planar face in the viewport to place the hole.');
+                return;
+            }
+            const diameter = Number(holeDiameter);
+            if (!Number.isFinite(diameter) || diameter <= 0) {
+                setError('Diameter must be a positive number.');
+                return;
+            }
+            const params: Record<string, unknown> = {
+                face: holeFaceRef,
+                center: holeCenterUv,
+                diameter,
+                bodyId: holeBodyId,
+                label
+            };
+            const depth = holeDepth.trim() === '' ? undefined : Number(holeDepth);
+            if (depth !== undefined && (!Number.isFinite(depth) || depth <= 0)) {
+                setError('Depth must be a positive number when provided.');
+                return;
+            }
+            if (holeType === 'simple' && depth !== undefined) {
+                params.depth = depth;
+            }
+            if (holeType === 'counterbore') {
+                const cbDiameter = Number(holeCounterboreDiameter);
+                const cbDepth = Number(holeCounterboreDepth);
+                if (!Number.isFinite(cbDiameter) || cbDiameter <= 0 || !Number.isFinite(cbDepth) || cbDepth <= 0) {
+                    setError('Counterbore diameter and depth must be positive numbers.');
+                    return;
+                }
+                params.counterboreDiameter = cbDiameter;
+                params.counterboreDepth = cbDepth;
+            }
+            if (holeType === 'countersink') {
+                const csDiameter = Number(holeCountersinkDiameter);
+                const csAngle = Number(holeCountersinkAngle);
+                if (!Number.isFinite(csDiameter) || csDiameter <= 0) {
+                    setError('Countersink diameter must be a positive number.');
+                    return;
+                }
+                if (!Number.isFinite(csAngle) || csAngle <= 0 || csAngle >= 90) {
+                    setError('Countersink angle must be in (0, 90) degrees.');
+                    return;
+                }
+                params.countersinkDiameter = csDiameter;
+                params.countersinkAngle = csAngle;
             }
             props.onConfirm(type, params as FeatureParams);
             return;
@@ -1001,7 +1182,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         <div className="cad-feature-dialog">
             <div className="cad-feature-dialog-title">{capitalize(type)}</div>
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
-            {!isBoolean && !isDressUp && bodySelector}
+            {!isBoolean && !isDressUp && !isHole && bodySelector}
             {isDressUp && dressUpBodySelector}
             {isDressUp && type === 'fillet' && (
                 <>
@@ -1145,6 +1326,186 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Angle (°)
                         <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
                     </label>
+                </>
+            )}
+            {isPattern && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Source feature
+                        <select value={patternSource} onChange={(e) => setPatternSource(e.target.value)}>
+                            {sourceFeatures.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                    {f.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {type !== 'mirror' && (
+                        <label className="cad-feature-dialog-row">
+                            Count
+                            <input type="number" value={patternCount} onChange={(e) => setPatternCount(e.target.value)} autoFocus />
+                        </label>
+                    )}
+                    {type === 'linearPattern' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Spacing
+                                <input type="number" value={patternSpacing} onChange={(e) => setPatternSpacing(e.target.value)} />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Axis
+                                <select value={patternAxis} onChange={(e) => setPatternAxis(e.target.value as 'x' | 'y' | 'z')}>
+                                    <option value="x">X</option>
+                                    <option value="y">Y</option>
+                                    <option value="z">Z</option>
+                                </select>
+                            </label>
+                        </>
+                    )}
+                    {type === 'circularPattern' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Angle (°)
+                                <input type="number" value={patternAngle} onChange={(e) => setPatternAngle(e.target.value)} />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Axis
+                                <select value={patternAxis} onChange={(e) => setPatternAxis(e.target.value as 'x' | 'y' | 'z')}>
+                                    <option value="x">X</option>
+                                    <option value="y">Y</option>
+                                    <option value="z">Z</option>
+                                </select>
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Axis datum (optional)
+                                <select value={patternAxisDatumId} onChange={(e) => setPatternAxisDatumId(e.target.value)}>
+                                    <option value="">Coordinate axis</option>
+                                    {datumOptions.map((d) => (
+                                        <option key={d.id} value={d.id}>
+                                            {d.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </>
+                    )}
+                    {type === 'mirror' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Plane
+                                <select value={mirrorPlane} onChange={(e) => setMirrorPlane(e.target.value as 'XY' | 'YZ' | 'XZ')}>
+                                    <option value="XY">XY</option>
+                                    <option value="YZ">YZ</option>
+                                    <option value="XZ">XZ</option>
+                                </select>
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Plane datum (optional)
+                                <select value={mirrorPlaneDatumId} onChange={(e) => setMirrorPlaneDatumId(e.target.value)}>
+                                    <option value="">Coordinate plane</option>
+                                    {datumOptions.map((d) => (
+                                        <option key={d.id} value={d.id}>
+                                            {d.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </>
+                    )}
+                </>
+            )}
+            {isHole && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Body
+                        <select value={holeBodyId} onChange={(e) => setHoleBodyId(e.target.value)}>
+                            {bodies.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                    {b.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <div className="cad-feature-dialog-row vertical">
+                        <span className="cad-feature-dialog-label">
+                            Placement face {holeFaceRef !== undefined ? `(${holeFaceRef.featureId})` : '(none)'}
+                        </span>
+                        <div className="cad-feature-dialog-actions">
+                            <button
+                                className={`theia-button secondary ${props.holePickMode ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (props.holePickMode) {
+                                        props.onHolePickCancel();
+                                    } else {
+                                        props.onStartHolePick((ref, uv) => {
+                                            setHoleFaceRef(ref);
+                                            setHoleCenterUv(uv);
+                                        });
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-target" /> {props.holePickMode ? 'Cancel pick' : 'Pick face'}
+                            </button>
+                        </div>
+                    </div>
+                    <label className="cad-feature-dialog-row">
+                        Diameter
+                        <input type="number" value={holeDiameter} onChange={(e) => setHoleDiameter(e.target.value)} autoFocus />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Type
+                        <select value={holeType} onChange={(e) => setHoleType(e.target.value as 'simple' | 'counterbore' | 'countersink')}>
+                            <option value="simple">Simple / through</option>
+                            <option value="counterbore">Counterbore</option>
+                            <option value="countersink">Countersink</option>
+                        </select>
+                    </label>
+                    {holeType === 'simple' && (
+                        <label className="cad-feature-dialog-row">
+                            Depth (blank = through)
+                            <input type="number" value={holeDepth} onChange={(e) => setHoleDepth(e.target.value)} />
+                        </label>
+                    )}
+                    {holeType === 'counterbore' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Counterbore diameter
+                                <input
+                                    type="number"
+                                    value={holeCounterboreDiameter}
+                                    onChange={(e) => setHoleCounterboreDiameter(e.target.value)}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Counterbore depth
+                                <input
+                                    type="number"
+                                    value={holeCounterboreDepth}
+                                    onChange={(e) => setHoleCounterboreDepth(e.target.value)}
+                                />
+                            </label>
+                        </>
+                    )}
+                    {holeType === 'countersink' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Countersink diameter
+                                <input
+                                    type="number"
+                                    value={holeCountersinkDiameter}
+                                    onChange={(e) => setHoleCountersinkDiameter(e.target.value)}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Countersink angle (°)
+                                <input
+                                    type="number"
+                                    value={holeCountersinkAngle}
+                                    onChange={(e) => setHoleCountersinkAngle(e.target.value)}
+                                />
+                            </label>
+                        </>
+                    )}
                 </>
             )}
             {isBoolean && booleanBodySelectors}

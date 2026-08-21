@@ -646,3 +646,218 @@ describe('dress-up feature validation', () => {
         expect(result.issues.some((i) => i.path === 'features[1].params.thickness')).toBe(true);
     });
 });
+
+describe('pattern, mirror, and hole validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'box',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Base profile',
+                    datumId: 'xy',
+                    primitives: [{ id: 'p1', type: 'point', x: 0, y: 0 }],
+                    constraints: [],
+                    parameters: {}
+                }
+            ],
+            features: [
+                {
+                    id: 'pad1',
+                    name: 'Base',
+                    type: 'pad',
+                    body: 'body-1',
+                    sketchId: 'sketch1',
+                    params: { length: 10 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ]
+        };
+    }
+
+    const goodFaceRef: TopologyRef = {
+        featureId: 'pad1',
+        kind: 'face',
+        fingerprint: { surfaceType: 'plane', area: 100, center: [0, 0, 0], normal: [0, 0, 1] }
+    };
+
+    it('accepts a valid linear pattern', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'lin1',
+            name: 'Linear Pattern',
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 3, spacing: 2, axis: 'x' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('rejects linear pattern with invalid count or spacing', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'lin1',
+            name: 'Linear Pattern',
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 0, spacing: 0, axis: 'x' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.count')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'features[1].params.spacing')).toBe(true);
+    });
+
+    it('accepts a valid circular pattern with axis or axis datum', () => {
+        const withAxis = makeBaseDocument();
+        withAxis.features.push({
+            id: 'circ1',
+            name: 'Circular Pattern',
+            type: 'circularPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 4, angle: 180, axis: 'z' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(withAxis).valid).toBe(true);
+
+        const withDatum = makeBaseDocument();
+        withDatum.datums.push({ id: 'offset-datum', kind: 'offset', name: 'Offset', offset: 2 });
+        withDatum.features.push({
+            id: 'circ2',
+            name: 'Circular Pattern',
+            type: 'circularPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 4, angle: 180, axisDatumId: 'offset-datum' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(withDatum).valid).toBe(true);
+    });
+
+    it('rejects circular pattern with both axis and axisDatumId', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'circ1',
+            name: 'Circular Pattern',
+            type: 'circularPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 4, angle: 180, axis: 'z', axisDatumId: 'missing' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.axis')).toBe(true);
+    });
+
+    it('accepts a valid mirror feature with a plane or plane datum', () => {
+        const withPlane = makeBaseDocument();
+        withPlane.features.push({
+            id: 'mir1',
+            name: 'Mirror',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', plane: 'YZ' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(withPlane).valid).toBe(true);
+
+        const withDatum = makeBaseDocument();
+        withDatum.datums.push({ id: 'face-datum', kind: 'face', name: 'Face', reference: goodFaceRef });
+        withDatum.features.push({
+            id: 'mir2',
+            name: 'Mirror',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', planeDatumId: 'face-datum' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(withDatum).valid).toBe(true);
+    });
+
+    it('rejects mirror with both plane and planeDatumId', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'mir1',
+            name: 'Mirror',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', plane: 'XY', planeDatumId: 'missing' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.plane')).toBe(true);
+    });
+
+    it('accepts a valid hole feature', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: { face: goodFaceRef, center: [1, 2], diameter: 0.5 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('accepts a counterbore and countersink hole', () => {
+        const counterbore = makeBaseDocument();
+        counterbore.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: { face: goodFaceRef, center: [0, 0], diameter: 0.5, counterboreDiameter: 1, counterboreDepth: 0.25 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(counterbore).valid).toBe(true);
+
+        const countersink = makeBaseDocument();
+        countersink.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: { face: goodFaceRef, center: [0, 0], diameter: 0.5, countersinkDiameter: 1, countersinkAngle: 82 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(countersink).valid).toBe(true);
+    });
+
+    it('rejects hole with missing face, center, or diameter', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: {},
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.face')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'features[1].params.center')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'features[1].params.diameter')).toBe(true);
+    });
+});

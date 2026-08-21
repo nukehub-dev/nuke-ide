@@ -35,7 +35,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   builder can keep last-good geometry.
 - Topological references: `src/common/topology-refs.ts` defines fingerprint-based
   `TopologyRef` types (`face`/`edge`) used by datum faces, fillets, chamfers,
-  drafts, shells, patterns, sketch-on-face, and sketch external geometry.
+  drafts, shells, hole placement faces, patterns, sketch-on-face, and sketch
+  external geometry.
   References are never raw indices. Fingerprint matching and scoring lives in
   the Python backend (`python/reference_scoring.py`, `python/reference_resolver.py`);
   TypeScript owns only the types and validation. The builder resolves every
@@ -55,6 +56,19 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   the reference to the dialog list. The same-body additive overlap check is
   intentionally left untouched — dress-ups modify an existing body rather than
   create new material.
+- Pattern, mirror, and hole features (`linearPattern`, `circularPattern`,
+  `mirror`, `hole`) extend the same-body feature chain. Patterns and mirror name
+  a `source` sketch-based solid feature (`pad`/`pocket`/`revolve`/`groove`) on
+  the same body, earlier in document order. The backend stores the source's
+  tool shape and applies transformed copies: additive sources are appended via
+  `_combine_additive` (instance collisions fail fast), subtractive sources are
+  cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
+  uses `count`, optional `angle`, and either `axis` or `axisDatumId`; `mirror`
+  uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. The hole wizard stores
+  a single feature record with a face `TopologyRef` and a center `[u, v]` in the
+  resolved face's workplane coordinates; the backend expands it internally into
+  an extrude-cut plus optional counterbore/countersink geometry. Omitted `depth`
+  means through-hole; counterbore and countersink are mutually exclusive.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -180,15 +194,20 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - `.nuke-cad` document build path (headless backend):
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
-  - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`
-    features in topological order over explicit `dependsOn` edges, maintaining a
-    separate accumulated body per `body` id. Additive features combine into their
-    target body; subtractive features cut from it. `booleanFuse`,
-    `booleanCut`, and `booleanCommon` features merge tool bodies into a target
-    body and optionally keep the consumed tools. Dress-up features
+  - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`,
+    pattern (`linearPattern`/`circularPattern`), `mirror`, and `hole` features in
+    topological order over explicit `dependsOn` edges, maintaining a separate
+    accumulated body per `body` id. Additive features combine into their target
+    body; subtractive features cut from it. `booleanFuse`, `booleanCut`, and
+    `booleanCommon` features merge tool bodies into a target body and optionally
+    keep the consumed tools. Dress-up features
     (`fillet`/`chamfer`/`draft`/`shell`) apply build123d/OCP operations to the
     accumulated body after resolving their edge/face `TopologyRef`s against the
-    body's current B-rep. Cycles are rejected with a readable member list.
+    body's current B-rep. Pattern/mirror features resolve their `source` feature
+    and transform copies of its stored tool shape; the hole wizard resolves its
+    placement face and expands the record into an extrude-cut plus optional
+    counterbore/countersink geometry. Cycles are rejected with a readable member
+    list.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
     CLI flag; it validates references lightly, runs the feature builder, and
     reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts

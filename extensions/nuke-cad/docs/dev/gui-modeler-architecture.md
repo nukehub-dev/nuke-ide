@@ -24,8 +24,9 @@ A document contains:
 - `features` — a sequential feature tree with explicit `dependsOn` edges, a
   required `body` id for every feature, consumed feature `sketchId` for
   sketch-based features, parameters, suppression flag, and optional label.
-  Solid features (`pad`/`pocket`/`revolve`/`groove`), boolean features
-  (`booleanFuse`/`booleanCut`/`booleanCommon`), and dress-up features
+  Solid features (`pad`/`pocket`/`revolve`/`groove`), pattern/mirror features
+  (`linearPattern`/`circularPattern`/`mirror`), the hole wizard (`hole`), boolean
+  features (`booleanFuse`/`booleanCut`/`booleanCommon`), and dress-up features
   (`fillet`/`chamfer`/`draft`/`shell`) share the same feature record shape.
 
 Validation (`validateNukeCadDocument`) checks duplicate ids, dangling references,
@@ -94,9 +95,15 @@ mirrors the script `build_geometry` signature. The flow is:
    consume the tool bodies unless `keepTools` is true. Dress-up features
    (`fillet`, `chamfer`, `draft`, `shell`) apply build123d operations to the
    accumulated body after resolving their edge/face `TopologyRef`s against the
-   body's current B-rep. Implied dependencies automatically order features
-   within the same body and order boolean/dress-up features after the tips of
-   their target/tool bodies.
+   body's current B-rep. Pattern/mirror features (`linearPattern`,
+   `circularPattern`, `mirror`) resolve their `source` sketch-based solid feature
+   and apply transformed copies of its stored tool shape: additive sources are
+   appended (overlap-checked), subtractive sources are cut. The hole wizard
+   (`hole`) resolves its planar placement `face`, projects `center` from face
+   workplane coordinates, and expands the record into an extrude-cut plus
+   optional counterbore/countersink geometry. Implied dependencies automatically
+   order features within the same body and order boolean/dress-up/pattern/mirror
+   features after the tips of their target/tool/source bodies.
 6. A final cross-body overlap gate rejects documents where two non-consumed
    bodies occupy the same space without a boolean merge.
 7. The final shape is handed to `_process_shape`, the same function used by
@@ -120,8 +127,8 @@ its last-good shape when possible.
 ## Topological reference system
 
 Topological references let features (sketch-on-face, fillets, chamfers,
-drafts, shells, patterns) target faces/edges produced by earlier features
-without storing fragile raw indices. The system has three parts:
+drafts, shells, hole placement faces, patterns) target faces/edges produced by
+earlier features without storing fragile raw indices. The system has three parts:
 
 - `src/common/topology-refs.ts` — TypeScript types and validation for
   `TopologyRef` objects (`featureId`, `kind`, `fingerprint`).
@@ -159,24 +166,40 @@ references do not collapse onto the same geometry.
    `src/common/cad-document.ts` and add parameter validation in
    `validateFeatureParams`. Solid features must require a `body`; boolean
    features must validate `targetBody` and `toolBodies`; dress-up features must
-   validate their edge/face arrays and operation-specific parameters.
+   validate their edge/face arrays and operation-specific parameters;
+   pattern/mirror features must validate a `source` feature id and their
+   axis/plane parameters; the hole wizard must validate a face `TopologyRef`,
+   a `[u, v]` center, diameter/depth, and mutually exclusive
+   counterbore/countersink fields.
 2. **UI** — add a button in `cad-sketch-overlay.tsx` (`DocumentModeToolbar` or
    `FeatureCreationDialog`) and a command in `src/browser/commands.ts`. Wire the
    command in the relevant contribution. Boolean dialogs populate target/tool
    body dropdowns from `document.bodies`. Dress-up dialogs use the viewport's
    edge-pick or face-pick mode via `setDressUpPickMode` and store picked
-   references in the feature params.
+   references in the feature params. The hole wizard enters a dedicated face-pick
+   mode; the click handler uses `buildTopologyRef` plus
+   `projectHitToFaceUv(hit)` from `face-picker.ts` to produce the placement face
+   reference and 2D center in the same deterministic workplane coordinates the
+   backend uses.
 3. **Document store** — `addFeature` and `updateFeatureParams` already accept any
    `FeatureParams`; no change needed unless the new type needs special selection
    or dependency logic. For booleans, `computeDependsOn` derives dependencies from
    the target and tool body tips. For dress-ups, `computeDependsOn` should order
-   the dress-up after the tip of its target body.
+   the dress-up after the tip of its target body. For patterns and mirror,
+   `computeDependsOn` must also include the `source` feature id so the planner
+   keeps the source before the pattern/mirror feature.
 4. **Backend** — implement the builder in `python/feature_builder.py`:
    - Accept the new type in `_build_feature_shape` (for sketch-based features),
-     in the topological loop (for boolean features), or in the dress-up handler
-     (for `fillet`/`chamfer`/`draft`/`shell`).
+     in the topological loop (for boolean/pattern/mirror/hole features), or in
+     the dress-up handler (for `fillet`/`chamfer`/`draft`/`shell`).
    - Build the tool shape from the feature's sketch and parameters (sketch-based
      features only).
+   - For pattern/mirror features, store the source's tool shape and apply
+     transformed copies; additive sources use `_combine_additive` (overlap check
+     applies), subtractive sources are cut.
+   - For the hole wizard, resolve the placement face, build a cylinder/cut from
+     the 2D center along the inward normal, and optionally add counterbore/
+     countersink geometry.
    - Resolve `TopologyRef`s through `_collect_topology_refs` and
      `resolve_references` before applying the operation.
    - Apply the operation to the feature's target body in the topological loop.

@@ -152,6 +152,13 @@ commands in the Feature Tree:
 - **Draft** — taper selected faces by an angle along a pull direction.
 - **Shell** — hollow a body by a uniform wall thickness, optionally leaving
   selected faces open.
+- **Linear Pattern** — replicate a sketch-based solid feature along `X`, `Y`, or
+  `Z`.
+- **Circular Pattern** — replicate a sketch-based solid feature around a global
+  axis or a datum axis.
+- **Mirror** — mirror a sketch-based solid feature across a coordinate plane or
+  a datum plane.
+- **Hole** — place a simple, counterbore, or countersink hole on a planar face.
 
 Each solid feature dialog asks for the target body, extrude direction/revolve
 axis, length or angle, and an optional **Label**. Boolean dialogs ask for a
@@ -209,6 +216,72 @@ edges or faces — so the feature remains parametric: if an earlier edit changes
 the B-rep, the reference resolver attempts to find the matching entity again and
 reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 
+## Patterns
+
+Patterns replicate an existing sketch-based solid feature (`pad`, `pocket`,
+`revolve`, or `groove`) on the same body. The source feature must be earlier in
+the document order, and the pattern feature itself targets the source's body.
+
+### Linear pattern
+
+1. Select the target body.
+2. Choose the **Source feature** (the sketch-based solid feature to replicate).
+3. Enter **Count** (total number of occurrences, including the original) and
+   **Spacing**.
+4. Pick the **Axis** (`X`, `Y`, or `Z`).
+5. Click **Create**.
+
+The first instance is the original source feature; additional instances are
+spaced at `k * spacing` along the chosen axis.
+
+### Circular pattern
+
+1. Select the target body and **Source feature**.
+2. Enter **Count** and the total **Angle** in degrees (default `360`).
+3. Choose the rotation axis:
+   - **Global axis** — `X`, `Y`, or `Z` through the origin.
+   - **Datum axis** — a datum plane whose normal defines the axis through its
+     origin.
+4. Click **Create**.
+
+A full `360°` sweep places instances at `k * 360/count` with no duplicate at
+`2π`. A partial sweep distributes instances evenly between the start angle and
+the sweep angle and requires count ≥ 2.
+
+## Mirror
+
+1. Select the target body and the **Source feature** to mirror.
+2. Choose the mirror plane:
+   - **Coordinate plane** — `XY`, `YZ`, or `XZ`.
+   - **Datum plane** — any datum in the document.
+3. Click **Create**.
+
+The mirrored copy is appended for additive sources (`pad`/`revolve`) or cut for
+subtractive sources (`pocket`/`groove`). Overlapping mirror copies of additive
+sources fail with the same clear overlap error as overlapping additive features.
+
+## Hole wizard
+
+The hole wizard places a cylindrical, counterbore, or countersink hole on a
+planar face of an existing body.
+
+1. Select the target body.
+2. Click **Pick face**; the viewport enters hole face-pick mode. Hover
+   highlights candidate faces and a click sets the hole center at the pointer
+   position on the face. Right-click or Escape cancels the pick.
+3. Choose the **Preset**:
+   - **Simple** — straight cylinder.
+   - **Counterbore** — cylinder with a larger cylindrical clearance at the top.
+   - **Countersink** — cylinder with a conical clearance at the top.
+4. Enter **Diameter**. For a blind hole, enter **Depth**; omit depth for a
+   through-hole.
+5. For counterbore, enter **Counterbore diameter** and **Counterbore depth**.
+6. For countersink, enter **Countersink diameter** and **Countersink angle**.
+7. Click **Create**.
+
+The placement face is stored as a `TopologyRef`, so the hole survives parametric
+edits that reshape the body as long as the resolver can still identify the face.
+
 ## Feature tree
 
 The **Feature Tree** panel shows four sections:
@@ -241,7 +314,6 @@ dependencies are removed or edited.
 
 This release supports the core workflow. These features are not implemented yet:
 
-- Holes, mirrors, and patterns.
 - Up-to-face / up-to-body extrude termination.
 - Direct viewport picking of tool bodies for booleans (use the dialog dropdowns
   instead).

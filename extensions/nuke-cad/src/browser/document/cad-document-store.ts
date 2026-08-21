@@ -888,6 +888,10 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'chamfer',
         'draft',
         'shell',
+        'mirror',
+        'linearPattern',
+        'circularPattern',
+        'hole',
         'booleanFuse',
         'booleanCut',
         'booleanCommon'

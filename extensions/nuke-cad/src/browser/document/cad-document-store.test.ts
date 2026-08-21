@@ -514,3 +514,84 @@ describe('dress-up feature store support', () => {
         expect(computeDependsOn('shell', 'body-1', features)).toBe('fillet1');
     });
 });
+
+describe('pattern, mirror, and hole feature store support', () => {
+    function faceRef(featureId: string): TopologyRef {
+        return {
+            featureId,
+            kind: 'face',
+            fingerprint: { surfaceType: 'plane', area: 25, center: [0, 0, 0], normal: [0, 0, 1] }
+        };
+    }
+
+    it('computes dependsOn for linear, circular, mirror, and hole features against the body tip', () => {
+        const features: FeatureDef[] = [
+            { ...feature('pad1', 'pad'), body: 'body-1' },
+            { ...feature('fillet1', 'fillet', ['pad1']), body: 'body-1', params: { edges: [], radius: 1 }, sketchId: undefined }
+        ];
+        expect(computeDependsOn('linearPattern', 'body-1', features)).toBe('fillet1');
+        expect(computeDependsOn('circularPattern', 'body-1', features)).toBe('fillet1');
+        expect(computeDependsOn('mirror', 'body-1', features)).toBe('fillet1');
+        expect(computeDependsOn('hole', 'body-1', features)).toBe('fillet1');
+    });
+
+    it('adds a linear pattern feature', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const pattern: FeatureDef = {
+            id: 'lin1',
+            name: 'lin1',
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 3, spacing: 2, axis: 'x' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        const result = store.addFeature(pattern);
+        expect(result.success).toBe(true);
+        expect(store.document?.features).toHaveLength(2);
+    });
+
+    it('adds a mirror feature with a datum plane', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const datum = store.addDatum('offset', 5);
+        expect(datum.success).toBe(true);
+        const mirror: FeatureDef = {
+            id: 'mir1',
+            name: 'mir1',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', planeDatumId: datum.value! },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        const result = store.addFeature(mirror);
+        expect(result.success).toBe(true);
+    });
+
+    it('adds a hole feature with a face reference and UV center', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const hole: FeatureDef = {
+            id: 'hole1',
+            name: 'hole1',
+            type: 'hole',
+            body: 'body-1',
+            params: { face: faceRef('pad1'), center: [1, 2], diameter: 0.5 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        const result = store.addFeature(hole);
+        expect(result.success).toBe(true);
+        const params = store.document?.features[1].params as { face: TopologyRef; center: [number, number]; diameter: number };
+        expect(params.center).toEqual([1, 2]);
+        expect(params.diameter).toBe(0.5);
+    });
+});

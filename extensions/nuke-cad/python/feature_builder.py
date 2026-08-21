@@ -52,6 +52,12 @@ _AXIS_VECTOR: dict[str, tuple[float, float, float]] = {
     "z": (0.0, 0.0, 1.0),
 }
 
+_PLANE_MAP: dict[str, str] = {
+    "XY": "XY",
+    "YZ": "YZ",
+    "XZ": "XZ",
+}
+
 _BUILD_AXIS: dict[str, Any] = {}
 
 
@@ -102,17 +108,32 @@ def _deterministic_x_dir(normal: tuple[float, float, float]) -> tuple[float, flo
     return _normalized_vector(x_dir)
 
 
+def _face_centroid(topods_face: Any) -> tuple[float, float, float]:
+    """Return the centroid of a ``TopoDS_Face`` (the trimmed face's centre of mass)."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(topods_face, props)
+    cog = props.CentreOfMass()
+    return (float(cog.X()), float(cog.Y()), float(cog.Z()))
+
+
 def _workplane_from_face(topods_face: Any, offset: float = 0.0) -> Any:
     """Build a build123d ``Plane`` from a planar ``TopoDS_Face``.
 
-    The origin is the plane's reference point (a point on the face). ``offset``
-    shifts the origin along the face normal.
+    The origin is the face centroid so that ``[0, 0]`` in workplane coordinates
+    is always at the centre of the face, regardless of where the underlying
+    surface's reference point lies. ``offset`` shifts the origin along the face
+    normal.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build face workplane")
     _require_reference_resolver()
 
-    origin, normal = rr.face_plane_origin_normal(topods_face)
+    origin = _face_centroid(topods_face)
+    _normal = rr.face_plane_origin_normal(topods_face)[1]
+    normal = _normalized_vector(_normal)
     if offset:
         origin = (
             origin[0] + offset * normal[0],
@@ -170,6 +191,26 @@ def _collect_topology_refs(
             for i, ref in enumerate(faces):
                 if isinstance(ref, dict):
                     refs.append((f"feature.{fid}.params.faces[{i}]", ref))
+    elif feature_type == "hole":
+        face_ref = params.get("face")
+        if isinstance(face_ref, dict):
+            refs.append((f"feature.{fid}.params.face", face_ref))
+    elif feature_type == "circularPattern":
+        axis_datum_id = params.get("axisDatumId")
+        if isinstance(axis_datum_id, str):
+            datum = datums.get(axis_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") == "face":
+                ref = datum.get("reference")
+                if isinstance(ref, dict):
+                    refs.append((f"datum.{axis_datum_id}.reference", ref))
+    elif feature_type == "mirror":
+        plane_datum_id = params.get("planeDatumId")
+        if isinstance(plane_datum_id, str):
+            datum = datums.get(plane_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") == "face":
+                ref = datum.get("reference")
+                if isinstance(ref, dict):
+                    refs.append((f"datum.{plane_datum_id}.reference", ref))
 
     return refs
 
@@ -670,16 +711,378 @@ def _apply_shell(body: Any, faces: list[Any], thickness: float, feature_id: str)
         raise FeatureBuilderError(f"feature '{feature_id}': shell failed: {exc}") from exc
 
 
+def _is_sketch_based_solid(feature_type: str) -> bool:
+    return feature_type in ("pad", "pocket", "revolve", "groove")
+
+
+def _valid_source_feature(
+    feature_id: str,
+    source_id: str,
+    feature_type: str,
+    body_id: str,
+    feature_map: dict[str, dict[str, Any]],
+    order_index: dict[str, int],
+) -> dict[str, Any]:
+    """Validate a pattern/mirror source feature and return it."""
+    source = feature_map.get(source_id)
+    if source is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': source '{source_id}' not found")
+    if order_index.get(source_id, -1) >= order_index.get(feature_id, -1):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must be earlier in the feature tree"
+        )
+    source_type = source.get("type")
+    if not _is_sketch_based_solid(source_type):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must be a pad, pocket, revolve, or groove"
+        )
+    if source.get("body") != body_id:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must target the same body"
+        )
+    if feature_id == source_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': source cannot be the feature itself")
+    return source
+
+
+def _plane_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+) -> Any:
+    """Return a build123d Plane from a datum definition.
+
+    Coordinate datums use their canonical plane. Face datums require the
+    resolved face entity.
+    """
+    _require_build123d()
+    assert bd is not None
+    kind = datum.get("kind")
+    if kind == "XY":
+        return bd.Plane.XY
+    if kind == "YZ":
+        return bd.Plane.YZ
+    if kind == "XZ":
+        return bd.Plane.XZ
+    if kind == "offset":
+        offset = datum.get("offset", 0.0)
+        if not isinstance(offset, (int, float)) or isinstance(offset, bool):
+            offset = 0.0
+        return bd.Plane.XY.offset(offset)
+    if kind == "face":
+        if entity is None:
+            raise FeatureBuilderError(f"feature '{feature_id}': face datum has no resolved face")
+        offset = datum.get("offset", 0.0)
+        if not isinstance(offset, (int, float)) or isinstance(offset, bool):
+            offset = 0.0
+        return _workplane_from_face(entity, offset)
+    raise FeatureBuilderError(f"feature '{feature_id}': unsupported datum kind '{kind}'")
+
+
+def _axis_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+) -> Any:
+    """Return a build123d Axis from a datum definition (normal through origin)."""
+    _require_build123d()
+    assert bd is not None
+    plane = _plane_from_datum(datum, feature_id, entity)
+    return bd.Axis(plane.origin, plane.z_dir)
+
+
+def _linear_pattern_instances(
+    tool: Any,
+    count: int,
+    spacing: float,
+    axis: str,
+) -> list[Any]:
+    """Return transformed copies of ``tool`` for a linear pattern.
+
+    Instance k (1 <= k < count) is at k*spacing along the axis.
+    """
+    _require_build123d()
+    assert bd is not None
+    vector = _AXIS_VECTOR.get(axis, (0.0, 0.0, 1.0))
+    instances: list[Any] = []
+    for k in range(1, count):
+        offset = (vector[0] * spacing * k, vector[1] * spacing * k, vector[2] * spacing * k)
+        instances.append(tool.moved(bd.Location(offset)))
+    return instances
+
+
+def _circular_pattern_instances(
+    tool: Any,
+    count: int,
+    angle: float,
+    axis: Any,
+) -> list[Any]:
+    """Return rotated copies of ``tool`` for a circular pattern.
+
+    Instance k (1 <= k < count) is rotated by k*step around ``axis``. A count of
+    one is a no-op and returns no instances.
+    """
+    _require_build123d()
+    assert bd is not None
+    if count <= 1:
+        return []
+    if angle == 360.0:
+        step = 360.0 / count
+    else:
+        step = angle / (count - 1)
+    instances: list[Any] = []
+    for k in range(1, count):
+        instances.append(tool.rotate(axis, step * k))
+    return instances
+
+
+def _mirror_shape(tool: Any, plane: Any) -> Any:
+    """Return the mirror of ``tool`` across ``plane``."""
+    _require_build123d()
+    return tool.mirror(plane)
+
+
+def _apply_pattern_or_mirror(
+    body: Any,
+    source_tool: Any,
+    source_type: str,
+    instances: list[Any],
+    feature_id: str,
+) -> Any:
+    """Apply pattern/mirror instances to a body.
+
+    Additive sources append instances via the same-body combine path; subtractive
+    sources cut each instance from the body.
+    """
+    _require_build123d()
+    if source_type in ("pad", "revolve"):
+        result = body
+        for instance in instances:
+            result = _combine_additive(result, instance, feature_id)
+        return result
+    # pocket / groove
+    result = body
+    for instance in instances:
+        result = result - instance
+    return result
+
+
+def _body_bounding_box_diagonal(shape: Any) -> float:
+    """Return a safe diagonal length for a body bounding box."""
+    try:
+        bbox = shape.bounding_box()
+        return float(
+            math.sqrt(
+                (bbox.max.X - bbox.min.X) ** 2
+                + (bbox.max.Y - bbox.min.Y) ** 2
+                + (bbox.max.Z - bbox.min.Z) ** 2
+            )
+        )
+    except Exception:
+        return 1e6
+
+
+def _inward_normal(
+    body: Any,
+    face_entity: Any,
+    outward_normal: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Return the face normal that points into the given solid body.
+
+    The test point is sampled from the face centroid rather than the surface's
+    reference point, which can lie on a vertex or edge and mislead the solid
+    classifier.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+
+    shape = body.wrapped if hasattr(body, "wrapped") else body
+    centroid = _face_centroid(face_entity)
+    nx, ny, nz = _normalized_vector(outward_normal)
+    # Scale the probe offset with the body size so tiny models do not vanish
+    # into classifier tolerance and large models still probe well inside.
+    offset = max(1e-4, _body_bounding_box_diagonal(body) * 1e-4)
+    test = (centroid[0] + nx * offset, centroid[1] + ny * offset, centroid[2] + nz * offset)
+    classifier = BRepClass3d_SolidClassifier(shape, gp_Pnt(*test), 1e-6)
+    if classifier.State() == TopAbs_IN:
+        return (nx, ny, nz)
+    return (-nx, -ny, -nz)
+
+
+def _find_top_rim_edge(
+    tool: Any, center: tuple[float, float, float], axis: tuple[float, float, float]
+) -> Any:
+    """Find the rim edge of a cylinder tool that lies nearest the top face.
+
+    The top face is the end of the cylinder in the positive axis direction.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    wrapped = tool.wrapped if hasattr(tool, "wrapped") else tool
+    ax, ay, az = axis
+    cx, cy, cz = center
+
+    best_edge = None
+    best_score = -1e18
+    exp = TopExp_Explorer(wrapped, TopAbs_EDGE)
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        try:
+            curve = rr._curve_type_string(rr._edge_curve(edge))
+        except Exception:
+            curve = "other"
+        if curve != "circle":
+            exp.Next()
+            continue
+        try:
+            from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+            adaptor = BRepAdaptor_Curve(edge)
+            circ = adaptor.Circle()
+            ec = circ.Location()
+            edge_center = (ec.X(), ec.Y(), ec.Z())
+            radius = float(circ.Radius())
+        except Exception:
+            exp.Next()
+            continue
+        # Project edge center onto axis from center point.
+        dx = edge_center[0] - cx
+        dy = edge_center[1] - cy
+        dz = edge_center[2] - cz
+        along = dx * ax + dy * ay + dz * az
+        perp_sq = dx * dx + dy * dy + dz * dz - along * along
+        if perp_sq > 1e-4 or radius < 1e-4:
+            exp.Next()
+            continue
+        if along > best_score:
+            best_score = along
+            best_edge = edge
+        exp.Next()
+    if best_edge is None:
+        raise FeatureBuilderError("could not find top rim edge for countersink")
+    return best_edge
+
+
+def _build_hole_tool(
+    plane: Any,
+    center: tuple[float, float],
+    diameter: float,
+    depth: float | None,
+    body: Any,
+    face_entity: Any,
+    feature_id: str,
+    counterbore_diameter: float | None = None,
+    counterbore_depth: float | None = None,
+    countersink_diameter: float | None = None,
+    countersink_angle: float | None = None,
+) -> Any:
+    """Build the subtractive tool shape for the hole wizard."""
+    _require_build123d()
+    assert bd is not None
+
+    origin = plane.origin
+    x_dir = plane.x_dir
+    y_dir = plane.y_dir
+    center_3d = (
+        origin.X + center[0] * x_dir.X + center[1] * y_dir.X,
+        origin.Y + center[0] * x_dir.Y + center[1] * y_dir.Y,
+        origin.Z + center[0] * x_dir.Z + center[1] * y_dir.Z,
+    )
+    z_dir = plane.z_dir
+    axis = (float(z_dir.X), float(z_dir.Y), float(z_dir.Z))
+    inward = _inward_normal(body, face_entity, axis)
+
+    if depth is None or depth <= 0:
+        cut_length = _body_bounding_box_diagonal(body) * 1.1
+    else:
+        cut_length = depth
+
+    radius = diameter / 2.0
+    # Build the main cylinder along the inward direction.
+    cylinder = bd.Cylinder(radius=radius, height=cut_length)
+    # Align cylinder so its central axis points along the inward normal.
+    # Cylinder defaults to Z; rotate to inward axis.
+    target = bd.Vector(inward)
+    source = bd.Vector(0, 0, 1)
+    dot = source.dot(target)
+    cross = source.cross(target)
+    if cross.length > 1e-9:
+        angle = math.degrees(math.atan2(cross.length, dot))
+        cylinder = cylinder.rotate(bd.Axis((0, 0, 0), cross), angle)
+    elif dot < 0:
+        # 180-degree rotation around world X.
+        cylinder = cylinder.rotate(bd.Axis((0, 0, 0), (1, 0, 0)), 180)
+    cylinder = cylinder.moved(
+        bd.Location(
+            (
+                center_3d[0] + inward[0] * cut_length / 2.0,
+                center_3d[1] + inward[1] * cut_length / 2.0,
+                center_3d[2] + inward[2] * cut_length / 2.0,
+            )
+        )
+    )
+
+    if counterbore_diameter is not None and counterbore_depth is not None:
+        cb_radius = counterbore_diameter / 2.0
+        cb_depth = counterbore_depth
+        counterbore = bd.Cylinder(radius=cb_radius, height=cb_depth)
+        target = bd.Vector(inward)
+        source = bd.Vector(0, 0, 1)
+        dot = source.dot(target)
+        cross = source.cross(target)
+        if cross.length > 1e-9:
+            angle = math.degrees(math.atan2(cross.length, dot))
+            counterbore = counterbore.rotate(bd.Axis((0, 0, 0), cross), angle)
+        elif dot < 0:
+            counterbore = counterbore.rotate(bd.Axis((0, 0, 0), (1, 0, 0)), 180)
+        cb_center = (
+            center_3d[0] + inward[0] * cb_depth / 2.0,
+            center_3d[1] + inward[1] * cb_depth / 2.0,
+            center_3d[2] + inward[2] * cb_depth / 2.0,
+        )
+        counterbore = counterbore.moved(bd.Location(cb_center))
+        return cylinder + counterbore
+
+    if countersink_diameter is not None and countersink_angle is not None:
+        # Chamfer the top rim edge to create the countersink cone.
+        edge = _find_top_rim_edge(cylinder, center_3d, inward)
+        be = bd.Edge(edge)
+        be.topo_parent = cylinder
+        # distance along the cylinder wall.
+        delta_radius = (countersink_diameter - diameter) / 2.0
+        if delta_radius <= 0:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': countersinkDiameter must exceed diameter"
+            )
+        angle_rad = math.radians(countersink_angle)
+        if angle_rad <= 0:
+            raise FeatureBuilderError(f"feature '{feature_id}': countersinkAngle must be positive")
+        distance = delta_radius / math.tan(angle_rad)
+        return bd.chamfer(be, distance, angle=countersink_angle)
+
+    return cylinder
+
+
 def _build_feature_shape(
     feature: dict[str, Any],
     datums: dict[str, dict[str, Any]],
     sketches: dict[str, dict[str, Any]],
     feature_shapes: dict[str, Any],
+    tool_shapes: dict[str, Any],
     reference_results: list[dict[str, Any]],
 ) -> Any:
     """Build the tool shape produced by a single sketch-based feature.
 
-    Returns a build123d ``Shape`` (typically a ``Solid`` or ``Part``).
+    Returns a build123d ``Shape`` (typically a ``Solid`` or ``Part``). The
+    tool shape is also stored in ``tool_shapes`` so pattern/mirror features
+    can transform copies of it without rebuilding the source sketch.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build feature shapes")
@@ -783,7 +1186,7 @@ def _build_feature_shape(
         # same underlying geometry so DAGMC imprint/merge can seal them exactly.
         # Both pads and pockets use the same semantics: inner wires represent
         # removed material relative to the outer profile.
-        tool_shapes: list[Any] = []
+        profile_tools: list[Any] = []
         for face in faces:
             inner_wires = face.inner_wires()
             if inner_wires:
@@ -814,18 +1217,21 @@ def _build_feature_shape(
                         raise FeatureBuilderError(
                             f"feature '{feature_id}': {feature_type} boolean subtraction failed"
                         ) from exc
-                tool_shapes.append(tool)
+                profile_tools.append(tool)
             else:
                 try:
-                    tool_shapes.append(bd.extrude(face, amount=amount, dir=direction, both=both))
+                    profile_tools.append(bd.extrude(face, amount=amount, dir=direction, both=both))
                 except Exception as exc:
                     raise FeatureBuilderError(
                         f"feature '{feature_id}': {feature_type} extrusion failed"
                     ) from exc
 
-        if len(tool_shapes) == 1:
-            return tool_shapes[0]
-        return bd.Compound(children=tool_shapes)
+        if len(profile_tools) == 1:
+            tool_shape = profile_tools[0]
+        else:
+            tool_shape = bd.Compound(children=profile_tools)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
 
     # revolve / groove
     axis = params.get("axis")
@@ -854,11 +1260,13 @@ def _build_feature_shape(
 
     _ensure_build_axis()
     try:
-        return bd.revolve(faces, axis=_BUILD_AXIS[axis], revolution_arc=float(angle))
+        tool_shape = bd.revolve(faces, axis=_BUILD_AXIS[axis], revolution_arc=float(angle))
     except Exception as exc:
         raise FeatureBuilderError(
             f"feature '{feature_id}': revolve/groove operation failed"
         ) from exc
+    tool_shapes[feature_id] = tool_shape
+    return tool_shape
 
 
 def topo_sort_features(features: list[dict[str, Any]]) -> list[str]:
@@ -1045,18 +1453,21 @@ def _compute_implied_dependencies(
             body_last_index[body_id] = i
 
     for i, feature in enumerate(features):
-        if feature.get("type") not in ("booleanFuse", "booleanCut", "booleanCommon"):
-            continue
+        feature_type = feature.get("type")
         params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-        tool_bodies = params.get("toolBodies")
-        if not isinstance(tool_bodies, list):
-            continue
-        for tool_body in tool_bodies:
-            if not isinstance(tool_body, str):
-                continue
-            tip = _body_tip_feature_id(features, tool_body, i)
-            if tip is not None and tip != feature["id"]:
-                edges.append((feature["id"], tip))
+        if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+            tool_bodies = params.get("toolBodies")
+            if isinstance(tool_bodies, list):
+                for tool_body in tool_bodies:
+                    if not isinstance(tool_body, str):
+                        continue
+                    tip = _body_tip_feature_id(features, tool_body, i)
+                    if tip is not None and tip != feature["id"]:
+                        edges.append((feature["id"], tip))
+        if feature_type in ("linearPattern", "circularPattern", "mirror"):
+            source = params.get("source")
+            if isinstance(source, str) and source != feature["id"]:
+                edges.append((feature["id"], source))
     return edges
 
 
@@ -1221,6 +1632,7 @@ def build_document_shape(
     reference_results: list[dict[str, Any]] = []
     stale_or_failed: set[str] = set()
     feature_shapes: dict[str, Any] = {}
+    tool_shapes: dict[str, Any] = {}
     consumed_bodies: set[str] = set()
 
     for feature_id in order:
@@ -1272,9 +1684,9 @@ def build_document_shape(
                 continue
 
             target_shape = accumulators[target_body]
-            tool_shapes = [accumulators[t] for t in tool_bodies]
+            boolean_tool_shapes = [accumulators[t] for t in tool_bodies]
             try:
-                result_shape = _boolean_operation(target_shape, tool_shapes, feature_type)
+                result_shape = _boolean_operation(target_shape, boolean_tool_shapes, feature_type)
             except Exception as exc:
                 feature_results.append(
                     {
@@ -1412,10 +1824,173 @@ def build_document_shape(
             feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
             continue
 
+        if feature_type in ("linearPattern", "circularPattern", "mirror", "hole"):
+            if body_id in consumed_bodies:
+                feature_results.append(
+                    {"featureId": feature_id, "bodyId": body_id, "status": "stale"}
+                )
+                stale_or_failed.add(feature_id)
+                continue
+            previous_body = accumulators.get(body_id)
+            if previous_body is None:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+            entities, ref_results = _resolve_refs_against_shape(
+                refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
+            )
+            reference_results.extend(ref_results)
+            broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+            if broken:
+                details = "; ".join(
+                    f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+                )
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+
+            try:
+                if feature_type in ("linearPattern", "circularPattern", "mirror"):
+                    source_id = params.get("source")
+                    if not isinstance(source_id, str) or not source_id:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': source feature id is required"
+                        )
+                    order_index = {fid: idx for idx, fid in enumerate(order)}
+                    source = _valid_source_feature(
+                        feature_id, source_id, feature_type, body_id, feature_map, order_index
+                    )
+                    source_tool = tool_shapes.get(source_id)
+                    if source_tool is None:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
+                        )
+
+                    if feature_type == "linearPattern":
+                        count = int(params.get("count", 1))
+                        spacing = float(params.get("spacing", 0.0))
+                        axis = str(params.get("axis", "z"))
+                        instances = _linear_pattern_instances(source_tool, count, spacing, axis)
+                        result_shape = _apply_pattern_or_mirror(
+                            previous_body, source_tool, source["type"], instances, feature_id
+                        )
+                    elif feature_type == "circularPattern":
+                        count = int(params.get("count", 1))
+                        angle = float(params.get("angle", 360.0))
+                        axis_datum_id = params.get("axisDatumId")
+                        if isinstance(axis_datum_id, str) and axis_datum_id:
+                            datum = datums.get(axis_datum_id)
+                            if not isinstance(datum, dict):
+                                raise FeatureBuilderError(
+                                    f"feature '{feature_id}': unknown axis datum '{axis_datum_id}'"
+                                )
+                            entity = None
+                            if datum.get("kind") == "face":
+                                ref_path = f"datum.{axis_datum_id}.reference"
+                                entity = entities[ref_path_to_index[ref_path]]
+                            pattern_axis = _axis_from_datum(datum, feature_id, entity)
+                        else:
+                            axis_name = str(params.get("axis", "z"))
+                            if axis_name not in _AXIS_VECTOR:
+                                raise FeatureBuilderError(
+                                    f"feature '{feature_id}': unknown axis '{axis_name}'"
+                                )
+                            vector = _AXIS_VECTOR[axis_name]
+                            pattern_axis = bd.Axis((0, 0, 0), vector)
+                        instances = _circular_pattern_instances(
+                            source_tool, count, angle, pattern_axis
+                        )
+                        result_shape = _apply_pattern_or_mirror(
+                            previous_body, source_tool, source["type"], instances, feature_id
+                        )
+                    else:  # mirror
+                        plane_datum_id = params.get("planeDatumId")
+                        if isinstance(plane_datum_id, str) and plane_datum_id:
+                            datum = datums.get(plane_datum_id)
+                            if not isinstance(datum, dict):
+                                raise FeatureBuilderError(
+                                    f"feature '{feature_id}': unknown plane datum '{plane_datum_id}'"
+                                )
+                            entity = None
+                            if datum.get("kind") == "face":
+                                ref_path = f"datum.{plane_datum_id}.reference"
+                                entity = entities[ref_path_to_index[ref_path]]
+                            mirror_plane = _plane_from_datum(datum, feature_id, entity)
+                        else:
+                            plane_name = str(params.get("plane", "XY"))
+                            if plane_name not in _PLANE_MAP:
+                                raise FeatureBuilderError(
+                                    f"feature '{feature_id}': unknown mirror plane '{plane_name}'"
+                                )
+                            mirror_plane = getattr(bd.Plane, _PLANE_MAP[plane_name])
+                        mirrored = _mirror_shape(source_tool, mirror_plane)
+                        result_shape = _apply_pattern_or_mirror(
+                            previous_body, source_tool, source["type"], [mirrored], feature_id
+                        )
+                else:  # hole
+                    face_path = f"feature.{feature_id}.params.face"
+                    face_entity = entities[ref_path_to_index[face_path]]
+                    hole_plane = _workplane_from_face(face_entity)
+                    center = params.get("center")
+                    if not isinstance(center, (list, tuple)) or len(center) != 2:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': hole center must be [u, v]"
+                        )
+                    tool = _build_hole_tool(
+                        plane=hole_plane,
+                        center=(float(center[0]), float(center[1])),
+                        diameter=float(params.get("diameter", 0.0)),
+                        depth=params.get("depth"),
+                        body=previous_body,
+                        face_entity=face_entity,
+                        feature_id=feature_id,
+                        counterbore_diameter=params.get("counterboreDiameter"),
+                        counterbore_depth=params.get("counterboreDepth"),
+                        countersink_diameter=params.get("countersinkDiameter"),
+                        countersink_angle=params.get("countersinkAngle"),
+                    )
+                    result_shape = previous_body - tool
+
+                accumulators[body_id] = result_shape
+                feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+                feature_results.append(
+                    {"featureId": feature_id, "bodyId": body_id, "status": "built"}
+                )
+            except Exception as exc:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+                stale_or_failed.add(feature_id)
+            continue
+
         # Sketch-based solid feature (pad/pocket/revolve/groove).
         try:
             tool_shape = _build_feature_shape(
-                feature, datums, sketches, feature_shapes, reference_results
+                feature, datums, sketches, feature_shapes, tool_shapes, reference_results
             )
         except Exception as exc:
             feature_results.append(

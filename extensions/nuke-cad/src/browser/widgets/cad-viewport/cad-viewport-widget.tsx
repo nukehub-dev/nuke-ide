@@ -66,7 +66,7 @@ import { CadSketchOverlay } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
-import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, raycastFace } from './face-picker';
+import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
 import './cad-viewport.css';
 
@@ -162,6 +162,8 @@ export class CadViewportWidget extends ReactWidget {
     /** Active dress-up pick mode and the callback that receives the next pick. */
     private dressUpPickMode?: { type: FeatureType; selecting: 'edge' | 'face' };
     private dressUpPickCallback?: (ref: TopologyRef) => void;
+    /** Active hole face-pick mode and the callback that receives the picked face. */
+    private holePickMode?: { callback: (ref: TopologyRef, uv: [number, number]) => void };
 
     /**
      * Stable callbacks handed to the React component so the three.js scene is
@@ -212,11 +214,12 @@ export class CadViewportWidget extends ReactWidget {
         }
         const paramsRecord = params as Record<string, unknown>;
 
-        // Boolean and dress-up features do not consume a sketch.
+        // Boolean, dress-up, pattern/mirror/hole features do not consume a sketch.
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
-        const sketchId = isBoolean || isDressUp ? undefined : this.documentStore.selection.selectedSketchId;
-        if (!isBoolean && !isDressUp && sketchId === undefined) {
+        const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
+        const sketchId = isBoolean || isDressUp || isPatternOrMirrorOrHole ? undefined : this.documentStore.selection.selectedSketchId;
+        if (!isBoolean && !isDressUp && !isPatternOrMirrorOrHole && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
             return;
         }
@@ -239,6 +242,9 @@ export class CadViewportWidget extends ReactWidget {
             }
             bodyId = bodyResult.value;
         } else if (bodyId === undefined && (type === 'pocket' || type === 'groove')) {
+            this.messageService.warn(`${type} requires an existing body.`);
+            return;
+        } else if (bodyId === undefined && isPatternOrMirrorOrHole) {
             this.messageService.warn(`${type} requires an existing body.`);
             return;
         }
@@ -276,14 +282,19 @@ export class CadViewportWidget extends ReactWidget {
             }
             dependsOn = [...deps];
         } else {
+            const deps = new Set<string>();
             const implied = computeDependsOn(type, bodyId, doc.features);
             if (implied !== undefined) {
-                dependsOn = [implied];
+                deps.add(implied);
             }
-            if ((type === 'pocket' || type === 'groove') && dependsOn.length === 0) {
+            if ((type === 'pocket' || type === 'groove' || isPatternOrMirrorOrHole) && deps.size === 0) {
                 this.messageService.warn(`${type} requires a prior solid feature on the selected body.`);
                 return;
             }
+            if (isPatternOrMirrorOrHole && typeof paramsRecord.source === 'string' && paramsRecord.source.length > 0) {
+                deps.add(paramsRecord.source);
+            }
+            dependsOn = [...deps];
         }
 
         const featureParams: Record<string, unknown> = {};
@@ -355,6 +366,10 @@ export class CadViewportWidget extends ReactWidget {
             'chamfer',
             'draft',
             'shell',
+            'mirror',
+            'linearPattern',
+            'circularPattern',
+            'hole',
             'booleanFuse',
             'booleanCut',
             'booleanCommon'
@@ -459,6 +474,32 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
+    protected readonly handleStartHolePick = (callback: (ref: TopologyRef, uv: [number, number]) => void): void => {
+        this.holePickMode = { callback };
+        this.update();
+    };
+
+    protected readonly handleHolePickCancel = (): void => {
+        this.holePickMode = undefined;
+        this.update();
+    };
+
+    protected readonly handleHolePick = (hit: FacePickHit): void => {
+        const ref = buildTopologyRef(String(hit.solidId), hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
+        if (ref === undefined) {
+            this.messageService.error('Selected face has no geometric fingerprint; rebuild the model first.');
+            return;
+        }
+        const uv = projectHitToFaceUv(hit);
+        if (uv === undefined) {
+            this.messageService.error('Selected face has no usable workplane; pick a planar face.');
+            return;
+        }
+        this.holePickMode?.callback(ref, uv);
+        this.holePickMode = undefined;
+        this.update();
+    };
+
     protected readonly handleRebuildDocument = (): Promise<void> => this.rebuildDocument();
 
     @postConstruct()
@@ -539,9 +580,11 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.warn('Open or create a document before adding features.');
             return;
         }
+
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
-        if (!isBoolean && !isDressUp && this.documentStore.selection.selectedSketchId === undefined) {
+        const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
+        if (!isBoolean && !isDressUp && !isPatternOrMirrorOrHole && this.documentStore.selection.selectedSketchId === undefined) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
             return;
         }
@@ -949,6 +992,7 @@ export class CadViewportWidget extends ReactWidget {
                     this.featureCreationType = undefined;
                     this.dressUpPickMode = undefined;
                     this.dressUpPickCallback = undefined;
+                    this.holePickMode = undefined;
                     this.update();
                 }}
                 onStartFacePick={this.handleStartFacePick}
@@ -959,6 +1003,10 @@ export class CadViewportWidget extends ReactWidget {
                 onDressUpPickCancel={this.handleDressUpPickCancel}
                 onEdgePick={this.handleEdgePick}
                 onFacePickDressUp={this.handleFacePickDressUp}
+                onStartHolePick={this.handleStartHolePick}
+                onHolePick={this.handleHolePick}
+                onHolePickCancel={this.handleHolePickCancel}
+                holePickMode={this.holePickMode !== undefined}
                 messageService={this.messageService}
             />
         );
@@ -975,6 +1023,7 @@ interface CadViewportComponentProps {
     readonly featureCreationType?: FeatureType;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly holePickMode?: boolean;
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
     readonly onDismissError: () => void;
@@ -1000,6 +1049,9 @@ interface CadViewportComponentProps {
     readonly onDressUpPickCancel: () => void;
     readonly onEdgePick: (hit: EdgePickHit) => void;
     readonly onFacePickDressUp: (hit: FacePickHit) => void;
+    readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
+    readonly onHolePick: (hit: FacePickHit) => void;
+    readonly onHolePickCancel: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -1009,6 +1061,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         updateModel?: (tessData?: TessData) => void;
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
         setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
+        setHolePickMode?: (active: boolean) => void;
     }>({});
 
     React.useEffect(() => {
@@ -1038,6 +1091,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onEdgePick,
                 props.onFacePickDressUp,
                 props.onDressUpPickCancel,
+                props.onStartHolePick,
+                props.onHolePick,
+                props.onHolePickCancel,
+                props.holePickMode ?? false,
                 props.messageService,
                 OrbitControls
             );
@@ -1049,8 +1106,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.updateModel = api.updateModel;
             viewportApi.current.setFacePickMode = api.setFacePickMode;
             viewportApi.current.setDressUpPickMode = api.setDressUpPickMode;
+            viewportApi.current.setHolePickMode = api.setHolePickMode;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
+            api.setHolePickMode(props.holePickMode ?? false);
             setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
@@ -1061,6 +1120,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.updateModel = undefined;
             viewportApi.current.setFacePickMode = undefined;
             viewportApi.current.setDressUpPickMode = undefined;
+            viewportApi.current.setHolePickMode = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -1079,6 +1139,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setDressUpPickMode?.(props.dressUpPickMode);
     }, [props.dressUpPickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setHolePickMode?.(props.holePickMode ?? false);
+    }, [props.holePickMode]);
 
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
@@ -1135,6 +1199,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         featureCreationType={props.featureCreationType}
                         facePickMode={props.facePickMode}
                         dressUpPickMode={props.dressUpPickMode}
+                        holePickMode={props.holePickMode}
                         onEnterSketch={props.onEnterSketch}
                         onExitSketch={props.onExitSketch}
                         onStartFeatureCreation={props.onStartFeatureCreation}
@@ -1146,6 +1211,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         onCancelFacePick={props.onFacePickCancel}
                         onStartDressUpPick={props.onStartDressUpPick}
                         onDressUpPickCancel={props.onDressUpPickCancel}
+                        onStartHolePick={props.onStartHolePick}
+                        onHolePickCancel={props.onHolePickCancel}
                     />
                 )}
             </div>
@@ -1176,6 +1243,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     featureCreationType={props.featureCreationType}
                     facePickMode={props.facePickMode}
                     dressUpPickMode={props.dressUpPickMode}
+                    holePickMode={props.holePickMode}
                     onEnterSketch={props.onEnterSketch}
                     onExitSketch={props.onExitSketch}
                     onStartFeatureCreation={props.onStartFeatureCreation}
@@ -1187,6 +1255,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     onCancelFacePick={props.onFacePickCancel}
                     onStartDressUpPick={props.onStartDressUpPick}
                     onDressUpPickCancel={props.onDressUpPickCancel}
+                    onStartHolePick={props.onStartHolePick}
+                    onHolePickCancel={props.onHolePickCancel}
                 />
             )}
         </div>
@@ -1199,6 +1269,7 @@ interface ViewportApi {
     readonly updateModel: (tessData?: TessData) => void;
     readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
     readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
+    readonly setHolePickMode: (active: boolean) => void;
 }
 
 function initViewport(
@@ -1214,6 +1285,10 @@ function initViewport(
     onEdgePick: (hit: EdgePickHit) => void,
     onFacePickDressUp: (hit: FacePickHit) => void,
     onDressUpPickCancel: () => void,
+    onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void,
+    onHolePick: (hit: FacePickHit) => void,
+    onHolePickCancel: () => void,
+    initialHolePickMode: boolean,
     messageService: MessageService,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
@@ -1260,6 +1335,7 @@ function initViewport(
     let currentSelection: CadSelection = {};
     let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
     let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
+    let activeHolePickMode = initialHolePickMode;
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -1383,6 +1459,14 @@ function initViewport(
             }
             return;
         }
+        if (activeHolePickMode) {
+            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            if (hit !== undefined) {
+                faceHighlighter.clear();
+                onHolePick(hit);
+            }
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -1430,6 +1514,16 @@ function initViewport(
             renderScene();
             return;
         }
+        if (activeHolePickMode) {
+            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            if (hit !== undefined) {
+                faceHighlighter.highlight(hit.mesh);
+            } else {
+                faceHighlighter.clear();
+            }
+            renderScene();
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -1443,7 +1537,7 @@ function initViewport(
     renderer.domElement.addEventListener('pointermove', onPickPointerMove);
 
     const onContextMenu = (event: MouseEvent): void => {
-        if (activeFacePickMode === undefined && activeDressUpPickMode === undefined) {
+        if (activeFacePickMode === undefined && activeDressUpPickMode === undefined && !activeHolePickMode) {
             return;
         }
         event.preventDefault();
@@ -1451,6 +1545,8 @@ function initViewport(
         edgeHighlighter.clear();
         if (activeDressUpPickMode !== undefined) {
             onDressUpPickCancel();
+        } else if (activeHolePickMode) {
+            onHolePickCancel();
         } else {
             onFacePickCancel();
         }
@@ -1494,6 +1590,14 @@ function initViewport(
                 faceHighlighter.clear();
                 edgeHighlighter.clear();
                 onDressUpPickCancel();
+            }
+            return;
+        }
+        if (activeHolePickMode) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                faceHighlighter.clear();
+                onHolePickCancel();
             }
             return;
         }
@@ -1562,6 +1666,13 @@ function initViewport(
             if (mode === undefined) {
                 faceHighlighter.clear();
                 edgeHighlighter.clear();
+            }
+            renderScene();
+        },
+        setHolePickMode: (active) => {
+            activeHolePickMode = active;
+            if (!active) {
+                faceHighlighter.clear();
             }
             renderScene();
         },

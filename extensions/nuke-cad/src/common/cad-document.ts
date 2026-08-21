@@ -134,7 +134,20 @@ export type FeatureType =
 
 /** Feature types that create or modify solid geometry. */
 export type SolidFeatureType =
-    'pad' | 'pocket' | 'revolve' | 'groove' | 'fillet' | 'chamfer' | 'draft' | 'shell' | 'booleanFuse' | 'booleanCut' | 'booleanCommon';
+    | 'pad'
+    | 'pocket'
+    | 'revolve'
+    | 'groove'
+    | 'fillet'
+    | 'chamfer'
+    | 'draft'
+    | 'shell'
+    | 'mirror'
+    | 'linearPattern'
+    | 'circularPattern'
+    | 'booleanFuse'
+    | 'booleanCut'
+    | 'booleanCommon';
 
 /** Parameters common to extrude-like features. */
 export interface ExtrudeParams {
@@ -178,12 +191,37 @@ export interface DraftParams {
     pullDirection: [number, number, number];
 }
 
-/** Parameters for patterns. */
-export interface PatternParams {
+/** Parameters for a linear pattern. */
+export interface LinearPatternParams {
+    /** Source sketch-based solid feature id (pad/pocket/revolve/groove). */
+    source: string;
     count: number;
-    spacing?: number;
+    /** Spacing between instances along the axis. */
+    spacing: number;
+    axis: 'x' | 'y' | 'z';
+}
+
+/** Parameters for a circular pattern. */
+export interface CircularPatternParams {
+    /** Source sketch-based solid feature id (pad/pocket/revolve/groove). */
+    source: string;
+    count: number;
+    /** Total sweep angle in degrees; defaults to 360. */
     angle?: number;
+    /** Axis through the origin; mutually exclusive with axisDatumId. */
     axis?: 'x' | 'y' | 'z';
+    /** Datum axis id; mutually exclusive with axis. */
+    axisDatumId?: string;
+}
+
+/** Parameters for a mirror feature. */
+export interface MirrorParams {
+    /** Source sketch-based solid feature id (pad/pocket/revolve/groove). */
+    source: string;
+    /** Coordinate plane; mutually exclusive with planeDatumId. */
+    plane?: 'XY' | 'YZ' | 'XZ';
+    /** Datum plane id; mutually exclusive with plane. */
+    planeDatumId?: string;
 }
 
 /** Parameters for booleans. */
@@ -193,9 +231,14 @@ export interface BooleanParams {
     keepTools?: boolean;
 }
 
-/** Parameters for holes. */
+/** Parameters for the hole wizard. */
 export interface HoleParams {
+    /** Placement face reference. */
+    face: TopologyRef;
+    /** Hole center in the placement face workplane coordinates. */
+    center: [number, number];
     diameter: number;
+    /** Omitted = through-hole. */
     depth?: number;
     counterboreDiameter?: number;
     counterboreDepth?: number;
@@ -210,7 +253,9 @@ export type FeatureParams =
     | FilletParams
     | ShellParams
     | DraftParams
-    | PatternParams
+    | LinearPatternParams
+    | CircularPatternParams
+    | MirrorParams
     | BooleanParams
     | HoleParams
     | Record<string, unknown>;
@@ -616,11 +661,55 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                 }
             }
             break;
-        case 'linearPattern':
-        case 'circularPattern': {
-            const count = p.count;
-            if (count === undefined || typeof count !== 'number' || !Number.isInteger(count) || count < 1) {
+        case 'linearPattern': {
+            if (!isString(p.source) || p.source.length === 0) {
+                issue(ctx, `${path}.source`, 'source is required and must be a feature id');
+            }
+            if (!Number.isInteger(p.count) || (p.count as number) < 1) {
                 issue(ctx, `${path}.count`, 'count is required and must be a positive integer');
+            }
+            if (!isFiniteNumber(p.spacing) || p.spacing === 0) {
+                issue(ctx, `${path}.spacing`, 'spacing is required and must be a non-zero finite number');
+            }
+            if (p.axis !== 'x' && p.axis !== 'y' && p.axis !== 'z') {
+                issue(ctx, `${path}.axis`, "axis must be 'x', 'y' or 'z'");
+            }
+            break;
+        }
+        case 'circularPattern': {
+            if (!isString(p.source) || p.source.length === 0) {
+                issue(ctx, `${path}.source`, 'source is required and must be a feature id');
+            }
+            if (!Number.isInteger(p.count) || (p.count as number) < 1) {
+                issue(ctx, `${path}.count`, 'count is required and must be a positive integer');
+            }
+            const hasAxis = p.axis === 'x' || p.axis === 'y' || p.axis === 'z';
+            const hasAxisDatum = isString(p.axisDatumId) && p.axisDatumId.length > 0;
+            if (!hasAxis && !hasAxisDatum) {
+                issue(ctx, `${path}.axis`, "circular pattern requires axis 'x'/'y'/'z' or axisDatumId");
+            }
+            if (hasAxis && hasAxisDatum) {
+                issue(ctx, `${path}.axis`, 'axis and axisDatumId are mutually exclusive');
+            }
+            if (p.angle !== undefined && (!isFiniteNumber(p.angle) || p.angle <= 0 || p.angle > 360)) {
+                issue(ctx, `${path}.angle`, 'angle must be in (0, 360] degrees');
+            }
+            if (p.angle !== undefined && p.angle !== 360 && (p.count as number) < 2) {
+                issue(ctx, `${path}.count`, 'partial sweep requires count >= 2');
+            }
+            break;
+        }
+        case 'mirror': {
+            if (!isString(p.source) || p.source.length === 0) {
+                issue(ctx, `${path}.source`, 'source is required and must be a feature id');
+            }
+            const hasPlane = p.plane === 'XY' || p.plane === 'YZ' || p.plane === 'XZ';
+            const hasPlaneDatum = isString(p.planeDatumId) && p.planeDatumId.length > 0;
+            if (!hasPlane && !hasPlaneDatum) {
+                issue(ctx, `${path}.plane`, "mirror requires plane 'XY'/'YZ'/'XZ' or planeDatumId");
+            }
+            if (hasPlane && hasPlaneDatum) {
+                issue(ctx, `${path}.plane`, 'plane and planeDatumId are mutually exclusive');
             }
             break;
         }
@@ -649,11 +738,45 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             break;
         }
-        case 'hole':
+        case 'hole': {
+            if (!isPlainObject(p.face)) {
+                issue(ctx, `${path}.face`, 'face is required and must be a TopologyRef');
+            } else {
+                validateEmbeddedTopologyRef(ctx, `${path}.face`, p.face);
+            }
+            const center = p.center;
+            if (!Array.isArray(center) || center.length !== 2 || !center.every((v: unknown) => isFiniteNumber(v))) {
+                issue(ctx, `${path}.center`, 'center is required and must be a [u, v] tuple of finite numbers');
+            }
             if (!isFiniteNumber(p.diameter) || p.diameter <= 0) {
                 issue(ctx, `${path}.diameter`, 'diameter is required and must be a positive finite number');
             }
+            if (p.depth !== undefined && (!isFiniteNumber(p.depth) || p.depth <= 0)) {
+                issue(ctx, `${path}.depth`, 'depth must be a positive finite number when present');
+            }
+            const hasCounterbore = p.counterboreDiameter !== undefined || p.counterboreDepth !== undefined;
+            const hasCountersink = p.countersinkDiameter !== undefined || p.countersinkAngle !== undefined;
+            if (hasCounterbore && hasCountersink) {
+                issue(ctx, `${path}.counterboreDiameter`, 'counterbore and countersink are mutually exclusive');
+            }
+            if (hasCounterbore) {
+                if (!isFiniteNumber(p.counterboreDiameter) || (p.counterboreDiameter as number) <= 0) {
+                    issue(ctx, `${path}.counterboreDiameter`, 'counterboreDiameter must be positive');
+                }
+                if (!isFiniteNumber(p.counterboreDepth) || (p.counterboreDepth as number) <= 0) {
+                    issue(ctx, `${path}.counterboreDepth`, 'counterboreDepth must be positive');
+                }
+            }
+            if (hasCountersink) {
+                if (!isFiniteNumber(p.countersinkDiameter) || (p.countersinkDiameter as number) <= 0) {
+                    issue(ctx, `${path}.countersinkDiameter`, 'countersinkDiameter must be positive');
+                }
+                if (!isFiniteNumber(p.countersinkAngle) || (p.countersinkAngle as number) <= 0 || (p.countersinkAngle as number) >= 90) {
+                    issue(ctx, `${path}.countersinkAngle`, 'countersinkAngle must be in (0, 90) degrees');
+                }
+            }
             break;
+        }
     }
 }
 
@@ -758,6 +881,30 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
                         issue(ctx, `features[${i}].params.toolBodies[${j}]`, `unknown body '${tool}'`);
                     }
                 }
+            }
+        }
+        if (f.type === 'linearPattern' || f.type === 'circularPattern' || f.type === 'mirror') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.source) && !featureIds.has(p.source)) {
+                issue(ctx, `features[${i}].params.source`, `unknown feature '${p.source}'`);
+            }
+        }
+        if (f.type === 'circularPattern') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.axisDatumId) && !datumIds.has(p.axisDatumId)) {
+                issue(ctx, `features[${i}].params.axisDatumId`, `unknown datum '${p.axisDatumId}'`);
+            }
+        }
+        if (f.type === 'mirror') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.planeDatumId) && !datumIds.has(p.planeDatumId)) {
+                issue(ctx, `features[${i}].params.planeDatumId`, `unknown datum '${p.planeDatumId}'`);
+            }
+        }
+        if (f.type === 'hole') {
+            const p = f.params as Record<string, unknown>;
+            if (isPlainObject(p.face)) {
+                validateEmbeddedTopologyRef(ctx, `features[${i}].params.face`, p.face);
             }
         }
     }

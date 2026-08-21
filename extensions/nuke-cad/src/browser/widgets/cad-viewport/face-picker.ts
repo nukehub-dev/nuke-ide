@@ -55,6 +55,8 @@ export interface FacePickHit {
     readonly bodyId?: string;
     readonly mesh: THREE.Mesh;
     readonly fingerprint?: FaceFingerprint;
+    /** World-space intersection point on the face, when available. */
+    readonly point?: THREE.Vector3;
 }
 
 /**
@@ -111,7 +113,8 @@ export function raycastFace(
     if (intersects.length === 0) {
         return undefined;
     }
-    const object = intersects[0].object;
+    const first = intersects[0];
+    const object = first.object;
     const data = object.userData as {
         solidId?: number;
         faceId?: number;
@@ -126,8 +129,59 @@ export function raycastFace(
         faceId: data.faceId,
         bodyId: data.bodyId,
         mesh: object as THREE.Mesh,
-        fingerprint: data.fingerprint
+        fingerprint: data.fingerprint,
+        point: first.point.clone()
     };
+}
+
+function _normalized(v: [number, number, number]): [number, number, number] {
+    const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (length === 0) {
+        return [0, 0, 0];
+    }
+    return [v[0] / length, v[1] / length, v[2] / length];
+}
+
+function _cross(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+function _dot(a: [number, number, number], b: [number, number, number]): number {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+/**
+ * Return a deterministic in-plane x-direction for a face normal.
+ *
+ * Matches the basis used by `_workplane_from_face` in the Python backend so
+ * viewport UV coordinates align with the hole builder's workplane.
+ */
+function _deterministicXDir(normal: [number, number, number]): [number, number, number] {
+    const [, , nz] = normal;
+    const fallback: [number, number, number] = Math.abs(nz) < 0.999 ? [-normal[1], normal[0], 0] : [1, 0, 0];
+    return _normalized(fallback);
+}
+
+/**
+ * Project a face pick hit into the face's local [u, v] workplane coordinates.
+ *
+ * The workplane origin is the fingerprint's face centroid and its axes are the
+ * deterministic x-direction plus y = normal × x. Returns undefined when the
+ * required fingerprint fields are missing.
+ */
+export function projectHitToFaceUv(hit: FacePickHit): [number, number] | undefined {
+    if (hit.point === undefined || hit.fingerprint === undefined) {
+        return undefined;
+    }
+    const center = hit.fingerprint.center;
+    const normal = hit.fingerprint.normal;
+    if (center === undefined || normal === undefined) {
+        return undefined;
+    }
+    const xDir = _deterministicXDir(normal);
+    const yDir = _cross(normal, xDir);
+    const rel: [number, number, number] = [hit.point.x - center[0], hit.point.y - center[1], hit.point.z - center[2]];
+    return [_dot(rel, xDir), _dot(rel, yDir)];
 }
 
 /** Reusable highlighter that overlays a translucent mesh on the hovered face. */
