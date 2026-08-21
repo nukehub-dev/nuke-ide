@@ -157,6 +157,20 @@ def _collect_topology_refs(
     if isinstance(up_to_face, dict):
         refs.append((f"feature.{fid}.params.upToFace", up_to_face))
 
+    feature_type = feature.get("type")
+    if feature_type in ("fillet", "chamfer"):
+        edges = params.get("edges")
+        if isinstance(edges, list):
+            for i, ref in enumerate(edges):
+                if isinstance(ref, dict):
+                    refs.append((f"feature.{fid}.params.edges[{i}]", ref))
+    elif feature_type in ("draft", "shell"):
+        faces = params.get("faces")
+        if isinstance(faces, list):
+            for i, ref in enumerate(faces):
+                if isinstance(ref, dict):
+                    refs.append((f"feature.{fid}.params.faces[{i}]", ref))
+
     return refs
 
 
@@ -262,6 +276,71 @@ def _resolve_document_refs(
                 "runnerUpScore": match.runner_up_score,
                 "candidates": [c.to_dict() for c in match.candidates] if match.candidates else None,
             }
+
+    return entities, results
+
+
+def _resolve_refs_against_shape(
+    refs_with_paths: list[tuple[str, dict[str, Any]]],
+    shape: Any,
+    *,
+    owner_feature_id: str,
+    tolerance_scale: float = DEFAULT_TOLERANCE_SCALE,
+    ambiguity_margin: float = 0.05,
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Resolve all ``TopologyRef`` objects against a single shape.
+
+    This is used by dress-up features whose references must resolve against the
+    current body state rather than the historical shape recorded at pick time.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+
+    if not refs_with_paths:
+        return [], []
+
+    fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in refs_with_paths]
+    try:
+        match_result, entity_map = rr.resolve_references_with_entities(
+            fingerprints,
+            shape,
+            tolerance_scale=tolerance_scale,
+            ambiguity_margin=ambiguity_margin,
+        )
+    except Exception as exc:
+        results = [
+            {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": ref.get("kind", "face"),
+                "status": "unmatched",
+                "candidateId": None,
+                "score": 0.0,
+                "runnerUpScore": 0.0,
+                "candidates": None,
+                "error": str(exc),
+            }
+            for path, ref in refs_with_paths
+        ]
+        return [None] * len(refs_with_paths), results
+
+    entities: list[Any] = []
+    results: list[dict[str, Any]] = []
+    for (path, ref), match in zip(refs_with_paths, match_result.matches, strict=True):
+        entity = entity_map.get(match.candidate_id) if match.candidate_id else None
+        entities.append(entity)
+        results.append(
+            {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": ref.get("kind", "face"),
+                "status": match.status,
+                "candidateId": match.candidate_id,
+                "score": match.score,
+                "runnerUpScore": match.runner_up_score,
+                "candidates": [c.to_dict() for c in match.candidates] if match.candidates else None,
+            }
+        )
 
     return entities, results
 
@@ -437,6 +516,158 @@ def _extrude_direction(
             f"{feature_context}: extrude axis '{axis}' is not aligned with the sketch plane normal"
         )
     return bd.Vector(axis_vector)
+
+
+def _require_build123d() -> None:
+    """Raise a clear error when build123d is required but unavailable."""
+    if bd is None or not HAS_BUILD123D:
+        raise FeatureBuilderError("build123d is not available; cannot build feature shapes")
+
+
+def _apply_fillet(body: Any, edges: list[Any], radius: float, feature_id: str) -> Any:
+    """Apply a fillet to ``edges`` of ``body`` with the given radius."""
+    _require_build123d()
+    if not edges:
+        raise FeatureBuilderError(f"feature '{feature_id}': fillet requires at least one edge")
+    try:
+        bd_edges = []
+        for edge in edges:
+            be = bd.Edge(edge)
+            be.topo_parent = body
+            bd_edges.append(be)
+        return bd.fillet(bd_edges, radius)
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': fillet failed: {exc}") from exc
+
+
+def _apply_chamfer(body: Any, edges: list[Any], params: dict[str, Any], feature_id: str) -> Any:
+    """Apply a chamfer to ``edges`` of ``body``.
+
+    Supports three mutually exclusive modes:
+      * symmetric: ``distance``
+      * two-distance: ``distances`` tuple
+      * distance+angle: ``distance`` + ``angle`` (angle in degrees)
+    """
+    _require_build123d()
+    if not edges:
+        raise FeatureBuilderError(f"feature '{feature_id}': chamfer requires at least one edge")
+
+    distance = params.get("distance")
+    distances = params.get("distances")
+    angle = params.get("angle")
+
+    try:
+        bd_edges = []
+        for edge in edges:
+            be = bd.Edge(edge)
+            be.topo_parent = body
+            bd_edges.append(be)
+        if isinstance(distances, (list, tuple)) and len(distances) == 2:
+            if distance is not None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': chamfer cannot specify both distance and distances"
+                )
+            if angle is not None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': chamfer cannot specify angle with distances"
+                )
+            return bd.chamfer(bd_edges, distances[0], distances[1])
+        if distance is not None and angle is not None:
+            return bd.chamfer(bd_edges, distance, angle=angle)
+        if distance is not None:
+            return bd.chamfer(bd_edges, distance)
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': chamfer requires distance, distances, or distance+angle"
+        )
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': chamfer failed: {exc}") from exc
+
+
+def _apply_draft(
+    body: Any,
+    faces: list[Any],
+    pull_direction: tuple[float, float, float],
+    angle: float,
+    feature_id: str,
+) -> Any:
+    """Apply a draft angle to ``faces`` of ``body``.
+
+    The neutral plane for each face passes through the face centroid and is
+    perpendicular to ``pull_direction``.
+    """
+    _require_build123d()
+    if not faces:
+        raise FeatureBuilderError(f"feature '{feature_id}': draft requires at least one face")
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepGProp import BRepGProp
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
+    from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
+    from OCP.GProp import GProp_GProps
+
+    _require_reference_resolver()
+    assert rr is not None
+    direction = gp_Dir(*_normalized_vector(pull_direction))
+    shape = body.wrapped if hasattr(body, "wrapped") else body
+    draft = BRepOffsetAPI_DraftAngle(shape)
+    for face in faces:
+        surf = BRepAdaptor_Surface(face)
+        if rr._surface_type_string(surf) != "plane":
+            raise FeatureBuilderError(f"feature '{feature_id}': draft only supports planar faces")
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        com = props.CentreOfMass()
+        # Neutral plane is perpendicular to the pull direction and passes
+        # through the face centroid.
+        neutral = gp_Pln(gp_Pnt(com.X(), com.Y(), com.Z()), direction)
+        draft.Add(face, direction, math.radians(angle), neutral)
+        if not draft.AddDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': draft could not be applied to face")
+    draft.Build()
+    if not draft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': draft operation failed")
+    return bd.Solid(draft.Shape())
+
+
+def _apply_shell(body: Any, faces: list[Any], thickness: float, feature_id: str) -> Any:
+    """Apply a shell operation to ``body``.
+
+    Positive ``thickness`` hollows inward; ``faces`` are the faces removed to
+    open the shell. An empty ``faces`` list produces a closed hollow solid.
+    """
+    _require_build123d()
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_ListOfShape
+
+    try:
+        removed = TopTools_ListOfShape()
+        for face in faces:
+            removed.Append(face)
+        shell = BRepOffsetAPI_MakeThickSolid()
+        shape = body.wrapped if hasattr(body, "wrapped") else body
+        # Negative offset grows material inward for a positive user thickness.
+        shell.MakeThickSolidByJoin(shape, removed, -thickness, 1e-6)
+        shell.Build()
+        if not shell.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': shell operation failed")
+        result = shell.Shape()
+
+        # When no faces are removed, OCCT returns a closed Shell. Convert it
+        # to a Solid so downstream solid-count invariants hold.
+        if result.ShapeType() == TopAbs_SHELL:
+            shell_shape = TopoDS.Shell_s(result)
+            maker = BRepBuilderAPI_MakeSolid(shell_shape)
+            result = maker.Solid()
+        return bd.Solid(result)
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': shell failed: {exc}") from exc
 
 
 def _build_feature_shape(
@@ -856,7 +1087,47 @@ def _solid_count(shape: Any) -> int:
     """Return the number of solids in a build123d shape."""
     if shape is None:
         return 0
-    return len(shape.solids())
+    try:
+        return len(shape.solids())
+    except Exception:
+        pass
+    # Fall back to an OCP explorer for shapes that build123d does not expose
+    # as solids (e.g., hollow shells produced by BRepOffsetAPI_MakeThickSolid).
+    try:
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp_Explorer
+
+        wrapped = shape.wrapped if hasattr(shape, "wrapped") else shape
+        count = 0
+        exp = TopExp_Explorer(wrapped, TopAbs_SOLID)
+        while exp.More():
+            count += 1
+            exp.Next()
+        return count
+    except Exception:
+        return 0
+
+
+def _shape_volume(shape: Any) -> float:
+    """Return the volume of a build123d shape, falling back to OCP."""
+    if shape is None:
+        return 0.0
+    try:
+        vol = getattr(shape, "volume", None)
+        if isinstance(vol, (int, float)) and vol > 0:
+            return float(vol)
+    except Exception:
+        pass
+    try:
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+
+        wrapped = shape.wrapped if hasattr(shape, "wrapped") else shape
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(wrapped, props)
+        return float(props.Mass())
+    except Exception:
+        return 0.0
 
 
 def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> None:
@@ -1029,6 +1300,116 @@ def build_document_shape(
                     "consumedBodyIds": consumed,
                 }
             )
+            continue
+
+        if feature_type in ("fillet", "chamfer", "draft", "shell"):
+            if body_id in consumed_bodies:
+                feature_results.append(
+                    {"featureId": feature_id, "bodyId": body_id, "status": "stale"}
+                )
+                stale_or_failed.add(feature_id)
+                continue
+            previous_body = accumulators.get(body_id)
+            if previous_body is None:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+            entities, ref_results = _resolve_refs_against_shape(
+                refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
+            )
+            reference_results.extend(ref_results)
+            broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+            if broken:
+                details = "; ".join(
+                    f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+                )
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            try:
+                if feature_type == "fillet":
+                    radius = params.get("radius")
+                    if (
+                        not isinstance(radius, (int, float))
+                        or isinstance(radius, bool)
+                        or not math.isfinite(radius)
+                        or radius <= 0
+                    ):
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': fillet requires a positive radius"
+                        )
+                    result_shape = _apply_fillet(previous_body, entities, float(radius), feature_id)
+                elif feature_type == "chamfer":
+                    result_shape = _apply_chamfer(previous_body, entities, params, feature_id)
+                elif feature_type == "draft":
+                    pull_direction = params.get("pullDirection")
+                    if not isinstance(pull_direction, (list, tuple)) or len(pull_direction) != 3:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': draft requires pullDirection [x, y, z]"
+                        )
+                    angle = params.get("angle")
+                    if (
+                        not isinstance(angle, (int, float))
+                        or isinstance(angle, bool)
+                        or not math.isfinite(angle)
+                    ):
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': draft requires a finite angle"
+                        )
+                    result_shape = _apply_draft(
+                        previous_body, entities, tuple(pull_direction), float(angle), feature_id
+                    )
+                elif feature_type == "shell":
+                    thickness = params.get("thickness")
+                    if (
+                        not isinstance(thickness, (int, float))
+                        or isinstance(thickness, bool)
+                        or not math.isfinite(thickness)
+                        or thickness <= 0
+                    ):
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': shell requires a positive thickness"
+                        )
+                    result_shape = _apply_shell(
+                        previous_body, entities, float(thickness), feature_id
+                    )
+                else:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+                    )
+            except Exception as exc:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            accumulators[body_id] = result_shape
+            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
             continue
 
         # Sketch-based solid feature (pad/pocket/revolve/groove).

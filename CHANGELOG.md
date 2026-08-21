@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   maintains per-body accumulators, and runs a final cross-body overlap gate.
   The Feature Tree adds a **Bodies** section, and boolean dialogs expose
   target/tool body dropdowns.
+- nuke-cad: **dress-up features in the GUI modeler** — `fillet`, `chamfer`,
+  `draft`, and `shell` features are now available in `.nuke-cad` documents.
+  Fillet rounds selected edges by radius; chamfer supports symmetric,
+  two-distance, and distance-angle modes; draft tapers selected faces by an
+  angle along a pull direction; shell hollows a body by a uniform thickness with
+  optional open faces. Target edges and faces are picked directly in the
+  viewport using fingerprint-based `TopologyRef`s, and the backend resolves
+  them against the body's current B-rep so parametric edits remain robust.
 - nuke-cad: **new parametric CAD extension** — script-first geometry
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered

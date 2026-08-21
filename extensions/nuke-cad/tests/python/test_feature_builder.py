@@ -1047,6 +1047,110 @@ def test_ambiguous_reference_reported_on_symmetric_edit() -> None:
     assert len(ref_results[0]["candidates"]) >= 2
 
 
+def test_edge_reference_symmetric_edit_is_ambiguous() -> None:
+    """A dress-up edge ref with two equally-good candidates fails as ambiguous.
+
+    Edge references are the stress test for the fingerprint resolver: a fillet
+    referencing a vertical edge of one of two mirrored solids must NOT silently
+    pick the wrong one — it must report ``ambiguous`` and fail the feature.
+    """
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import reference_resolver as rr
+
+    # Same mirrored tiny rectangles as the face ambiguity test above.
+    tiny_sketch = {
+        "id": "tiny",
+        "name": "tiny",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "pa", "type": "point", "x": 0.075, "y": -0.025},
+            {"id": "pb", "type": "point", "x": 0.125, "y": -0.025},
+            {"id": "pc", "type": "point", "x": 0.125, "y": 0.025},
+            {"id": "pd", "type": "point", "x": 0.075, "y": 0.025},
+            {"id": "la1", "type": "line", "p1_id": "pa", "p2_id": "pb"},
+            {"id": "la2", "type": "line", "p1_id": "pb", "p2_id": "pc"},
+            {"id": "la3", "type": "line", "p1_id": "pc", "p2_id": "pd"},
+            {"id": "la4", "type": "line", "p1_id": "pd", "p2_id": "pa"},
+            {"id": "qa", "type": "point", "x": -0.125, "y": -0.025},
+            {"id": "qb", "type": "point", "x": -0.075, "y": -0.025},
+            {"id": "qc", "type": "point", "x": -0.075, "y": 0.025},
+            {"id": "qd", "type": "point", "x": -0.125, "y": 0.025},
+            {"id": "lb1", "type": "line", "p1_id": "qa", "p2_id": "qb"},
+            {"id": "lb2", "type": "line", "p1_id": "qb", "p2_id": "qc"},
+            {"id": "lb3", "type": "line", "p1_id": "qc", "p2_id": "qd"},
+            {"id": "lb4", "type": "line", "p1_id": "qd", "p2_id": "qa"},
+        ],
+        "constraints": [],
+    }
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "tiny",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[tiny_sketch],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+
+    # Capture a vertical edge of the right-hand solid (midpoint x > 0). Its
+    # mirror on the left-hand solid is an equally-good fingerprint candidate.
+    # (Line edges carry no ``center`` — that field is for circular edges.)
+    edges = rr.extract_edge_fingerprints(base_result["shape"].wrapped)
+    vertical = [
+        e
+        for e in edges
+        if e.curve_type == "line"
+        and abs(e.length - 5.0) < 1e-6
+        and (e.start[0] + e.end[0]) / 2 > 0.0
+        and abs((e.start[2] + e.end[2]) / 2 - 2.5) < 1e-6
+    ]
+    assert len(vertical) == 4
+    edge_ref = {"featureId": "base", "kind": "edge", "fingerprint": vertical[0].to_dict()}
+
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "tiny",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "fillet1",
+                "name": "fillet1",
+                "type": "fillet",
+                "params": {"edges": [edge_ref], "radius": 0.005},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[tiny_sketch],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["base"]["status"] == "built"
+    assert by_id["fillet1"]["status"] == "failed"
+    assert "ambiguous" in by_id["fillet1"]["error"].lower()
+
+    ref_results = [
+        r for r in result["referenceResults"] if r["path"] == "feature.fillet1.params.edges[0]"
+    ]
+    assert len(ref_results) == 1
+    assert ref_results[0]["status"] == "ambiguous"
+    assert ref_results[0]["candidates"] is not None
+    assert len(ref_results[0]["candidates"]) >= 2
+
+
 def test_unmatched_reference_clear_error() -> None:
     """A reference whose fingerprint no longer exists on the predecessor fails cleanly."""
     pytest.importorskip("build123d", reason="build123d not installed")
@@ -1620,3 +1724,422 @@ def test_reference_resolves_against_body_state_after_pocket() -> None:
     assert len(ref_results) == 1
     assert ref_results[0]["featureId"] == "top"
     assert ref_results[0]["status"] == "matched"
+
+
+def _edge_ref(feature_id: str, topods_shape: Any, predicate: Any) -> dict[str, Any]:
+    """Build a TopologyRef dict for the first edge matching ``predicate``."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import reference_resolver as rr
+
+    edges = rr.extract_edge_fingerprints(topods_shape)
+    for edge in edges:
+        if predicate(edge):
+            return {"featureId": feature_id, "kind": "edge", "fingerprint": edge.to_dict()}
+    raise AssertionError("no matching edge found")
+
+
+def _vertical_edge_predicate() -> Any:
+    """Return a predicate that selects a vertical edge of an extruded box."""
+    import numpy as np
+
+    def predicate(edge: Any) -> bool:
+        if edge.curve_type != "line" or edge.start is None or edge.end is None:
+            return False
+        direction = np.array(edge.end) - np.array(edge.start)
+        length = np.linalg.norm(direction)
+        if length == 0:
+            return False
+        direction = direction / length
+        return np.isclose(abs(direction[2]), 1.0)
+
+    return predicate
+
+
+def _build_base_box(
+    width: float = 10.0, height: float = 10.0, length: float = 10.0
+) -> tuple[Any, dict[str, Any]]:
+    """Build a box pad and return ``(result, doc)``."""
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": length},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[_rect_sketch(width=width, height=height)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    return result, doc
+
+
+def test_fillet_reduces_volume_and_keeps_one_solid() -> None:
+    """A fillet on a box edge rounds the corner and reduces volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_result, _ = _build_base_box()
+    edge_ref = _edge_ref("base", base_result["shape"].wrapped, _vertical_edge_predicate())
+
+    doc = {
+        "version": 2,
+        "name": "fillet",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
+        "sketches": [_rect_sketch(width=10.0, height=10.0)],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "fillet",
+                "name": "fillet",
+                "type": "fillet",
+                "body": "body-1",
+                "params": {"edges": [edge_ref], "radius": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 1
+    assert result["shape"].volume < 10.0 * 10.0 * 10.0
+    assert result["shape"].volume > 0.0
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["fillet"]["status"] == "built"
+
+
+def test_chamfer_symmetric_reduces_volume() -> None:
+    """A symmetric chamfer on a box edge reduces volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_result, _ = _build_base_box()
+    edge_ref = _edge_ref("base", base_result["shape"].wrapped, _vertical_edge_predicate())
+
+    doc = {
+        "version": 2,
+        "name": "chamfer",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
+        "sketches": [_rect_sketch(width=10.0, height=10.0)],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "chamfer",
+                "name": "chamfer",
+                "type": "chamfer",
+                "body": "body-1",
+                "params": {"edges": [edge_ref], "distance": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume == pytest.approx(
+        10.0 * 10.0 * 10.0 - 0.5 * 1.0 * 1.0 * 10.0, abs=1e-2
+    )
+
+
+def test_chamfer_two_distances_and_distance_angle() -> None:
+    """Chamfer supports two-distance and distance-angle modes."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_result, _ = _build_base_box()
+    edge_ref = _edge_ref("base", base_result["shape"].wrapped, _vertical_edge_predicate())
+
+    for mode, params in [
+        ("two-distance", {"edges": [edge_ref], "distances": [1.0, 2.0]}),
+        ("distance-angle", {"edges": [edge_ref], "distance": 1.0, "angle": 30.0}),
+    ]:
+        doc = {
+            "version": 2,
+            "name": f"chamfer-{mode}",
+            "parameters": {},
+            "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+            "bodies": [{"id": "body-1", "name": "Body 1"}],
+            "sketches": [_rect_sketch(width=10.0, height=10.0)],
+            "features": [
+                {
+                    "id": "base",
+                    "name": "base",
+                    "type": "pad",
+                    "body": "body-1",
+                    "sketchId": "rect",
+                    "params": {"length": 10},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+                {
+                    "id": "chamfer",
+                    "name": "chamfer",
+                    "type": "chamfer",
+                    "body": "body-1",
+                    "params": params,
+                    "dependsOn": ["base"],
+                    "suppressed": False,
+                },
+            ],
+        }
+        result = fb.build_document_shape(doc)
+        assert result["shape"] is not None, f"{mode} chamfer produced no shape"
+        assert result["shape"].volume > 0.0
+        assert result["shape"].volume < 10.0 * 10.0 * 10.0
+
+
+def _side_face_predicate() -> Any:
+    """Return a predicate that selects a vertical side face of an extruded box."""
+    import numpy as np
+
+    def predicate(face: Any) -> bool:
+        return (
+            face.surface_type == "plane"
+            and face.normal is not None
+            and np.isclose(face.normal[2], 0.0)
+        )
+
+    return predicate
+
+
+def test_draft_on_planar_face_changes_volume() -> None:
+    """A draft applied to a side face of a box changes the volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_result, _ = _build_base_box()
+    side_ref = _face_ref("base", base_result["shape"].wrapped, _side_face_predicate())
+
+    doc = {
+        "version": 2,
+        "name": "draft",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
+        "sketches": [_rect_sketch(width=10.0, height=10.0)],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "draft",
+                "name": "draft",
+                "type": "draft",
+                "body": "body-1",
+                "params": {"faces": [side_ref], "angle": 5, "pullDirection": [0, 0, 1]},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["draft"]["status"] == "built"
+    assert result["shape"].volume > 0.0
+
+
+def test_shell_closed_hollows_volume() -> None:
+    """A closed shell hollows the solid inward."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+
+    doc = {
+        "version": 2,
+        "name": "shell",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
+        "sketches": [_rect_sketch(width=10.0, height=10.0)],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "shell",
+                "name": "shell",
+                "type": "shell",
+                "body": "body-1",
+                "params": {"faces": [], "thickness": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 1
+    # With no faces removed, BRepOffsetAPI_MakeThickSolid returns the inner
+    # cavity (8x8x8 = 512), which we convert to a Solid so invariants hold.
+    assert result["shape"].volume == pytest.approx(512.0, abs=1e-2)
+
+
+def test_shell_removed_face_opens_shell() -> None:
+    """Removing one face produces a lower volume than a closed shell."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_result, _ = _build_base_box()
+    top_ref = _face_ref("base", base_result["shape"].wrapped, _top_face_predicate())
+
+    doc = {
+        "version": 2,
+        "name": "shell-open",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
+        "sketches": [_rect_sketch(width=10.0, height=10.0)],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-1",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "shell",
+                "name": "shell",
+                "type": "shell",
+                "body": "body-1",
+                "params": {"faces": [top_ref], "thickness": 1},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume > 0.0
+    # Removing a face yields a lower volume than the closed-shell cavity.
+    assert result["shape"].volume < 512.0
+
+
+def test_topology_refs_collected_for_dress_up_features() -> None:
+    """``_collect_topology_refs`` gathers edge/face refs for dress-up features."""
+    feature = {
+        "id": "f1",
+        "type": "fillet",
+        "params": {
+            "edges": [{"featureId": "base", "kind": "edge"}],
+            "radius": 1,
+        },
+    }
+    refs = fb._collect_topology_refs(feature, {}, {})
+    assert any(path == "feature.f1.params.edges[0]" for path, _ref in refs)
+
+    feature["type"] = "shell"
+    feature["params"] = {"faces": [{"featureId": "base", "kind": "face"}], "thickness": 1}
+    refs = fb._collect_topology_refs(feature, {}, {})
+    assert any(path == "feature.f1.params.faces[0]" for path, _ref in refs)
+
+
+def test_dress_up_on_consumed_body_is_stale() -> None:
+    """A dress-up targeting a body consumed by a boolean is marked stale."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "tool",
+                "name": "tool",
+                "type": "pad",
+                "body": "body-tool",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "fuse",
+                "name": "fuse",
+                "type": "booleanFuse",
+                "body": "body-base",
+                "params": {"targetBody": "body-base", "toolBodies": ["body-tool"]},
+                "dependsOn": ["base", "tool"],
+                "suppressed": False,
+            },
+            {
+                "id": "fillet",
+                "name": "fillet",
+                "type": "fillet",
+                "body": "body-tool",
+                "params": {"edges": [], "radius": 1},
+                "dependsOn": ["fuse"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+        bodies=[
+            {"id": "body-base", "name": "base"},
+            {"id": "body-tool", "name": "tool"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["fillet"]["status"] == "stale"
+
+
+def test_dress_up_without_existing_body_fails() -> None:
+    """A dress-up on a body with no prior solid feature fails cleanly."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "fillet",
+                "name": "fillet",
+                "type": "fillet",
+                "body": "body-1",
+                "params": {"edges": [], "radius": 1},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ]
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["fillet"]["status"] == "failed"
+    assert "existing solid body" in by_id["fillet"]["error"].lower()

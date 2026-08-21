@@ -35,13 +35,26 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   builder can keep last-good geometry.
 - Topological references: `src/common/topology-refs.ts` defines fingerprint-based
   `TopologyRef` types (`face`/`edge`) used by datum faces, fillets, chamfers,
-  patterns, sketch-on-face, and sketch external geometry. References are never
-  raw indices. Fingerprint matching and scoring lives in the Python backend
-  (`python/reference_scoring.py`, `python/reference_resolver.py`); TypeScript
-  owns only the types and validation. The builder resolves every reference
-  against the referenced predecessor feature's current B-rep and returns
-  `matched`/`ambiguous`/`unmatched` status per reference in `referenceResults`
-  so the frontend can render repair affordances.
+  drafts, shells, patterns, sketch-on-face, and sketch external geometry.
+  References are never raw indices. Fingerprint matching and scoring lives in
+  the Python backend (`python/reference_scoring.py`, `python/reference_resolver.py`);
+  TypeScript owns only the types and validation. The builder resolves every
+  reference against the referenced predecessor feature's current B-rep and
+  returns `matched`/`ambiguous`/`unmatched` status per reference in
+  `referenceResults` so the frontend can render repair affordances.
+- Dress-up features (`fillet`, `chamfer`, `draft`, `shell`) operate on the
+  accumulated B-rep of a body after its prior features. They store target
+  edges or faces as `TopologyRef`s and resolve them through the same
+  fingerprint-based resolver as sketch external geometry and face datums.
+  Fillet requires `edges` and `radius`; chamfer supports symmetric (`distance`),
+  two-distance (`distances`), and distance-angle (`distance` + `angle`) modes;
+  draft requires `faces`, `angle`, and a non-zero `pullDirection`; shell
+  requires `thickness` and an optional `faces` list (empty means hollow all
+  faces). The viewport enters an edge-pick or face-pick mode when a dress-up
+  dialog asks for references; hover highlights the candidate and a click adds
+  the reference to the dialog list. The same-body additive overlap check is
+  intentionally left untouched — dress-ups modify an existing body rather than
+  create new material.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -172,8 +185,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     separate accumulated body per `body` id. Additive features combine into their
     target body; subtractive features cut from it. `booleanFuse`,
     `booleanCut`, and `booleanCommon` features merge tool bodies into a target
-    body and optionally keep the consumed tools. Cycles are rejected with a
-    readable member list.
+    body and optionally keep the consumed tools. Dress-up features
+    (`fillet`/`chamfer`/`draft`/`shell`) apply build123d/OCP operations to the
+    accumulated body after resolving their edge/face `TopologyRef`s against the
+    body's current B-rep. Cycles are rejected with a readable member list.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
     CLI flag; it validates references lightly, runs the feature builder, and
     reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
@@ -221,10 +236,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     the sketch plane and rendered as dashed construction geometry after the
     next rebuild.
   - Face picking is handled by `src/browser/widgets/cad-viewport/face-picker.ts`
-    (`raycastFace`, `buildTopologyRef`, `FaceHighlighter`). The viewport builds
-    one mesh per face and stores the geometric fingerprint in `userData`, so
-    the pick path reads `userData.faceId` directly without reconstructing a
-    triangle-to-face index.
+    (`raycastFace`, `buildTopologyRef`, `FaceHighlighter`). Edge picking for
+    dress-up features is handled by `edge-picker.ts` (`raycastEdge`,
+    `EdgeHighlighter`), which uses `LineSegments2` geometry and an edge topology
+    map built from the viewport tessellation. The viewport builds one mesh per
+    face and stores the geometric fingerprint in `userData`, so the pick path
+    reads `userData.faceId` directly without reconstructing a triangle-to-face
+    index; edge picks derive their fingerprint from the underlying curve data.
 - The FEM service (`python/fem_service.py`) generates CalculiX `.inp` decks
   from gmsh `.msh` files, runs the external `ccx` executable (3600 s default
   timeout via the `ccxTimeout` request field, output streamed to

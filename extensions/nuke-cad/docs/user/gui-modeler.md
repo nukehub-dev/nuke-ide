@@ -146,6 +146,12 @@ commands in the Feature Tree:
 - **Boolean Fuse** — union one or more tool bodies into a target body.
 - **Boolean Cut** — subtract one or more tool bodies from a target body.
 - **Boolean Common** — intersect a target body with one or more tool bodies.
+- **Fillet** — round selected edges of a body.
+- **Chamfer** — bevel selected edges with symmetric, two-distance, or
+  distance-angle modes.
+- **Draft** — taper selected faces by an angle along a pull direction.
+- **Shell** — hollow a body by a uniform wall thickness, optionally leaving
+  selected faces open.
 
 Each solid feature dialog asks for the target body, extrude direction/revolve
 axis, length or angle, and an optional **Label**. Boolean dialogs ask for a
@@ -155,6 +161,53 @@ labeled body or feature becomes a named volume in `selector_map`, and the
 `.regions.json` sidecar can then assign it a material name such as `fuel` or
 `clad`. Those material names flow into the DAGMC `.h5m` as `mat:<name>` groups
 and into OpenMC Studio on import.
+
+## Dress-up features
+
+Dress-up features modify the existing B-rep of a body after its solid features.
+They are available from the document toolbar and the Feature Tree **Add** menu.
+
+### Fillet
+
+1. Select the target body.
+2. Click **Pick edges** and select one or more edges in the viewport. Hover
+   highlights the candidate edge; click adds it to the list. Use the remove
+   button next to a listed edge to delete it.
+3. Enter a **Radius**.
+4. Click **Create** to add the fillet feature.
+
+### Chamfer
+
+1. Select the target body and pick edges the same way as fillet.
+2. Choose a mode:
+   - **Symmetric** — one **Distance** applied to both sides of the edge.
+   - **Two distances** — two values (`distances[0]` and `distances[1]`).
+   - **Distance-angle** — one **Distance** and an **Angle** in degrees.
+3. Click **Create**.
+
+### Draft
+
+1. Select the target body.
+2. Click **Pick faces** and select the faces to taper.
+3. Enter a **Draft angle** in degrees.
+4. Set the **Pull direction** vector (the direction along which the faces are
+   tapered; the default is `+Z`).
+5. Click **Create**.
+
+### Shell
+
+1. Select the target body.
+2. Choose whether to hollow the entire body or leave selected faces open:
+   - **Hollow all faces** — uniform wall thickness everywhere.
+   - **Pick faces** — select faces to remove; all remaining faces are offset
+     inward by the thickness.
+3. Enter a **Thickness**.
+4. Click **Create**.
+
+All dress-up targets are stored as `TopologyRef`s — geometric fingerprints of
+edges or faces — so the feature remains parametric: if an earlier edit changes
+the B-rep, the reference resolver attempts to find the matching entity again and
+reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 
 ## Feature tree
 
@@ -188,7 +241,7 @@ dependencies are removed or edited.
 
 This release supports the core workflow. These features are not implemented yet:
 
-- Fillets, chamfers, drafts, shells, holes, mirrors, and patterns.
+- Holes, mirrors, and patterns.
 - Up-to-face / up-to-body extrude termination.
 - Direct viewport picking of tool bodies for booleans (use the dialog dropdowns
   instead).

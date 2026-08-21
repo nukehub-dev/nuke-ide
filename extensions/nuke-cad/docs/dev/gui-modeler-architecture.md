@@ -22,8 +22,11 @@ A document contains:
   feature targets a body id; boolean features consume bodies. Body labels map to
   the region manifest / `selector_map`.
 - `features` — a sequential feature tree with explicit `dependsOn` edges, a
-  required `body` id for every solid feature, consumed feature `sketchId`,
-  parameters, suppression flag, and optional label.
+  required `body` id for every feature, consumed feature `sketchId` for
+  sketch-based features, parameters, suppression flag, and optional label.
+  Solid features (`pad`/`pocket`/`revolve`/`groove`), boolean features
+  (`booleanFuse`/`booleanCut`/`booleanCommon`), and dress-up features
+  (`fillet`/`chamfer`/`draft`/`shell`) share the same feature record shape.
 
 Validation (`validateNukeCadDocument`) checks duplicate ids, dangling references,
 body references on every feature, boolean parameter shape, parameter-name
@@ -88,9 +91,12 @@ mirrors the script `build_geometry` signature. The flow is:
    the feature's `body`; subtractive features (`pocket`, `groove`) cut from it.
    Boolean features (`booleanFuse`, `booleanCut`, `booleanCommon`) perform OCP
    booleans between a target body and the union of one or more tool bodies, then
-   consume the tool bodies unless `keepTools` is true. Implied dependencies
-   automatically order features within the same body and order boolean features
-   after the tips of their tool bodies.
+   consume the tool bodies unless `keepTools` is true. Dress-up features
+   (`fillet`, `chamfer`, `draft`, `shell`) apply build123d operations to the
+   accumulated body after resolving their edge/face `TopologyRef`s against the
+   body's current B-rep. Implied dependencies automatically order features
+   within the same body and order boolean/dress-up features after the tips of
+   their target/tool bodies.
 6. A final cross-body overlap gate rejects documents where two non-consumed
    bodies occupy the same space without a boolean merge.
 7. The final shape is handed to `_process_shape`, the same function used by
@@ -113,9 +119,9 @@ its last-good shape when possible.
 
 ## Topological reference system
 
-Topological references let future features (sketch-on-face, fillets, chamfers,
-patterns) target faces/edges produced by earlier features without storing fragile
-raw indices. The system has three parts:
+Topological references let features (sketch-on-face, fillets, chamfers,
+drafts, shells, patterns) target faces/edges produced by earlier features
+without storing fragile raw indices. The system has three parts:
 
 - `src/common/topology-refs.ts` — TypeScript types and validation for
   `TopologyRef` objects (`featureId`, `kind`, `fingerprint`).
@@ -152,19 +158,27 @@ references do not collapse onto the same geometry.
 1. **Schema** — add the feature type to `FeatureType` in
    `src/common/cad-document.ts` and add parameter validation in
    `validateFeatureParams`. Solid features must require a `body`; boolean
-   features must validate `targetBody` and `toolBodies`.
+   features must validate `targetBody` and `toolBodies`; dress-up features must
+   validate their edge/face arrays and operation-specific parameters.
 2. **UI** — add a button in `cad-sketch-overlay.tsx` (`DocumentModeToolbar` or
    `FeatureCreationDialog`) and a command in `src/browser/commands.ts`. Wire the
    command in the relevant contribution. Boolean dialogs populate target/tool
-   body dropdowns from `document.bodies`.
+   body dropdowns from `document.bodies`. Dress-up dialogs use the viewport's
+   edge-pick or face-pick mode via `setDressUpPickMode` and store picked
+   references in the feature params.
 3. **Document store** — `addFeature` and `updateFeatureParams` already accept any
    `FeatureParams`; no change needed unless the new type needs special selection
    or dependency logic. For booleans, `computeDependsOn` derives dependencies from
-   the target and tool body tips.
+   the target and tool body tips. For dress-ups, `computeDependsOn` should order
+   the dress-up after the tip of its target body.
 4. **Backend** — implement the builder in `python/feature_builder.py`:
-   - Accept the new type in `_build_feature_shape` (for sketch-based features)
-     or in the topological loop (for boolean features).
-   - Build the tool shape from the feature's sketch and parameters.
+   - Accept the new type in `_build_feature_shape` (for sketch-based features),
+     in the topological loop (for boolean features), or in the dress-up handler
+     (for `fillet`/`chamfer`/`draft`/`shell`).
+   - Build the tool shape from the feature's sketch and parameters (sketch-based
+     features only).
+   - Resolve `TopologyRef`s through `_collect_topology_refs` and
+     `resolve_references` before applying the operation.
    - Apply the operation to the feature's target body in the topological loop.
 5. **Feature tree** — add an icon in `feature-tree-widget.tsx` if desired and
    update row rendering for the new type's parameters.

@@ -742,3 +742,54 @@
     justify-content: flex-end;
     margin-top: 4px;
 }
+
+.cad-feature-dialog-row.vertical {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.cad-feature-dialog-label {
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-refs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 120px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 4px;
+}
+
+.cad-feature-dialog-ref-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-ref-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-feature-dialog-ref-kind {
+    text-transform: uppercase;
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+}
+
+.cad-feature-dialog-ref-feature {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-feature-dialog-ref-row button {
+    padding: 2px 4px;
+    min-width: 0;
+}

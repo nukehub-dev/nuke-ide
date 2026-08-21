@@ -492,20 +492,22 @@ def _read_step(step_path: Path) -> object:
 def _tessellate_shape(
     shape: object, tolerance: float, body_ids: list[str] | None = None
 ) -> list[dict]:
-    """Tessellate ``shape`` and return per-solid face buffers.
+    """Tessellate ``shape`` and return per-solid face and edge buffers.
 
     Each face entry includes a geometric ``fingerprint`` (surface type, area,
-    centroid, normal/axis/radius) when OCP is available. The fingerprint lets
-    the frontend construct stable ``TopologyRef`` objects at pick time instead
-    of relying on fragile face indices.
+    centroid, normal/axis/radius) when OCP is available. Each edge entry
+    carries a polyline approximation and an edge fingerprint for viewport
+    edge picking.
 
     When ``body_ids`` is provided (document builds), each solid entry also
     carries the ``bodyId`` of the body that produced it, enabling viewport
-    picking to bind face picks to the owning body's current tip feature.
+    picking to bind face/edge picks to the owning body's current tip feature.
     """
     from OCP.BRep import BRep_Tool
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
-    from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+    from OCP.GCPnts import GCPnts_QuasiUniformDeflection
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
 
@@ -517,6 +519,12 @@ def _tessellate_shape(
     solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
     while solid_exp.More():
         solid = topods_solid(TopoDS, solid_exp.Current())
+        body_id = (
+            body_ids[solid_id - 1]
+            if body_ids is not None and solid_id - 1 < len(body_ids)
+            else None
+        )
+
         faces: list[dict] = []
         face_id = 1
         face_exp = TopExp_Explorer(solid, TopAbs_FACE)
@@ -556,9 +564,44 @@ def _tessellate_shape(
             face_id += 1
             face_exp.Next()
 
-        solid_entry: dict[str, Any] = {"solidId": solid_id, "faces": faces}
-        if body_ids is not None and solid_id - 1 < len(body_ids):
-            solid_entry["bodyId"] = body_ids[solid_id - 1]
+        edges: list[dict] = []
+        edge_id = 1
+        edge_exp = TopExp_Explorer(solid, TopAbs_EDGE)
+        while edge_exp.More():
+            edge = TopoDS.Edge_s(edge_exp.Current())
+            curve = BRepAdaptor_Curve(edge)
+            try:
+                qf = GCPnts_QuasiUniformDeflection(curve, tolerance)
+            except Exception:
+                edge_exp.Next()
+                continue
+            if not qf.IsDone() or qf.NbPoints() < 2:
+                edge_exp.Next()
+                continue
+            points: list[list[float]] = []
+            for i in range(1, qf.NbPoints() + 1):
+                pnt = qf.Value(i)
+                points.append([pnt.X(), pnt.Y(), pnt.Z()])
+            if len(points) < 2:
+                edge_exp.Next()
+                continue
+            edge_entry: dict[str, Any] = {
+                "edgeId": edge_id,
+                "points": points,
+            }
+            if body_id is not None:
+                edge_entry["bodyId"] = body_id
+            if HAS_REFERENCE_RESOLVER and reference_resolver is not None:
+                fp = reference_resolver._extract_edge_fingerprint(edge)
+                if fp is not None:
+                    edge_entry["fingerprint"] = _edge_fingerprint_to_json(fp)
+            edges.append(edge_entry)
+            edge_id += 1
+            edge_exp.Next()
+
+        solid_entry: dict[str, Any] = {"solidId": solid_id, "faces": faces, "edges": edges}
+        if body_id is not None:
+            solid_entry["bodyId"] = body_id
         solids.append(solid_entry)
         solid_id += 1
         solid_exp.Next()
@@ -581,6 +624,19 @@ def _face_fingerprint_to_json(fp: dict[str, Any]) -> dict[str, Any]:
         data["radius"] = fp["radius"]
     if fp.get("minor_radius") is not None:
         data["minorRadius"] = fp["minor_radius"]
+    return data
+
+
+def _edge_fingerprint_to_json(fp: dict[str, Any]) -> dict[str, Any]:
+    """Convert a snake_case edge fingerprint dict to the TS contract shape."""
+    data: dict[str, Any] = {
+        "curveType": fp["curve_type"],
+        "length": fp["length"],
+        "start": fp["start"],
+        "end": fp["end"],
+    }
+    if fp.get("center") is not None:
+        data["center"] = fp["center"]
     return data
 
 
@@ -1023,6 +1079,10 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "pocket",
             "revolve",
             "groove",
+            "fillet",
+            "chamfer",
+            "draft",
+            "shell",
             "booleanFuse",
             "booleanCut",
             "booleanCommon",
@@ -1068,6 +1128,128 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                     return {
                         "success": False,
                         "error": f"Feature '{fid}' references unknown tool body '{tool}' at toolBodies[{j}]",
+                        "scriptPath": str(source_file),
+                    }
+            continue
+
+        if feature_type in ("fillet", "chamfer", "draft", "shell"):
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            if feature_type in ("fillet", "chamfer"):
+                edges = params.get("edges")
+                if not isinstance(edges, list) or not edges:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' ({feature_type}) requires a non-empty edges list",
+                        "scriptPath": str(source_file),
+                    }
+            else:
+                faces = params.get("faces")
+                if not isinstance(faces, list) or not faces:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' ({feature_type}) requires a non-empty faces list",
+                        "scriptPath": str(source_file),
+                    }
+            if feature_type == "fillet":
+                radius = params.get("radius")
+                if (
+                    not isinstance(radius, (int, float))
+                    or isinstance(radius, bool)
+                    or not math.isfinite(radius)
+                    or radius <= 0
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (fillet) requires a positive radius",
+                        "scriptPath": str(source_file),
+                    }
+            elif feature_type == "chamfer":
+                distance = params.get("distance")
+                distances = params.get("distances")
+                angle = params.get("angle")
+                has_distance = (
+                    isinstance(distance, (int, float))
+                    and not isinstance(distance, bool)
+                    and math.isfinite(distance)
+                    and distance > 0
+                )
+                has_distances = (
+                    isinstance(distances, (list, tuple))
+                    and len(distances) == 2
+                    and all(
+                        isinstance(d, (int, float))
+                        and not isinstance(d, bool)
+                        and math.isfinite(d)
+                        and d > 0
+                        for d in distances
+                    )
+                )
+                has_angle = (
+                    isinstance(angle, (int, float))
+                    and not isinstance(angle, bool)
+                    and math.isfinite(angle)
+                    and 0 < angle < 90
+                )
+                if not (has_distance or has_distances):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (chamfer) requires distance or distances",
+                        "scriptPath": str(source_file),
+                    }
+                if has_distances and (distance is not None or angle is not None):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (chamfer) distances is mutually exclusive with distance/angle",
+                        "scriptPath": str(source_file),
+                    }
+                if angle is not None and not has_angle:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (chamfer) angle must be in (0, 90) degrees",
+                        "scriptPath": str(source_file),
+                    }
+            elif feature_type == "draft":
+                pull_direction = params.get("pullDirection")
+                if (
+                    not isinstance(pull_direction, (list, tuple))
+                    or len(pull_direction) != 3
+                    or not all(
+                        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                        for v in pull_direction
+                    )
+                    or (
+                        pull_direction[0] == 0 and pull_direction[1] == 0 and pull_direction[2] == 0
+                    )
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (draft) requires a non-zero pullDirection [x, y, z]",
+                        "scriptPath": str(source_file),
+                    }
+                angle = params.get("angle")
+                if (
+                    not isinstance(angle, (int, float))
+                    or isinstance(angle, bool)
+                    or not math.isfinite(angle)
+                    or angle <= -90
+                    or angle >= 90
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (draft) requires angle in (-90, 90) degrees",
+                        "scriptPath": str(source_file),
+                    }
+            elif feature_type == "shell":
+                thickness = params.get("thickness")
+                if (
+                    not isinstance(thickness, (int, float))
+                    or isinstance(thickness, bool)
+                    or not math.isfinite(thickness)
+                    or thickness <= 0
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (shell) requires a positive thickness",
                         "scriptPath": str(source_file),
                     }
             continue

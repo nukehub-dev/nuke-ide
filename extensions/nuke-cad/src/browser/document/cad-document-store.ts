@@ -879,13 +879,25 @@ export function createBodyId(): string {
  * same body, or undefined when the body has no prior solid features.
  */
 export function computeDependsOn(type: FeatureDef['type'], bodyId: string, features: readonly FeatureDef[]): string | undefined {
-    const solidProducers: FeatureDef['type'][] = ['pad', 'pocket', 'revolve', 'groove', 'booleanFuse', 'booleanCut', 'booleanCommon'];
-    if (!solidProducers.includes(type)) {
+    const solidFeatures: FeatureDef['type'][] = [
+        'pad',
+        'pocket',
+        'revolve',
+        'groove',
+        'fillet',
+        'chamfer',
+        'draft',
+        'shell',
+        'booleanFuse',
+        'booleanCut',
+        'booleanCommon'
+    ];
+    if (!solidFeatures.includes(type)) {
         return undefined;
     }
     for (let i = features.length - 1; i >= 0; i--) {
         const feature = features[i];
-        if (!feature.suppressed && solidProducers.includes(feature.type) && feature.body === bodyId) {
+        if (!feature.suppressed && solidFeatures.includes(feature.type) && feature.body === bodyId) {
             return feature.id;
         }
     }

@@ -40,6 +40,7 @@ import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
 import { type SketchDimension, type DimensionKind, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
 
 interface CadSketchOverlayProps {
@@ -48,6 +49,7 @@ interface CadSketchOverlayProps {
     readonly setupVisible: boolean;
     readonly featureCreationType?: FeatureType;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
+    readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -57,6 +59,8 @@ interface CadSketchOverlayProps {
     readonly onStartFacePick: (offset: number) => void;
     readonly onStartExternalGeometryPick: (featureId: string) => void;
     readonly onCancelFacePick: () => void;
+    readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
+    readonly onDressUpPickCancel: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
@@ -96,6 +100,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         setupVisible,
         featureCreationType,
         facePickMode,
+        dressUpPickMode,
         onEnterSketch,
         onExitSketch,
         onStartFeatureCreation,
@@ -104,7 +109,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onCancelFeatureCreation,
         onStartFacePick,
         onStartExternalGeometryPick,
-        onCancelFacePick
+        onCancelFacePick,
+        onStartDressUpPick,
+        onDressUpPickCancel
     } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
@@ -272,11 +279,14 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     type={featureCreationType}
                     sketchId={documentStore.selection.selectedSketchId}
                     documentStore={documentStore}
+                    dressUpPickMode={dressUpPickMode}
                     onCancel={onCancelFeatureCreation}
                     onConfirm={(type, params) => {
                         onAddFeature(type, params);
                         onCancelFeatureCreation();
                     }}
+                    onStartDressUpPick={onStartDressUpPick}
+                    onDressUpPickCancel={onDressUpPickCancel}
                 />
             )}
 
@@ -397,6 +407,19 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             <span className="codicon codicon-target" />
                             <span>Click a face or edge in the viewport to add external geometry.</span>
                             <button className="theia-button secondary" onClick={onCancelFacePick}>
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+
+                    {dressUpPickMode !== undefined && (
+                        <div className="cad-sketch-face-pick-banner">
+                            <span className="codicon codicon-target" />
+                            <span>
+                                Click a{dressUpPickMode.selecting === 'edge' ? 'n edge' : ' face'} in the viewport for{' '}
+                                {capitalize(dressUpPickMode.type)}.
+                            </span>
+                            <button className="theia-button secondary" onClick={onDressUpPickCancel}>
                                 Cancel
                             </button>
                         </div>
@@ -673,6 +696,26 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     <span className="codicon codicon-intersect" /> Common
                 </button>
             </Tooltip>
+            <Tooltip content="Fillet" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('fillet')}>
+                    <span className="codicon codicon-circle" /> Fillet
+                </button>
+            </Tooltip>
+            <Tooltip content="Chamfer" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('chamfer')}>
+                    <span className="codicon codicon-chrome-minimize" /> Chamfer
+                </button>
+            </Tooltip>
+            <Tooltip content="Draft" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('draft')}>
+                    <span className="codicon codicon-triangle-down" /> Draft
+                </button>
+            </Tooltip>
+            <Tooltip content="Shell" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('shell')}>
+                    <span className="codicon codicon-layers" /> Shell
+                </button>
+            </Tooltip>
             {doc !== undefined && (
                 <span className="cad-document-name">
                     {doc.name}
@@ -687,17 +730,23 @@ interface FeatureCreationDialogProps {
     readonly type: FeatureType;
     readonly sketchId?: string;
     readonly documentStore: CadDocumentStore;
+    readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly onCancel: () => void;
     readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
+    readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
+    readonly onDressUpPickCancel: () => void;
 }
 
 const NEW_BODY_SENTINEL = '__new_body__';
+
+type ChamferMode = 'symmetric' | 'twoDistance' | 'distanceAngle';
 
 function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactElement {
     const type = props.type;
     const isExtrude = type === 'pad' || type === 'pocket';
     const isRevolve = type === 'revolve' || type === 'groove';
     const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
+    const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -711,8 +760,29 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [keepTools, setKeepTools] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>();
 
+    // Dress-up state.
+    const [dressUpBodyId, setDressUpBodyId] = React.useState<string>(bodies.length > 0 ? bodies[0].id : '');
+    const [refs, setRefs] = React.useState<TopologyRef[]>([]);
+    const [filletRadius, setFilletRadius] = React.useState('1');
+    const [chamferMode, setChamferMode] = React.useState<ChamferMode>('symmetric');
+    const [chamferDistance, setChamferDistance] = React.useState('1');
+    const [chamferDistance2, setChamferDistance2] = React.useState('1');
+    const [chamferAngle, setChamferAngle] = React.useState('45');
+    const [draftAngle, setDraftAngle] = React.useState('5');
+    const [pullDirection, setPullDirection] = React.useState<[string, string, string]>(['0', '0', '1']);
+    const [shellThickness, setShellThickness] = React.useState('1');
+    const [shellAllFaces, setShellAllFaces] = React.useState(false);
+
+    const addRef = React.useCallback((ref: TopologyRef) => {
+        setRefs((prev) => [...prev, ref]);
+    }, []);
+
+    const selecting = type === 'fillet' || type === 'chamfer' ? 'edge' : 'face';
+    const isPicking =
+        props.dressUpPickMode !== undefined && props.dressUpPickMode.type === type && props.dressUpPickMode.selecting === selecting;
+
     const submit = (): void => {
-        if (!isBoolean && props.sketchId === undefined) {
+        if (!isBoolean && !isDressUp && props.sketchId === undefined) {
             setError('No sketch is selected.');
             return;
         }
@@ -726,6 +796,81 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             props.onConfirm(type, { targetBody, toolBodies, keepTools });
+            return;
+        }
+        if (isDressUp) {
+            if (!dressUpBodyId) {
+                setError('Select a target body.');
+                return;
+            }
+            if (type !== 'shell' && refs.length === 0) {
+                setError(`Select at least one ${selecting} for ${capitalize(type)}.`);
+                return;
+            }
+            const params: Record<string, unknown> = { bodyId: dressUpBodyId, label };
+            if (type === 'fillet') {
+                const radius = Number(filletRadius);
+                if (!Number.isFinite(radius) || radius <= 0) {
+                    setError('Radius must be a positive number.');
+                    return;
+                }
+                params.edges = refs;
+                params.radius = radius;
+            } else if (type === 'chamfer') {
+                params.edges = refs;
+                if (chamferMode === 'symmetric') {
+                    const distance = Number(chamferDistance);
+                    if (!Number.isFinite(distance) || distance <= 0) {
+                        setError('Distance must be a positive number.');
+                        return;
+                    }
+                    params.distance = distance;
+                } else if (chamferMode === 'twoDistance') {
+                    const d1 = Number(chamferDistance);
+                    const d2 = Number(chamferDistance2);
+                    if (!Number.isFinite(d1) || d1 <= 0 || !Number.isFinite(d2) || d2 <= 0) {
+                        setError('Both distances must be positive numbers.');
+                        return;
+                    }
+                    params.distances = [d1, d2];
+                } else {
+                    const distance = Number(chamferDistance);
+                    const angle = Number(chamferAngle);
+                    if (!Number.isFinite(distance) || distance <= 0) {
+                        setError('Distance must be a positive number.');
+                        return;
+                    }
+                    if (!Number.isFinite(angle) || angle <= 0 || angle >= 90) {
+                        setError('Angle must be in (0, 90) degrees.');
+                        return;
+                    }
+                    params.distance = distance;
+                    params.angle = angle;
+                }
+            } else if (type === 'draft') {
+                const angle = Number(draftAngle);
+                if (!Number.isFinite(angle) || angle <= -90 || angle >= 90) {
+                    setError('Draft angle must be in (-90, 90) degrees.');
+                    return;
+                }
+                const dir: [number, number, number] = [Number(pullDirection[0]), Number(pullDirection[1]), Number(pullDirection[2])];
+                if (!dir.every((v) => Number.isFinite(v)) || (dir[0] === 0 && dir[1] === 0 && dir[2] === 0)) {
+                    setError('Pull direction must be a non-zero [x, y, z] vector.');
+                    return;
+                }
+                params.faces = refs;
+                params.angle = angle;
+                params.pullDirection = dir;
+            } else if (type === 'shell') {
+                const thickness = Number(shellThickness);
+                if (!Number.isFinite(thickness) || thickness <= 0) {
+                    setError('Thickness must be a positive number.');
+                    return;
+                }
+                params.faces = shellAllFaces ? [] : refs;
+                params.thickness = thickness;
+            }
+            props.onConfirm(type, params as FeatureParams);
             return;
         }
         if (isExtrude) {
@@ -752,6 +897,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             Body
             <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
                 {type === 'pad' || type === 'revolve' ? <option value={NEW_BODY_SENTINEL}>New body</option> : null}
+                {bodies.map((b) => (
+                    <option key={b.id} value={b.id}>
+                        {b.name}
+                    </option>
+                ))}
+            </select>
+        </label>
+    );
+
+    const dressUpBodySelector = (
+        <label className="cad-feature-dialog-row">
+            Body
+            <select value={dressUpBodyId} onChange={(e) => setDressUpBodyId(e.target.value)}>
                 {bodies.map((b) => (
                     <option key={b.id} value={b.id}>
                         {b.name}
@@ -806,11 +964,153 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         </>
     );
 
+    const refList = (
+        <div className="cad-feature-dialog-row vertical">
+            <span className="cad-feature-dialog-label">
+                {selecting === 'edge' ? 'Edges' : 'Faces'} ({refs.length})
+            </span>
+            <div className="cad-feature-dialog-refs">
+                {refs.map((ref, index) => (
+                    <div key={index} className="cad-feature-dialog-ref-row">
+                        <span className="cad-feature-dialog-ref-kind">{ref.kind}</span>
+                        <span className="cad-feature-dialog-ref-feature">{ref.featureId}</span>
+                        <button className="theia-button secondary" onClick={() => setRefs((prev) => prev.filter((_, i) => i !== index))}>
+                            <span className="codicon codicon-close" />
+                        </button>
+                    </div>
+                ))}
+            </div>
+            <div className="cad-feature-dialog-actions">
+                <button
+                    className={`theia-button secondary ${isPicking ? 'active' : ''}`}
+                    onClick={() => {
+                        if (isPicking) {
+                            props.onDressUpPickCancel();
+                        } else {
+                            props.onStartDressUpPick(type, selecting, addRef);
+                        }
+                    }}
+                >
+                    <span className="codicon codicon-target" /> {isPicking ? 'Cancel pick' : `Pick ${selecting}`}
+                </button>
+            </div>
+        </div>
+    );
+
     return (
         <div className="cad-feature-dialog">
             <div className="cad-feature-dialog-title">{capitalize(type)}</div>
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
-            {!isBoolean && bodySelector}
+            {!isBoolean && !isDressUp && bodySelector}
+            {isDressUp && dressUpBodySelector}
+            {isDressUp && type === 'fillet' && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Radius
+                        <input type="number" value={filletRadius} onChange={(e) => setFilletRadius(e.target.value)} autoFocus />
+                    </label>
+                    {refList}
+                </>
+            )}
+            {isDressUp && type === 'chamfer' && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Mode
+                        <select value={chamferMode} onChange={(e) => setChamferMode(e.target.value as ChamferMode)}>
+                            <option value="symmetric">Symmetric distance</option>
+                            <option value="twoDistance">Two distances</option>
+                            <option value="distanceAngle">Distance + angle</option>
+                        </select>
+                    </label>
+                    {chamferMode === 'symmetric' && (
+                        <label className="cad-feature-dialog-row">
+                            Distance
+                            <input type="number" value={chamferDistance} onChange={(e) => setChamferDistance(e.target.value)} autoFocus />
+                        </label>
+                    )}
+                    {chamferMode === 'twoDistance' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Distance 1
+                                <input
+                                    type="number"
+                                    value={chamferDistance}
+                                    onChange={(e) => setChamferDistance(e.target.value)}
+                                    autoFocus
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Distance 2
+                                <input type="number" value={chamferDistance2} onChange={(e) => setChamferDistance2(e.target.value)} />
+                            </label>
+                        </>
+                    )}
+                    {chamferMode === 'distanceAngle' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Distance
+                                <input
+                                    type="number"
+                                    value={chamferDistance}
+                                    onChange={(e) => setChamferDistance(e.target.value)}
+                                    autoFocus
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Angle (°)
+                                <input type="number" value={chamferAngle} onChange={(e) => setChamferAngle(e.target.value)} />
+                            </label>
+                        </>
+                    )}
+                    {refList}
+                </>
+            )}
+            {isDressUp && type === 'draft' && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Angle (°)
+                        <input type="number" value={draftAngle} onChange={(e) => setDraftAngle(e.target.value)} autoFocus />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Pull direction X
+                        <input
+                            type="number"
+                            value={pullDirection[0]}
+                            onChange={(e) => setPullDirection(([_, y, z]) => [e.target.value, y, z])}
+                        />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Pull direction Y
+                        <input
+                            type="number"
+                            value={pullDirection[1]}
+                            onChange={(e) => setPullDirection(([x, _, z]) => [x, e.target.value, z])}
+                        />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Pull direction Z
+                        <input
+                            type="number"
+                            value={pullDirection[2]}
+                            onChange={(e) => setPullDirection(([x, y, _]) => [x, y, e.target.value])}
+                        />
+                    </label>
+                    {refList}
+                </>
+            )}
+            {isDressUp && type === 'shell' && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Thickness
+                        <input type="number" value={shellThickness} onChange={(e) => setShellThickness(e.target.value)} autoFocus />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        <input type="checkbox" checked={shellAllFaces} onChange={(e) => setShellAllFaces(e.target.checked)} />
+                        Hollow all faces (closed shell)
+                    </label>
+                    {!shellAllFaces && refList}
+                </>
+            )}
             {isExtrude && (
                 <>
                     <label className="cad-feature-dialog-row">
@@ -1252,9 +1552,19 @@ function findConsumingFeature(
 function findExternalGeometryTargetFeature(
     document: import('../../../common/cad-document').NukeCadDocument
 ): import('../../../common/cad-document').FeatureDef | undefined {
+    const solidFeatures: FeatureType[] = [
+        ...SOLID_PRODUCERS,
+        'fillet',
+        'chamfer',
+        'draft',
+        'shell',
+        'booleanFuse',
+        'booleanCut',
+        'booleanCommon'
+    ];
     for (let i = document.features.length - 1; i >= 0; i--) {
         const feature = document.features[i];
-        if (!feature.suppressed && SOLID_PRODUCERS.includes(feature.type)) {
+        if (!feature.suppressed && solidFeatures.includes(feature.type)) {
             return feature;
         }
     }

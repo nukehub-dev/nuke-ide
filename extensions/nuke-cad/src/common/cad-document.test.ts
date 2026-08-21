@@ -465,3 +465,184 @@ describe('v2 schema validation', () => {
         expect(result.issues.some((i) => i.path === 'features[1].params.toolBodies')).toBe(true);
     });
 });
+
+describe('dress-up feature validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'box',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Base profile',
+                    datumId: 'xy',
+                    primitives: [{ id: 'p1', type: 'point', x: 0, y: 0 }],
+                    constraints: [],
+                    parameters: {}
+                }
+            ],
+            features: [
+                {
+                    id: 'pad1',
+                    name: 'Base',
+                    type: 'pad',
+                    body: 'body-1',
+                    sketchId: 'sketch1',
+                    params: { length: 10 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ]
+        };
+    }
+
+    const goodEdgeRef: TopologyRef = {
+        featureId: 'pad1',
+        kind: 'edge',
+        fingerprint: { curveType: 'line', length: 10, start: [0, 0, 0], end: [10, 0, 0] }
+    };
+
+    const goodFaceRef: TopologyRef = {
+        featureId: 'pad1',
+        kind: 'face',
+        fingerprint: { surfaceType: 'plane', area: 100, center: [0, 0, 0], normal: [0, 0, 1] }
+    };
+
+    it('accepts a valid fillet feature', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'fillet1',
+            name: 'Fillet',
+            type: 'fillet',
+            body: 'body-1',
+            params: { edges: [goodEdgeRef], radius: 1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('rejects fillet with missing radius or edges', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'fillet1',
+            name: 'Fillet',
+            type: 'fillet',
+            body: 'body-1',
+            params: { edges: [] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.edges')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'features[1].params.radius')).toBe(true);
+    });
+
+    it('accepts chamfer symmetric, two-distance, and distance-angle modes', () => {
+        const modes: Array<{ params: Record<string, unknown>; label: string }> = [
+            { params: { edges: [goodEdgeRef], distance: 1 }, label: 'symmetric' },
+            { params: { edges: [goodEdgeRef], distances: [1, 2] }, label: 'two-distance' },
+            { params: { edges: [goodEdgeRef], distance: 1, angle: 30 }, label: 'distance-angle' }
+        ];
+        for (const { params, label } of modes) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: `chamfer-${label}`,
+                name: 'Chamfer',
+                type: 'chamfer',
+                body: 'body-1',
+                params,
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(true);
+        }
+    });
+
+    it('rejects chamfer with mutually exclusive parameters', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'chamfer1',
+            name: 'Chamfer',
+            type: 'chamfer',
+            body: 'body-1',
+            params: { edges: [goodEdgeRef], distances: [1, 2], distance: 1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.distances')).toBe(true);
+    });
+
+    it('accepts a valid draft feature', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'draft1',
+            name: 'Draft',
+            type: 'draft',
+            body: 'body-1',
+            params: { faces: [goodFaceRef], angle: 5, pullDirection: [0, 0, 1] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('rejects draft with zero pull direction', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'draft1',
+            name: 'Draft',
+            type: 'draft',
+            body: 'body-1',
+            params: { faces: [goodFaceRef], angle: 5, pullDirection: [0, 0, 0] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.pullDirection')).toBe(true);
+    });
+
+    it('accepts a valid shell feature with optional faces', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'shell1',
+            name: 'Shell',
+            type: 'shell',
+            body: 'body-1',
+            params: { faces: [], thickness: 1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('rejects shell with non-positive thickness', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'shell1',
+            name: 'Shell',
+            type: 'shell',
+            body: 'body-1',
+            params: { faces: [goodFaceRef], thickness: -1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.thickness')).toBe(true);
+    });
+});

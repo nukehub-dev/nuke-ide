@@ -133,7 +133,8 @@ export type FeatureType =
     | 'hole';
 
 /** Feature types that create or modify solid geometry. */
-export type SolidFeatureType = 'pad' | 'pocket' | 'revolve' | 'groove' | 'booleanFuse' | 'booleanCut' | 'booleanCommon';
+export type SolidFeatureType =
+    'pad' | 'pocket' | 'revolve' | 'groove' | 'fillet' | 'chamfer' | 'draft' | 'shell' | 'booleanFuse' | 'booleanCut' | 'booleanCommon';
 
 /** Parameters common to extrude-like features. */
 export interface ExtrudeParams {
@@ -154,8 +155,14 @@ export interface RevolveParams {
 /** Parameters for fillet/chamfer. */
 export interface FilletParams {
     edges: TopologyRef[];
+    /** Fillet radius; required for fillet features. */
     radius?: number;
+    /** Chamfer symmetric distance or distance+angle distance. */
+    distance?: number;
+    /** Chamfer two-distance mode. */
     distances?: [number, number];
+    /** Chamfer distance+angle mode angle in degrees. */
+    angle?: number;
 }
 
 /** Parameters for shell. */
@@ -534,6 +541,17 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             break;
         }
         case 'fillet':
+            if (!Array.isArray(p.edges) || p.edges.length === 0) {
+                issue(ctx, `${path}.edges`, 'edges must be a non-empty array of TopologyRefs');
+            } else {
+                for (const [i, edge] of p.edges.entries()) {
+                    validateEmbeddedTopologyRef(ctx, `${path}.edges[${i}]`, edge);
+                }
+            }
+            if (!isFiniteNumber(p.radius) || p.radius <= 0) {
+                issue(ctx, `${path}.radius`, 'fillet requires a positive radius');
+            }
+            break;
         case 'chamfer':
             if (!Array.isArray(p.edges) || p.edges.length === 0) {
                 issue(ctx, `${path}.edges`, 'edges must be a non-empty array of TopologyRefs');
@@ -542,20 +560,37 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                     validateEmbeddedTopologyRef(ctx, `${path}.edges[${i}]`, edge);
                 }
             }
-            if (p.radius !== undefined && (!isFiniteNumber(p.radius) || p.radius <= 0)) {
-                issue(ctx, `${path}.radius`, 'radius must be a positive finite number');
+            {
+                const hasDistance = isFiniteNumber(p.distance) && p.distance > 0;
+                const hasDistances =
+                    Array.isArray(p.distances) &&
+                    p.distances.length === 2 &&
+                    p.distances.every((d: unknown) => isFiniteNumber(d) && (d as number) > 0);
+                const hasAngle = isFiniteNumber(p.angle) && p.angle > 0 && p.angle < 90;
+                if (!hasDistance && !hasDistances) {
+                    issue(ctx, `${path}.distance`, 'chamfer requires distance or distances');
+                }
+                if (hasDistances && (p.distance !== undefined || p.angle !== undefined)) {
+                    issue(ctx, `${path}.distances`, 'distances is mutually exclusive with distance/angle');
+                }
+                if (p.angle !== undefined && !hasAngle) {
+                    issue(ctx, `${path}.angle`, 'chamfer angle must be in (0, 90) degrees');
+                }
+                if (hasAngle && !hasDistance) {
+                    issue(ctx, `${path}.distance`, 'chamfer angle requires distance');
+                }
             }
             break;
         case 'shell':
-            if (!Array.isArray(p.faces) || p.faces.length === 0) {
-                issue(ctx, `${path}.faces`, 'faces must be a non-empty array of TopologyRefs');
+            if (!Array.isArray(p.faces)) {
+                issue(ctx, `${path}.faces`, 'faces must be an array of TopologyRefs');
             } else {
                 for (const [i, face] of p.faces.entries()) {
                     validateEmbeddedTopologyRef(ctx, `${path}.faces[${i}]`, face);
                 }
             }
-            if (p.thickness !== undefined && (!isFiniteNumber(p.thickness) || p.thickness <= 0)) {
-                issue(ctx, `${path}.thickness`, 'thickness must be a positive finite number');
+            if (!isFiniteNumber(p.thickness) || p.thickness <= 0) {
+                issue(ctx, `${path}.thickness`, 'shell requires a positive thickness');
             }
             break;
         case 'draft':
@@ -566,8 +601,19 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                     validateEmbeddedTopologyRef(ctx, `${path}.faces[${i}]`, face);
                 }
             }
-            if (p.angle !== undefined && (!isFiniteNumber(p.angle) || p.angle <= -90 || p.angle >= 90)) {
-                issue(ctx, `${path}.angle`, 'draft angle must be between -90 and 90 degrees');
+            if (!isFiniteNumber(p.angle) || p.angle <= -90 || p.angle >= 90) {
+                issue(ctx, `${path}.angle`, 'draft requires an angle in (-90, 90) degrees');
+            }
+            {
+                const dir = p.pullDirection;
+                const isNonZeroVector =
+                    Array.isArray(dir) &&
+                    dir.length === 3 &&
+                    dir.every((v: unknown) => isFiniteNumber(v)) &&
+                    !(dir[0] === 0 && dir[1] === 0 && dir[2] === 0);
+                if (!isNonZeroVector) {
+                    issue(ctx, `${path}.pullDirection`, 'draft requires a non-zero pullDirection [x, y, z]');
+                }
             }
             break;
         case 'linearPattern':

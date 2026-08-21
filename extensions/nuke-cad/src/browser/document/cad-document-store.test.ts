@@ -457,3 +457,60 @@ describe('face datum and external references', () => {
         expect(store.getReferenceResults()[0].status).toBe('matched');
     });
 });
+
+describe('dress-up feature store support', () => {
+    function edgeRef(featureId: string): TopologyRef {
+        return {
+            featureId,
+            kind: 'edge',
+            fingerprint: { curveType: 'line', length: 10, start: [0, 0, 0], end: [10, 0, 0] }
+        };
+    }
+
+    it('adds a fillet feature without a sketch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const fillet: FeatureDef = {
+            id: 'fillet1',
+            name: 'fillet1',
+            type: 'fillet',
+            body: 'body-1',
+            params: { edges: [edgeRef('pad1')], radius: 1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        const result = store.addFeature(fillet);
+        expect(result.success).toBe(true);
+        expect(store.document?.features).toHaveLength(2);
+        expect(store.selection.selectedFeatureId).toBe('fillet1');
+    });
+
+    it('adds a shell feature with an empty face list', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const shell: FeatureDef = {
+            id: 'shell1',
+            name: 'shell1',
+            type: 'shell',
+            body: 'body-1',
+            params: { faces: [], thickness: 1 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        const result = store.addFeature(shell);
+        expect(result.success).toBe(true);
+        expect((store.document?.features[1].params as { faces: unknown[] }).faces).toHaveLength(0);
+    });
+
+    it('computes dependsOn for dress-up features against the body tip', () => {
+        const features: FeatureDef[] = [
+            { ...feature('pad1', 'pad'), body: 'body-1' },
+            { ...feature('fillet1', 'fillet', ['pad1']), body: 'body-1', params: { edges: [], radius: 1 }, sketchId: undefined }
+        ];
+        expect(computeDependsOn('shell', 'body-1', features)).toBe('fillet1');
+    });
+});
